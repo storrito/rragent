@@ -1,0 +1,3 @@
+;; clojurific's async/await: `await` is cljs.core/await there, which
+;; clj-kondo's own cljs.core does not know.
+{:linters {:unresolved-symbol {:exclude [await]}}}

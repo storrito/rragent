@@ -10,3 +10,4 @@ target
 *.sqlite-*
 *.local
 .DS_Store
+.clj-kondo/.cache

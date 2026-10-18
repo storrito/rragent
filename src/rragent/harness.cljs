@@ -15,8 +15,11 @@
             ["@earendil-works/pi-durable/tools" :refer [CodingTools]]
             [rragent.definition :as definition]
             [rragent.home :as home]
+            [rragent.schedule :as schedule]
             [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]
+            [rragent.tools.hook :as hook-tool]
+            [rragent.tools.schedule :as schedule-tool]
             [rragent.tools.state :as state-tool]))
 
 (def context
@@ -25,7 +28,8 @@
 
 (def extension
   (defineExtension #js {:name "rragent"
-                        :tools #js [state-tool/tool fetch-tool/tool eval-tool/tool]}))
+                        :tools #js [state-tool/tool fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool]
+                        :tasks #js [schedule/Task]}))
 
 (defn openrouter-models
   "The models through OpenRouter, the key from OPENROUTER_API_KEY."
@@ -40,11 +44,11 @@
     (.install extension)))
 
 (defn ^:async open
-  "The harness of the agent in `home`: `{:harness :root :definition :home}`.
+  "The harness of the agent in `home`: `{:harness :root :view :definition :home}`.
    `models` and `storage` are the production ones unless given (a test
    passes the faux provider and memory storage); `provider` names the
-   models' provider, `openrouter` by default."
-  [{:keys [home models storage provider]}]
+   models' provider, `openrouter` by default; `now` a clock for tests."
+  [{:keys [home models storage provider now]}]
   (let [home (or home (home/home))
         file (or (home/definition-file home)
                  (throw (ex-info (str "No AGENT.md or SKILL.md in " home) {:home home})))
@@ -55,9 +59,13 @@
                               #js {:models (or models (openrouter-models))
                                    :registry (registry)
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) work)}))
-                                   :settings #js {:compaction #js {:enabled true}}}
+                                   :settings #js {:compaction #js {:enabled true}}
+                                   :now (or now js/undefined)
+                                   ;; a failing hook, listener or task: said, not swallowed
+                                   :onReport (fn [error] (js/console.error "[harness]" error))}
                               context))
-        root (await (.root harness context))]
+        root (await (.root harness context))
+        view (await (.viewState root context))]
     ;; the definition may have changed since the last run: applied on every open
     (await (.configure root #js {:model #js {:provider (or provider "openrouter") :modelId (:model definition)}
                                  :thinkingLevel (or (:thinking definition) js/undefined)
@@ -65,7 +73,18 @@
                                  :cwd work}
                        context))
     (.resume harness)
-    {:harness harness :root root :definition definition :home home}))
+    {:harness harness :root root :view view :definition definition :home home}))
+
+(defn busy?
+  "Whether a run is going in the conversation: `pi.live` of the view
+   holds one then."
+  [{:keys [view]}]
+  (some? (.-run (or (aget (.-docs (.-value view)) "pi.live") #js {}))))
+
+(defn ^:async schedules
+  "The schedules document, for the alarm."
+  [{:keys [harness root]}]
+  (await (.snapshot harness schedule/Schedules (.-id root) context)))
 
 (defn answer-text
   "The text of an assistant entry's model message."
