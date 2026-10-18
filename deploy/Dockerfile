@@ -4,6 +4,9 @@
 # holds OPENROUTER_API_KEY and RRAGENT_TOKEN and is written when the
 # machine is set up, never into the image. Build from the repository's
 # root after `npm run build`: docker build -f deploy/Dockerfile -t rragent .
+# An image built elsewhere downloads a release instead:
+# https://github.com/storrito/rragent/releases/latest/download/rragent.tar.gz
+# unpacks to the dist/ folder (rragent.js and public/).
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
 USER sprite

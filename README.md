@@ -83,6 +83,14 @@ Node 26 (`mise install`), Java 17 or later for the compiler.
 An `.env` next to the project is never committed; `OPENROUTER_API_KEY` is
 the one variable the agent needs to talk to a model.
 
+## Releases
+
+`npm version <x.y.z>` and `git push --tags`: the tag `v<x.y.z>` builds the
+bundle and publishes a GitHub release with `rragent.tar.gz` (the `dist/`
+folder: `rragent.js` and `public/`) and its checksum. A machine image
+downloads `releases/latest/download/rragent.tar.gz` instead of building
+the app; `deploy/` has what a Sprite needs around it.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
