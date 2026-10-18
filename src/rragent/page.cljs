@@ -12,10 +12,11 @@
    (`rragent.projects`) and shows the renders (`rragent.render`); their
    keys are in the same db.
 
-   Routes: the page at `/`, its stream (POST /), `/command`, the built
-   client under `/app.css` and `/assets/*`, the artifacts under
-   `/artifacts/*` (a running project's page through the proxy, else the
-   file), all behind the token (`rragent.auth`); `POST /hook/<name>/<secret>`
+   Routes: the page at `/`, its stream (POST /), `/command` (a command
+   posted from a project's page goes to the project), the built client
+   under `/app.css` and `/assets/*`, the artifacts under `/artifacts/*`
+   (a running project's page through the proxy, else the file), all
+   behind the token (`rragent.auth`); `POST /hook/<name>/<secret>`
    outside it, the hooks' own secrets are their keys (`rragent.hooks`)."
   (:require ["node:path" :as path]
             [clojure.string :as str]
@@ -131,6 +132,11 @@
       w
       (assoc w :ring/response http/not-found))))
 
+(defn- ^:async project-command
+  "POST /command from a project's page: to the project's process."
+  [w]
+  (await (projects/command-handler (:projects @pane) w)))
+
 (defn- ^:async hook-handler
   "`POST /hook/<name>/<secret>`: the body as text to `rragent.hooks`,
    202 with the submission when the secret is the hook's, 403 otherwise."
@@ -162,6 +168,9 @@
       :command/fn #'send-command}
      {:command/kind :chat/stop
       :command/fn #'stop-command}
+     ;; before the page's own command route: a command from a project's page
+     {:ring/route [:post "/command"]
+      :ring/handler #'project-command}
      {:ring/route [:get "/artifacts/*"]
       :ring/handler #'artifacts-get}
      {:ring/route [:post "/artifacts/*"]
