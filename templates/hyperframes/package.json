@@ -1,0 +1,6 @@
+{
+  "name": "artifact",
+  "private": true,
+  "type": "module",
+  "main": "server.mjs"
+}

@@ -17,7 +17,19 @@
 (def en
   {:page/title "rragent"
    :page/artifacts "Artifacts"
-   :page/artifacts-placeholder "The artifacts come here."
+
+   :artifacts/open "Open"
+   :artifacts/download "Download"
+   :artifacts/video " · video"
+   :artifacts/render "Make the video"
+   :artifacts/rendering [:fn/str "Making the video {{:progress}}"]
+   :artifacts/render-stop "Stop"
+   :artifacts/render-failed [:fn/str "The video did not come out: {{:error}}"]
+   :artifacts/creation "Your creation"
+   :artifacts/empty "What the agent makes for you appears here."
+   :artifacts/no-preview "There is no preview for this file. Download it from above."
+   :artifacts/starting "Starting this artifact …"
+   :artifacts/stopped [:fn/str "This artifact's process stopped (exit {{:exit}}). Its .log says why; it is started again."]
 
    :chat/you "You"
    :chat/hook [:fn/str "Hook {{:name}}"]
@@ -41,6 +53,8 @@
    :tool/state "Changed its state"
    :tool/schedule "Changed a schedule"
    :tool/hook "Changed a hook"
+   :tool/render "Made a video"
+   :tool/project "Started an artifact"
    :tool/other [:fn/str "Used {{:name}}"]
    :tool/running " …"
    :tool/failed " · did not work"
@@ -52,7 +66,19 @@
 (def de
   {:page/title "rragent"
    :page/artifacts "Artefakte"
-   :page/artifacts-placeholder "Hier kommen die Artefakte hin."
+
+   :artifacts/open "Öffnen"
+   :artifacts/download "Herunterladen"
+   :artifacts/video " · Video"
+   :artifacts/render "Video erstellen"
+   :artifacts/rendering [:fn/str "Video wird erstellt {{:progress}}"]
+   :artifacts/render-stop "Stopp"
+   :artifacts/render-failed [:fn/str "Das Video ist nicht gelungen: {{:error}}"]
+   :artifacts/creation "Dein Werk"
+   :artifacts/empty "Was der Agent für dich macht, erscheint hier."
+   :artifacts/no-preview "Für diese Datei gibt es keine Vorschau. Lade sie oben herunter."
+   :artifacts/starting "Dieses Artefakt startet …"
+   :artifacts/stopped [:fn/str "Der Prozess dieses Artefakts hat sich beendet (Exit {{:exit}}). Seine .log sagt warum; er wird neu gestartet."]
 
    :chat/you "Du"
    :chat/hook [:fn/str "Hook {{:name}}"]
@@ -76,6 +102,8 @@
    :tool/state "Zustand geändert"
    :tool/schedule "Zeitplan geändert"
    :tool/hook "Hook geändert"
+   :tool/render "Video erstellt"
+   :tool/project "Artefakt angelegt"
    :tool/other [:fn/str "{{:name}} benutzt"]
    :tool/running " …"
    :tool/failed " · hat nicht geklappt"

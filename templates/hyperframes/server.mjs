@@ -1,0 +1,412 @@
+// This artifact's server, a small Node program rragent starts with PORT
+// set and shows in the pane beside the chat (see README.md). It serves
+// composition/index.html with the HyperFrames runtime and the values of
+// variables.json, the page with the HyperFrames player and one control
+// per declared variable, and `rev`, the newest change of the files, which
+// the page polls to load the composition again at the same position.
+// The player and the runtime come from the HyperFrames install the
+// `hyperframes` command belongs to. Plain JavaScript on node:http, no
+// dependencies, so that nothing has to be installed in this folder.
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const compositionDir = path.join(here, "composition");
+const stillsDir = path.join(here, "stills");
+const variablesFile = path.join(here, "variables.json");
+
+// rragent started this process; when rragent is gone, so is this.
+function exitWithParent() {
+  const pid = Number(process.env.RRAGENT_PID);
+  if (!pid) return;
+  setInterval(() => {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      process.exit(0);
+    }
+  }, 2000).unref();
+}
+
+// The HyperFrames install: HYPERFRAMES_NODE_MODULES, else the
+// node_modules above the `hyperframes` command on the PATH.
+function nodeModules() {
+  if (process.env.HYPERFRAMES_NODE_MODULES) return process.env.HYPERFRAMES_NODE_MODULES;
+  for (const dir of (process.env.PATH || "").split(":")) {
+    const bin = path.join(dir, "hyperframes");
+    if (!fs.existsSync(bin)) continue;
+    let p = path.dirname(fs.realpathSync(bin));
+    while (p !== path.dirname(p)) {
+      if (path.basename(p) === "node_modules") return p;
+      p = path.dirname(p);
+    }
+  }
+  return null;
+}
+
+const vendor = {
+  "hyperframes-player.js": "@hyperframes/player/dist/hyperframes-player.global.js",
+  "hyperframes-runtime.js": "hyperframes/dist/hyperframe.runtime.iife.js",
+};
+
+const types = {
+  html: "text/html; charset=utf-8", css: "text/css; charset=utf-8", js: "application/javascript; charset=utf-8",
+  mjs: "application/javascript; charset=utf-8", json: "application/json; charset=utf-8", svg: "image/svg+xml",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif",
+  mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", mp3: "audio/mpeg", wav: "audio/wav",
+  m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf",
+  otf: "font/otf", txt: "text/plain; charset=utf-8", vtt: "text/vtt; charset=utf-8",
+};
+
+function contentType(file) {
+  return types[path.extname(file).slice(1).toLowerCase()] || "application/octet-stream";
+}
+
+// The file for a URL path below root, or null when it leaves the root,
+// is hidden or is no regular file.
+function resolveFile(root, subpath) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(subpath);
+  } catch {
+    return null;
+  }
+  if (!decoded || decoded.split("/").some((part) => part.startsWith("."))) return null;
+  const file = path.resolve(root, decoded);
+  if (!file.startsWith(root + path.sep)) return null;
+  try {
+    return fs.statSync(file).isFile() ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+// Serves a file; a range request gets a 206, which <video> and <audio>
+// need for seeking.
+function sendFile(req, res, file) {
+  const size = fs.statSync(file).size;
+  const headers = { "Content-Type": contentType(file), "Accept-Ranges": "bytes", "Cache-Control": "no-cache" };
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || "");
+  if (range && size > 0) {
+    const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+    const end = Math.min(range[1] && range[2] ? Number(range[2]) : size - 1, size - 1);
+    if (start <= end) {
+      res.writeHead(206, { ...headers, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": end - start + 1 });
+      fs.createReadStream(file, { start, end }).pipe(res);
+      return;
+    }
+  }
+  res.writeHead(200, { ...headers, "Content-Length": size });
+  fs.createReadStream(file).pipe(res);
+}
+
+function send(res, status, type, body) {
+  res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-cache" });
+  res.end(body);
+}
+
+function notFound(res) {
+  send(res, 404, "text/plain", "not found");
+}
+
+// The variables
+
+function readVariables() {
+  try {
+    const values = JSON.parse(fs.readFileSync(variablesFile, "utf8"));
+    return values && typeof values === "object" && !Array.isArray(values) ? values : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeVariables(values) {
+  if (Object.keys(values).length === 0) {
+    fs.rmSync(variablesFile, { force: true });
+  } else {
+    fs.writeFileSync(variablesFile, JSON.stringify(values, null, 2) + "\n");
+  }
+}
+
+function entities(s) {
+  return s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
+function indexHtml() {
+  const file = path.join(compositionDir, "index.html");
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+}
+
+// The variables composition/index.html declares on its <html>: the ones
+// with an id, types string, number, color and boolean, `options` a list.
+function declarations(html) {
+  const match = /<html[^>]*?\sdata-composition-variables\s*=\s*(['"])([\s\S]*?)\1/.exec(html || "");
+  if (!match) return [];
+  try {
+    const list = JSON.parse(entities(match[2]));
+    return Array.isArray(list) ? list.filter((d) => d && typeof d.id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+// Width and height of the composition's root, 1080 by 1920 without.
+function size(html) {
+  const number = (attribute, fallback) => {
+    const m = new RegExp(attribute + "=[\"'](\\d+)").exec(html || "");
+    return m ? Number(m[1]) : fallback;
+  };
+  return [number("data-width", 1080), number("data-height", 1920)];
+}
+
+// The value for the declaration from a control, or undefined when it
+// does not fit: a number for a number, one of the options when there
+// are options, a text of at most 2000 characters.
+function coerce(declaration, value) {
+  let v = value;
+  if (declaration.type === "number") {
+    v = typeof value === "number" ? value : Number.parseFloat(String(value).trim());
+    if (Number.isNaN(v)) return undefined;
+  } else if (declaration.type === "boolean") {
+    v = typeof value === "boolean" ? value : String(value) === "true";
+  } else {
+    v = String(value);
+    if (v.length > 2000) return undefined;
+  }
+  const options = (declaration.options || []).map((o) => (o && typeof o === "object" ? o.value : o));
+  if (options.length && !options.some((o) => String(o) === String(v))) return undefined;
+  return v;
+}
+
+function title(html) {
+  const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html || "");
+  return m ? m[1].trim() || null : null;
+}
+
+// The folders of composition/ that are compositions of their own, when
+// there is no composition/index.html.
+function compositions() {
+  if (indexHtml() !== null || !fs.existsSync(compositionDir)) return [];
+  return fs
+    .readdirSync(compositionDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith(".") && fs.existsSync(path.join(compositionDir, e.name, "index.html")))
+    .map((e) => e.name)
+    .sort();
+}
+
+// The newest change of the composition and of the values.
+function rev() {
+  let newest = 0;
+  const walk = (dir) => {
+    for (const entry of fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : []) {
+      if (entry.name.startsWith(".")) continue;
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (entry.isFile()) newest = Math.max(newest, Math.round(fs.statSync(file).mtimeMs));
+    }
+  };
+  walk(compositionDir);
+  if (fs.existsSync(variablesFile)) newest = Math.max(newest, Math.round(fs.statSync(variablesFile).mtimeMs));
+  return newest;
+}
+
+// The composition page for the player: the values, the registry of the
+// timelines defined before the composition's script, the runtime in the
+// head. A page that has the runtime already gets the values alone.
+// `subpath` is where the page lies in composition/, for the way back to
+// vendor/.
+function withRuntime(html, values, subpath = "index.html") {
+  const up = "../".repeat(subpath.split("/").length);
+  const tags =
+    `<script>window.__hfVariables = ${JSON.stringify(values).replace(/<\//g, "<\\/")};</script>` +
+    (html.includes("hyperframes-runtime.js")
+      ? ""
+      : `<script>window.__timelines = window.__timelines || {};</script><script src="${up}vendor/hyperframes-runtime.js"></script>`);
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => head + tags) : tags + html;
+}
+
+// The page
+
+const styles = `
+body { margin: 0; padding: 16px; font: 15px/1.5 system-ui, sans-serif; color: #111; background: #fff; }
+.artifact { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+hyperframes-player { display: block; flex: none; }
+.controls { flex: 1 1 240px; min-width: 220px; display: grid; gap: 10px; }
+.control { display: grid; grid-template-columns: minmax(80px, 34%) 1fr 28px; gap: 8px; align-items: center; }
+.control label { color: #444; font-size: 14px; }
+.control input[type=text], .control input[type=number], .control select { font: inherit; padding: 6px 8px; border: 1px solid #ccc; border-radius: 8px; min-width: 0; }
+.control input[type=color] { width: 44px; height: 32px; padding: 0 2px; border: 1px solid #ccc; border-radius: 8px; background: #fff; }
+.control input[type=checkbox] { justify-self: start; width: 18px; height: 18px; }
+.reset { width: 28px; height: 28px; border: none; background: none; color: #888; cursor: pointer; font-size: 16px; }
+.hint { margin: 4px 0 0; color: #888; font-size: 13px; }
+.series { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.series figure { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.series figcaption { font-size: 13px; color: #555; max-width: 240px; }
+@media (prefers-color-scheme: dark) {
+  body { color: #eee; background: #18181b; } .control label { color: #bbb; }
+  .control input[type=text], .control input[type=number], .control select { background: #27272a; color: #eee; border-color: #3f3f46; }
+}`;
+
+// Runs in the browser: the controls from /variables, a change posted
+// back, and the players loaded again at their position when rev changes.
+const script = `
+(function () {
+  var rev = null;
+  function escape(s) { return String(s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+  function control(d, values) {
+    var set = values.hasOwnProperty(d.id), value = set ? values[d.id] : d["default"], id = "v-" + d.id, input;
+    if (d.options && d.options.length) {
+      input = '<select id="' + id + '">' + d.options.map(function (o) {
+        var v = (o && typeof o === "object") ? o.value : o, text = (o && typeof o === "object") ? (o.label || o.value) : o;
+        return '<option value="' + escape(v) + '"' + (String(v) === String(value) ? " selected" : "") + '>' + escape(text) + '</option>';
+      }).join("") + '</select>';
+    } else if (d.type === "color") {
+      input = '<input id="' + id + '" type="color" value="' + escape(value) + '">';
+    } else if (d.type === "boolean") {
+      input = '<input id="' + id + '" type="checkbox"' + (value === true ? " checked" : "") + '>';
+    } else if (d.type === "number") {
+      input = '<input id="' + id + '" type="number" value="' + escape(value) + '"' + (d.min != null ? ' min="' + d.min + '"' : "") + (d.max != null ? ' max="' + d.max + '"' : "") + ' step="' + (d.step != null ? d.step : "any") + '">';
+    } else {
+      input = '<input id="' + id + '" type="text" value="' + escape(value == null ? "" : value) + '">';
+    }
+    return '<div class="control" data-id="' + escape(d.id) + '"><label for="' + id + '">' + escape(d.label || d.id) + '</label>' + input +
+      (set ? '<button class="reset" title="Back to the default">\\u21BA</button>' : '<span class="reset"></span>') + '</div>';
+  }
+  function post(body) {
+    return fetch("variables", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then(function () { return loadControls(); });
+  }
+  function loadControls() {
+    var box = document.getElementById("controls");
+    if (!box) return Promise.resolve();
+    return fetch("variables").then(function (r) { return r.json(); }).then(function (data) {
+      if (!data.declarations.length) { box.innerHTML = ""; return; }
+      box.innerHTML = data.declarations.map(function (d) { return control(d, data.values); }).join("") + '<p class="hint">The video is rendered with these settings.</p>';
+      box.querySelectorAll(".control").forEach(function (el) {
+        var id = el.dataset.id, input = el.querySelector("input, select"), reset = el.querySelector("button.reset");
+        input.addEventListener("change", function () { post({id: id, value: input.type === "checkbox" ? input.checked : input.value}); });
+        if (reset) reset.addEventListener("click", function () { post({id: id, reset: true}); });
+      });
+    }).catch(function () {});
+  }
+  function reloadPlayers(now) {
+    document.querySelectorAll("hyperframes-player").forEach(function (player) {
+      var t = player.currentTime || 0, src = player.getAttribute("src").replace(/\\?rev=.*$/, "");
+      player.addEventListener("ready", function () { player.seek(t); }, {once: true});
+      player.setAttribute("src", src + "?rev=" + now);
+    });
+  }
+  setInterval(function () {
+    fetch("rev").then(function (r) { return r.text(); }).then(function (now) {
+      if (rev === null) { rev = now; return; }
+      if (now !== rev) { rev = now; reloadPlayers(now); loadControls(); }
+    }).catch(function () {});
+  }, 1000);
+  document.addEventListener("DOMContentLoaded", loadControls);
+})();`;
+
+function player(src, html, widthRule) {
+  const [width, height] = size(html);
+  return `<hyperframes-player src="${src}" controls style="aspect-ratio: ${width} / ${height}; width: ${widthRule(width, height)}"></hyperframes-player>`;
+}
+
+function page() {
+  const names = compositions();
+  const body =
+    names.length > 0
+      ? `<div class="series">${names
+          .map((name) => {
+            const html = fs.readFileSync(path.join(compositionDir, name, "index.html"), "utf8");
+            return `<figure>${player(`composition/${name}/index.html`, html, (w, h) => `calc(62vh * ${w} / ${h}); max-width: 100%`)}<figcaption>${escapeHtml(title(html) || name)}</figcaption></figure>`;
+          })
+          .join("")}</div>`
+      : `<div class="artifact">${player("composition/index.html", indexHtml(), (w, h) => `min(100%, calc(70vh * ${w} / ${h}))`)}<div class="controls" id="controls"></div></div>`;
+  return (
+    `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">` +
+    `<title>artifact</title><style>${styles}</style><script src="vendor/hyperframes-player.js"></script><script>${script}</script></head>` +
+    `<body>${body}</body></html>`
+  );
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+// The routes
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+async function setVariables(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return send(res, 400, "application/json", JSON.stringify({ error: "That is no JSON." }));
+  }
+  const values = readVariables();
+  if (body.reset && body.id === undefined) {
+    writeVariables({});
+  } else if (body.reset) {
+    delete values[String(body.id)];
+    writeVariables(values);
+  } else {
+    const declaration = declarations(indexHtml()).find((d) => d.id === String(body.id));
+    const value = declaration ? coerce(declaration, body.value) : undefined;
+    if (value === undefined) return send(res, 400, "application/json", JSON.stringify({ error: "That value does not fit." }));
+    values[String(body.id)] = value;
+    writeVariables(values);
+  }
+  send(res, 200, "application/json", JSON.stringify(readVariables()));
+}
+
+function handle(req, res) {
+  const url = new URL(req.url, "http://localhost");
+  const p = url.pathname;
+  if (req.method === "POST" && p === "/variables") return setVariables(req, res);
+  if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "text/plain", "method not allowed");
+  if (p === "/" || p === "/index.html") return send(res, 200, "text/html; charset=utf-8", page());
+  if (p === "/rev") return send(res, 200, "text/plain", String(rev()));
+  if (p === "/variables") return send(res, 200, "application/json", JSON.stringify({ declarations: declarations(indexHtml()), values: readVariables() }));
+  if (p.startsWith("/vendor/")) {
+    const relative = vendor[p.slice("/vendor/".length)];
+    const modules = nodeModules();
+    const file = relative && modules ? path.join(modules, relative) : null;
+    if (file && fs.existsSync(file)) return sendFile(req, res, file);
+    return send(res, 404, "text/plain", "hyperframes is not installed: the player and the runtime come with its npm package.");
+  }
+  if (p.startsWith("/composition/")) {
+    const subpath = p.slice("/composition/".length);
+    const file = resolveFile(compositionDir, subpath);
+    if (!file) return notFound(res);
+    if (subpath === "index.html") return send(res, 200, "text/html; charset=utf-8", withRuntime(fs.readFileSync(file, "utf8"), readVariables(), subpath));
+    if (file.endsWith(".html")) return send(res, 200, "text/html; charset=utf-8", withRuntime(fs.readFileSync(file, "utf8"), {}, decodeURIComponent(subpath)));
+    return sendFile(req, res, file);
+  }
+  if (p.startsWith("/stills/")) {
+    const file = resolveFile(stillsDir, p.slice("/stills/".length));
+    return file ? sendFile(req, res, file) : notFound(res);
+  }
+  return notFound(res);
+}
+
+exitWithParent();
+const server = http.createServer((req, res) => {
+  Promise.resolve()
+    .then(() => handle(req, res))
+    .catch((error) => {
+      console.error(error);
+      if (!res.headersSent) send(res, 500, "text/plain", "internal error");
+    });
+});
+server.listen(Number(process.env.PORT || 0), "127.0.0.1", () => {
+  const modules = nodeModules();
+  console.log(`artifact on http://127.0.0.1:${server.address().port}` + (modules ? `, HyperFrames in ${modules}` : ", hyperframes is not on the PATH"));
+});

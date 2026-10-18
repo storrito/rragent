@@ -100,7 +100,7 @@
     (catch :default _
       nil)))
 
-(defn- regular-file?
+(defn regular-file?
   [file]
   (try
     (.isFile (fs/statSync file))
