@@ -26,8 +26,9 @@ and named hooks that other systems call.
 ## Status
 
 The harness runs (Clojurific, Vite, Node 26, pi-durable on SQLite), the page
-serves the conversation, the tools, schedules and hooks are there. The
-artifacts pane is empty for now.
+serves the conversation, the tools, schedules and hooks are there, and so
+are Storrito's procedures and Composio's meta tools where their variables
+are set. The artifacts pane is empty for now.
 
 ## The page
 
@@ -81,7 +82,22 @@ Node 26 (`mise install`), Java 17 or later for the compiler.
     npm run build    # dist/rragent.js and dist/public, run with npm start
 
 An `.env` next to the project is never committed; `OPENROUTER_API_KEY` is
-the one variable the agent needs to talk to a model.
+the one variable the agent needs to talk to a model. The integrations
+come with their own, each optional:
+
+- `STORRITO_API_URL`, the organization's Storrito host
+  (`https://acme.storrito.com`), and `STORRITO_CREDENTIAL`, the agent's
+  API credential as `<id>:<secret>`. Every procedure of the
+  organization's API catalog becomes a tool with the procedure's schema,
+  deferred: the model finds the one it needs through `tool_search`
+  (`rragent.storrito`).
+- `COMPOSIO_URL` and `COMPOSIO_USER_ID`: the four meta tools of a Composio
+  tool-router session for that user, which search, run and connect the
+  organization's third-party services (`rragent.composio`). On a Sprite
+  the URL is the Composio connector's gateway,
+  `https://api.sprites.dev/v1/gateway/composio/<connection id>`, which
+  adds the key itself; elsewhere it is `https://backend.composio.dev`
+  with `COMPOSIO_API_KEY`.
 
 ## License
 

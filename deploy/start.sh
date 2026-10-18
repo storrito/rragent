@@ -1,7 +1,9 @@
 #!/bin/bash
 # rragent as the Sprite's http service: the environment from .env
-# (OPENROUTER_API_KEY, RRAGENT_TOKEN, RRAGENT_URL), the port the sprite's
-# URL routes to, the agent's folder, Node through mise's shims. Without
+# (OPENROUTER_API_KEY, RRAGENT_TOKEN, RRAGENT_URL, and the integrations'
+# STORRITO_API_URL, STORRITO_CREDENTIAL, COMPOSIO_URL, COMPOSIO_USER_ID
+# when the agent has them, see the README), the port the sprite's URL
+# routes to, the agent's folder, Node through mise's shims. Without
 # a readable .env there is no token and the page would be open to anyone:
 # not started then, the service's restart tries again.
 [ -r /home/sprite/rragent/.env ] || { echo "no readable /home/sprite/rragent/.env, not starting without the token"; exit 1; }
