@@ -46,6 +46,9 @@
     "hook" [:i18n :tool/hook]
     "render" [:i18n :tool/render]
     "project" [:i18n :tool/project]
+    "image" [:i18n :tool/image]
+    "voice" [:i18n :tool/voice]
+    "music" [:i18n :tool/music]
     [:i18n :tool/other {:name name}]))
 
 (defn- tool-detail
@@ -56,6 +59,7 @@
       (:url args)
       (:code args)
       (:name args)
+      (:prompt args)
       (pr-str args)))
 
 (defn- tool-items
