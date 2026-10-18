@@ -3,7 +3,9 @@
         ;; itself when it is missing, listing it pins the version
         com.whimsical/clojurific {:mvn/version "0.12.7"}
         ;; the dev server's nREPL server, for npm run repl and editors
-        nrepl/nrepl {:mvn/version "1.8.0"}}
+        nrepl/nrepl {:mvn/version "1.8.0"}
+        ;; the interpreter behind the eval tool: Clojure in the live process
+        org.babashka/sci {:mvn/version "0.15.59"}}
  ;; Clojurific replaces stock ClojureScript, which must not be on the classpath
  ;; too. The cljf launcher drops it itself; with the Clojure CLI
  ;; (clojure -M:cljs -m cljf.esm build ...) this alias overrides it with
