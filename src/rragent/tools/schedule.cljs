@@ -5,8 +5,7 @@
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [rragent.docs :as docs]
-            [rragent.schedule :as schedule]
-            [rragent.wake :as wake]))
+            [rragent.schedule :as schedule]))
 
 (defn- text
   [s]
@@ -15,9 +14,7 @@
 (defn- ^:async rearm!
   "The machine's alarm set to the earliest next run."
   [api call-context]
-  (let [schedules (await (docs/read api schedule/Schedules call-context))
-        now (js/Date.now)]
-    (wake/arm! (schedule/next-due schedules now) now)))
+  (schedule/rearm! (await (docs/read api schedule/Schedules call-context)) (js/Date.now)))
 
 (def tool
   (defineTool

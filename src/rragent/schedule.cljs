@@ -10,7 +10,8 @@
    UTC by default."
   (:require ["croner" :refer [Cron]]
             ["@earendil-works/pi-durable" :refer [defineDoc defineTask]]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [rragent.wake :as wake]))
 
 (def Schedules
   (defineDoc #js {:kind "rragent.schedules"
@@ -38,6 +39,13 @@
   (let [runs (keep (fn [s] (next-run (.-cron s) (.-tz s) now)) (js/Object.values (or schedules #js {})))]
     (when (seq runs)
       (apply min runs))))
+
+(defn rearm!
+  "The machine's alarm set to the earliest next run of `schedules`:
+   after every change of them and after every fire, so that a machine
+   asleep is woken for the next run, whichever schedule's it is."
+  [schedules now]
+  (wake/arm! (next-due schedules now) now))
 
 (defn- message
   [name cron tz text at]
@@ -77,7 +85,10 @@
                                          (if next
                                            #js {:status "running" :checkpoint #js {:phase "wait" :at next}}
                                            (terminal #js {:status "completed" :result nil})))
-                                       context)))))))}
+                                       context))
+                       ;; the alarm moves on with the schedule: the machine may well
+                       ;; sleep before the next run
+                       (rearm! schedules (.now runtime)))))))}
         :abort (fn [_task runtime context]
                  (.commit runtime (fn [] (terminal #js {:status "aborted"})) context))}))
 
