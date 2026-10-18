@@ -82,7 +82,7 @@
                      (is (= 1 armed-at-set) "the alarm set once by the tool")
                      (await (sleep 2500))
                      (is (< armed-at-set (count (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))) "and again after every fire")
-                     (is (every? #(str/includes? % (str "--cron " (wake/cron-of (wake/next-minute (js/Date.now))) " --wake"))
+                     (is (every? #(str/includes? % (str "--cron " (wake/cron-of (wake/next-minute (js/Date.now))) " --exec"))
                                  (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))
                          "to the next minute: a second-by-second schedule is always due within it"))
                    (finally

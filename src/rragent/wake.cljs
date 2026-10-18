@@ -3,10 +3,13 @@
    its schedules (`rragent.schedule`) and knows the next minute it has
    to be awake for; this tells the machine. On a Sprite the machine's
    own automations do it: `rragent-wake` is one automation whose cron
-   line is that minute in UTC and whose action wakes the sprite; the
-   process starts again with the machine and pi-durable resumes the
-   sleeping schedule, which fires. `rragent-daily` wakes it once a day
-   besides, so that an alarm lost to a crash is set again within a day.
+   line is that minute in UTC and whose action is an exec of `true`:
+   an exec starts a stopped sprite, and `--after none` leaves it
+   running (the automation's own `wake` action was seen to do nothing
+   on 2026-10-18). The process starts again with the machine and
+   pi-durable resumes the sleeping schedule, which fires. `rragent-daily`
+   wakes it once a day besides, so that an alarm lost to a crash is set
+   again within a day.
    Both are set from inside the sprite with `sprite-env`. Without
    `sprite-env` nothing happens here: the process runs on and its own
    timers fire. `RRAGENT_WAKE=off` switches it off anywhere."
@@ -22,11 +25,11 @@
 (def daily-cron
   "17 3 * * *")
 
-(def awake-s
-  "How long a wake keeps the machine up at least: the process starts,
-   the schedule fires, the run begins; `rragent.sleep` holds it while
-   the run goes."
-  300)
+(def exec-timeout-s
+  "The time limit of the alarm's exec, which ends at once; the machine
+   stays up on its own afterwards, `rragent.sleep` puts it to sleep
+   again once the run is done."
+  60)
 
 (defn available?
   []
@@ -50,10 +53,11 @@
   (js/console.error "[wake]" (str/join " " words)))
 
 (defn- automation!
-  "The automation set to the cron line with a wake: updated when it is
-   there, made otherwise, enabled either way."
+  "The automation set to the cron line with the exec that wakes the
+   machine: updated when it is there, made otherwise, enabled either
+   way."
   [name cron]
-  (let [args ["--cron" cron "--wake" "--timeout" (str awake-s)]
+  (let [args ["--cron" cron "--exec" "--after" "none" "--timeout" (str exec-timeout-s) "--" "/bin/true"]
         updated (apply sprite/sprite-env! "automation" "update" name args)
         result (if (sprite/ok? updated)
                  updated
