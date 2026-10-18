@@ -1,3 +1,4 @@
+import { cpSync } from 'node:fs';
 import cljf from 'clojurific/vite';
 
 // The server, a Node.js program: the :js-entries module below is the
@@ -36,6 +37,13 @@ export default ({ command }) => {
         ssrEntries: ['rragent'],
         manifest: serving ? 'manifest.json' : false,
       }),
+      // the project templates next to the bundle, read by rragent.templates
+      {
+        name: 'rragent-templates',
+        closeBundle() {
+          if (!serving) cpSync('templates', 'dist/templates', { recursive: true });
+        },
+      },
     ],
     build: {
       // a Node.js build: node builtins stay imports, everything else is bundled

@@ -2,7 +2,8 @@
   "The agent's folder, the one thing on the machine that is the agent:
    `RRAGENT_HOME`, `./agent` by default. In it: `AGENT.md` (or a
    `SKILL.md` of agentitos), the definition; `agent.sqlite`, the
-   transcript and the state; `work/`, where the tools read and write."
+   transcript and the state; `work/`, where the tools read and write,
+   with `work/artifacts/`, what the pane shows."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]))
 
@@ -27,5 +28,13 @@
   "Where the agent's tools read and write; made on first use."
   [home]
   (let [dir (path/join home "work")]
+    (fs/mkdirSync dir #js {:recursive true})
+    dir))
+
+(defn artifacts-dir
+  "What the agent makes for the person, under `work/`: the files the
+   pane shows (`rragent.artifacts`); made on first use."
+  [work]
+  (let [dir (path/join work "artifacts")]
     (fs/mkdirSync dir #js {:recursive true})
     dir))

@@ -28,7 +28,8 @@ and named hooks that other systems call.
 The harness runs (Clojurific, Vite, Node 26, pi-durable on SQLite), the page
 serves the conversation, the tools, schedules and hooks are there, and so
 are Storrito's procedures and Composio's meta tools where their variables
-are set. The artifacts pane is empty for now.
+are set. The artifacts pane shows what the agent makes, runs HyperFrames
+projects and renders their videos; the motion design template comes next.
 
 ## The page
 
@@ -56,12 +57,67 @@ on any path sets a cookie and redirects, everything else behind the cookie
 answers 403. The hooks of the agent, `POST /hook/<name>/<secret>`, are outside
 the token; their secrets are their keys.
 
+## The artifacts
+
+The right half of the page is the pane of the artifacts, the way pchat has
+it: the files under `work/artifacts/` of the agent's folder, where the
+agent's tools write, shown by kind (`rragent.artifacts`). A page in an
+iframe that reloads in place when its file changes, an image, a video or
+an audio file as themselves, anything else as a download, a chooser over
+all of them. The newest thing the agent wrote takes the pane; a pick of
+the person holds until the agent writes something newer. A recursive
+watch on the folder reports every change, and the folder is read again
+every two seconds besides.
+
+A directory under `artifacts/` with a `package.json` is a project, an
+artifact with a process of its own (`rragent.projects`): rragent starts
+it with Node (`node server.mjs`, or the `main` of its package.json, `PORT`
+in its environment) while it is on screen in a connected page or was
+changed in the last ten minutes, stops it after fifteen idle minutes,
+restarts it when it dies, writes its output to `.log` in the directory and
+proxies its page under `/artifacts/<name>/` into the iframe
+(`rragent.proxy`, node:http, the upstream response streamed through). The
+agent makes one with the `project` tool from a template under
+`templates/` (`rragent.templates`; built, they lie in `dist/templates`):
+
+- `hyperframes`: a [HyperFrames](https://github.com/heygen-com/hyperframes)
+  composition, `composition/index.html` with GSAP, shown in the HyperFrames
+  player by `server.mjs`, a small Node server without dependencies, with
+  one control per variable the composition declares
+  (`data-composition-variables`: text, number, colour, yes/no, a choice).
+  The values go into the project's `variables.json` and reach the
+  composition as `window.__hfVariables`, the way `hyperframes render
+  --variables-file` gives them, so the preview and the video agree. The
+  page polls `rev` and loads the composition again at the same position
+  when a file or a value changes. The template's README says the rest.
+
+The `render` tool (`rragent.render`) turns a project into
+`artifacts/<name>.mp4`, which shows up beside the chat like any video; the
+pane has the same as a button, with the progress and a Stop while it
+runs. A HyperFrames project renders through the HyperFrames CLI,
+`hyperframes render` with the Chrome of the machine, its `@hf-progress`
+lines as the progress; the render's lines are the running output of the
+tool call. Three more tools make material for a project through
+OpenRouter (`rragent.tools.media`): `image`, a picture from a description
+(`RRAGENT_IMAGE_MODEL`), `voice`, text to speech into the project's
+folder (`RRAGENT_VOICE_MODEL`, `RRAGENT_VOICE`), and `music`, a clip or a
+whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`).
+
+Needed on the machine for the videos: a Chrome (`google-chrome` or
+`chromium` on the PATH, or `CHROME`), ffmpeg, and `npm install -g
+hyperframes @hyperframes/player` (`RRAGENT_HYPERFRAMES` names the CLI
+when it is not on the PATH; the player and the runtime of a project's
+page come from the same install). `rragent serve` says at start what it
+found; without them the render answers why there is no video and
+everything else works.
+
 ## Layout
 
 Two Vite builds, one dev server:
 
 - `vite.config.mjs` builds the server, a Node.js program, into
-  `dist/rragent.js` (one file). Its dev server compiles the page's bundle
+  `dist/rragent.js` (one file) and copies `templates/` next to it. Its dev
+  server compiles the page's bundle
   besides and runs the server entry in its ssr environment, so `npm run dev`
   serves the page at :8080 with the scripts coming from Vite at :5173, which
   hot reloads them; an nREPL server evaluates in the running server.

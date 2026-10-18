@@ -139,6 +139,105 @@ body {
   text-align: center;
 }
 
+/* The bar of the pane: the label, the chooser over the artifacts, the
+   links and buttons of the one on screen. It wraps when the pane is
+   narrow. */
+.artifacts .bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 0;
+  border: 0;
+}
+
+.artifacts .bar .label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.artifacts .bar select.chooser {
+  flex: 1 1 140px;
+  min-width: 140px;
+  max-width: 320px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.artifacts .bar a.link,
+.artifacts .bar button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.artifacts .bar a.link:hover,
+.artifacts .bar button.link:hover {
+  color: var(--text);
+}
+
+.artifacts .bar .rendering {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The creation itself: a page or a project in the iframe, a picture, a
+   video or a sound as themselves. */
+.artifacts iframe.canvas {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.artifacts .media {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--code-bg);
+}
+
+.artifacts .media img,
+.artifacts .media video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.artifacts .media audio {
+  width: 80%;
+}
+
+.artifacts .media .rendering {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.artifacts .error {
+  flex-basis: auto;
+  font-size: 13px;
+}
+
 .feed {
   flex: 1;
   min-height: 0;
