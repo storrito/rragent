@@ -256,13 +256,18 @@
 
 (defn ^:async listen
   "A node:http server over `handler`, listening on `port`; 0 takes a free
-   one, `(.-port (.address server))` names it."
-  [handler port]
-  (let [server (http/createServer (node-handler handler))]
-    (await (js/Promise. (fn [resolve reject]
-                          (.once server "error" reject)
-                          (.listen server port resolve))))
-    server))
+   one, `(.-port (.address server))` names it. On every interface unless
+   `host` names one."
+  ([handler port]
+   (listen handler port nil))
+  ([handler port host]
+   (let [server (http/createServer (node-handler handler))]
+     (await (js/Promise. (fn [resolve reject]
+                           (.once server "error" reject)
+                           (if host
+                             (.listen server port host resolve)
+                             (.listen server port resolve)))))
+     server)))
 
 (comment
   (match [:get "/project/*"] {:request-method :get :uri "/project/assets/a.mp4"})

@@ -98,6 +98,19 @@
                  (let [{:keys [status body]} (:ring/response (await (projects/handler handle (w "short/variables" :post (.from Readable #js [(js/Buffer.from "x=1" "utf8")])))))]
                    (is (= 200 status))
                    (is (= (str "POST /variables base=/artifacts/short pid=" (.-pid js/process) " x=1") (await (transit/read-body body))))))
+               (testing "a command posted from its page goes to it, any other stays with the caller"
+                 (let [command (fn [referer]
+                                 {:ring/route-params {:* ""}
+                                  :ring/request {:request-method :post
+                                                 :uri "/command"
+                                                 :headers (cond-> {} referer (assoc "referer" referer))
+                                                 :body (.from Readable #js [(js/Buffer.from "cmd" "utf8")])}})
+                       {:keys [status body]} (:ring/response (await (projects/command-handler handle (command "http://localhost:8080/artifacts/short/"))))]
+                   (is (= 200 status))
+                   (is (= (str "POST /command base=/artifacts/short pid=" (.-pid js/process) " cmd") (await (transit/read-body body))))
+                   (is (nil? (:ring/response (await (projects/command-handler handle (command "http://localhost:8080/"))))))
+                   (is (nil? (:ring/response (await (projects/command-handler handle (command nil))))))
+                   (is (nil? (:ring/response (await (projects/command-handler handle (command "http://localhost:8080/artifacts/other/"))))))))
                (testing "without the slash the page is sent to its folder"
                  (let [{:keys [status headers]} (:ring/response (await (projects/handler handle (w "short"))))]
                    (is (= 302 status))

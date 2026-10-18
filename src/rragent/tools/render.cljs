@@ -13,7 +13,8 @@
   (defineTool
    #js {:name "render"
         :description (str "Makes the video of an artifact project, artifacts/<name>.mp4, which the person sees beside the chat. "
-                          "A HyperFrames project (composition/index.html) renders with hyperframes, with the values of its variables.json. "
+                          "A motion design (design.cljs) renders thirty frames a second at its size with a headless Chrome and ffmpeg, the :audio of design.edn mixed in; "
+                          "a HyperFrames project (composition/index.html) renders with hyperframes, with the values of its variables.json. "
                           "It takes a while; the preview beside the chat plays the design live, so render when the file itself is needed, not after every change.")
         :parameters (.Object Type #js {:name (.String Type #js {:description "The project's name, its folder under artifacts/"})})
         :execute (^:async fn [args api _call-context]

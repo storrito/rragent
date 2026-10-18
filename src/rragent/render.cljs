@@ -20,7 +20,8 @@
             ["node:path" :as path]
             ["node:readline" :as readline]
             [clojure.string :as str]
-            [rragent.artifacts :as artifacts]))
+            [rragent.artifacts :as artifacts]
+            [rragent.program :as program]))
 
 (def chrome-names
   ["google-chrome" "google-chrome-stable" "chromium" "chromium-browser" "chrome"])
@@ -49,12 +50,15 @@
       (on-path "hyperframes")))
 
 (defn missing-tools
-  "The names of the video tools that are not there."
-  []
-  (cond-> []
-    (nil? (on-path "ffmpeg")) (conj "ffmpeg")
-    (nil? (chrome)) (conj "google-chrome")
-    (nil? (hyperframes)) (conj "hyperframes")))
+  "The names of the video tools that are not there: for every render a
+   Chrome and ffmpeg, for a HyperFrames composition its CLI too."
+  ([]
+   (missing-tools :hyperframes))
+  ([kind]
+   (cond-> []
+     (nil? (on-path "ffmpeg")) (conj "ffmpeg")
+     (nil? (chrome)) (conj "google-chrome")
+     (and (= :hyperframes kind) (nil? (hyperframes))) (conj "hyperframes"))))
 
 (defn not-ready-message
   "Why a render cannot start, or nil when the video tools are there:
@@ -125,10 +129,12 @@
   (path/join dir (str name ".mp4")))
 
 (defn kind-of
-  "What the project is: `:hyperframes` with a composition, nil otherwise."
+  "What the project is: `:motion` with a design.cljs, `:hyperframes` with
+   a composition, nil otherwise."
   [project-dir]
-  (when (fs/existsSync (path/join project-dir "composition" "index.html"))
-    :hyperframes))
+  (cond
+    (fs/existsSync (path/join project-dir "design.cljs")) :motion
+    (fs/existsSync (path/join project-dir "composition" "index.html")) :hyperframes))
 
 (defn extra-args
   "RRAGENT_RENDER_ARGS, more arguments for the CLI, `--browser-gpu` on a
@@ -138,28 +144,34 @@
 
 (defn command
   "The command that renders the project: `{:cmd :args :cwd}`, nil for a
-   project that is no HyperFrames composition."
+   project of no known kind."
   [{:keys [dir] :as handle} name]
   (let [project-dir (path/join dir name)
         variables (path/join project-dir "variables.json")]
-    (when (= :hyperframes (kind-of project-dir))
-      {:cmd (hyperframes)
-       :args (-> ["render" "." "--output" (output-file handle name)]
-                 (into (extra-args))
-                 (cond-> (fs/existsSync variables) (into ["--variables-file" variables])))
-       :cwd (path/join project-dir "composition")})))
+    (case (kind-of project-dir)
+      :hyperframes {:cmd (hyperframes)
+                    :args (-> ["render" "." "--output" (output-file handle name)]
+                              (into (extra-args))
+                              (cond-> (fs/existsSync variables) (into ["--variables-file" variables])))
+                    :cwd (path/join project-dir "composition")}
+      :motion (assoc (program/command "motion-render" project-dir (output-file handle name))
+                     :cwd project-dir)
+      nil)))
 
 (defn progress-of
-  "The progress a line of the CLI reports, `@hf-progress {\"pct\":30 ...}`,
-   as `\"30 %\"`; nil for any other line."
+  "The progress a line of a render reports, as `\"30 %\"`: the CLI's
+   `@hf-progress {\"pct\":30 ...}`, the motion render's `frame 54/180`;
+   nil for any other line."
   [line]
-  (when-let [[_ json] (re-find #"^@hf-progress\s+(\{.*\})\s*$" (str line))]
+  (if-let [[_ json] (re-find #"^@hf-progress\s+(\{.*\})\s*$" (str line))]
     (try
       (let [pct (aget (js/JSON.parse json) "pct")]
         (when (number? pct)
           (str (js/Math.round pct) " %")))
       (catch :default _
-        nil))))
+        nil))
+    (when-let [[_ done all] (re-find #"^frame (\d+)/(\d+)" (str line))]
+      (str (js/Math.round (* 100 (/ (js/parseInt done 10) (max 1 (js/parseInt all 10))))) " %"))))
 
 (defn- kill!
   [^js process]
@@ -219,10 +231,10 @@
                     (swap! (table handle) update-in [name :waiting] (fnil conj []) resolve)))
 
      (not (kind-of (path/join dir name)))
-     (js/Promise.resolve (refuse! handle name (str name " is no project that can be rendered: a HyperFrames composition has composition/index.html.")))
+     (js/Promise.resolve (refuse! handle name (str name " is no project that can be rendered: a motion design has design.cljs, a HyperFrames composition composition/index.html.")))
 
      :else
-     (if-let [message (not-ready-message (missing-tools))]
+     (if-let [message (not-ready-message (missing-tools (kind-of (path/join dir name))))]
        (js/Promise.resolve (refuse! handle name message))
        (let [{:keys [cmd args cwd]} (command handle name)
              process (child/spawn cmd (clj->js args)

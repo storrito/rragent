@@ -27,8 +27,8 @@ and named hooks that other systems call.
 
 The harness runs (Clojurific, Vite, Node 26, pi-durable on SQLite), the page
 serves the conversation, the tools, schedules and hooks are there. The
-artifacts pane shows what the agent makes, runs HyperFrames projects and
-renders their videos; the motion design template comes next.
+artifacts pane shows what the agent makes, runs motion designs and
+HyperFrames projects and renders their videos.
 
 ## The page
 
@@ -79,6 +79,18 @@ proxies its page under `/artifacts/<name>/` into the iframe
 agent makes one with the `project` tool from a template under
 `templates/` (`rragent.templates`; built, they lie in `dist/templates`):
 
+- `motion`: a motion design, pchat's template on Node. `design.cljs` is
+  the namespace `design` with `size`, `duration`, `design-view` (the frame
+  at a time, a pure function of the data and the time, hiccup) and
+  `controls`, with [fnmotion](https://github.com/simplemono/fnmotion)'s
+  `core`, `timeline` and `captions` at hand; `design.edn` the data, kept
+  across restarts and written by the controls. The project folder holds
+  the design alone: rragent runs it as `rragent motion <dir>`, a process
+  of this program (`"rragent": "motion"` in the package.json), which
+  evaluates the file with SCI (`rragent.motion.design`), plays it on a
+  page of rframes with fnmotion's server-side player ported to Node
+  (`rragent.motion.player`: play, a scrubber, the audio tracks in step)
+  and loads the file again when it is saved, an error shown on the page.
 - `hyperframes`: a [HyperFrames](https://github.com/heygen-com/hyperframes)
   composition, `composition/index.html` with GSAP, shown in the HyperFrames
   player by `server.mjs`, a small Node server without dependencies, with
@@ -93,20 +105,27 @@ agent makes one with the `project` tool from a template under
 The `render` tool (`rragent.render`) turns a project into
 `artifacts/<name>.mp4`, which shows up beside the chat like any video; the
 pane has the same as a button, with the progress and a Stop while it
-runs. A HyperFrames project renders through the HyperFrames CLI,
-`hyperframes render` with the Chrome of the machine, its `@hf-progress`
-lines as the progress; the render's lines are the running output of the
-tool call. Three more tools make material for a project through
+runs. A motion design renders through `rragent motion-render <dir> <out>`,
+fnmotion's render half ported to Node (`rragent.motion.render`): every
+frame as HTML by Replicant's string renderer, a few headless Chromes
+driven over the DevTools protocol with Node's WebSocket screenshot them
+side by side, ffmpeg encodes the screenshots in order and mixes the
+`:audio` tracks of `design.edn` in (`{:src "music.mp3" :volume 0.6
+:fade-out 1}`, with `:start`, `:duration`, `:media-start`, `:fade-in`,
+`:loop?`), `frame n/m` lines as the progress. A HyperFrames project
+renders through the HyperFrames CLI, `hyperframes render` with the Chrome
+of the machine, its `@hf-progress` lines as the progress. Either way the
+render's lines are the running output of the tool call. Three more tools make material for a project through
 OpenRouter (`rragent.tools.media`): `image`, a picture from a description
 (`RRAGENT_IMAGE_MODEL`), `voice`, text to speech into the project's
 folder (`RRAGENT_VOICE_MODEL`, `RRAGENT_VOICE`), and `music`, a clip or a
 whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`).
 
 Needed on the machine for the videos: a Chrome (`google-chrome` or
-`chromium` on the PATH, or `CHROME`), ffmpeg, and `npm install -g
-hyperframes @hyperframes/player` (`RRAGENT_HYPERFRAMES` names the CLI
-when it is not on the PATH; the player and the runtime of a project's
-page come from the same install). `rragent serve` says at start what it
+`chromium` on the PATH, or `CHROME`) and ffmpeg; for the HyperFrames
+template `npm install -g hyperframes @hyperframes/player` besides
+(`RRAGENT_HYPERFRAMES` names the CLI when it is not on the PATH; the
+player and the runtime of a project's page come from the same install). `rragent serve` says at start what it
 found; without them the render answers why there is no video and
 everything else works.
 

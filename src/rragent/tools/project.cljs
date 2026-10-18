@@ -25,6 +25,7 @@
   (templates/copy! kind (path/join dir name))
   (str "artifacts/" name "/ is ready: "
        (case kind
+         "motion" "design.cljs has design-view and controls, design.edn the data, README.md says how it works."
          "hyperframes" "composition/index.html is the design, README.md says how it works."
          "README.md says how it works.")))
 
@@ -55,19 +56,20 @@
   (defineTool
    #js {:name "project"
         :description (str "An artifact with a page of its own, for anything that moves or that the person should play with: "
-                          "`create` with a name and a kind copies the template into artifacts/<name>/ (kinds: hyperframes, a HyperFrames composition in composition/index.html with GSAP; its README.md says how it works). "
+                          "`create` with a name and a kind copies the template into artifacts/<name>/: motion (the default), a motion design in ClojureScript, design-view as the frame at a time with fnmotion at hand and controls over design.edn; "
+                          "hyperframes, a HyperFrames composition in composition/index.html with GSAP, for the HyperFrames skills. Each README.md says how it works. "
                           "rragent starts the project and shows its page beside the chat, every saved change at once. "
                           "`list` shows the projects and whether they run; `log` with the name shows the end of the project's output, for a page that shows nothing.")
         :parameters (.Object Type #js {:action (.Union Type #js [(.Literal Type "create") (.Literal Type "list") (.Literal Type "log")])
                                        :name (.Optional Type (.String Type #js {:description "The project's name: lowercase letters, digits, dashes"}))
-                                       :kind (.Optional Type (.String Type #js {:description "The template, hyperframes by default"}))})
+                                       :kind (.Optional Type (.String Type #js {:description "The template: motion (the default) or hyperframes"}))})
         :execute (^:async fn [args api _call-context]
                    (let [dir (work/artifacts-dir api)
                          name (.-name args)]
                      (case (.-action args)
                        "create" (do (when (empty? name)
                                       (throw (js/Error. "create needs the name")))
-                                    (work/text (create! dir name (or (not-empty (.-kind args)) "hyperframes"))))
+                                    (work/text (create! dir name (or (not-empty (.-kind args)) "motion"))))
                        "list" (work/text (let [s (listed dir @db/db)] (if (str/blank? s) "No projects" s)))
                        "log" (do (when (empty? name)
                                    (throw (js/Error. "log needs the name")))

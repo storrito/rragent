@@ -22,7 +22,7 @@
          (map #(js/JSON.stringify (.-model %))))))
 
 (deftest templates-test
-  (is (= ["hyperframes"] (templates/kinds)) "the templates of the project, found without RRAGENT_TEMPLATES")
+  (is (= ["hyperframes" "motion"] (templates/kinds)) "the templates of the project, found without RRAGENT_TEMPLATES")
   (is (templates/valid-name? "my-card-2"))
   (is (not (templates/valid-name? "My Card")))
   (is (thrown? js/Error (templates/copy! "nope" (path/join (render-test/temp-dir) "x")))))
@@ -33,7 +33,8 @@
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)
                  {:keys [restore!]} (render-test/with-tools!)]
-             (.setResponses faux #js [(tools-test/tool-call "project" {:action "create" :name "card"} "p1")
+             (.setResponses faux #js [(tools-test/tool-call "project" {:action "create" :name "card" :kind "hyperframes"} "p1")
+                                      (tools-test/tool-call "project" {:action "create" :name "clip"} "p0")
                                       (tools-test/tool-call "project" {:action "list"} "p2")
                                       (tools-test/tool-call "render" {:name "card"} "r1")
                                       (tools-test/tool-call "project" {:action "log" :name "card"} "p3")
@@ -43,12 +44,15 @@
                  (is (= "The card is ready." (await (harness/ask agent "Make a card and render it."))))
                  (let [artifacts (path/join home "work" "artifacts")
                        texts (await (results agent))]
-                   (testing "the template is in the work folder"
+                   (testing "the templates are in the work folder, the motion design the default"
                      (is (fs/existsSync (path/join artifacts "card" "composition" "index.html")))
                      (is (fs/existsSync (path/join artifacts "card" "server.mjs")))
-                     (is (some #(str/includes? % "artifacts/card/ is ready") texts)))
-                   (testing "the list names it"
-                     (is (some #(str/includes? % "card: not running") texts)))
+                     (is (some #(str/includes? % "artifacts/card/ is ready") texts))
+                     (is (fs/existsSync (path/join artifacts "clip" "design.cljs")))
+                     (is (= "motion" (aget (js/JSON.parse (fs/readFileSync (path/join artifacts "clip" "package.json") "utf8")) "rragent")))
+                     (is (some #(str/includes? % "artifacts/clip/ is ready: design.cljs has design-view") texts)))
+                   (testing "the list names them"
+                     (is (some #(and (str/includes? % "card: not running") (str/includes? % "clip: not running")) texts)))
                    (testing "the render wrote the video and said so"
                      (is (= "video\n" (fs/readFileSync (path/join artifacts "card.mp4") "utf8")))
                      (is (some #(str/includes? % "artifacts/card.mp4 is ready.") texts))
