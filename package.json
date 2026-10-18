@@ -8,8 +8,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "start": "node dist/rragent.js",
+    "build": "vite build && vite build --config vite.client.config.mjs",
+    "start": "node dist/rragent.js serve",
     "test": "cljf build @cljs.edn :test && node target/test/rragent/test_runner.js",
     "repl": "cljf repl"
   },

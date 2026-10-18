@@ -1,0 +1,84 @@
+(ns rragent.view-test
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            [rragent.i18n :as i18n]
+            [rragent.rframes.transit :as transit]
+            [rragent.view :as view]))
+
+(defn- user [id text]
+  {:id id :kind "pi.user" :model [{:role "user" :content text :timestamp 1}]})
+
+(defn- assistant [id content & [stop]]
+  {:id id :kind "pi.assistant" :model [{:role "assistant" :content content :stopReason (or stop "stop") :timestamp id}]})
+
+(defn- tool-result [id call-id text error?]
+  {:id id :kind "pi.tool-result" :model [{:role "toolResult" :toolCallId call-id :content [{:type "text" :text text}] :isError error?}]})
+
+(def conversation
+  {:entries [{:id 1 :kind "pi.system" :model [{:role "system" :content ""}]}
+             (user 2 "Capital of France?")
+             (assistant 3 [{:type "toolCall" :id "c1" :name "fetch" :arguments {:url "https://x.test"}}] "toolUse")
+             (tool-result 4 "c1" "HTTP 200" false)
+             (assistant 5 [{:type "text" :text "Paris."}])
+             {:id 6 :kind "rragent.hook" :data {:name "deploy"} :model [{:role "user" :content "Hook deploy was called."}]}]
+   :live {:run {:taskId "t"}
+          :generation {:message {:role "assistant" :content [{:type "text" :text "Looking"}] :stopReason "stop" :timestamp 99}}}
+   :inbox {:items [{:id "s1" :mode "followUp" :content "And Spain?"}]}})
+
+(deftest items-test
+  (let [items (view/items conversation)
+        kinds (map (juxt :kind :id) items)]
+    (is (= [[:user 2] [:assistant 3] [:tool "c1"] [:assistant 5] [:user 6] [:assistant "partial"] [:user "s1"]] kinds))
+    (testing "a tool call carries its result"
+      (let [tool (nth items 2)]
+        (is (= "fetch" (:name tool)))
+        (is (true? (:done? tool)))
+        (is (= "HTTP 200" (:result tool)))
+        (is (false? (:error? tool)))))
+    (testing "a hook's input is labelled by its hook"
+      (is (= [:i18n :chat/hook {:name "deploy"}] (:label (nth items 4)))))
+    (testing "the partial streams, the queued input is pending"
+      (is (true? (:streaming? (nth items 5))))
+      (is (= "Looking" (:text (nth items 5))))
+      (is (true? (:pending? (nth items 6)))))))
+
+(deftest partial-test
+  (testing "a committed answer is no partial any more"
+    (let [c (-> conversation
+                (assoc-in [:live :generation :message :timestamp] 5))]
+      (is (not-any? #(= "partial" (:id %)) (view/items c)))))
+  (testing "a running tool call shows what it put out so far"
+    (let [c (-> conversation
+                (update :entries #(vec (remove (comp #{4 5} :id) %)))
+                (assoc :live {:run {:taskId "t"}
+                              :tools [{:callId "c1" :name "fetch" :status "running" :output "HTTP 2"}]}))
+          tool (some #(when (= :tool (:kind %)) %) (view/items c))]
+      (is (false? (:done? tool)))
+      (is (= "HTTP 2" (:result tool))))))
+
+(defn- strings
+  [hiccup]
+  (filter string? (tree-seq coll? seq hiccup)))
+
+(deftest page-test
+  (let [page (view/page {:agent {:name "watcher" :model "faux-1"}
+                         :conversation conversation
+                         :locale :en})
+        translated (i18n/translate page :en)
+        text (set (strings translated))]
+    (testing "the page is data a frame can carry: no functions, and transit reads it back"
+      (is (not-any? fn? (tree-seq coll? seq translated)))
+      (is (= translated (transit/read-str (transit/write-str translated)))))
+    (testing "what is on it"
+      (is (contains? text "Capital of France?"))
+      (is (contains? text "Paris."))
+      (is (contains? text "Fetched a page"))
+      (is (contains? text "Hook deploy"))
+      (is (contains? text "The artifacts come here."))
+      (is (contains? text "Stop") "a run goes")
+      (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated"))
+    (testing "an idle conversation with nothing in it"
+      (let [empty (i18n/translate (view/page {:agent {} :conversation nil :locale :de}) :de)
+            text (set (strings empty))]
+        (is (contains? text "Noch nichts hier. Schreib die erste Nachricht."))
+        (is (not (contains? text "Stopp")))))))

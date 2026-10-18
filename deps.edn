@@ -5,7 +5,19 @@
         ;; the dev server's nREPL server, for npm run repl and editors
         nrepl/nrepl {:mvn/version "1.8.0"}
         ;; the interpreter behind the eval tool: Clojure in the live process
-        org.babashka/sci {:mvn/version "0.15.59"}}
+        org.babashka/sci {:mvn/version "0.15.59"}
+        ;; the wire of the page in both directions: the frames the server
+        ;; pushes and the commands the browser posts (rragent.rframes.transit)
+        com.cognitect/transit-cljs {:mvn/version "0.8.280"}
+        ;; the texts of the page per language, see rragent.i18n
+        no.cjohansen/m1p {:mvn/version "2026.07.1"}
+        ;; the browser half of rframes: the runtime that opens the frame
+        ;; stream and renders the frames with Replicant (rragent.client)
+        io.github.simplemono/rframes$client
+        {:git/url "https://github.com/simplemono/rframes.git"
+         :git/sha "986826428665e0ee6d9de6affeb1dcb266b670c1"
+         :deps/root "client"}
+        no.cjohansen/replicant {:mvn/version "2026.07.1"}}
  ;; Clojurific replaces stock ClojureScript, which must not be on the classpath
  ;; too. The cljf launcher drops it itself; with the Clojure CLI
  ;; (clojure -M:cljs -m cljf.esm build ...) this alias overrides it with
