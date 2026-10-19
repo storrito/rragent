@@ -78,7 +78,11 @@
            (genui/sanitize [:button {:send "Take 4 shorts"} "4"])))
     (is (= "Take 4" (:title (second (genui/sanitize [:button {:send "Take 4" :title "Show more"} "4"])))))
     (is (= "On: {checked}" (:title (second (genui/sanitize [:button {:send "On: {checked}" :title "Show more"} "4"])))))
-    (is (= "Mine" (:title (second (genui/sanitize [:button {:title "Mine"} "4"]))))))
+    (is (= "Mine" (:title (second (genui/sanitize [:button {:title "Mine"} "4"])))))
+    (testing ", a title is text, never data the page would walk"
+      (is (= [:p {} "x"] (genui/sanitize [:p {:title (reduce (fn [inner _] [1 inner]) 1 (range 1500))} "x"])))
+      (is (= [:p {} "x"] (genui/sanitize [:p {:title [:i18n :genui/rejected {:error "x"}]} "x"])))
+      (is (= [:p {} "x"] (genui/sanitize [:p {:title {:a 1}} "x"])))))
   (testing "a button in a label is a span: the whole label would click it"
     (is (= [:label {:style {:display "block" :height "100vh"}} [:span {} "x"]]
            (genui/sanitize [:label {:style {:display "block" :height "100vh"}} [:button {:send "Do it"} "x"]])))

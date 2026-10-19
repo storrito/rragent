@@ -499,8 +499,16 @@ button.primary {
   contain: paint;
 }
 
+/* A button always shows and stays a button's size: a style of the
+   model's cannot make it an invisible screen that sends on a click
+   (inline styles never beat !important); its colors stay the model's,
+   a swatch is a button. */
 .genui button {
   margin: 4px 6px 4px 0;
+  opacity: 1 !important;
+  max-width: 100% !important;
+  max-height: 4em !important;
+  overflow: hidden !important;
 }
 
 .genui label {

@@ -146,7 +146,7 @@
               (and (= :name k) (= :input tag) (string? v)) (assoc acc :name (str scope v))
               (and (= :send k) (= :button tag)) (assoc acc :on (send-actions v) :title (str v))
               (and (= :open k) (= :button tag)) (assoc acc :on (open-actions v))
-              (= :title k) (cond-> acc (not (and (= :button tag) (contains? m :send)))
+              (= :title k) (cond-> acc (and (string? v) (not (and (= :button tag) (contains? m :send))))
                              (assoc k v))
               (not (contains? attributes k)) acc
               (#{:href :src :poster} k) (if-let [v (url v)]
