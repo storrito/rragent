@@ -81,8 +81,9 @@ never replaces the page in the tab). A picture goes up scaled
 to 1600 pixels on its long side and is stored content-addressed; a clip
 goes up in pieces of 8 MB (`POST /upload?id=<hex>&offset=<n>&total=<n>`,
 appended to a part file and renamed when the last piece is in, ten
-gigabytes at most), with its progress on its chip, and Send waits until
-every clip is in. The files land in `work/uploads/` of the agent's
+gigabytes at most), with its progress on its chip. A message can be
+files alone, without a text; sent while clips go up, it goes once the
+last is in, and the button says so. The files land in `work/uploads/` of the agent's
 folder (`rragent.uploads`) and the message names each one on a line of
 its own, `video: uploads/ab12.mp4`, `audio: …` or `image: …`, so the
 agent reaches the file from its working directory with its tools; a

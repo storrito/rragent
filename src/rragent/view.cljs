@@ -317,6 +317,7 @@
                   :ui/upload-url uploads/upload-path
                   :ui/send (send-actions)
                   :ui/send-label [:i18n :composer/send]
+                  :ui/send-pending-label [:i18n :composer/send-pending]
                   :ui/attach-title [:i18n :composer/attach]
                   :ui/remove-title [:i18n :composer/remove]
                   :ui/uploading-label [:i18n :composer/uploading]

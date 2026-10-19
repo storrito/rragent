@@ -9,8 +9,8 @@
    The composer takes files, the way pchat's does: an image picked,
    dropped or pasted goes up scaled and in one request, a video or an
    audio file in pieces of `piece-bytes` with its progress on its chip,
-   and Send waits until every clip is in (`rragent.uploads` on the
-   server). The attachments are client state beside the draft, a frame
+   and a message sent while clips go up goes once the last is in
+   (`rragent.uploads` on the server). The attachments are client state beside the draft, a frame
    from the server does not reset them. Files dragged over the page
    bring up a veil that takes them anywhere, as in ChatGPT, LibreChat or
    Open WebUI, and a file dropped beside it never opens in the tab
@@ -328,18 +328,32 @@
                                                 (vec (remove #(= name (:name %)) attachments)))))}}
          "×"]])]))
 
+(defonce ^:private pending-sends
+  ;; a message sent while its files go up: it goes once none is uploading,
+  ;; with the draft as it is then; with nothing left to send it is dropped
+  (add-watch state/store ::send-pending
+             (fn [_ _ _ state]
+               (when-let [{:keys [actions store-key attachments-key]} (:ui/send-pending state)]
+                 (let [attachments (get state attachments-key)]
+                   (when-not (some :uploading? attachments)
+                     (swap! state/store dissoc :ui/send-pending)
+                     (when (or (not (str/blank? (get state store-key)))
+                               (some #(not (:failed? %)) attachments))
+                       (state/dispatch! actions))))))))
+
 (defn composer
   "The textarea of the page with its attachments. The text lives in the
    store under `:ui/store-key`, the attachments under
    `:ui/attachments-key`, so that a frame from the server resets
    neither; files go to `:ui/upload-url`. Enter and the Send button run
-   `:ui/send`, the actions of the server, once every upload is in;
-   Shift+Enter breaks the line. A paste with files on the clipboard
+   `:ui/send`, the actions of the server, with a text, files or both;
+   while files go up they run once the last is in, the button says so
+   (`:ui/send-pending-label`). Shift+Enter breaks the line. A paste with files on the clipboard
    uploads them, a paste of text pastes; files dragged over the page
    bring up the veil (`drop-veil`), a drop on it uploads them. The labels
    are the server's, translated; the other attributes pass through to
    the textarea."
-  [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label
+  [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label ui/send-pending-label
            ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
            ui/drop-title ui/drop-hint ui/state]
     :as attrs}
@@ -350,13 +364,18 @@
         draft (str (get state store-key ""))
         attachments (get state attachments-key [])
         uploading? (some :uploading? attachments)
-        ready? (and (not uploading?)
-                    (or (not (str/blank? draft))
+        pending? (some? (:ui/send-pending state))
+        ready? (and (or (not (str/blank? draft))
                         (some #(not (:failed? %)) attachments))
+                    (not pending?)
                     (not (ui/kind-issued? state :chat/send)))
         send! (fn []
                 (when ready?
-                  (state/dispatch! send)))]
+                  (if uploading?
+                    (swap! store assoc :ui/send-pending {:actions send
+                                                         :store-key store-key
+                                                         :attachments-key attachments-key})
+                    (state/dispatch! send))))]
     [:div.composer-input
      (when (:ui/dropping? state)
        (drop-veil store attachments-key upload-url {:title drop-title
@@ -367,7 +386,7 @@
      [:div.row
       [:textarea
        (-> (dissoc attrs :ui/store-key :ui/attachments-key :ui/upload-url :ui/send
-                   :ui/send-label :ui/attach-title :ui/remove-title :ui/uploading-label
+                   :ui/send-label :ui/send-pending-label :ui/attach-title :ui/remove-title :ui/uploading-label
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/state)
            (assoc :value draft
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -395,7 +414,9 @@
       [:button.primary {:disabled (not ready?)
                         :on {:click (fn [_event]
                                       (send!))}}
-       (or send-label "Send")]]]))
+       (if pending?
+         (or send-pending-label "Sends after the upload")
+         (or send-label "Send"))]]]))
 
 (defonce ^:private canvas-node*
   (atom nil))
