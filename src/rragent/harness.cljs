@@ -18,6 +18,7 @@
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
             ["@earendil-works/pi-durable/tools" :refer [CodingTools]]
             [rragent.codemode :as codemode]
+            [rragent.codemode-worker :as codemode-worker]
             [rragent.definition :as definition]
             [rragent.gateway :as gateway]
             [rragent.home :as home]
@@ -37,11 +38,11 @@
 
 (defn extension
   "rragent's own tools for the agent of `definition`: the project tool
-   names the templates the definition allows, the eval tool runs in
-   the REPL `codemode`."
-  [definition codemode]
+   names the templates the definition allows, the eval tool runs its
+   programs in the `worker` of the REPL."
+  [definition worker]
   (defineExtension #js {:name "rragent"
-                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
+                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool (eval-tool/tool worker) schedule-tool/tool hook-tool/tool
                                     (project-tool/tool definition) render-tool/tool media-tool/image media-tool/voice media-tool/music]
                         :tasks #js [schedule/Task]}))
 
@@ -89,22 +90,23 @@
 
 (defn registry
   "The registry: pi-durable's coding tools and rragent's own for the
-   `definition`, with the REPL `codemode`."
-  [definition codemode]
+   `definition`, with the `worker` of the REPL."
+  [definition worker]
   (doto (createRegistry)
     (.install CodingTools)
-    (.install (extension definition codemode))))
+    (.install (extension definition worker))))
 
 (defn ^:async open
   "The harness of the agent in `home`: `{:harness :root :view :definition
-   :home :models :codemode}`. `models` and `storage` are the production
+   :home :models :codemode :worker}`. `models` and `storage` are the production
    ones unless given (a test passes the faux provider and memory
    storage); `provider` names the models' provider, `openrouter` by
    default; `now` a clock for tests; `gateway` the Sprites gateway's
    base URL, `RRAGENT_GATEWAY` or `http://sprite.internal` unless
    given (a test passes its fake). The gateway's connectors are
-   discovered here, for the REPL (`rragent.codemode`) and for the
-   models' route."
+   discovered here, for the REPL (`rragent.codemode`), whose programs
+   run in a worker thread started at the first one
+   (`rragent.codemode-worker`), and for the models' route."
   [{:keys [home models storage provider now gateway]}]
   (let [home (or home (home/home))
         file (or (home/definition-file home)
@@ -113,10 +115,11 @@
         work (home/work-dir home)
         storage (or storage (await (openNodeSqliteStorage (home/database home))))
         codemode (codemode/handle (gateway/base gateway))
+        worker (codemode-worker/handle codemode)
         models (or models (openrouter-models (codemode/discovery codemode)))
         harness (await (.open Harness storage
                               #js {:models models
-                                   :registry (registry definition codemode)
+                                   :registry (registry definition worker)
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) work)}))
                                    :settings #js {:compaction #js {:enabled true}}
                                    :now (or now js/undefined)
@@ -132,7 +135,7 @@
                                  :cwd work}
                        context))
     (.resume harness)
-    {:harness harness :root root :view view :definition definition :home home :models models :codemode codemode}))
+    {:harness harness :root root :view view :definition definition :home home :models models :codemode codemode :worker worker}))
 
 (defn busy?
   "Whether a run is going in the conversation: `pi.live` of the view
@@ -176,8 +179,11 @@
       {:unanswered (.-reason settled)})))
 
 (defn ^:async close
-  [{:keys [harness]}]
-  (await (.close harness context)))
+  "The harness closed, which aborts a running program with its call,
+   and the REPL's worker ended with it."
+  [{:keys [harness worker]}]
+  (await (.close harness context))
+  (codemode-worker/stop! worker "The agent closed."))
 
 (def memory-storage
   "A storage that keeps nothing, for tests."

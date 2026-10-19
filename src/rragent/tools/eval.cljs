@@ -1,18 +1,23 @@
 (ns rragent.tools.eval
-  "The `eval` tool: the agent's REPL, a Clojure program run by SCI in
-   the agent's own process with the connectors of the gateway as
-   functions (`rragent.codemode`). One context for the life of the
-   process, so a `def` of one call is there for the next: the REPL
-   half of the name. The answer is what the program printed and its
-   value, cut at ten thousand characters; an error is the tool's
-   error. The facts of the conversation are read before the program
-   runs, so that it recalls them; what it remembers is committed
-   after it. With `project` the code goes to that artifact's process
-   instead (`rragent.projects/eval!`), live coding against the pane
-   for a template that takes an eval."
+  "The `eval` tool: the agent's REPL, a Clojure program run by SCI
+   with the connectors of the gateway as functions
+   (`rragent.codemode`), in a worker thread of the agent's process
+   (`rragent.codemode-worker`), so that a call that blocks stalls
+   nothing else. One context for the life of the worker, so a `def` of
+   one call is there for the next: the REPL half of the name. The
+   answer is what the program printed and its value, cut at ten
+   thousand characters; an error is the tool's error. The facts of the
+   conversation are read before the program runs, so that it recalls
+   them; what it remembers is committed after it. Stop ends the
+   program with its worker, so does the timeout; the next call starts
+   a fresh worker and says that the defs are gone. With `project` the
+   code goes to that artifact's process instead
+   (`rragent.projects/eval!`), live coding against the pane for a
+   template that takes an eval."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [rragent.codemode :as codemode]
+            [rragent.codemode-worker :as codemode-worker]
             [rragent.db :as db]
             [rragent.facts :as facts]
             [rragent.projects :as projects]
@@ -28,22 +33,23 @@
     printed))
 
 (defn ^:async evaluate
-  "`code` run in the REPL `codemode` for the tool's conversation: the
-   facts read first, what the program remembered committed after it,
-   in order, also when it failed after remembering."
-  [codemode api call-context code]
-  (codemode/begin! codemode (await (facts/facts (facts/from-tool api call-context))))
-  (let [answer (try
-                 {:text (codemode/evaluate codemode code)}
-                 (catch :default e
-                   {:error e}))]
-    (loop [[fact & more] (codemode/pending codemode)]
+  "`code` run in the `worker` of the REPL for the tool's conversation:
+   the facts read first, what the program remembered committed after
+   it, in order, also when it failed after remembering; a program the
+   call's abort (Stop) or the timeout ended remembered nothing."
+  [worker api call-context code]
+  (let [facts (await (facts/facts (facts/from-tool api call-context)))
+        {:keys [text error pending]} (await (codemode-worker/evaluate! worker {:code code
+                                                                          :facts facts
+                                                                          :env (codemode-worker/environment)
+                                                                          :signal (.-abortSignal call-context)}))]
+    (loop [[fact & more] pending]
       (when fact
         (await (facts/remember! api (:event fact) (dissoc fact :event :at) (:at fact) call-context))
         (recur more)))
-    (if-let [error (:error answer)]
-      (throw error)
-      (:text answer))))
+    (if error
+      (throw (js/Error. error))
+      text)))
 
 (defn ^:async evaluate-in-project
   "`code` evaluated by the project's process; its answer, or a throw
@@ -61,14 +67,15 @@
        "the organization's connectors through the Sprites gateway, (connectors), (call provider path opts), composio/search, "
        "composio/execute, storrito/<procedure>, remember and recall, and (doc f) explains any of them. "
        "Chain calls, loop and filter in one program and print only what matters: the answer is what you printed and the "
-       "value of the last form, cut at 10000 characters. What you def stays for the next call. "
+       "value of the last form, cut at 10000 characters. What you def stays for the next call, unless a program was stopped "
+       "(the person's Stop, or the timeout of " (codemode-worker/timeout-minutes) " minutes): the next call then starts over and says so. "
        "There is no JavaScript, no file system and no environment in it: files are for read, write, edit and bash, public web pages for fetch. "
        "With `project`, the code is evaluated by that artifact project's process instead, where its template takes an eval "
        "(a motion design: in the namespace of design.cljs, a redefined function shows on the page at once, until the file is saved)."))
 
 (defn tool
-  "The tool over the REPL `codemode`."
-  [codemode]
+  "The tool over the `worker` of the REPL."
+  [worker]
   (defineTool
    #js {:name "eval"
         :description description
@@ -78,4 +85,4 @@
                    (let [project (not-empty (.-project args))]
                      (work/text (if project
                                   (await (evaluate-in-project api project (.-code args)))
-                                  (await (evaluate codemode api call-context (.-code args)))))))}))
+                                  (await (evaluate worker api call-context (.-code args)))))))}))

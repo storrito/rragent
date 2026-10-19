@@ -79,7 +79,7 @@
           (.catch (fn [e] (is (nil? e) (str e))))
           (.finally (fn [] (.close server) (done)))))))
 
-(defn- ^:async tool-results
+(defn ^:async tool-results
   "The tool results of the root conversation by call id, as the model
    got them."
   [agent]
@@ -89,7 +89,7 @@
          (map #(aget (.-model %) 0))
          (into {} (map (fn [r] [(.-toolCallId r) r]))))))
 
-(defn- result-text
+(defn result-text
   [result]
   (apply str (map #(.-text %) (array-seq (.-content result)))))
 
