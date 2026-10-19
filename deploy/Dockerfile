@@ -8,7 +8,9 @@
 # root after `npm run build`: docker build -f deploy/Dockerfile -t rragent .
 # An image built elsewhere downloads a release instead:
 # https://github.com/storrito/rragent/releases/latest/download/rragent.tar.gz
-# unpacks to the dist/ folder (rragent.js and public/).
+# unpacks to the dist/ folder (rragent.js, public/ and templates/).
+# The release workflow pushes it as
+# ghcr.io/storrito/rragent-sprite:<version>-plain (.github/actions/sprite-image).
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
 USER sprite

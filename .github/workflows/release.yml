@@ -6,18 +6,22 @@ name: Release
 # building the app: releases/download/v<version>/rragent.tar.gz, or the
 # newest from releases/latest/download/rragent.tar.gz. The version in
 # the bundle comes from package.json, kept equal to the tag by
-# `npm version`.
+# `npm version`. Then the same dist/ goes into the Sprite images,
+# ghcr.io/storrito/rragent-sprite:<version> (deploy/Dockerfile.full, and
+# latest), <version>-plain (deploy/Dockerfile), see
+# .github/actions/sprite-image and the README's Deploy section.
 on:
   push:
     tags: ["v*"]
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -42,3 +46,11 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 \
             --title "rragent ${GITHUB_REF_NAME}" \
             --generate-notes
+      - name: The version, from the tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: The Sprite images
+        uses: ./.github/actions/sprite-image
+        with:
+          tag: ${{ steps.version.outputs.version }}
+          latest: "true"

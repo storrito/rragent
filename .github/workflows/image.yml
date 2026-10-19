@@ -1,0 +1,53 @@
+name: Image
+
+# By hand, for a branch to try on a sprite without a release: "Run
+# workflow" on the branch with a tag, and the branch's checkout is built
+# and pushed as ghcr.io/storrito/rragent-sprite:<tag> and <tag>-plain
+# (.github/actions/sprite-image). A tag that exists is refused, a
+# version number is the release workflow's: name the branch and the
+# commit, codemode-96b18a8.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The image's tag (a branch and a commit, codemode-96b18a8)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: The tag is one of a trial, not of a release
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          case "$TAG" in
+            *[!A-Za-z0-9_.-]* | "" | .* | -*)
+              echo "::error::'$TAG' is no image tag: letters, digits, '_', '.' and '-', starting with a letter or a digit"; exit 1;;
+            [0-9]*.[0-9]*.[0-9]* | v[0-9]* | latest | *-plain)
+              echo "::error::'$TAG' is a release's: push a tag v<x.y.z> for a release, name a trial by its branch and commit"; exit 1;;
+          esac
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: clojure-${{ hashFiles('deps.edn') }}
+      - run: npm ci
+      - run: npm run build
+      - uses: ./.github/actions/sprite-image
+        with:
+          tag: ${{ inputs.tag }}

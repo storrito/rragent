@@ -1,0 +1,5 @@
+# The build context of deploy/Dockerfile and deploy/Dockerfile.full: the
+# bundle and the deploy files, not node_modules, target or the sources.
+*
+!dist
+!deploy
