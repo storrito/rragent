@@ -68,6 +68,8 @@
 
    :composer/placeholder "What should the agent do? Enter sends, Shift+Enter breaks the line, a picture can be pasted."
    :composer/send "Send"
+   :composer/send-pending "Sends after the upload"
+   :composer/send-cancel "Click to keep the message instead; a failed upload keeps it too"
    :composer/stop "Stop"
    :composer/attach "Attach an image, a video or an audio file; files can also be pasted or dropped anywhere on the page"
    :composer/remove "Remove"
@@ -130,6 +132,8 @@
 
    :composer/placeholder "Was soll der Agent tun? Enter sendet, Shift+Enter bricht die Zeile um, ein Bild kann eingefügt werden."
    :composer/send "Senden"
+   :composer/send-pending "Sendet nach dem Upload"
+   :composer/send-cancel "Klicken, um die Nachricht doch nicht zu senden; schlägt ein Upload fehl, bleibt sie auch stehen"
    :composer/stop "Stopp"
    :composer/attach "Ein Bild, ein Video oder eine Tonaufnahme anhängen; Dateien lassen sich auch einfügen oder irgendwo auf der Seite ablegen"
    :composer/remove "Entfernen"
