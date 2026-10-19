@@ -1,8 +1,10 @@
 (ns rragent.schedule-test
   (:require [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
+            [rragent.fake-sprite-env :as fake]
             [rragent.harness :as harness]
             [rragent.hooks :as hooks]
+            [rragent.wake :as wake]
             [rragent.schedule :as schedule]
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
@@ -14,7 +16,12 @@
     (is (= (+ from 2000) (schedule/next-run "*/2 * * * * *" "UTC" from)) "six fields: seconds")
     (is (thrown? js/Error (schedule/next-run "nonsense" "UTC" from)))
     (is (= (+ from 2000) (schedule/next-due #js {:a #js {:cron "*/2 * * * * *" :tz "UTC"} :b #js {:cron "0 8 * * *" :tz "UTC"}} from)) "the earliest of the schedules")
-    (is (nil? (schedule/next-due #js {} from)))))
+    (is (nil? (schedule/next-due #js {} from))))
+  (testing "the run after a run follows the schedule, unless it is more than an hour behind"
+    (let [at (.getTime (js/Date. "2026-10-18T20:10:00Z"))]
+      (is (= (.getTime (js/Date. "2026-10-18T20:15:00Z")) (schedule/next-after "*/5 * * * *" "UTC" at (.getTime (js/Date. "2026-10-18T20:18:00Z")))) "the machine woke late: the missed run still runs")
+      (is (= (.getTime (js/Date. "2026-10-19T09:20:00Z")) (schedule/next-after "*/5 * * * *" "UTC" at (.getTime (js/Date. "2026-10-19T09:17:00Z")))) "a day late: the next run from now")
+      (is (= (.getTime (js/Date. "2026-10-18T20:15:00Z")) (schedule/next-after "*/5 * * * *" "UTC" at at)) "right on time: the next one"))))
 
 (defn- sleep
   [ms]
@@ -52,6 +59,32 @@
                      (let [before (count (filter #(= "rragent.schedule" %) (await (kinds agent))))]
                        (await (sleep 2500))
                        (is (= before (count (filter #(= "rragent.schedule" %) (await (kinds agent))))) "no new runs")))
+                   (finally
+                     (await (harness/close agent))
+                     (test-home/remove! home))))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest the-alarm-moves-on-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)
+                 {:keys [script log]} (fake/make!)]
+             (.setResponses faux (clj->js (concat [(tools-test/tool-call "schedule" {:action "set" :name "tick" :cron "* * * * * *" :text "Tick."} "s1")
+                                                   (tools-test/answer "Set.")]
+                                                  (repeat 20 (tools-test/answer "Tock.")))))
+             (binding [sprite/*sprite-env* script]
+               (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
+                 (try
+                   (is (= "Set." (await (harness/ask agent "Every second."))))
+                   (let [armed-at-set (count (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))]
+                     (is (= 1 armed-at-set) "the alarm set once by the tool")
+                     (await (sleep 2500))
+                     (is (< armed-at-set (count (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))) "and again after every fire")
+                     (is (every? #(str/includes? % (str "--cron " (wake/cron-of (wake/next-minute (js/Date.now))) " --exec"))
+                                 (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))
+                         "to the next minute: a second-by-second schedule is always due within it"))
                    (finally
                      (await (harness/close agent))
                      (test-home/remove! home))))))))

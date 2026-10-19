@@ -10,7 +10,8 @@
    UTC by default."
   (:require ["croner" :refer [Cron]]
             ["@earendil-works/pi-durable" :refer [defineDoc defineTask]]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [rragent.wake :as wake]))
 
 (def Schedules
   (defineDoc #js {:kind "rragent.schedules"
@@ -31,6 +32,23 @@
   [cron tz from-ms]
   (some-> (.nextRun (check-cron cron tz) (js/Date. from-ms)) .getTime))
 
+(def catch-up-ms
+  "How far behind a schedule is still run: a machine asleep for an hour
+   runs what it missed, one asleep for a day does not run a day of
+   runs."
+  (* 60 60 1000))
+
+(defn next-after
+  "The run after the one at `at`: the schedule's own next run, so that
+   a rerun of the phase after a crash (its submission deduplicated by
+   the request id) does not skip a run; but one more than `catch-up-ms`
+   behind `now` is skipped, the next run from now instead."
+  [cron tz at now]
+  (let [next (next-run cron tz (inc at))]
+    (if (and next (< next (- now catch-up-ms)))
+      (next-run cron tz now)
+      next)))
+
 (defn next-due
   "The earliest next run of the schedules in the document, nil without
    any."
@@ -38,6 +56,13 @@
   (let [runs (keep (fn [s] (next-run (.-cron s) (.-tz s) now)) (js/Object.values (or schedules #js {})))]
     (when (seq runs)
       (apply min runs))))
+
+(defn rearm!
+  "The machine's alarm set to the earliest next run of `schedules`:
+   after every change of them and after every fire, so that a machine
+   asleep is woken for the next run, whichever schedule's it is."
+  [schedules now]
+  (wake/arm! (next-due schedules now) now))
 
 (defn- message
   [name cron tz text at]
@@ -64,7 +89,7 @@
                      ;; set again or deleted meanwhile: this task's time is over
                      (await (.commit runtime (fn [] (terminal #js {:status "completed" :result nil})) context))
                      (let [conversation (await (.conversation runtime (.-conversationId runtime) context))
-                           next (next-run cron tz (max (inc at) (.now runtime)))]
+                           next (next-after cron tz at (.now runtime))]
                        (await (.submit conversation
                                        #js {:type "input"
                                             :content (message name cron tz text at)
@@ -77,7 +102,10 @@
                                          (if next
                                            #js {:status "running" :checkpoint #js {:phase "wait" :at next}}
                                            (terminal #js {:status "completed" :result nil})))
-                                       context)))))))}
+                                       context))
+                       ;; the alarm moves on with the schedule: the machine may well
+                       ;; sleep before the next run
+                       (rearm! schedules (.now runtime)))))))}
         :abort (fn [_task runtime context]
                  (.commit runtime (fn [] (terminal #js {:status "aborted"})) context))}))
 
