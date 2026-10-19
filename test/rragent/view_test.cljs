@@ -60,6 +60,16 @@
   [hiccup]
   (filter string? (tree-seq coll? seq hiccup)))
 
+(defn- nodes
+  [tree]
+  (tree-seq (fn [node] (or (vector? node) (seq? node)))
+            (fn [node] (if (vector? node) (rest node) node))
+            tree))
+
+(defn- find-tag
+  [tree tag]
+  (some #(when (and (vector? %) (= tag (first %))) %) (nodes tree)))
+
 (deftest page-test
   (let [page (view/page {:agent {:name "watcher" :model "faux-1"}
                          :conversation conversation
@@ -81,17 +91,21 @@
       (let [empty (i18n/translate (view/page {:agent {} :conversation nil :locale :de}) :de)
             text (set (strings empty))]
         (is (contains? text "Noch nichts hier. Schreib die erste Nachricht."))
-        (is (not (contains? text "Stopp")))))))
-
-(defn- nodes
-  [tree]
-  (tree-seq (fn [node] (or (vector? node) (seq? node)))
-            (fn [node] (if (vector? node) (rest node) node))
-            tree))
-
-(defn- find-tag
-  [tree tag]
-  (some #(when (and (vector? %) (= tag (first %))) %) (nodes tree)))
+        (is (not (contains? text "Stopp")))))
+    (testing "an empty conversation of a skill opens with its welcome and placeholder"
+      (let [onboarding {:title "Kinetic Shorts" :ask "Füge den Link ein." :placeholder "YouTube-Link einfügen"}
+            page (i18n/translate (view/page {:agent {} :conversation nil :locale :de :onboarding onboarding}) :de)
+            text (set (strings page))]
+        (is (contains? text "Kinetic Shorts"))
+        (is (contains? text "Füge den Link ein."))
+        (is (not (contains? text "Noch nichts hier. Schreib die erste Nachricht.")))
+        (is (= "YouTube-Link einfügen" (:placeholder (second (find-tag page :ui/composer)))))))
+    (testing "once the conversation has started, the welcome and the skill's placeholder go"
+      (let [onboarding {:title "Kinetic Shorts" :ask "Paste the link." :placeholder "Paste a YouTube link"}
+            page (i18n/translate (view/page {:agent {} :conversation conversation :locale :en :onboarding onboarding}) :en)
+            text (set (strings page))]
+        (is (not (contains? text "Paste the link.")))
+        (is (not= "Paste a YouTube link" (:placeholder (second (find-tag page :ui/composer)))))))))
 
 (deftest attachments-test
   (let [text "What is in it?\nimage: uploads/0a0b.png\nvideo: uploads/ab12.mp4\naudio: uploads/ff00.wav"
