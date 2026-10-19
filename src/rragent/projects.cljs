@@ -1,41 +1,50 @@
 (ns rragent.projects
   "An artifact with a process: a directory under `work/artifacts/` with
-   a package.json. rragent starts it (`node <main>`, `server.mjs`
-   unless the package names another file; or, with `\"rragent\":
-   \"motion\"` in the package, this program's `motion` command on the
-   folder; PORT in its environment) when it is on screen or changed
-   lately, stops it when no one wanted it for a while, shows its page
-   in the iframe through a proxy under `/artifacts/<name>/`
-   (`rragent.proxy`), passes a command posted from that page on to it,
-   restarts it when it dies, and writes its output to `.log` in the
-   directory. The port of
+   a package.json. Its template (`rragent.templates`, named by the
+   package) says what runs it: the template's `entry`, an executable
+   run as `<entry> <project-dir>` with PORT in its environment and the
+   programs the template needs (`rragent.programs`); or a page of the
+   project, served as it is, no process. A project without a template
+   runs with Node on the `main` of its package.json, `server.mjs`
+   without. rragent starts the process when the project is on screen
+   or changed lately, stops it when no one wanted it for a while,
+   shows its page in the iframe through a proxy under
+   `/artifacts/<name>/` (`rragent.proxy`), passes a command posted
+   from that page on to it, restarts it when it dies, and writes its
+   output to `.log` in the directory. An eval goes to the process the
+   same way (`eval!`), for a template that takes one. The port of
    pchat.projects: one folder, no chats, and no nREPL reload, since a
-   Node project of the templates reads its files again per request and
-   its page loads them again when they change.
+   project's process reads its files again when they change.
 
    The key this namespace owns in the db (`rragent.db`):
 
-       :projects {name {:port :ready-at :exit}}"
+       :projects {name {:port :ready-at :exit}}         a process
+       :projects {name {:static? true :entry :ready-at}} a page served as files"
   (:require ["node:child_process" :as child]
             ["node:fs" :as fs]
             ["node:net" :as net]
             ["node:path" :as path]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
-            [rragent.program :as program]
+            [rragent.programs :as programs]
             [rragent.proxy :as proxy]
-            [rragent.rframes.http :as http]))
+            [rragent.rframes.http :as http]
+            [rragent.templates :as templates]))
+
+(defonce procs
+  (atom {}))
 
 (defn handle
   "`{:db the db, :dir the artifacts folder, :shown? a function of no
    arguments, whether someone looks at the page right now (yes, by
-   default), :env extra environment for the processes}`. The processes
-   are kept by name."
-  [{:keys [dir shown?] :as opts}]
+   default)}`. `:procs`, the processes by name, is shared by every
+   handle of the process unless given, so that a tool reaches what
+   the pane started."
+  [{:keys [dir shown? procs] :as opts}]
   (assoc opts
          :dir (path/resolve dir)
          :shown? (or shown? (constantly true))
-         :procs (atom {})))
+         :procs (or procs rragent.projects/procs)))
 
 (defn names
   "The artifacts that are projects: subdirectories with a package.json."
@@ -60,21 +69,39 @@
       #js {})))
 
 (defn main-file
-  "The file Node runs for the project: `main` of its package.json,
-   `server.mjs` without."
+  "The file Node runs for a project without a template: `main` of its
+   package.json, `server.mjs` without."
   [project-dir]
   (or (not-empty (aget (package project-dir) "main"))
       "server.mjs"))
 
-(defn command
-  "What runs the project, `{:cmd :args}`: this program's `motion`
-   command for a package that says `\"rragent\": \"motion\"`, else
-   Node on the main file."
+(defn static-template
+  "The project's template when the pane serves the project as files,
+   else nil."
   [project-dir]
-  (if (= "motion" (aget (package project-dir) "rragent"))
-    (program/command "motion" project-dir)
-    {:cmd (.-execPath js/process)
-     :args [(main-file project-dir)]}))
+  (let [template (templates/of-project project-dir)]
+    (when (and template (not (:missing? template)) (templates/static? template))
+      template)))
+
+(defn command
+  "What runs the project, `{:cmd :args :needs}`: its template's entry
+   on the project's folder, or Node on the main file of a project
+   without a template. Throws for a template that is not installed."
+  [project-dir]
+  (let [template (templates/of-project project-dir)]
+    (cond
+      (:missing? template)
+      (throw (js/Error. (str "The template " (:name template) " is not installed: " (str/join ", " (templates/names)) ".")))
+
+      template
+      {:cmd (templates/entry-file template)
+       :args [project-dir]
+       :needs (:needs template)}
+
+      :else
+      {:cmd (.-execPath js/process)
+       :args [(main-file project-dir)]
+       :needs []})))
 
 (defn ^:async free-port
   "A port nothing listens on right now."
@@ -117,10 +144,10 @@
       (< (- now (newest-change (project-dir handle name))) recent-ms)))
 
 (defn- environment
-  [{:keys [env]} name port]
+  [name port needs]
   (js/Object.assign #js {}
                     (.-env js/process)
-                    (clj->js (or env {}))
+                    (clj->js (programs/environment needs))
                     #js {:PORT (str port)
                          ;; the path the page is shown under, for a link that needs it
                          :RRAGENT_BASE (str artifacts/url-prefix "/" name)
@@ -136,31 +163,42 @@
       (swap! procs assoc-in [name :exit] exit)
       (swap! db assoc-in [:projects name :exit] exit))))
 
+(defn- note-failure!
+  "A project that cannot start: the reason into its `.log`, the exit
+   into the table and the db."
+  [{:keys [procs db] :as handle} name message]
+  (fs/appendFileSync (path/join (project-dir handle name) ".log") (str message "\n"))
+  (swap! procs assoc name {:exit 1 :started (js/Date.now) :last-wanted (js/Date.now)})
+  (swap! db assoc-in [:projects name] {:exit 1}))
+
 (defn ^:async start!
   "The project's process started, its output to `.log`."
   [{:keys [procs db] :as handle} name]
   (let [project-dir (project-dir handle name)
         port (await (free-port))
-        log (fs/openSync (path/join project-dir ".log") "a")
-        {:keys [cmd args]} (command project-dir)
-        process (child/spawn cmd
-                             (clj->js args)
-                             #js {:cwd project-dir
-                                  :env (environment handle name port)
-                                  :stdio #js ["ignore" log log]
-                                  ;; a process group of its own, stopped as one
-                                  :detached true})
-        now (js/Date.now)]
-    (fs/closeSync log)
-    (.on process "exit" (fn [code signal] (note-exit! handle name process code signal)))
-    (.on process "error" (fn [error]
-                           (js/console.error "[projects]" name (str error))
-                           (note-exit! handle name process 1 nil)))
-    (swap! procs assoc name {:process process
-                             :port port
-                             :started now
-                             :last-wanted now})
-    (swap! db assoc-in [:projects name] {:port port :ready-at nil})
+        {:keys [cmd args needs] :as run} (try (command project-dir) (catch :default e {:error (.-message e)}))]
+    (if-let [error (:error run)]
+      (note-failure! handle name error)
+      (let [log (fs/openSync (path/join project-dir ".log") "a")
+            process (child/spawn cmd
+                                 (clj->js args)
+                                 #js {:cwd project-dir
+                                      :env (environment name port needs)
+                                      :stdio #js ["ignore" log log]
+                                      ;; a process group of its own, stopped as one
+                                      :detached true})
+            now (js/Date.now)]
+        (fs/closeSync log)
+        (.on process "exit" (fn [code signal] (note-exit! handle name process code signal)))
+        (.on process "error" (fn [error]
+                               (js/console.error "[projects]" name (str error))
+                               (fs/appendFileSync (path/join project-dir ".log") (str error "\n"))
+                               (note-exit! handle name process 1 nil)))
+        (swap! procs assoc name {:process process
+                                 :port port
+                                 :started now
+                                 :last-wanted now})
+        (swap! db assoc-in [:projects name] {:port port :ready-at nil})))
     name))
 
 (defn- kill!
@@ -178,7 +216,7 @@
 (defn stop!
   [{:keys [procs db]} name]
   (when-let [{:keys [process]} (get @procs name)]
-    (kill! process))
+    (some-> process kill!))
   (swap! procs dissoc name)
   (swap! db update :projects dissoc name))
 
@@ -221,24 +259,44 @@
       (when (< idle-ms (- now last-wanted))
         (stop! handle name)))))
 
+(defn- sync-static!
+  "A project the pane serves as files: ready at its newest change, so
+   that the iframe loads the page again after one."
+  [{:keys [db] :as handle} name template]
+  (let [entry {:static? true
+               :entry (:entry template)
+               :ready-at (newest-change (project-dir handle name))}]
+    (when (not= entry (get-in @db [:projects name]))
+      (swap! db assoc-in [:projects name] entry))))
+
+(defn- ^:async sync-process!
+  [{:keys [procs] :as handle} name now]
+  (let [wanted? (wanted? handle name now)]
+    (if (contains? @procs name)
+      (do (await (check-ready! handle name))
+          (await (restart-exited! handle name now))
+          (stop-idle! handle name now wanted?))
+      (when wanted?
+        (await (start! handle name))))))
+
 (defn ^:async sync!
   "Over the projects of the folder: starts the ones that are wanted, the
    one on screen and the ones with recent changes, stops the ones that
-   went or idled, notes which are ready, restarts the dead."
-  [{:keys [dir procs] :as handle}]
+   went or idled, notes which are ready, restarts the dead; a project
+   of a static template is noted as ready with its newest change."
+  [{:keys [dir procs db] :as handle}]
   (let [current (set (names dir))
         now (js/Date.now)]
     (doseq [name (keys @procs)
             :when (not (contains? current name))]
       (stop! handle name))
-    (doseq [name current
-            :let [wanted? (wanted? handle name now)]]
-      (if (contains? @procs name)
-        (do (await (check-ready! handle name))
-            (await (restart-exited! handle name now))
-            (stop-idle! handle name now wanted?))
-        (when wanted?
-          (await (start! handle name)))))))
+    (doseq [name (keys (:projects @db))
+            :when (not (contains? current name))]
+      (swap! db update :projects dissoc name))
+    (doseq [name current]
+      (if-let [template (static-template (project-dir handle name))]
+        (sync-static! handle name template)
+        (await (sync-process! handle name now))))))
 
 (defn watch!
   "`sync!` once a second, and every project stopped when the process
@@ -275,24 +333,44 @@
        (not (artifacts/hidden? rest))
        (http/regular-file? (path/join dir name rest))))
 
+(defn- redirect-to-folder
+  "`/artifacts/<name>` without the slash is sent to `/artifacts/<name>/`
+   so that the page's relative links work."
+  [w uri]
+  (assoc w :ring/response {:status 302
+                           :headers {"Location" (str uri "/")}
+                           :body ""}))
+
+(defn- static-page
+  "The entry page of a project served as files, or nothing for a
+   project without it."
+  [{:keys [dir]} name entry w]
+  (if-let [file (http/resolve-file (path/join dir name) (str entry))]
+    (assoc w :ring/response (http/file-response (:ring/request w) file))
+    w))
+
 (defn ^:async handler
   "The handler of `/artifacts/*`, the rest of the path under `:*`: a
-   running project's page goes to its process, `/artifacts/<name>`
-   without the slash is sent to `/artifacts/<name>/` so that the page's
+   running project's page goes to its process, a static project's
+   entry is served at `/artifacts/<name>/`, `/artifacts/<name>` without
+   the slash is sent to `/artifacts/<name>/` so that the page's
    relative links work; its media files and anything else are left to
    the caller, without a response."
-  [{:keys [procs db dir]} w]
+  [{:keys [procs db dir] :as handle} w]
   (let [[name rest] (split-path (get-in w [:ring/route-params :*]))
         {:keys [port]} (get @procs name)
-        uri (get-in w [:ring/request :uri])]
+        {:keys [ready-at static? entry]} (get-in @db [:projects name])
+        uri (get-in w [:ring/request :uri])
+        folder? (str/blank? rest)]
     (cond
-      (not (and port (get-in @db [:projects name :ready-at])))
-      w
+      (and folder? (not (str/ends-with? (str uri) "/")) (or static? (and port ready-at)))
+      (redirect-to-folder w uri)
 
-      (and (str/blank? rest) (not (str/ends-with? (str uri) "/")))
-      (assoc w :ring/response {:status 302
-                               :headers {"Location" (str uri "/")}
-                               :body ""})
+      static?
+      (if folder? (static-page handle name entry w) w)
+
+      (not (and port ready-at))
+      w
 
       (media-file? dir name rest)
       w
@@ -319,3 +397,54 @@
     (if-let [name (referer-project handle request)]
       (assoc w :ring/response (await (proxy/request (:port (get @procs name)) "command" request)))
       w)))
+
+(def wake-ms
+  "How long a project that is started for an eval may take to answer."
+  15000)
+
+(defn- sleep
+  [ms]
+  (js/Promise. (fn [resolve] (js/setTimeout resolve ms))))
+
+(defn ^:async wake!
+  "The project's process running and ready, started when it does not
+   run: its port. Throws when there is no such project, when the pane
+   serves it as files, or when it does not come up."
+  [{:keys [procs db dir] :as handle} name]
+  (when-not (contains? (set (names dir)) name)
+    (throw (js/Error. (str "artifacts/" name " is no project."))))
+  (when (static-template (project-dir handle name))
+    (throw (js/Error. (str "artifacts/" name " has no process: its template serves a page as it is."))))
+  (when-not (contains? @procs name)
+    (await (start! handle name)))
+  (loop [waited 0]
+    (let [{:keys [port exit]} (get @procs name)]
+      (cond
+        exit
+        (throw (js/Error. (str "artifacts/" name " exited with " exit ", its .log says why.")))
+
+        (await (answers? port))
+        (do (when (nil? (get-in @db [:projects name :ready-at]))
+              (swap! db assoc-in [:projects name :ready-at] (js/Date.now)))
+            port)
+
+        (< wake-ms waited)
+        (throw (js/Error. (str "artifacts/" name " did not come up in " (/ wake-ms 1000) " s, its .log says why.")))
+
+        :else
+        (do (await (sleep 100))
+            (recur (+ waited 300)))))))
+
+(defn ^:async eval!
+  "`code` evaluated by the project's process, which takes it at `POST
+   /eval` when its template takes an eval (the README says what the
+   process must do): `{:status :text}`, the printed value with 200, the
+   error otherwise, 404 or 405 from a process that takes none."
+  [handle name code]
+  (let [port (await (wake! handle name))
+        response (await (js/fetch (str "http://127.0.0.1:" port "/eval")
+                                  #js {:method "POST"
+                                       :headers #js {"Content-Type" "text/plain; charset=utf-8"}
+                                       :body (str code)}))]
+    {:status (.-status response)
+     :text (await (.text response))}))

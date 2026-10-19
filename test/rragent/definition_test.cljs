@@ -29,6 +29,19 @@
       (finally
         (test-home/remove! home)))))
 
+(deftest templates-test
+  (testing "the templates the agent may use, nil for every installed one"
+    (is (nil? (definition/templates {"model" "x"})))
+    (is (= ["motion" "hyperframes"] (definition/templates {"templates" "[motion, hyperframes]"})))
+    (is (= ["motion"] (definition/templates {"templates" "motion"})))
+    (is (= [] (definition/templates {"templates" "[]"})))
+    (is (= [] (definition/templates {"templates" ""}))))
+  (let [home (test-home/make "AGENT.md" (str/replace test-home/definition-text "  model: faux-1\n" "  model: faux-1\n  templates: [motion]\n"))]
+    (try
+      (is (= ["motion"] (:templates (definition/definition (home/definition-file home)))))
+      (finally
+        (test-home/remove! home)))))
+
 (deftest skill-md-fallback-test
   (let [home (test-home/make "SKILL.md" test-home/definition-text)]
     (try

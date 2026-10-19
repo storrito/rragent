@@ -5,7 +5,7 @@
             [rragent.motion.design :as design]))
 
 (def template
-  (path/resolve "templates/motion/design.cljs"))
+  (path/resolve "templates/motion/project/design.cljs"))
 
 (deftest template-test
   (let [{:keys [error size duration design-view controls styles]} (design/load template)]
@@ -39,6 +39,15 @@
            (:error (design/evaluate "(ns design) (def size [1 2]) (defn design-view [d t] [:p])")))))
   (testing "a missing file"
     (is (str/includes? (:error (design/load "/tmp/none/design.cljs")) "missing")))
+  (testing "an eval in the design's namespace, a redefinition read again"
+    (let [loaded (design/evaluate "(ns design) (def size [2 2]) (def duration 2) (defn design-view [d t] [:p t])")]
+      (is (= "4" (:value (design/eval-in loaded "(* 2 duration)"))))
+      (let [{:keys [value loaded]} (design/eval-in loaded "(def duration 5)")]
+        (is (= "#'design/duration" value))
+        (is (= 5 (:duration loaded)))
+        (is (some? (:ctx loaded))))
+      (is (str/includes? (:error (design/eval-in loaded "(nope)")) "nope"))
+      (is (str/includes? (:error (design/eval-in {:error "x"} "1")) "not loaded"))))
   (testing "fnmotion and JavaScript are at hand"
     (let [{:keys [design-view]} (design/evaluate "(ns design (:require [fnmotion.core :as fm] [fnmotion.timeline :as tl])) (def size [2 2]) (def duration 2) (defn design-view [d t] [:p (fm/progress t 0 2) (tl/at (tl/still 2 [:b \"s\"]) t) (js/Math.round 1.4)])")]
       (is (= [:p 0.5 [:b "s"] 1] (design-view {} 1))))))

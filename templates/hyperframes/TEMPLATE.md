@@ -1,8 +1,16 @@
-# This artifact
+---
+name: hyperframes
+description: A HyperFrames composition, HTML with GSAP in composition/index.html with variables as controls, shown in the HyperFrames player beside the chat; renders an mp4 with the HyperFrames CLI.
+renders: mp4
+needs: chrome, ffmpeg, hyperframes
+entry: serve
+---
 
-A HyperFrames composition: HTML with GSAP, the way the HyperFrames skills
-describe it. rragent shows it in the HyperFrames player beside the chat
-and loads it again whenever a file of it changes.
+# A HyperFrames composition
+
+HTML with GSAP, the way the HyperFrames skills describe it. rragent
+shows it in the HyperFrames player beside the chat and loads it again
+whenever a file of it changes.
 
 - `composition/index.html`: the design. The root carries
   `data-composition-id`, `data-duration` (seconds), `data-width` and
@@ -37,9 +45,7 @@ and loads it again whenever a file of it changes.
 - `hyperframes lint` in `composition/` finds mistakes in seconds;
   `hyperframes check` plays the whole composition and takes minutes, so
   leave it to the render.
-- `server.mjs` is the small Node server that shows the composition and
-  the controls; rragent starts it with PORT set and proxies its page
-  into the pane. It needs no change. The player and the runtime come
-  from the HyperFrames install the `hyperframes` command belongs to
-  (`HYPERFRAMES_NODE_MODULES` names its node_modules).
+- The page beside the chat is served by the template, not by a file of
+  this folder: nothing here needs a server. The `eval` tool does not
+  reach into this page.
 - `.log` has the output of the process, errors included.

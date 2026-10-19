@@ -18,7 +18,7 @@
        :artifacts/current    the path on screen
        :artifacts/picked-at  when the person picked it, to know what is newer
 
-   It reads `:renders` (`rragent.render`): a video a render still
+   It reads `:renders` (`rragent.render`): a file a render still
    writes is shown as is, with its progress, and does not take the
    screen. The files are served under `/artifacts/`."
   (:require ["node:fs" :as fs]
@@ -141,15 +141,16 @@
      :artifacts/rev (reduce max 0 (map :mtime listed))}))
 
 (defn render-name
-  "The project whose render writes the video: `story.mp4` is `story`'s
-   (see `rragent.render/output-file`)."
+  "The project whose render writes the file: `story.mp4` is `story`'s
+   (see `rragent.render/output-file`); nil for a path with no
+   extension or one in a folder."
   [p]
-  (when (str/ends-with? (str p) ".mp4")
-    (subs (str p) 0 (- (count (str p)) 4))))
+  (when-let [[_ name] (re-matches #"([^/]+)\.[^./]+" (str p))]
+    name))
 
 (defn writing
   "The render that is still writing the artifact (`rragent.render`: the
-   video of a project while the render runs), or nil. Such a file is no
+   file of a project while the render runs), or nil. Such a file is no
    news, it changes with every frame."
   [{:keys [renders]} {:keys [path]}]
   (when-let [name (render-name path)]

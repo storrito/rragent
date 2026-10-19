@@ -1,7 +1,10 @@
 ;; The build options of cljf (clojurific): `cljf build @cljs.edn` for the
 ;; release bundle's compile step (Vite runs it through its plugin, see
 ;; vite.config.mjs), `cljf build @cljs.edn :test` for the tests under Node.
-{:paths ["src" "test"]
+{:paths ["src" "test"
+         ;; the motion template's program and tests (templates/motion), an
+         ;; entry of its own build, see its vite.config.mjs
+         "templates/motion/src" "templates/motion/test"]
  :profiles {:test {:output-dir "target/test"
                    ;; the generated namespace requires every *-test namespace
                    ;; and runs them under Node; exit 1 when any failed

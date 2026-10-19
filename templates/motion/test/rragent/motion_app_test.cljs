@@ -1,21 +1,21 @@
 (ns rragent.motion-app-test
   "The process of a motion project: served in this process from the
-   template, its frame over the stream, a control's command; and the
-   same started by rragent.projects as a child of this program, the way
-   the page does it."
+   template, its frame over the stream, a control's command, an eval
+   into the design; and the same started by rragent.projects through
+   the template's `serve`, the way the page does it."
   (:require ["node:fs" :as fs]
             ["node:os" :as os]
             ["node:path" :as path]
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rframes.client.frames :as frames]
-            ;; the entry of the program, so that the test build has a main.js
-            ;; for the child process of `as-project-test`; loaded, it prints
-            ;; the usage once
-            [rragent.main]
             [rragent.motion.app :as app]
+            ;; the entry of the template's program, so that the test build
+            ;; has a main.js for the child process of `as-project-test`
+            [rragent.motion.main]
             [rragent.projects :as projects]
-            [rragent.rframes.transit :as transit]))
+            [rragent.rframes.transit :as transit]
+            [rragent.templates :as templates]))
 
 (defn- sleep
   [ms]
@@ -45,9 +45,15 @@
               (recur buffer))))))))
 
 (defn- project!
+  "A project of the motion template in `dir`."
   [dir]
-  (fs/cpSync (path/resolve "templates/motion") dir #js {:recursive true})
+  (templates/copy! "motion" dir)
   dir)
+
+(defn- ^:async eval!
+  [base code]
+  (let [response (await (js/fetch (str base "/eval") #js {:method "POST" :body code}))]
+    [(.-status response) (await (.text response))]))
 
 (deftest serve-test
   (async done
@@ -90,6 +96,20 @@
                  (fs/writeFileSync (path/join dir "pool.png") "png")
                  (is (= 200 (.-status (await (js/fetch (str base "/pool.png"))))))
                  (is (= 404 (.-status (await (js/fetch (str base "/design.cljs")))))))
+               (testing "an eval into the design's namespace: the value, a redefinition on the page, an error"
+                 (fs/writeFileSync (path/join dir "design.cljs") "(ns design) (def size [2 2]) (def duration 1) (defn design-view [d t] [:h1 \"Rewritten\"])")
+                 (app/load! state)
+                 (is (= [200 "3"] (await (eval! base "(+ 1 2)"))))
+                 (is (= [200 "[2 2]"] (await (eval! base "size"))) "the namespace of the file")
+                 (is (= [200 "#'design/design-view"] (await (eval! base "(defn design-view [d t] [:h1 \"Evaluated\"])"))))
+                 (is (mentions? (await (first-frame base)) "Evaluated"))
+                 (let [[status text] (await (eval! base "(undefined-fn)"))]
+                   (is (= 400 status))
+                   (is (str/includes? text "undefined-fn")))
+                 (is (= [200 "#'design/size"] (await (eval! base "(def size nil)"))))
+                 (is (mentions? (await (first-frame base)) "design.cljs defines no size") "a broken design shows its error")
+                 (is (= [200 "#'design/size"] (await (eval! base "(def size [2 2])"))))
+                 (is (mentions? (await (first-frame base)) "Evaluated") "and comes back"))
                (finally
                  (stop)
                  (fs/rmSync (path/dirname dir) #js {:recursive true :force true}))))))
@@ -102,13 +122,13 @@
            (let [root (fs/mkdtempSync (path/join (os/tmpdir) "rragent-motion-project-"))
                  dir (project! (path/join root "card"))
                  db (atom {:artifacts/current "card"})
-                 handle (projects/handle {:db db :dir root})
+                 handle (projects/handle {:db db :dir root :procs (atom {})})
                  env (.-env js/process)
-                 before (aget env "RRAGENT_JS")]
-             ;; this program, as the test build has it
-             (aset env "RRAGENT_JS" (path/resolve "target/test/rragent/main.js"))
+                 before (aget env "RRAGENT_MOTION_JS")]
+             ;; the template's program, as the test build has it
+             (aset env "RRAGENT_MOTION_JS" (path/resolve "target/test/rragent/motion/main.js"))
              (try
-               (is (= [(.-execPath js/process) (path/resolve "target/test/rragent/main.js") "motion" dir]
+               (is (= [(path/resolve "templates/motion/serve") dir]
                       (let [{:keys [cmd args]} (projects/command dir)] (into [cmd] args))))
                (await (projects/sync! handle))
                (loop [n 0]
@@ -122,9 +142,11 @@
                        {:keys [status body]} (:ring/response (await (projects/handler handle w)))]
                    (is (= 200 status))
                    (is (str/includes? (await (transit/read-body body)) "data-rframes-view"))))
+               (testing "an eval through rragent.projects"
+                 (is (= {:status 200 :text "6"} (await (projects/eval! handle "card" "duration")))))
                (finally
                  (projects/stop-all! handle)
-                 (if before (aset env "RRAGENT_JS" before) (js-delete env "RRAGENT_JS"))
+                 (if before (aset env "RRAGENT_MOTION_JS" before) (js-delete env "RRAGENT_MOTION_JS"))
                  (fs/rmSync root #js {:recursive true :force true}))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

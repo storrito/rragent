@@ -31,7 +31,7 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [replicant.string :as rs]
-            [rragent.render :as tools]))
+            [rragent.programs :as programs]))
 
 ;;; The frames
 
@@ -407,15 +407,17 @@
   "Renders the design to `:out`, a path relative to the working directory,
    and answers `{:out :frames :workers :seconds}`. The options are in the
    namespace; `:fps` is 30, `:dir` the working directory, `:chrome` is
-   found when absent (`rragent.render/chrome`), `:ffmpeg` on the PATH,
+   found when absent (`rragent.programs/locate`, CHROME in the
+   environment or the usual names on the PATH), `:ffmpeg` the same way,
    `:workers` the Chromes that screenshot side by side
    (`default-workers`), `:on-progress` a function of the frames done and
    the frames in all."
   [{:keys [frame design duration fps size head background dir audio out chrome ffmpeg workers on-progress]
     :or {fps 30 dir "."}}]
   (let [chrome (or chrome
-                   (tools/chrome)
+                   (programs/locate "chrome")
                    (throw (js/Error. "No Chrome: CHROME in the environment, or google-chrome or chromium on the PATH.")))
+        ffmpeg (or ffmpeg (programs/locate "ffmpeg") "ffmpeg")
         dir (path/resolve dir)
         ;; H.264 wants even sizes
         size (mapv #(* 2 (quot (js/Math.trunc %) 2)) size)

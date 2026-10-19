@@ -36,10 +36,13 @@
   "The Chord context every call takes; this one never cancels."
   BACKGROUND_CONTEXT)
 
-(def extension
+(defn extension
+  "rragent's own tools for the agent of `definition`: the project tool
+   names the templates the definition allows."
+  [definition]
   (defineExtension #js {:name "rragent"
                         :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool
-                                    project-tool/tool render-tool/tool media-tool/image media-tool/voice media-tool/music]
+                                    (project-tool/tool definition) render-tool/tool media-tool/image media-tool/voice media-tool/music]
                         :tasks #js [schedule/Task]}))
 
 (defn openrouter-models
@@ -49,12 +52,13 @@
     (.setProvider (openrouterProvider))))
 
 (defn registry
-  "The registry: pi-durable's coding tools, rragent's own and the
-   `extensions` of the integrations, in that order."
-  [extensions]
+  "The registry: pi-durable's coding tools, rragent's own for the
+   `definition` and the `extensions` of the integrations, in that
+   order."
+  [definition extensions]
   (let [registry (doto (createRegistry)
                    (.install CodingTools)
-                   (.install extension))]
+                   (.install (extension definition)))]
     (doseq [e extensions]
       (.install registry e))
     registry))
@@ -87,7 +91,7 @@
         extensions (await (integrations options))
         harness (await (.open Harness storage
                               #js {:models models
-                                   :registry (registry extensions)
+                                   :registry (registry definition extensions)
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) work)}))
                                    :settings #js {:compaction #js {:enabled true}}
                                    :now (or now js/undefined)

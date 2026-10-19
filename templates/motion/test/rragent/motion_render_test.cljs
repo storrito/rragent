@@ -9,7 +9,7 @@
             [clojure.test :refer [async deftest is testing]]
             [fnmotion.core :as fm]
             [rragent.motion.render :as render]
-            [rragent.render :as tools]))
+            [rragent.programs :as programs]))
 
 (deftest frame-times-test
   (is (= [0 0.5 1 1.5] (render/frame-times 2 2)))
@@ -53,7 +53,7 @@
 
 (defn- tools?
   []
-  (and (tools/chrome) (tools/on-path "ffmpeg") (tools/on-path "ffprobe")))
+  (and (programs/locate "chrome") (programs/on-path "ffmpeg") (programs/on-path "ffprobe")))
 
 (deftest render-test
   (async done

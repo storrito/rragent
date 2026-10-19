@@ -4,7 +4,11 @@ import cljf from 'clojurific/vite';
 // The server, a Node.js program: the :js-entries module below is the
 // bundle's only input (the plugin adds it to the build's inputs itself),
 // `vite build` writes it to dist/rragent.js. The page's bundle is a build
-// of its own, vite.client.config.mjs, into dist/public.
+// of its own, vite.client.config.mjs, into dist/public. The motion
+// template's program and page are two more builds, templates/motion/
+// vite.config.mjs and vite.client.config.mjs, run after these two by npm
+// run build, so that the template's dist/ is there when the plugin below
+// copies the templates.
 //
 // The dev server compiles the page's bundle besides and runs the entry
 // (`rragent serve`, see rragent.main) in its ssr environment: the page at
@@ -37,11 +41,19 @@ export default ({ command }) => {
         ssrEntries: ['rragent'],
         manifest: serving ? 'manifest.json' : false,
       }),
-      // the project templates next to the bundle, read by rragent.templates
+      // The templates next to the bundle, read by rragent.templates: each
+      // folder as the harness and the agent need it (TEMPLATE.md, project/,
+      // the executables, a built dist/), without its sources, tests and
+      // build files.
       {
         name: 'rragent-templates',
         closeBundle() {
-          if (!serving) cpSync('templates', 'dist/templates', { recursive: true });
+          if (!serving) {
+            cpSync('templates', 'dist/templates', {
+              recursive: true,
+              filter: (source) => !/(^|\/)(src|test|node_modules|target|\.[^/]+|vite[^/]*\.mjs)$/.test(source),
+            });
+          }
         },
       },
     ],

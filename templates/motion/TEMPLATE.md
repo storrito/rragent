@@ -1,7 +1,15 @@
-# This artifact
+---
+name: motion
+description: A motion design in ClojureScript, the frame as a function of time with controls over its data, played live beside the chat; renders an mp4.
+renders: mp4
+needs: chrome, ffmpeg
+entry: serve
+---
 
-A motion design, a frame as a function of time. rragent runs it and
-shows its page beside the chat; the person sees every change at once.
+# A motion design
+
+A frame as a function of time. rragent runs the project and shows its
+page beside the chat; the person sees every saved change at once.
 
 - `design.cljs`: the namespace `design` with `size` (width and height of
   the video in pixels, 1080 by 1920 for a story), `duration` in seconds,
@@ -15,6 +23,10 @@ shows its page beside the chat; the person sees every change at once.
 - `design.edn`: the data of the design, what changes per use. It is
   written on every change of a control and read at start, so it survives
   restarts; write it yourself to change the data.
+- Live coding: the `eval` tool with `project` evaluates in the namespace
+  of `design.cljs` as it runs: `(defn design-view ...)` or `(def duration
+  3)` shows on the page at once, `(design-view @data 1.5)` is a look at a
+  frame. What you keep goes into the file; a saved file starts over.
 - Music or a voice: put the audio file into this directory and add it
   to `:audio` in `design.edn`: `{:src "music.mp3" :volume 0.6 :fade-out
   1}`, with `:start` (seconds into the video, 0), `:duration` (to the

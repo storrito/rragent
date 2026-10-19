@@ -30,6 +30,7 @@
             [rragent.hooks :as hooks]
             [rragent.i18n :as i18n]
             [rragent.lifecycle :as lifecycle]
+            [rragent.programs :as programs]
             [rragent.projects :as projects]
             [rragent.render :as render]
             [rragent.rframes.command :as command]
@@ -37,6 +38,7 @@
             [rragent.rframes.replicant :as replicant]
             [rragent.rframes.sse :as sse]
             [rragent.rframes.transit :as transit]
+            [rragent.templates :as templates]
             [rragent.uploads :as uploads]
             [rragent.view :as view]))
 
@@ -226,8 +228,7 @@
         dir (home/artifacts-dir work)
         projects (projects/handle {:db db/db
                                    :dir dir
-                                   :shown? (fn [] (pos? (sse/connections)))
-                                   :env (render/environment)})]
+                                   :shown? (fn [] (pos? (sse/connections)))})]
     (reset! pane {:dir dir
                   :projects projects
                   :render (render/handle {:db db/db :dir dir})
@@ -262,7 +263,7 @@
       ;; a connected page and a render on its way keep the machine awake
       (await (lifecycle/start! agent [(fn [] (pos? (sse/connections)))
                                       (fn [] (render/any-running? (:render @pane)))]))
-      (println (render/report))
+      (println (programs/report (templates/all)))
       (println (str "rragent on "
                     (if given
                       (str base " (the token is in the environment)")

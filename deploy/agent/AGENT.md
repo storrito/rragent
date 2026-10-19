@@ -4,6 +4,7 @@ description: Watches a web page and says when it changed.
 metadata:
   title: "Page watcher"
   model: openai/gpt-6.1-sol
+  templates: []
 ---
 
 # watcher
