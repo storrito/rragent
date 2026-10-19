@@ -45,6 +45,7 @@
    :chat/model-failed [:fn/str "The model call failed: {{:error}}"]
    :chat/aborted "Stopped."
    :chat/picture "Attached picture"
+   :genui/rejected [:fn/str "This part of the answer could not be shown ({{:error}}):"]
 
    :tool/bash "Ran a command"
    :tool/read "Looked at a file"
@@ -104,6 +105,7 @@
    :chat/model-failed [:fn/str "Der Aufruf des Modells ist fehlgeschlagen: {{:error}}"]
    :chat/aborted "Gestoppt."
    :chat/picture "Angehängtes Bild"
+   :genui/rejected [:fn/str "Dieser Teil der Antwort ließ sich nicht anzeigen ({{:error}}):"]
 
    :tool/bash "Befehl ausgeführt"
    :tool/read "Datei angesehen"

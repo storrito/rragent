@@ -489,6 +489,43 @@ button.primary {
   border-top: 1px solid var(--line);
 }
 
+/* A ```hiccup block of the answer (rragent.genui): buttons in a row that
+   wraps, a checkbox or a radio button on a line of its own with its
+   text, media no wider than the chat. */
+.genui {
+  margin: 8px 0;
+}
+
+.genui button {
+  margin: 4px 6px 4px 0;
+}
+
+.genui label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  cursor: pointer;
+}
+
+.genui input[type="checkbox"],
+.genui input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.genui img,
+.genui video,
+.genui audio {
+  max-width: 100%;
+}
+
+.genui-error pre {
+  white-space: pre-wrap;
+}
+
 .item.streaming .markdown > :last-child::after {
   content: "▍";
   color: var(--muted);

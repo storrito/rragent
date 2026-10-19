@@ -43,6 +43,24 @@ the answer streaming while a run goes, a composer at the bottom and a
 Stop that aborts the run. The texts are English or German, by the
 browser's language or `?lang=de`.
 
+An answer can carry a part of the page: a ```hiccup block holds EDN
+hiccup, which `rragent.genui` lets through its allow-lists once the
+fence is closed (a block still being written shows as code). Links and
+files point at `artifacts/…`, `uploads/…` or https; `:send "text"` on a
+button sends the text as the person's next message, `{checked}` in it
+the values of the checkboxes and radio buttons ticked in the same block
+(the client's `:ui/send-checked` fills them in); `:open
+"artifacts/<name>"` shows an artifact. A block that does not read shows
+as code with the reason. It is pchat's contract, which the agentitos
+skills write against, with the inputs added:
+
+    ```hiccup
+    [:div [:p "Where should the shorts go?"]
+     [:label [:input {:type "checkbox" :value "Reel @anna" :checked true}] " Reel · @anna"]
+     [:label [:input {:type "checkbox" :value "Story @anna"}] " Story · @anna"]
+     [:button {:send "Post the shorts on: {checked}"} "Take these accounts"]]
+    ```
+
 A message can carry files, the way pchat's can: the attach button
 takes an image, a video or an audio file, a picture can be pasted or
 dropped onto the composer, a dropped clip too. A picture goes up scaled

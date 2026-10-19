@@ -15,7 +15,8 @@
    rendered again for every frame, a parse takes about a millisecond
    per answer, and the answers of the transcript do not change."
   (:require ["markdown-it" :default MarkdownIt]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [rragent.genui :as genui]))
 
 (def ^:private parser
   (MarkdownIt. #js {:html false
@@ -95,12 +96,16 @@
   (first (str/split (str/trim (str info)) #"\s+")))
 
 (defn- fence
-  "The code block with its language as a class, `language-clojure`."
+  "The code block with its language as a class, `language-clojure`; a
+   closed ```hiccup block a part of the page (`rragent.genui`), one still
+   being written its code until its fence closes."
   [^js token]
   (let [lang (language (.-info token))]
-    [:pre (element :code
-                   (when (seq lang) {:class (str "language-" lang)})
-                   [(.-content token)])]))
+    (if (and (= "hiccup" lang) (some-> (.-meta token) .-closed))
+      (genui/block (.-content token))
+      [:pre (element :code
+                     (when (seq lang) {:class (str "language-" lang)})
+                     [(.-content token)])])))
 
 (defn- frame
   "A frame of the stack while the walk is inside an element: the tag
@@ -206,9 +211,31 @@
       (:children (peek stack))
       (recur (close stack)))))
 
+(defn- closed?
+  "Whether the fence `token` ends with its closing line in `lines`, the
+   lines of the text: markdown-it lets an open fence run to the end."
+  [lines ^js token]
+  (let [[from to] (array-seq (.-map token))
+        last-line (str/trim (str (get lines (dec to))))
+        markup (.-markup token)]
+    (and (< (inc from) to)
+         (<= (count markup) (count last-line))
+         (re-matches #"(`+|~+)" last-line)
+         (= (first markup) (first last-line)))))
+
+(defn- mark-closed!
+  "The fences of the token stream marked, `meta.closed`, when their
+   closing line is there."
+  [tokens text]
+  (let [lines (str/split-lines (str text))]
+    (doseq [^js token (array-seq tokens)
+            :when (and (= "fence" (.-type token)) (.-map token))]
+      (set! (.-meta token) #js {:closed (boolean (closed? lines token))}))
+    tokens))
+
 (defn parse
   [text]
-  (from-tokens (.parse parser (str text) #js {})))
+  (from-tokens (mark-closed! (.parse parser (str text) #js {}) text)))
 
 (def ^:private cache-size
   "Entries the cache holds before it is emptied: every chunk of a
@@ -235,4 +262,5 @@
   (parse "- [ ] todo\n- [x] done")
   (parse "| a | b |\n|:--|--:|\n| 1 | 2 |")
   (parse "<script>alert(1)</script>")
+  (parse "Which?\n\n```hiccup\n[:button {:send \"This\"} \"This one\"]\n```")
   )
