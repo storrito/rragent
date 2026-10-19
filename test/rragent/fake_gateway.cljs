@@ -1,14 +1,15 @@
 (ns rragent.fake-gateway
   "A Sprites gateway for the tests, in a worker thread of its own: the
-   REPL's calls block the main thread until they are answered
-   (`rragent.sync-fetch`), so a fake in that thread would never
-   answer. It serves `/v1/gateway/list` (what a test gives, `{base}`
-   in it replaced by the fake's URL, a connection without
-   `gateway_base_url` given the fake's), refuses a request with an
-   Authorization header (the gateway adds the credential, nothing
-   else may), and behind `/v1/gateway/<provider>/<id>/` the
-   connections of the list: `echo` answers every request as JSON
-   (`?status=` sets the status, `?text=1` answers plain text), the
+   REPL's calls block the thread they run in until they are answered
+   (`rragent.sync-fetch`), the tests' own thread where a test
+   evaluates directly, so a fake in that thread would never answer.
+   It serves `/v1/gateway/list` (what a test gives, `{base}` in it
+   replaced by the fake's URL, a connection without `gateway_base_url`
+   given the fake's), refuses a request with an Authorization header
+   (the gateway adds the credential, nothing else may), and behind
+   `/v1/gateway/<provider>/<id>/` the connections of the list: `echo`
+   answers every request as JSON (`?status=` sets the status, `?text=1`
+   answers plain text, `?delay=<ms>` answers that much later), the
    custom API `conn_composio` the four meta tools at `execute_meta`
    (a search, schemas, a run of GMAIL_SEND_EMAIL that completes and of
    any other tool that fails, the connection manager with a link; the
@@ -75,6 +76,8 @@ const server = http.createServer(async (req, res) => {
   const body = await read(req);
   const url = new URL(req.url, 'http://fake');
   const path = url.pathname;
+  const delay = Number(url.searchParams.get('delay') || 0);
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
   let parsed = body;
   try { parsed = JSON.parse(body); } catch (e) {}
   if (path === '/v1/gateway/list') return json(res, 200, list);

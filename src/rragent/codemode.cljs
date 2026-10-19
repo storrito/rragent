@@ -1,8 +1,8 @@
 (ns rragent.codemode
-  "The agent's REPL: Clojure programs evaluated by SCI in the agent's
-   process, with the connectors of the Sprites gateway as functions
-   and nothing else of the host. One context for the life of the
-   process, so that a `def` of one program is there for the next; a
+  "The agent's REPL: Clojure programs evaluated by SCI with the
+   connectors of the Sprites gateway as functions and nothing else of
+   the host. One context for the life of a handle, made at the first
+   program, so that a `def` of one program is there for the next; a
    program's printed output and its value are its answer. The context
    is closed: no `js/`, no interop on values, no `require` of anything
    but Clojure's own namespaces, no reading of the environment; what a
@@ -10,10 +10,12 @@
    in `user`: `connectors`, `connector`, `call`, `remember`, `recall`
    and `help`, with `composio/*` and `storrito/*` beside them
    (`rragent.gateway`, `rragent.composio`, `rragent.storrito`). A call
-   blocks the process until it is answered (`rragent.sync-fetch`), so
-   a program loops over calls as over anything else. The facts a
-   program recalls are read before it runs, what it remembers is
-   committed after it (`rragent.tools.eval`)."
+   blocks its thread until it is answered (`rragent.sync-fetch`), so
+   a program loops over calls as over anything else; the agent runs
+   its programs in a worker thread for that (`rragent.codemode-worker`,
+   a handle of `handle-of` over what the main thread discovered). The
+   facts a program recalls are read before it runs, what it remembers
+   is committed after it (`rragent.tools.eval`)."
   (:require [clojure.string :as str]
             [goog.string :as gstring]
             [rragent.composio :as composio]
@@ -82,11 +84,12 @@
 (defn- install-storrito!
   "The `storrito/` functions of the catalog of the Storrito connection
    among the gateway's, when there is one (`rragent.storrito/find-catalog`);
-   what went wrong kept for `procedures` to say."
+   what went wrong kept for `procedures` to say. Into the context when
+   there is one already; else the context takes them when it is made."
   [handle call]
   (let [{:keys [connection catalog] :as found} (storrito/find-catalog @(:discovery handle))]
     (reset! (:storrito handle) found)
-    (when catalog
+    (when (and catalog @(:context handle))
       (swap! (:context handle) sci/merge-opts {:namespaces {'storrito (storrito-vars call connection catalog)}}))))
 
 (defn call
@@ -261,31 +264,53 @@
   (into {} (map (fn [v] [(:name (meta v)) (binding-var ns handle v)])) fns))
 
 (defn- context
-  "The closed SCI context with the namespaces of `handle`."
+  "The closed SCI context with the namespaces of `handle`, the
+   storrito/ functions of the catalog found by now among them."
   [handle]
-  (let [ctx (sci/init {:features #{:cljs}
+  (let [{:keys [connection catalog]} @(:storrito handle)
+        ctx (sci/init {:features #{:cljs}
                        :namespaces {'clojure.core denied-core
                                     'agent (vars agent-ns handle [#'connectors #'connector #'call #'remember #'recall #'help])
                                     'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections])
-                                    'storrito (vars storrito-ns handle [#'procedures])}})]
+                                    'storrito (cond-> (vars storrito-ns handle [#'procedures])
+                                                catalog (merge (storrito-vars (partial call handle) connection catalog)))}})]
     (sci/eval-string* ctx preamble)
     ctx))
 
+(defn- context!
+  "The context of `handle`, made at the first program."
+  [handle]
+  (or @(:context handle)
+      (reset! (:context handle) (context handle))))
+
+(defn handle-of
+  "The REPL over what another thread found: `{:gateway :discovery
+   :storrito}` as `snapshot` answers them, no request made. `{:gateway
+   :discovery :storrito :composio-session :facts :context}`, the last
+   five atoms; the context is made at the first program."
+  [{:keys [gateway discovery storrito]}]
+  {:gateway gateway
+   :discovery (atom discovery)
+   :storrito (atom storrito)
+   :composio-session (atom nil)
+   :facts (atom {:known [] :pending []})
+   :context (atom nil)})
+
 (defn handle
   "The REPL of the agent: the gateway at `base` discovered, the
-   context made, the storrito/ functions installed. `{:gateway
-   :discovery :storrito :composio-session :facts :context}`, the last
-   five atoms."
+   Storrito catalog read; the context is made at the first program."
   [base]
-  (let [handle {:gateway base
-                :discovery (atom (gateway/discover base))
-                :storrito (atom nil)
-                :composio-session (atom nil)
-                :facts (atom {:known [] :pending []})
-                :context (atom nil)}]
-    (reset! (:context handle) (context handle))
+  (let [handle (handle-of {:gateway base :discovery (gateway/discover base)})]
     (install-storrito! handle (partial call handle))
     handle))
+
+(defn snapshot
+  "What a handle in another thread starts from (`handle-of`): the
+   gateway, its discovery and the Storrito catalog as they are, data."
+  [handle]
+  {:gateway (:gateway handle)
+   :discovery @(:discovery handle)
+   :storrito @(:storrito handle)})
 
 (defn discovery
   [handle]
@@ -324,7 +349,7 @@
         value (try
                 (sci/binding [sci/print-newline true
                               sci/print-fn (fn [x] (.append sb x))]
-                  (sci/eval-string* @(:context handle) (str code)))
+                  (sci/eval-string* (context! handle) (str code)))
                 (catch :default e
                   (throw (js/Error. (cut (error-text e (str sb)))))))
         printed (str sb)]

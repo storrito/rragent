@@ -4,9 +4,13 @@
    the agent of RRAGENT_HOME, asks it one thing and prints the answer;
    `rragent serve` serves its page. Under the dev server (which runs
    the entry without a command) the page is served. The templates'
-   processes are programs of their own (`rragent.templates`)."
+   processes are programs of their own (`rragent.templates`). The
+   bundle is also what the REPL's worker thread runs
+   (`rragent.codemode-worker`): there the worker's loop runs and `main`
+   does not."
   (:require [clojure.string :as str]
             [rragent.assets :as assets]
+            [rragent.codemode-worker :as codemode-worker]
             [rragent.harness :as harness]
             [rragent.page :as page]
             [rragent.version :as version]))
@@ -39,7 +43,8 @@
             (usage))
       (usage))))
 
-(-> (main)
-    (.catch (fn [error]
-              (js/console.error error)
-              (set! (.-exitCode js/process) 1))))
+(when-not (codemode-worker/worker-thread?)
+  (-> (main)
+      (.catch (fn [error]
+                (js/console.error error)
+                (set! (.-exitCode js/process) 1)))))

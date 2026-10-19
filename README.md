@@ -42,8 +42,9 @@ agent's answers rendered from their markdown (`rragent.markdown`:
 markdown-it's tokens walked into hiccup, so a tag the model writes is
 text, never HTML of the page), its tool calls folded with their output,
 the answer streaming while a run goes, a composer at the bottom and a
-Stop that aborts the run. The texts are English or German, by the
-browser's language or `?lang=de`.
+Stop that aborts the run, a program of the REPL in it ended with its
+worker thread. The texts are English or German, by the browser's
+language or `?lang=de`.
 
 An answer can carry a part of the page: a ```hiccup block holds EDN
 hiccup, which `rragent.genui` lets through its allow-lists once the
@@ -334,8 +335,9 @@ whenever a program asks, and makes three things of it:
   docstring from the catalog (`rragent.storrito`).
 
 The `eval` tool is the agent's REPL (`rragent.codemode`): a Clojure program
-evaluated by SCI in the agent's own process, one context for the life of
-the process, so a `def` of one program is there for the next; what the
+evaluated by SCI in a worker thread of the agent's process
+(`rragent.codemode-worker`, below), one context for the life of the
+worker, so a `def` of one program is there for the next; what the
 program printed and its value, cut at ten thousand characters, are the
 answer, an error the tool's error. The context is closed: no `js/`, no
 interop on values, no `require` of anything but Clojure's own namespaces,
@@ -365,18 +367,34 @@ beside it; `(help)` lists them and `(doc f)` explains each:
   `remember` and `recall` tools make; a program sees the facts as they
   were when it started, what it remembers is committed when it ends.
 
-A call blocks the process until it is answered: SCI evaluates a program
-synchronously, so a call in the middle of a loop cannot await, and the
-request runs in a worker thread instead while the agent's thread waits
-on a shared flag (`rragent.sync-fetch`: `Atomics.wait` and
-`receiveMessageOnPort`). Nothing else of the agent happens meanwhile, a
-call has two minutes, and the tests' fake gateway lives in a worker
-thread of its own for the same reason (`rragent.fake-gateway`).
+A call blocks the thread it runs in until it is answered: SCI evaluates
+a program synchronously, so a call in the middle of a loop cannot
+await, and the request runs in a helper thread instead while the
+program's thread waits on a shared flag (`rragent.sync-fetch`:
+`Atomics.wait` and `receiveMessageOnPort`); a call has two minutes.
+That is why the programs run in a worker thread of their own
+(`rragent.codemode-worker`, `node:worker_threads`), one per agent,
+started at the first program from what the main thread discovered of
+the gateway: the main thread stays free meanwhile, the page renders,
+the hooks and the schedules fire, Stop reaches the agent. The worker
+runs the bundle itself, told apart by its `workerData`, so there is one
+file to deploy; it holds the SCI context, and the `eval` tool posts each
+program over the port with the facts the program sees and the
+environment the bindings read, and gets what it printed and its value,
+or its error, and what it remembered, which the tool commits. Stop
+while a program runs terminates the worker, and so does a program
+longer than `RRAGENT_PROGRAM_TIMEOUT_MIN` minutes (ten): the stopped
+call fails with the reason, the next program starts a new worker with a
+fresh context, and its answer says first that the defs are gone. The
+tests' fake gateway lives in a worker thread of its own as well, since
+the tests of the bindings evaluate in their own thread
+(`rragent.fake-gateway`).
 
-Two variables: `RRAGENT_GATEWAY`, the gateway's base
+Three variables: `RRAGENT_GATEWAY`, the gateway's base
 (`http://sprite.internal`, which answers only inside a sprite; elsewhere
-the list is empty and says why), and `COMPOSIO_SESSION_ID`, the session
-of the Composio functions.
+the list is empty and says why), `COMPOSIO_SESSION_ID`, the session
+of the Composio functions, and `RRAGENT_PROGRAM_TIMEOUT_MIN`, how long
+a program may run.
 
 ## Releases
 

@@ -2,11 +2,13 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rframes.client.frames :as frames]
+            [rragent.fake-gateway :as fake-gateway]
             [rragent.harness :as harness]
             [rragent.page :as page]
             [rragent.rframes.http :as http]
             [rragent.rframes.transit :as transit]
             [rragent.db :as db]
+            [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]
             [rragent.uploads-test :as uploads-test]))
@@ -137,5 +139,94 @@
                    (await (js/Promise. (fn [resolve] (.close server resolve))))
                    (await (harness/close agent))
                    (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(defn- ^:async login
+  "The cookie the token's link sets."
+  [base token]
+  (let [login (await (js/fetch (str base "/?token=" token) #js {:redirect "manual"}))]
+    (first (str/split (str (.get (.-headers login) "set-cookie")) #";"))))
+
+(defn- ^:async command!
+  "A command posted to the page: its answer."
+  [base cookie kind data]
+  (let [sent (await (js/fetch (str base "/command") #js {:method "POST"
+                                                          :headers #js {:cookie cookie
+                                                                        :content-type "application/transit+json"}
+                                                          :body (transit/write-str {:command/kind kind
+                                                                                    :command/data data})}))]
+    (transit/read-str (await (.text sent)))))
+
+(defn- ^:async stream
+  "The page's frame stream opened: `{:reader :decoder}`."
+  [base cookie controller]
+  (let [response (await (js/fetch base #js {:method "POST"
+                                             :headers #js {:cookie cookie
+                                                           :accept "text/event-stream"
+                                                           :accept-encoding "identity"}
+                                             :body (transit/write-str {:tabid "t2"})
+                                             :signal (.-signal controller)}))]
+    {:reader (.getReader (.-body response))
+     :decoder (js/TextDecoder.)}))
+
+(deftest stop-test
+  (async done
+    (-> ((^:async fn []
+           (let [{:keys [url stop]} (await (fake-gateway/start!))
+                 home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (.setResponses faux #js [(tools-test/tool-call "eval" {:code "(def slow (call \"echo\" \"/slow\" {:query {:delay 3000}})) (:status slow)"} "e1")
+                                      (tools-test/answer "Slow done.")
+                                      (tools-test/tool-call "eval" {:code "(loop [] (recur))"} "e2")
+                                      (tools-test/tool-call "eval" {:code "(def z 1)"} "e3")
+                                      (tools-test/answer "Fresh.")])
+             (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux" :gateway url}))
+                   stop-following (page/start! agent)
+                   server (await (http/listen (page/handler "s3cret") 0))
+                   base (str "http://127.0.0.1:" (.-port (.address server)))
+                   controller (js/AbortController.)
+                   cookie (await (login base "s3cret"))
+                   {:keys [reader decoder]} (await (stream base cookie controller))
+                   {buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))]
+               (try
+                 (let [buffer (atom buffer)
+                       frame! (^:async fn [pred]
+                                (let [found (await (within 15000 (next-frame reader decoder @buffer pred)))]
+                                  (reset! buffer (:buffer found))
+                                  (:view found)))]
+                   (testing "the main thread is free while a program blocks in a call: the page answers meanwhile"
+                     (is (= {:success? true} (await (command! base cookie :chat/send {:text "Call slowly."}))))
+                     (let [running (await (frame! #(mentions? % "Evaluated")))
+                           at (js/Date.now)]
+                       (is (mentions? running "Stop") "the run goes")
+                       (is (mentions? running "(:status slow)") "the program is on the page")
+                       (is (= 200 (.-status (await (within 1000 (js/fetch base #js {:headers #js {:cookie cookie}}))))) "the shim answers")
+                       (let [answer (await (frame! #(mentions? % "Slow done.")))]
+                         (is (<= 2000 (- (js/Date.now) at)) "the call was still blocked when the shim answered")
+                         (is (mentions? answer "=> 200") "the call's answer, from the worker"))))
+                   (testing "Stop ends a program that never would, within a second; the model reads that the call was aborted"
+                     (is (= {:success? true} (await (command! base cookie :chat/send {:text "Loop."}))))
+                     (await (frame! #(mentions? % "(loop [] (recur))")))
+                     (let [at (js/Date.now)]
+                       (is (= {:success? true} (await (command! base cookie :chat/stop {}))))
+                       (let [idle (await (frame! #(not (mentions? % "Stop"))))]
+                         (is (< (- (js/Date.now) at) 1500) "stopped within a second")
+                         (is (mentions? idle "did not work") "the call is marked as failed"))
+                       (is (str/includes? (tools-test/result-text (get (await (tools-test/tool-results agent)) "e2")) "Tool eval was aborted"))))
+                   (testing "the next program starts over, in a fresh context, and says so"
+                     (is (= {:success? true} (await (command! base cookie :chat/send {:text "Again."}))))
+                     (let [answer (await (frame! #(mentions? % "Fresh.")))]
+                       (is (mentions? answer "The REPL started over since the last program was stopped: what earlier programs defined is gone."))
+                       (is (mentions? answer "=> #'user/z")))))
+                 (finally
+                   (.abort controller)
+                   (stop-following)
+                   (.closeAllConnections server)
+                   (await (js/Promise. (fn [resolve] (.close server resolve))))
+                   (await (harness/close agent))
+                   (test-home/remove! home)
+                   (stop)
+                   (sync-fetch/stop!)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
