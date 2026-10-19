@@ -11,7 +11,10 @@
    audio file in pieces of `piece-bytes` with its progress on its chip,
    and Send waits until every clip is in (`rragent.uploads` on the
    server). The attachments are client state beside the draft, a frame
-   from the server does not reset them."
+   from the server does not reset them. Files dragged over the page
+   bring up a veil that takes them anywhere, as in ChatGPT, LibreChat or
+   Open WebUI, and a file dropped beside it never opens in the tab
+   instead of the page."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             [rframes.client :as rframes]
@@ -201,6 +204,52 @@
       (clip-type file) (upload-clip! store attachments-key upload-url file)
       (image-file? file) (upload-image! store attachments-key upload-url file))))
 
+(defn- dragging-files?
+  "A drag that carries files from outside the page, not a selection of
+   its text or a link."
+  [^js event]
+  (boolean (some #{"Files"} (some-> event .-dataTransfer .-types js/Array.from))))
+
+(defonce ^:private drop-listeners
+  ;; the window takes every drag of files, so that a drop beside the veil
+  ;; does not open the file in the tab; the veil itself is the composer's
+  (do (.addEventListener js/window "dragenter"
+                         (fn [^js event]
+                           (when (and (dragging-files? event)
+                                      (not (:ui/dropping? @state/store)))
+                             (swap! state/store assoc :ui/dropping? true))))
+      (.addEventListener js/window "dragover"
+                         (fn [^js event]
+                           (when (dragging-files? event)
+                             (.preventDefault event))))
+      (.addEventListener js/window "drop"
+                         (fn [^js event]
+                           (when (dragging-files? event)
+                             (.preventDefault event)
+                             (swap! state/store dissoc :ui/dropping?))))
+      true))
+
+(defn- drop-veil
+  "Over the whole page while files are dragged over it: a drop anywhere
+   attaches them. Only the veil takes the drag, its card none of it, so
+   leaving the veil is leaving the window (or Escape)."
+  [store attachments-key upload-url {:keys [title hint]}]
+  [:div.drop-veil {:on {:dragover (fn [^js event]
+                                    (.preventDefault event)
+                                    (set! (.. event -dataTransfer -dropEffect) "copy"))
+                        :dragleave (fn [_event]
+                                     (swap! store dissoc :ui/dropping?))
+                        :drop (fn [^js event]
+                                (.preventDefault event)
+                                (.stopPropagation event)
+                                (swap! store dissoc :ui/dropping?)
+                                (upload-all! store attachments-key upload-url
+                                             (array-seq (.. event -dataTransfer -files))))}}
+   [:div.drop-card
+    [:span.icon "📎"]
+    [:strong (or title "Add files")]
+    [:span.hint (or hint "Drop images, videos or audio files to attach them to your message.")]]])
+
 (defn- pasted-files
   "The images and clips of a paste; a paste of text has none, and
    pastes as text."
@@ -261,11 +310,13 @@
    neither; files go to `:ui/upload-url`. Enter and the Send button run
    `:ui/send`, the actions of the server, once every upload is in;
    Shift+Enter breaks the line. A paste with files on the clipboard
-   uploads them, a paste of text pastes; a drop anywhere on the composer
-   uploads the files. The labels are the server's, translated; the
-   other attributes pass through to the textarea."
+   uploads them, a paste of text pastes; files dragged over the page
+   bring up the veil (`drop-veil`), a drop on it uploads them. The labels
+   are the server's, translated; the other attributes pass through to
+   the textarea."
   [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label
-           ui/attach-title ui/remove-title ui/uploading-label ui/failed-label ui/state]
+           ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
+           ui/drop-title ui/drop-hint ui/state]
     :as attrs}
    _children]
   (let [store state/store
@@ -287,6 +338,9 @@
                                        (.preventDefault event)
                                        (upload-all! store attachments-key upload-url
                                                     (array-seq (.. event -dataTransfer -files))))}}
+     (when (:ui/dropping? state)
+       (drop-veil store attachments-key upload-url {:title drop-title
+                                                    :hint drop-hint}))
      (attachments-view store attachments-key attachments {:remove-title remove-title
                                                           :uploading-label uploading-label
                                                           :failed-label failed-label})
@@ -294,7 +348,7 @@
       [:textarea
        (-> (dissoc attrs :ui/store-key :ui/attachments-key :ui/upload-url :ui/send
                    :ui/send-label :ui/attach-title :ui/remove-title :ui/uploading-label
-                   :ui/failed-label :ui/state)
+                   :ui/failed-label :ui/drop-title :ui/drop-hint :ui/state)
            (assoc :value draft
                   :on {:input [[:store/assoc store-key :event/target.value]]
                        :paste (fn [^js event]

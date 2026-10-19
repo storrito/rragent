@@ -74,8 +74,10 @@ skills write against, with the inputs added:
     ```
 
 A message can carry files, the way pchat's can: the attach button
-takes an image, a video or an audio file, a picture can be pasted or
-dropped onto the composer, a dropped clip too. A picture goes up scaled
+takes an image, a video or an audio file, a picture can be pasted, and
+files dragged over the page bring up a veil that takes them anywhere
+(the way ChatGPT, LibreChat and Open WebUI do; a file dropped beside it
+never replaces the page in the tab). A picture goes up scaled
 to 1600 pixels on its long side and is stored content-addressed; a clip
 goes up in pieces of 8 MB (`POST /upload?id=<hex>&offset=<n>&total=<n>`,
 appended to a part file and renamed when the last piece is in, a

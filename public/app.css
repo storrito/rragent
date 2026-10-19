@@ -767,3 +767,72 @@ pre {
 .item .looks a.clip:hover {
   border-color: var(--muted);
 }
+
+/* Files dragged over the page: a veil over all of it takes them, with a
+   card that says what a drop does, the way ChatGPT, LibreChat and Open
+   WebUI do. Only the veil takes the drag, the card none of it, so the
+   drag leaves the veil only when it leaves the window. */
+.drop-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  backdrop-filter: blur(3px);
+  animation: drop-veil-in 150ms ease-out;
+}
+
+.drop-veil > * {
+  pointer-events: none;
+}
+
+.drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 420px;
+  padding: 32px 40px;
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  animation: drop-card-in 150ms ease-out;
+}
+
+.drop-card .icon {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.drop-card strong {
+  font-size: 18px;
+}
+
+.drop-card .hint {
+  color: var(--muted);
+}
+
+@keyframes drop-veil-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes drop-card-in {
+  from {
+    transform: scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop-veil,
+  .drop-card {
+    animation: none;
+  }
+}
