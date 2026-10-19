@@ -10,11 +10,11 @@
    dropped or pasted goes up scaled and in one request, a video or an
    audio file in pieces of `piece-bytes` with its progress on its chip,
    and a message sent while clips go up goes once the last is in
-   (`rragent.uploads` on the server). The attachments are client state beside the draft, a frame
-   from the server does not reset them. Files dragged over the page
-   bring up a veil that takes them anywhere, as in ChatGPT, LibreChat or
-   Open WebUI, and a file dropped beside it never opens in the tab
-   instead of the page."
+   (`rragent.uploads` on the server). The attachments are client state
+   beside the draft, a frame from the server does not reset them. Files
+   dragged over the page bring up a veil that takes them anywhere, as in
+   ChatGPT, LibreChat or Open WebUI, and a file dropped beside it never
+   opens in the tab instead of the page."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             [rframes.client :as rframes]
@@ -328,18 +328,36 @@
                                                 (vec (remove #(= name (:name %)) attachments)))))}}
          "×"]])]))
 
-(defonce ^:private pending-sends
-  ;; a message sent while its files go up: it goes once none is uploading,
-  ;; with the draft as it is then; with nothing left to send it is dropped
-  (add-watch state/store ::send-pending
-             (fn [_ _ _ state]
-               (when-let [{:keys [actions store-key attachments-key]} (:ui/send-pending state)]
-                 (let [attachments (get state attachments-key)]
-                   (when-not (some :uploading? attachments)
-                     (swap! state/store dissoc :ui/send-pending)
-                     (when (or (not (str/blank? (get state store-key)))
-                               (some #(not (:failed? %)) attachments))
-                       (state/dispatch! actions))))))))
+(defn- pending-step
+  "What a message sent while its files go up does on a change of the
+   store: `:wait` while one is uploading, `:send` once none is, `:cancel`
+   when a file it waited for failed or was taken off (the person sees
+   the failure and the draft stays), or when nothing is left to send."
+  [{:keys [store-key attachments-key chips]} state]
+  (let [attachments (get state attachments-key)
+        present (set (keep :chip attachments))]
+    (cond
+      (some #(or (not (present %))
+                 (some (fn [a] (and (= % (:chip a)) (:failed? a))) attachments))
+            chips) :cancel
+      (some :uploading? attachments) :wait
+      (or (not (str/blank? (get state store-key)))
+          (some #(not (:failed? %)) attachments)) :send
+      :else :cancel)))
+
+;; a message sent while its files go up goes once none is uploading, with
+;; the draft as it is then. Not in the watch itself: the render watch,
+;; notified after it, would draw this change's state over the newer one
+(add-watch state/store ::send-pending
+           (fn [_ _ _ state]
+             (when-let [pending (:ui/send-pending state)]
+               (when-let [step (#{:send :cancel} (pending-step pending state))]
+                 (js/queueMicrotask
+                  (fn []
+                    (when (identical? pending (:ui/send-pending @state/store))
+                      (swap! state/store dissoc :ui/send-pending)
+                      (when (= :send step)
+                        (state/dispatch! (:actions pending))))))))))
 
 (defn composer
   "The textarea of the page with its attachments. The text lives in the
@@ -347,14 +365,15 @@
    `:ui/attachments-key`, so that a frame from the server resets
    neither; files go to `:ui/upload-url`. Enter and the Send button run
    `:ui/send`, the actions of the server, with a text, files or both;
-   while files go up they run once the last is in, the button says so
-   (`:ui/send-pending-label`). Shift+Enter breaks the line. A paste with files on the clipboard
-   uploads them, a paste of text pastes; files dragged over the page
+   while files go up they run once the last is in (`pending-step`), the
+   button says so (`:ui/send-pending-label`) and a click on it takes the
+   send back. Shift+Enter breaks the line. A paste with files on the
+   clipboard uploads them, a paste of text pastes; files dragged over the page
    bring up the veil (`drop-veil`), a drop on it uploads them. The labels
    are the server's, translated; the other attributes pass through to
    the textarea."
   [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label ui/send-pending-label
-           ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
+           ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
            ui/drop-title ui/drop-hint ui/state]
     :as attrs}
    _children]
@@ -374,7 +393,9 @@
                   (if uploading?
                     (swap! store assoc :ui/send-pending {:actions send
                                                          :store-key store-key
-                                                         :attachments-key attachments-key})
+                                                         :attachments-key attachments-key
+                                                         :chips (set (keep #(when (:uploading? %) (:chip %))
+                                                                           attachments))})
                     (state/dispatch! send))))]
     [:div.composer-input
      (when (:ui/dropping? state)
@@ -386,7 +407,7 @@
      [:div.row
       [:textarea
        (-> (dissoc attrs :ui/store-key :ui/attachments-key :ui/upload-url :ui/send
-                   :ui/send-label :ui/send-pending-label :ui/attach-title :ui/remove-title :ui/uploading-label
+                   :ui/send-label :ui/send-pending-label :ui/send-cancel-title :ui/attach-title :ui/remove-title :ui/uploading-label
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/state)
            (assoc :value draft
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -411,9 +432,12 @@
                                (upload-all! store attachments-key upload-url
                                             (array-seq (.. event -target -files)))
                                (set! (.. event -target -value) ""))}}]]
-      [:button.primary {:disabled (not ready?)
+      [:button.primary {:disabled (not (or ready? pending?))
+                        :title (when pending? send-cancel-title)
                         :on {:click (fn [_event]
-                                      (send!))}}
+                                      (if pending?
+                                        (swap! store dissoc :ui/send-pending)
+                                        (send!)))}}
        (if pending?
          (or send-pending-label "Sends after the upload")
          (or send-label "Send"))]]]))
