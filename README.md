@@ -28,8 +28,8 @@ and named hooks that other systems call.
 The harness runs (Clojurific, Vite, Node 26, pi-durable on SQLite), the page
 serves the conversation, the tools, schedules and hooks are there, and so
 are Storrito's procedures and Composio's meta tools where their variables
-are set. The artifacts pane shows what the agent makes, runs motion
-designs and HyperFrames projects and renders their videos.
+are set. The artifacts pane shows what the agent makes, runs motion designs
+and HyperFrames projects and renders their videos.
 
 ## The page
 
