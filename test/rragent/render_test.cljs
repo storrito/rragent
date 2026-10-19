@@ -114,6 +114,9 @@
                      (is (some #(= "Rendered" %) @lines))
                      (is (not (render/running? handle "card"))))))
                (testing "a second start while it runs waits for the same render"
+                 ;; the first run's complete file goes first: a stop leaves a
+                 ;; complete file alone, so only a torso may survive below
+                 (fs/rmSync (path/join dir "card.mp4") #js {:force true})
                  (fs/writeFileSync (path/join fake "slow") "")
                  (let [first-run (render/start! handle "card")
                        second-run (render/start! handle "card")]
