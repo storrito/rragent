@@ -70,7 +70,10 @@
     (-> ((^:async fn []
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)
-                 {:keys [script log]} (fake/make!)]
+                 {:keys [script log]} (fake/make!)
+                 ;; the test may cross a minute boundary: either next minute is right
+                 started (js/Date.now)
+                 minutes #{(wake/cron-of (wake/next-minute started)) (wake/cron-of (+ 60000 (wake/next-minute started)))}]
              (.setResponses faux (clj->js (concat [(tools-test/tool-call "schedule" {:action "set" :name "tick" :cron "* * * * * *" :text "Tick."} "s1")
                                                    (tools-test/answer "Set.")]
                                                   (repeat 20 (tools-test/answer "Tock.")))))
@@ -82,7 +85,7 @@
                      (is (= 1 armed-at-set) "the alarm set once by the tool")
                      (await (sleep 2500))
                      (is (< armed-at-set (count (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))) "and again after every fire")
-                     (is (every? #(str/includes? % (str "--cron " (wake/cron-of (wake/next-minute (js/Date.now))) " --exec"))
+                     (is (every? (fn [call] (some #(str/includes? call (str "--cron " % " --exec")) minutes))
                                  (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))
                          "to the next minute: a second-by-second schedule is always due within it"))
                    (finally
