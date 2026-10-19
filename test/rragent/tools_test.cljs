@@ -11,11 +11,14 @@
             [rragent.tools.state :as state-tool]))
 
 (defn faux-models
-  "The faux provider playing the model, its answers set with `set-responses!`."
-  []
-  (let [faux (fauxProvider)
-        models (doto (createModels) (.setProvider (.-provider faux)))]
-    {:faux faux :models models}))
+  "The faux provider playing the model, its answers set with `set-responses!`;
+   `options` as `fauxProvider` takes them, `:models` for models beside
+   `faux-1`."
+  ([] (faux-models nil))
+  ([options]
+   (let [faux (fauxProvider (if options (clj->js options) js/undefined))
+         models (doto (createModels) (.setProvider (.-provider faux)))]
+     {:faux faux :models models})))
 
 (defn tool-call
   [name args id]

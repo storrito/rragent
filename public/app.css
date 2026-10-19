@@ -439,3 +439,128 @@ pre {
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* The composer with its attachments: the chips above the text, a picture
+   as a thumbnail, a clip with its name, size and the progress of its
+   upload; the attach button beside the text. */
+.composer-input {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.composer-input .row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.composer-input textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer .attach {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  user-select: none;
+}
+
+.composer .attach:hover {
+  border-color: var(--muted);
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attachment {
+  position: relative;
+  display: inline-block;
+}
+
+.attachment img {
+  display: block;
+  height: 72px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.attachment .clip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  max-width: 320px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.attachment .clip .file {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.attachment .clip small {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.attachment.failed .clip {
+  border-color: var(--accent);
+}
+
+.attachment .remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 20px;
+  text-align: center;
+  background: var(--bg);
+}
+
+/* The files of a sent message: a picture as a thumbnail, a clip as its
+   name, each a link to the file. */
+.item .looks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.item .looks img {
+  display: block;
+  height: 150px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.item .looks a.clip {
+  display: inline-block;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.item .looks a.clip:hover {
+  border-color: var(--muted);
+}
