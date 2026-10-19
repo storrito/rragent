@@ -321,6 +321,8 @@
                   :ui/remove-title [:i18n :composer/remove]
                   :ui/uploading-label [:i18n :composer/uploading]
                   :ui/failed-label [:i18n :composer/upload-failed]
+                  :ui/drop-title [:i18n :composer/drop-title]
+                  :ui/drop-hint [:i18n :composer/drop-hint]
                   :rows 3
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]
    (when (= :working status)

@@ -11,7 +11,10 @@
    audio file in pieces of `piece-bytes` with its progress on its chip,
    and Send waits until every clip is in (`rragent.uploads` on the
    server). The attachments are client state beside the draft, a frame
-   from the server does not reset them."
+   from the server does not reset them. Files dragged over the page
+   bring up a veil that takes them anywhere, as in ChatGPT, LibreChat or
+   Open WebUI, and a file dropped beside it never opens in the tab
+   instead of the page."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             [rframes.client :as rframes]
@@ -201,6 +204,77 @@
       (clip-type file) (upload-clip! store attachments-key upload-url file)
       (image-file? file) (upload-image! store attachments-key upload-url file))))
 
+(defonce ^:private inner-drag*
+  ;; a drag that started on the page, a picture of the transcript say:
+  ;; the browser lists "Files" for it too, but it brings none
+  (atom false))
+
+(defn- dragging-files?
+  "A drag that carries files from outside the page, not a selection of
+   its text, a link or a picture of the page."
+  [^js event]
+  (and (not @inner-drag*)
+       (boolean (some #{"Files"} (some-> event .-dataTransfer .-types js/Array.from)))))
+
+(defn- watch-drags!
+  "Brings up the veil when files are dragged into `win`: the page's
+   window, and the canvas's, which takes the drags over the artifacts
+   pane until the veil covers it."
+  [^js win]
+  (.addEventListener win "dragstart" (fn [_event]
+                                       (reset! inner-drag* true)))
+  (.addEventListener win "dragend" (fn [_event]
+                                     (reset! inner-drag* false)))
+  (.addEventListener win "dragenter" (fn [^js event]
+                                       (when (and (dragging-files? event)
+                                                  (not (:ui/dropping? @state/store)))
+                                         (swap! state/store assoc :ui/dropping? true)))))
+
+(defonce ^:private drop-listeners
+  ;; the window takes every drag of files, so that a drop beside the veil
+  ;; does not open the file in the tab; the veil itself is the composer's.
+  ;; Escape takes a veil away that a browser forgot to (no dragleave).
+  (do (watch-drags! js/window)
+      (.addEventListener js/window "dragover"
+                         (fn [^js event]
+                           (when (dragging-files? event)
+                             (.preventDefault event))))
+      (.addEventListener js/window "drop"
+                         (fn [^js event]
+                           (when (dragging-files? event)
+                             (.preventDefault event)
+                             (swap! state/store dissoc :ui/dropping?))))
+      (.addEventListener js/window "keydown"
+                         (fn [^js event]
+                           (when (and (= "Escape" (.-key event))
+                                      (:ui/dropping? @state/store))
+                             (swap! state/store dissoc :ui/dropping?))))
+      true))
+
+(defn- drop-veil
+  "Over the whole page while files are dragged over it: a drop anywhere
+   attaches them. Only the veil takes the drag, its card none of it, so
+   leaving the veil is leaving the window (or Escape); a click takes a
+   veil away that stayed."
+  [store attachments-key upload-url {:keys [title hint]}]
+  [:div.drop-veil {:on {:dragover (fn [^js event]
+                                    (.preventDefault event)
+                                    (set! (.. event -dataTransfer -dropEffect) "copy"))
+                        :dragleave (fn [_event]
+                                     (swap! store dissoc :ui/dropping?))
+                        :click (fn [_event]
+                                 (swap! store dissoc :ui/dropping?))
+                        :drop (fn [^js event]
+                                (.preventDefault event)
+                                (.stopPropagation event)
+                                (swap! store dissoc :ui/dropping?)
+                                (upload-all! store attachments-key upload-url
+                                             (array-seq (.. event -dataTransfer -files))))}}
+   [:div.drop-card {:role "status"}
+    [:span.icon {:aria-hidden "true"} "📎"]
+    [:strong (or title "Add files")]
+    [:span.hint (or hint "Drop images, videos or audio files to attach them to your message.")]]])
+
 (defn- pasted-files
   "The images and clips of a paste; a paste of text has none, and
    pastes as text."
@@ -261,11 +335,13 @@
    neither; files go to `:ui/upload-url`. Enter and the Send button run
    `:ui/send`, the actions of the server, once every upload is in;
    Shift+Enter breaks the line. A paste with files on the clipboard
-   uploads them, a paste of text pastes; a drop anywhere on the composer
-   uploads the files. The labels are the server's, translated; the
-   other attributes pass through to the textarea."
+   uploads them, a paste of text pastes; files dragged over the page
+   bring up the veil (`drop-veil`), a drop on it uploads them. The labels
+   are the server's, translated; the other attributes pass through to
+   the textarea."
   [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label
-           ui/attach-title ui/remove-title ui/uploading-label ui/failed-label ui/state]
+           ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
+           ui/drop-title ui/drop-hint ui/state]
     :as attrs}
    _children]
   (let [store state/store
@@ -281,12 +357,10 @@
         send! (fn []
                 (when ready?
                   (state/dispatch! send)))]
-    [:div.composer-input {:on {:dragover (fn [^js event]
-                                           (.preventDefault event))
-                               :drop (fn [^js event]
-                                       (.preventDefault event)
-                                       (upload-all! store attachments-key upload-url
-                                                    (array-seq (.. event -dataTransfer -files))))}}
+    [:div.composer-input
+     (when (:ui/dropping? state)
+       (drop-veil store attachments-key upload-url {:title drop-title
+                                                    :hint drop-hint}))
      (attachments-view store attachments-key attachments {:remove-title remove-title
                                                           :uploading-label uploading-label
                                                           :failed-label failed-label})
@@ -294,7 +368,7 @@
       [:textarea
        (-> (dissoc attrs :ui/store-key :ui/attachments-key :ui/upload-url :ui/send
                    :ui/send-label :ui/attach-title :ui/remove-title :ui/uploading-label
-                   :ui/failed-label :ui/state)
+                   :ui/failed-label :ui/drop-title :ui/drop-hint :ui/state)
            (assoc :value draft
                   :on {:input [[:store/assoc store-key :event/target.value]]
                        :paste (fn [^js event]
@@ -352,6 +426,14 @@
       (catch :default _
         nil))))
 
+(defn- watch-canvas-drags!
+  "The drags into the canvas's page, same origin; each load is a new
+   window."
+  [^js event]
+  (try
+    (watch-drags! (.. event -target -contentWindow))
+    (catch :default _)))
+
 (defn canvas
   "The creation of the agent: an iframe over the page the server names.
    A new `:ui/rev` changes the src and reloads the page at the position
@@ -367,7 +449,8 @@
                      :title (or title "Your creation")
                      :replicant/on-mount (fn [{:keys [replicant/node]}]
                                            (reset! canvas-node* node)
-                                           (.addEventListener ^js node "load" restore-canvas-scroll!))
+                                           (.addEventListener ^js node "load" restore-canvas-scroll!)
+                                           (.addEventListener ^js node "load" watch-canvas-drags!))
                      :replicant/on-unmount (fn [_]
                                              (reset! canvas-node* nil)
                                              (reset! canvas-src* nil))}]))

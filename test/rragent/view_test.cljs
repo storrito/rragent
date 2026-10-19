@@ -131,6 +131,7 @@
       (testing "the composer's labels are translated like the rest"
         (let [composer (find-tag page :ui/composer)]
           (is (= "Remove" (:ui/remove-title (second composer))))
+          (is (= "Add files" (:ui/drop-title (second composer))))
           (is (= "/upload" (:ui/upload-url (second composer))))
           (is (not-any? #(and (vector? %) (= :i18n (first %))) (nodes page)) "no reference is left anywhere, attributes included"))))))
 
