@@ -1,0 +1,152 @@
+(ns rragent.schedule
+  "The agent's schedules: cron lines the agent writes itself, each a
+   durable pi-durable task that sleeps until the next due minute and
+   then submits the schedule's text as an input to the conversation,
+   as if the person had typed it, then sleeps again. The schedules
+   live in the document `rragent.schedules`, `{name {cron tz text
+   taskId}}`; a schedule set again or deleted leaves its old task to
+   end at its next wake, when it finds it is no longer the current one.
+   Five fields, or six with seconds first; the time zone an IANA name,
+   UTC by default."
+  (:require ["croner" :refer [Cron]]
+            ["@earendil-works/pi-durable" :refer [defineDoc defineTask]]
+            [clojure.string :as str]
+            [rragent.wake :as wake]))
+
+(def Schedules
+  (defineDoc #js {:kind "rragent.schedules"
+                  :version 1
+                  :scope "conversation"
+                  :history "latest"
+                  :fork "current"
+                  :initial (fn [] #js {})}))
+
+(defn check-cron
+  "The cron line parsed, or a throw with croner's reason."
+  [cron tz]
+  (Cron. cron #js {:timezone (or tz "UTC")}))
+
+(defn next-run
+  "The next run of the cron line after `from-ms`, as milliseconds; nil
+   when there is none."
+  [cron tz from-ms]
+  (some-> (.nextRun (check-cron cron tz) (js/Date. from-ms)) .getTime))
+
+(def catch-up-ms
+  "How far behind a schedule is still run: a machine asleep for an hour
+   runs what it missed, one asleep for a day does not run a day of
+   runs."
+  (* 60 60 1000))
+
+(defn next-after
+  "The run after the one at `at`: the schedule's own next run, so that
+   a rerun of the phase after a crash (its submission deduplicated by
+   the request id) does not skip a run; but one more than `catch-up-ms`
+   behind `now` is skipped, the next run from now instead."
+  [cron tz at now]
+  (let [next (next-run cron tz (inc at))]
+    (if (and next (< next (- now catch-up-ms)))
+      (next-run cron tz now)
+      next)))
+
+(defn next-due
+  "The earliest next run of the schedules in the document, nil without
+   any."
+  [schedules now]
+  (let [runs (keep (fn [s] (next-run (.-cron s) (.-tz s) now)) (js/Object.values (or schedules #js {})))]
+    (when (seq runs)
+      (apply min runs))))
+
+(defn rearm!
+  "The machine's alarm set to the earliest next run of `schedules`:
+   after every change of them and after every fire, so that a machine
+   asleep is woken for the next run, whichever schedule's it is."
+  [schedules now]
+  (wake/arm! (next-due schedules now) now))
+
+(defn- message
+  [name cron tz text at]
+  (str "Scheduled run \"" name "\" (" cron " " tz "), due " (.toISOString (js/Date. at)) ":\n" text))
+
+(defn- terminal
+  [outcome]
+  #js {:status "terminal" :outcome outcome})
+
+(def Task
+  (defineTask
+   #js {:name "rragent.schedule"
+        :version 1
+        :initial (fn [input] #js {:phase "wait" :at (.-at input)})
+        :phases
+        #js {:wait
+             (^:async fn [task runtime context]
+               (let [{:keys [name cron tz text]} (js->clj (.-input task) :keywordize-keys true)
+                     at (.. task -state -checkpoint -at)]
+                 (await (.sleep runtime at context))
+                 (let [schedules (await (.snapshot runtime Schedules (.-conversationId runtime) context))
+                       current (some-> schedules (aget name) .-taskId)]
+                   (if (not= current (.-taskId runtime))
+                     ;; set again or deleted meanwhile: this task's time is over
+                     (await (.commit runtime (fn [] (terminal #js {:status "completed" :result nil})) context))
+                     (let [conversation (await (.conversation runtime (.-conversationId runtime) context))
+                           next (next-after cron tz at (.now runtime))]
+                       (await (.submit conversation
+                                       #js {:type "input"
+                                            :content (message name cron tz text at)
+                                            :whenBusy "followUp"
+                                            :requestId (str "schedule:" name ":" at)
+                                            :entry #js {:kind "rragent.schedule" :data #js {:name name :at at}}}
+                                       context))
+                       (await (.commit runtime
+                                       (fn []
+                                         (if next
+                                           #js {:status "running" :checkpoint #js {:phase "wait" :at next}}
+                                           (terminal #js {:status "completed" :result nil})))
+                                       context))
+                       ;; the alarm moves on with the schedule: the machine may well
+                       ;; sleep before the next run
+                       (rearm! schedules (.now runtime)))))))}
+        :abort (fn [_task runtime context]
+                 (.commit runtime (fn [] (terminal #js {:status "aborted"})) context))}))
+
+(defn ^:async set!
+  "The schedule `name` set to `cron` in `tz` with `text`, replacing an
+   earlier one of the name: a new task, then the document naming it.
+   Answers the next run."
+  [api name cron tz text now call-context]
+  (let [tz (or (not-empty tz) "UTC")
+        at (or (next-run cron tz now)
+               (throw (js/Error. (str "the cron line " cron " has no next run"))))]
+    ;; the task first, then the document that makes it the current one: a
+    ;; crash in between leaves a task that ends at its first wake, since
+    ;; the document does not name it
+    (let [task-id (await (.createTask api Task
+                                      #js {:name name :cron cron :tz tz :text text :at at}
+                                      #js {:ownership #js {:kind "conversation"} :background true}
+                                      call-context))]
+      (await (.commit api
+                      (^:async fn [tx]
+                        (let [doc (await (.doc tx Schedules (.-conversationId api)))]
+                          (aset doc name #js {:cron cron :tz tz :text text :taskId task-id})))
+                      call-context)))
+    at))
+
+(defn ^:async delete!
+  "The schedule `name` removed from the document; its task ends at its
+   next wake. Answers whether there was one."
+  [api name call-context]
+  (let [found (atom false)]
+    (await (.commit api
+                    (^:async fn [tx]
+                      (let [doc (await (.doc tx Schedules (.-conversationId api)))]
+                        (reset! found (some? (aget doc name)))
+                        (js-delete doc name)))
+                    call-context))
+    @found))
+
+(defn listed
+  "The schedules without their task ids, for the model."
+  [schedules]
+  (->> (js/Object.entries (or schedules #js {}))
+       (map (fn [[name s]] (str name ": " (.-cron s) " " (.-tz s) " (next " (some-> (next-run (.-cron s) (.-tz s) (js/Date.now)) (js/Date.) .toISOString) "): " (.-text s))))
+       (str/join "\n")))

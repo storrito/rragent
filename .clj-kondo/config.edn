@@ -1,0 +1,6 @@
+;; clojurific's async/await: `await` is cljs.core/await there, which
+;; clj-kondo's own cljs.core does not know. rragent.motion.design requires
+;; fnmotion's namespaces for sci/copy-ns, a macro whose use of them kondo
+;; does not see.
+{:linters {:unresolved-symbol {:exclude [await]}
+           :unused-namespace {:exclude [fnmotion.core fnmotion.timeline fnmotion.captions]}}}
