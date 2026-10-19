@@ -491,9 +491,12 @@ button.primary {
 
 /* A ```hiccup block of the answer (rragent.genui): buttons in a row that
    wraps, a checkbox or a radio button on a line of its own with its
-   text, media no wider than the chat. */
+   text, media no wider than the chat. `contain: paint` keeps whatever
+   the model writes inside the block's box: nothing of it lies over the
+   page. */
 .genui {
   margin: 8px 0;
+  contain: paint;
 }
 
 .genui button {

@@ -1,5 +1,6 @@
 (ns rragent.genui-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [rragent.genui :as genui]))
 
 (defn- send-of
@@ -24,11 +25,16 @@
            (genui/sanitize [:div.card {:class "x" :style {:border "1px solid #ddd" :padding "10px"}} [:strong "a"]]))))
   (testing "an unknown tag is a span, an unknown attribute goes"
     (is (= [:span {} "alert(1)"] (genui/sanitize [:script "alert(1)"])))
-    (is (= [:div {}] (genui/sanitize [:div {:onclick "x" :on {:click [[:x]]} :replicant/key "k"}]))))
+    (is (= [:div {}] (genui/sanitize [:div {:onclick "x" :on {:click [[:x]]} :replicant/key "k" :innerHTML "<b>"}]))))
   (testing "a tag with a namespace is no alias of the client"
     (is (= [:span {} "x"] (genui/sanitize [:ui/composer {:ui/send "x"} "x"])))
     (is (= [:span {} "x"] (genui/sanitize [:ui/div "x"])))
     (is (= [:span {} "x"] (genui/sanitize [:ui/button {:send "On: {checked}"} "x"]))))
+  (testing "no id and no name outside an input: they would replace globals of the page"
+    (is (= [:div.card {} "x"] (genui/sanitize [:div#process.card "x"])))
+    (is (= [:div {}] (genui/sanitize [:div#main])))
+    (is (= [:img {}] (genui/sanitize [:img {:name "querySelector"}])))
+    (is (= [:input {:type "checkbox" :name "pick"}] (genui/sanitize [:input {:type "checkbox" :name "pick"}]))))
   (testing "links and files point at artifacts, uploads, https or mailto"
     (is (= [:a {:href "https://youtu.be/x?t=4" :target "_blank" :rel "noopener noreferrer"} "watch"]
            (genui/sanitize [:a {:href "https://youtu.be/x?t=4"} "watch"])))
@@ -37,9 +43,16 @@
     (is (= [:a {}] (genui/sanitize [:a {:href "javascript:alert(1)"}])))
     (is (= [:img {}] (genui/sanitize [:img {:src "http://x.test/a.png"}])))
     (is (= [:img {}] (genui/sanitize [:img {:src "/etc/passwd"}]))))
-  (testing "a style value that loads something goes"
-    (is (= [:div {:style {:color "red"}}]
-           (genui/sanitize [:div {:style {:color "red" :background "URL(https://x.test/t.gif)"}}]))))
+  (testing "a style keeps layout, spacing, borders, colors and type"
+    (is (= {:display "flex" :flex-wrap "wrap" :gap "10px" :background "#ffb36b" :color "rgb(1, 2, 3)" :width "calc(100% - 4px)"}
+           (:style (second (genui/sanitize [:div {:style {:display "flex" :flex-wrap "wrap" :gap "10px" :background "#ffb36b"
+                                                          :color "rgb(1, 2, 3)" :width "calc(100% - 4px)"}}]))))))
+  (testing "nothing that lies over the page or loads a file"
+    (is (= [:div {:style {:opacity 0}}]
+           (genui/sanitize [:div {:style {:position "fixed" :inset 0 :z-index 99999 :opacity 0 :transform "scale(9)"}}])))
+    (is (= [:div {}] (genui/sanitize [:div {:style {:background "URL(https://x.test/t.gif)"}}])))
+    (is (= [:div {}] (genui/sanitize [:div {:style {:background "image-set(\"https://x.test/t.gif\" 1x)"}}])))
+    (is (= [:div {}] (genui/sanitize [:div {:style {:background "\\75 rl(https://x.test/t.gif)"}}]))))
   (testing "an input is a checkbox or a radio button, nothing else"
     (is (= [:input {:type "checkbox" :value "a" :checked true}]
            (genui/sanitize [:input {:type "checkbox" :value "a" :checked true}])))
@@ -48,15 +61,22 @@
     (is (= [:label {} nil " name"] (genui/sanitize [:label [:input {:type "text"}] " name"])))
     (is (nil? (genui/sanitize [:input {:type "password"}])))
     (is (nil? (genui/sanitize [:input]))))
+  (testing "what is nested too deep goes"
+    (let [deep (reduce (fn [inner _] [:div inner]) "bottom" (range 100))]
+      (is (not (str/includes? (pr-str (genui/sanitize deep)) "bottom")))))
   (testing "texts, numbers and keywords stay, anything else is printed"
     (is (= [:p {} "a" 1 "b" "{:x 1}"] (genui/sanitize [:p "a" 1 :b {:x 1}])))))
 
 (deftest actions-test
-  (testing ":send on a button sends its text"
-    (is (= [:button {:on (send-of "Take 4 shorts")} "4"]
-           (genui/sanitize [:button {:send "Take 4 shorts"} "4"]))))
+  (testing ":send on a button sends its text, which is its title too"
+    (is (= [:button {:on (send-of "Take 4 shorts") :title "Take 4 shorts"} "4"]
+           (genui/sanitize [:button {:send "Take 4 shorts"} "4"])))
+    (is (= "Mine" (:title (second (genui/sanitize [:button {:send "Take 4" :title "Mine"} "4"]))))))
+  (testing ":send and :open only on a button"
+    (is (= [:div {}] (genui/sanitize [:div {:send "Do this" :open "artifacts/x"}])))
+    (is (= [:span {}] (genui/sanitize [:script {:send "Do this"}]))))
   (testing "{checked} in it makes it the client's button, which fills them in"
-    (is (= [:ui/send-checked {:ui/send "Post on: {checked}" :class "go"} "Take these"]
+    (is (= [:ui/send-checked {:ui/send "Post on: {checked}" :class "go" :title "Post on: {checked}"} "Take these"]
            (genui/sanitize [:button {:send "Post on: {checked}" :class "go" :open "artifacts/x"} "Take these"]))))
   (testing ":open shows the artifact, a project's folder with or without its slash"
     (is (= {:click [[:data/command {:command/kind :artifacts/open
@@ -69,6 +89,13 @@
 (deftest block-test
   (testing "a block that reads is a part of the page"
     (is (= [:div.genui [:p {} "a"]] (genui/block "[:p \"a\"]"))))
+  (testing "the names of its inputs are its own: radio buttons of two answers are two groups"
+    (let [name-in (fn [text] (get-in (genui/block text) [1 1 :name]))
+          a (name-in "[:input {:type \"radio\" :name \"choice\" :value \"a\"}]")
+          b (name-in "[:input {:type \"radio\" :name \"choice\" :value \"b\"}]")]
+      (is (str/ends-with? a "-choice"))
+      (is (str/ends-with? b "-choice"))
+      (is (not= a b))))
   (testing "one that does not, its code with the reason"
     (let [[tag [_ [_ k {:keys [error]}]] code] (genui/block "[:p")]
       (is (= :div.genui.genui-error tag))

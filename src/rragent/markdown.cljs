@@ -211,31 +211,35 @@
       (:children (peek stack))
       (recur (close stack)))))
 
+(defn- line-count
+  "The lines of a fence's content, the last one without its newline too."
+  [content]
+  (let [content (str content)]
+    (cond-> (count (re-seq #"\n" content))
+      (and (seq content) (not (str/ends-with? content "\n"))) inc)))
+
 (defn- closed?
-  "Whether the fence `token` ends with its closing line in `lines`, the
-   lines of the text: markdown-it lets an open fence run to the end."
-  [lines ^js token]
-  (let [[from to] (array-seq (.-map token))
-        last-line (str/trim (str (get lines (dec to))))
-        markup (.-markup token)]
-    (and (< (inc from) to)
-         (<= (count markup) (count last-line))
-         (re-matches #"(`+|~+)" last-line)
-         (= (first markup) (first last-line)))))
+  "Whether markdown-it found the closing line of the fence `token`: its
+   lines are the opening one, the content's and the closing one. An open
+   fence runs to the end of the text without a closing line. markdown-it
+   knows best where a fence ends, in a list, a blockquote or after a CR."
+  [^js token]
+  (let [[from to] (array-seq (.-map token))]
+    (= (- to from) (+ 2 (line-count (.-content token))))))
 
 (defn- mark-closed!
   "The fences of the token stream marked, `meta.closed`, when their
-   closing line is there."
-  [tokens text]
-  (let [lines (str/split-lines (str text))]
-    (doseq [^js token (array-seq tokens)
-            :when (and (= "fence" (.-type token)) (.-map token))]
-      (set! (.-meta token) #js {:closed (boolean (closed? lines token))}))
-    tokens))
+   closing line is there; nested ones too (a fence in a list or a
+   blockquote is a token of the top level as well)."
+  [tokens]
+  (doseq [^js token (array-seq tokens)
+          :when (and (= "fence" (.-type token)) (.-map token))]
+    (set! (.-meta token) #js {:closed (closed? token)}))
+  tokens)
 
 (defn parse
   [text]
-  (from-tokens (mark-closed! (.parse parser (str text) #js {}) text)))
+  (from-tokens (mark-closed! (.parse parser (str text) #js {}))))
 
 (def ^:private cache-size
   "Entries the cache holds before it is emptied: every chunk of a

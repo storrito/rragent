@@ -31,12 +31,42 @@
     :figcaption :code :pre :br :hr :blockquote :label :input})
 
 (def attributes
+  "The attributes of every allowed tag; `:name` only on an input (an `img`
+   with a name would replace a function of `document`), `:send` and
+   `:open` only on a button."
   #{:class :href :src :poster :title :alt :controls :preload :loop :muted
-    :width :height :colspan :rowspan :download :style :send :open
-    :type :name :value :checked :disabled})
+    :width :height :colspan :rowspan :download :style
+    :type :value :checked :disabled})
 
 (def input-types
   #{"checkbox" "radio"})
+
+(def style-properties
+  "What a style may set: layout inside the block, spacing, borders,
+   colors and type. Nothing that takes an element out of the flow
+   (`position`, `z-index`, `transform`) and over the page."
+  #{:display :flex :flex-direction :flex-wrap :flex-grow :flex-shrink :flex-basis
+    :gap :row-gap :column-gap :align-items :align-self :justify-content
+    :text-align :vertical-align
+    :margin :margin-top :margin-right :margin-bottom :margin-left
+    :padding :padding-top :padding-right :padding-bottom :padding-left
+    :border :border-top :border-right :border-bottom :border-left
+    :border-color :border-width :border-style :border-radius
+    :background :background-color :color :opacity
+    :font-size :font-weight :font-style :line-height :letter-spacing
+    :text-decoration :white-space
+    :width :height :min-width :max-width :min-height :max-height :aspect-ratio
+    :object-fit :overflow :box-sizing :list-style})
+
+(def style-functions
+  "The CSS functions a style value may call: colors and sums, nothing
+   that loads a file (`url`, `image-set`)."
+  #{"rgb" "rgba" "hsl" "hsla" "calc"})
+
+(def max-depth
+  "Elements deeper than this go: markdown-it nests at most 100 deep, the
+   page's own hiccup around a block adds some."
+  32)
 
 (def urls
   "Where a link, a file or a picture may point: this host's artifacts and
@@ -62,17 +92,32 @@
   [tag]
   (keyword (first (str/split (name tag) #"[.#]"))))
 
+(defn- without-id
+  "`:div#main.card` as `:div.card`: an id would replace a global of the
+   page (`window.main`)."
+  [tag]
+  (keyword (str/replace (name tag) #"#[^.#]*" "")))
+
+(defn- style-value?
+  "A plain value: no escape, and only the functions of `style-functions`."
+  [v]
+  (let [v (str v)]
+    (and (not (str/includes? v "\\"))
+         (every? style-functions (map (comp str/lower-case second) (re-seq #"([A-Za-z-]+)\s*\(" v))))))
+
 (defn- style
-  "The style map with plain values; a value that loads something
-   (`url(…)`) goes, a picture is an `img`."
+  "The style map with the properties of `style-properties` and plain
+   values; nil when none is left."
   [value]
   (when (map? value)
-    (into {}
-          (for [[k v] value
-                :when (and (or (keyword? k) (string? k))
-                           (or (string? v) (number? v))
-                           (not (str/includes? (str/lower-case (str v)) "url(")))]
-            [(keyword k) v]))))
+    (not-empty
+     (into {}
+           (for [[k v] value
+                 :let [k (when (or (keyword? k) (string? k)) (keyword (str/lower-case (name k))))]
+                 :when (and (contains? style-properties k)
+                            (or (string? v) (number? v))
+                            (style-value? v))]
+             [k v])))))
 
 (defn- send-actions
   [text]
@@ -89,19 +134,24 @@
                                                     (str/replace #"/+$" ""))}}]]})
 
 (defn- attrs
-  "The attributes that are allowed, the ones with a URL checked, `:send`
-   and `:open` turned into the commands behind a click."
-  [tag m]
+  "The attributes that are allowed, the ones with a URL checked; on a
+   button `:send` and `:open` turned into the commands behind a click,
+   the text it sends its title unless it has one; on an input the
+   `:name` in the block's `scope`, so that radio buttons of two answers
+   are two groups."
+  [tag m scope]
   (reduce (fn [acc [k v]]
             (cond
+              (and (= :name k) (= :input tag) (string? v)) (assoc acc :name (str scope v))
+              (and (= :send k) (= :button tag)) (cond-> (assoc acc :on (send-actions v))
+                                                  (not (string? (:title m))) (assoc :title (str v)))
+              (and (= :open k) (= :button tag)) (assoc acc :on (open-actions v))
               (not (contains? attributes k)) acc
               (#{:href :src :poster} k) (if-let [v (url v)]
                                           (cond-> (assoc acc k v)
                                             (and (= :href k) (= :a tag)) (assoc :target "_blank" :rel "noopener noreferrer"))
                                           acc)
               (= :style k) (if-let [v (style v)] (assoc acc :style v) acc)
-              (= :send k) (assoc acc :on (send-actions v))
-              (= :open k) (assoc acc :on (open-actions v))
               (or (string? v) (number? v) (boolean? v)) (assoc acc k v)
               :else acc))
           {}
@@ -116,35 +166,44 @@
 
 (defn sanitize
   "The hiccup with only what the allow-lists know; an input of another
-   type than checkbox or radio goes."
-  [hiccup]
-  (cond
-    (and (vector? hiccup) (keyword? (first hiccup)))
-    (let [[tag & body] hiccup
-          base (base-tag tag)
-          ;; `:ui/div` is no div: a tag with a namespace names an alias of the client
-          allowed? (and (nil? (namespace tag)) (contains? tags base))
-          [m body] (if (map? (first body)) [(first body) (rest body)] [{} body])]
-      (cond
-        (and allowed? (= :input base) (not (input-types (:type m))))
-        nil
+   type than checkbox or radio goes, and so does what is nested deeper
+   than `max-depth`. `scope` prefixes the names of the inputs."
+  ([hiccup]
+   (sanitize hiccup {}))
+  ([hiccup {:keys [scope depth] :or {scope "" depth 0} :as opts}]
+   (let [deeper (assoc opts :depth (inc depth))]
+     (cond
+       (< max-depth depth)
+       nil
 
-        (and allowed? (send-checked? base m))
-        (into [:ui/send-checked (-> (attrs base (dissoc m :send :open))
-                                    (assoc :ui/send (:send m)))]
-              (map sanitize body))
+       (and (vector? hiccup) (keyword? (first hiccup)))
+       (let [[tag & body] hiccup
+             base (base-tag tag)
+             ;; `:ui/div` is no div: a tag with a namespace names an alias of the client
+             allowed? (and (nil? (namespace tag)) (contains? tags base))
+             [m body] (if (map? (first body)) [(first body) (rest body)] [{} body])
+             children (map #(sanitize % deeper) body)]
+         (cond
+           (and allowed? (= :input base) (not (input-types (:type m))))
+           nil
 
-        allowed?
-        (into [tag (attrs base m)] (map sanitize body))
+           (and allowed? (send-checked? base m))
+           (into [:ui/send-checked (-> (attrs base (dissoc m :send :open) scope)
+                                       (assoc :ui/send (:send m))
+                                       (cond-> (not (string? (:title m))) (assoc :title (:send m))))]
+                 children)
 
-        ;; a tag that is not allowed is a span of its children, without a click
-        :else
-        (into [:span (attrs :span (dissoc m :send :open))] (map sanitize body))))
+           allowed?
+           (into [(without-id tag) (attrs base m scope)] children)
 
-    (sequential? hiccup) (map sanitize hiccup)
-    (or (string? hiccup) (number? hiccup) (nil? hiccup)) hiccup
-    (keyword? hiccup) (name hiccup)
-    :else (pr-str hiccup)))
+           ;; a tag that is not allowed is a span of its children
+           :else
+           (into [:span (attrs :span m scope)] children)))
+
+       (sequential? hiccup) (map #(sanitize % deeper) hiccup)
+       (or (string? hiccup) (number? hiccup) (nil? hiccup)) hiccup
+       (keyword? hiccup) (name hiccup)
+       :else (pr-str hiccup)))))
 
 (defn parse
   "`{:hiccup …}` or `{:error \"…\"}`; a tagged literal is its value."
@@ -158,14 +217,15 @@
       {:error (ex-message e)})))
 
 (defn block
-  "One block as a part of the page, or as code with what went wrong."
+  "One block as a part of the page, or as code with what went wrong. The
+   names of its inputs get the block's own prefix, from its text."
   [text]
   (let [{:keys [hiccup error]} (parse text)]
     (if error
       [:div.genui.genui-error
        [:p.error [:i18n :genui/rejected {:error error}]]
        [:pre [:code text]]]
-      [:div.genui (sanitize hiccup)])))
+      [:div.genui (sanitize hiccup {:scope (str "b" (abs (hash text)) "-")})])))
 
 (comment
   (block "[:ul [:li [:audio {:src \"artifacts/card/a.mp3\" :controls true}] [:button {:send \"Take a\"} \"Take this one\"]]]")

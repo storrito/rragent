@@ -391,7 +391,9 @@
   [{:keys [ui/send] :as attrs} children]
   (into [:button (-> (dissoc attrs :ui/send)
                      (assoc :on {:click (fn [^js event]
-                                          (let [text (str/replace (str send) "{checked}" (checked-values (.-currentTarget event)))]
+                                          ;; split and join, not str/replace: a `$` in a value is no replacement pattern
+                                          (let [text (str/join (checked-values (.-currentTarget event))
+                                                               (str/split (str send) #"\{checked\}" -1))]
                                             (state/dispatch! [[:data/command {:command/kind :chat/send
                                                                               :command/data {:text text}}]])))}))]
         children))
