@@ -19,18 +19,20 @@ that sleeps when nothing happens and restarts its processes when it wakes.
 
 The agent's definition is a folder with an `AGENT.md` (`SKILL.md` works too):
 its instructions, its tools, its schedule. The agent runs on
-[OpenRouter](https://openrouter.ai) with a key of its own. It reaches the
-outside world through typed tools, a schedule it writes itself as a cron line,
-and named hooks that other systems call.
+[OpenRouter](https://openrouter.ai), through the connector of its Sprite or
+with a key of its own. It reaches the outside world through typed tools, a
+REPL whose functions are the organization's connectors, a schedule it writes
+itself as a cron line, and named hooks that other systems call.
 
 ## Status
 
 The harness runs (Clojurific, Vite, Node 26, pi-durable on SQLite), the page
 serves the conversation, the tools, schedules and hooks are there, and so
-are Storrito's procedures and Composio's meta tools where their variables
-are set. The artifacts pane shows what the agent makes, runs the projects
-of the templates (a motion design, a HyperFrames composition) and renders
-their videos.
+is the REPL with the connectors of the Sprite's gateway as functions
+(Storrito's procedures and Composio's meta tools among them, see
+[Connectors and the REPL](#connectors-and-the-repl)). The artifacts pane
+shows what the agent makes, runs the projects of the templates (a motion
+design, a HyperFrames composition) and renders their videos.
 
 ## The page
 
@@ -116,7 +118,8 @@ call. Three more tools make material for a project through OpenRouter
 folder (`RRAGENT_VOICE_MODEL`, `RRAGENT_VOICE`), and `music`, a clip or
 a whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`). The
 `eval` tool with `project` evaluates in a project's process, for a
-template that takes an eval (below).
+template that takes an eval (below); without `project` it is the
+agent's REPL (`rragent.codemode`, see [Connectors and the REPL](#connectors-and-the-repl)).
 
 ## Templates
 
@@ -267,23 +270,95 @@ Node 26 (`mise install`), Java 17 or later for the compiler.
     npm test         # the ClojureScript tests under Node, the templates' too
     npm run build    # the templates, then dist/rragent.js and dist/public, run with npm start
 
-An `.env` next to the project is never committed; `OPENROUTER_API_KEY` is
-the one variable the agent needs to talk to a model. The integrations
-come with their own, each optional:
+An `.env` next to the project is never committed. On a Sprite the agent
+needs no key at all: the models and the integrations come through the
+gateway (below). On a laptop, `OPENROUTER_API_KEY` is the one variable the
+agent needs to talk to a model.
 
-- `STORRITO_API_URL`, the organization's Storrito host
-  (`https://acme.storrito.com`), and `STORRITO_CREDENTIAL`, the agent's
-  API credential as `<id>:<secret>`. Every procedure of the
-  organization's API catalog becomes a tool with the procedure's schema,
-  deferred: the model finds the one it needs through `tool_search`
-  (`rragent.storrito`).
-- `COMPOSIO_URL` and `COMPOSIO_USER_ID`: the four meta tools of a Composio
-  tool-router session for that user, which search, run and connect the
-  organization's third-party services (`rragent.composio`). On a Sprite
-  the URL is the Composio connector's gateway,
-  `https://api.sprites.dev/v1/gateway/composio/<connection id>`, which
-  adds the key itself; elsewhere it is `https://backend.composio.dev`
-  with `COMPOSIO_API_KEY`.
+## Connectors and the REPL
+
+Every credential of the agent lives in a
+[connector](https://fly.io/docs/sprites/concepts/connectors) of the
+organization at Sprites, never on the machine. A connector is a credential
+(an OAuth token, a key, a managed provider), an access policy that says
+which sprites may use it, and a gateway endpoint: inside the sprite, a
+request to `http://sprite.internal/v1/gateway/<provider>/<connection id>/<path>`
+is forwarded to the provider with the credential added, the gateway
+knowing the sprite by the request, no `Authorization` header anywhere.
+`GET http://sprite.internal/v1/gateway/list` answers the connections the
+sprite may use (`connections`: each with its `id`, `provider`,
+`gateway_base_url`, `notes` and `provider_info`) and the providers that
+could be set up (`available`).
+
+rragent reads that list when it opens (`rragent.gateway`), and again
+whenever a program asks, and makes three things of it:
+
+- The models. With an `openrouter` connection, the harness's OpenRouter
+  provider sends its requests to that connection's base and `/v1`, with
+  a placeholder key the gateway replaces; without one, to OpenRouter
+  itself with `OPENROUTER_API_KEY` (a laptop). `rragent serve` prints
+  which, and the connections it found.
+- Composio, the organization's third-party services (Google Drive,
+  Gmail, Notion, Slack and the like through Composio's managed OAuth):
+  a `custom_api` connection whose base is `backend.composio.dev`. The
+  agent reaches them through the four meta tools of a tool-router
+  session (`rragent.composio`), each one `POST
+  /api/v3/tool_router/session/<id>/execute_meta` through that
+  connection, the one path its policy allows. The session is
+  `COMPOSIO_SESSION_ID`, made for the agent by whoever provisions it;
+  rragent never makes one.
+- Storrito, the organization's own API: a `custom_api` connection whose
+  base is the organization's host (`https://acme.storrito.com`, or
+  `/api/v1` of it), found among the custom API connections by the
+  catalog at its base, `/documentation/api/v1/catalog.json`, public, or
+  by a note of the connection that carries the catalog's link. Every
+  procedure of the catalog becomes a function of the REPL, with a
+  docstring from the catalog (`rragent.storrito`).
+
+The `eval` tool is the agent's REPL (`rragent.codemode`): a Clojure program
+evaluated by SCI in the agent's own process, one context for the life of
+the process, so a `def` of one program is there for the next; what the
+program printed and its value, cut at ten thousand characters, are the
+answer, an error the tool's error. The context is closed: no `js/`, no
+interop on values, no `require` of anything but Clojure's own namespaces,
+no reading of the environment, and `aget`, `js-obj` and their kind say
+that they are not there. What a program reaches, it reaches through the
+namespace `agent`, referred in `user`, with `composio/*` and `storrito/*`
+beside it; `(help)` lists them and `(doc f)` explains each:
+
+- `(connectors)`: the gateway's list, read now, as data; `(connector
+  "github")`: one connection, by provider name or by id.
+- `(call "github" "/user/repos" {:method "GET" :query {:per_page 5}})`:
+  an HTTP call through the gateway, by provider name or connection id
+  (several `custom_api` connections: the id), `:body` as JSON when it is
+  data; answers `{:status :headers :body}`, the body as data when it is
+  JSON.
+- `(composio/search "send an email" ["gmail"])`, `(composio/schemas
+  ["GMAIL_SEND_EMAIL"])`, `(composio/execute "GMAIL_SEND_EMAIL" {:to
+  "a@example.com"})`, `(composio/connections ["gmail"])`: the four meta
+  tools, a completed run's data, a failed one a throw with Composio's
+  error.
+- `(storrito/procedures)`: the catalog's procedures, each a function
+  `storrito/<name>` that takes a map and answers the API's data, a
+  failed call a throw with what the API said; a 429 or a 5xx is tried
+  again.
+- `(remember "review-posted" {:id 4711})` and `(recall {:event
+  "review-posted"})`: the facts (`rragent.facts`), the same entries the
+  `remember` and `recall` tools make; a program sees the facts as they
+  were when it started, what it remembers is committed when it ends.
+
+A call blocks the process until it is answered: SCI evaluates a program
+synchronously, so a call in the middle of a loop cannot await, and the
+request runs in a worker thread instead while the agent's thread waits
+on a shared flag (`rragent.sync-fetch`: `Atomics.wait` and
+`receiveMessageOnPort`). Nothing else of the agent happens meanwhile, a
+call has two minutes, and the tests' fake gateway lives in a worker
+thread of its own for the same reason (`rragent.fake-gateway`).
+
+Two variables: `RRAGENT_GATEWAY`, the gateway's base
+(`http://sprite.internal`, which answers only inside a sprite; elsewhere
+the list is empty and says why), and `COMPOSIO_SESSION_ID`, the session
+of the Composio functions.
 
 ## Releases
 

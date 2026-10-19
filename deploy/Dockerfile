@@ -3,8 +3,8 @@
 # (deploy/Dockerfile.full has that: the renders answer why there is no
 # video here, everything else works). The agent's folder is
 # /home/sprite/rragent/agent with its AGENT.md; `.env` next to the bundle
-# holds OPENROUTER_API_KEY and RRAGENT_TOKEN and is written when the
-# machine is set up, never into the image. Build from the repository's
+# holds RRAGENT_TOKEN (the models come through the sprite's gateway) and
+# is written when the machine is set up, never into the image. Build from the repository's
 # root after `npm run build`: docker build -f deploy/Dockerfile -t rragent .
 # An image built elsewhere downloads a release instead:
 # https://github.com/storrito/rragent/releases/latest/download/rragent.tar.gz

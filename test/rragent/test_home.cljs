@@ -4,6 +4,10 @@
             ["node:os" :as os]
             ["node:path" :as path]))
 
+;; no sprite here: the gateway of every test's harness is a port that
+;; refuses at once, unless the test passes its fake (rragent.fake-gateway)
+(aset (.-env js/process) "RRAGENT_GATEWAY" "http://127.0.0.1:1")
+
 (def definition-text
   "---\nname: watcher\ndescription: Watches a page.\nmetadata:\n  title: \"Page watcher\"\n  model: faux-1\n---\n\n# watcher\n\nYou watch a page. Your folder is <skill>.\n")
 

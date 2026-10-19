@@ -24,6 +24,7 @@
             [rragent.artifacts :as artifacts]
             [rragent.assets :as assets]
             [rragent.auth :as auth]
+            [rragent.codemode :as codemode]
             [rragent.db :as db]
             [rragent.harness :as harness]
             [rragent.home :as home]
@@ -264,6 +265,8 @@
       (await (lifecycle/start! agent [(fn [] (pos? (sse/connections)))
                                       (fn [] (render/any-running? (:render @pane)))]))
       (println (programs/report (templates/all)))
+      (println (codemode/report (:codemode agent)))
+      (println (harness/model-route (codemode/discovery (:codemode agent))))
       (println (str "rragent on "
                     (if given
                       (str base " (the token is in the environment)")
