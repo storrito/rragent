@@ -15,7 +15,7 @@
    each, appended to a hidden part file and renamed when the last piece
    is in, so a lost connection costs one piece, not the clip; a clip in
    one request (no `id`) is named by its hash. `max-bytes` caps a clip
-   at a gigabyte. `GET /uploads/<name>` serves the files, with ranges
+   at ten gigabytes. `GET /uploads/<name>` serves the files, with ranges
    for the players."
   (:require ["node:crypto" :as crypto]
             ["node:fs" :as fs]
@@ -33,8 +33,9 @@
   "/uploads")
 
 (def max-bytes
-  "The largest clip, a gigabyte."
-  (* 1024 1024 1024))
+  "The largest clip, ten gigabytes: a recording of two or three hours
+   in 4K."
+  (* 10 1024 1024 1024))
 
 (def image-max-bytes
   "The largest picture; the browser scales a picture before it sends it."
