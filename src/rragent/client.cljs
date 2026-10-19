@@ -1,9 +1,10 @@
 (ns rragent.client
   "The browser bundle of the page: the rframes runtime, which opens the
    frame stream of the page it is on and renders every frame with
-   Replicant, with two aliases of our own, the composer and the canvas
-   of the artifacts pane, the iframe that shows a page or a project and
-   reloads it in place; the canvas is rchat's.
+   Replicant, with aliases of our own: the composer, the canvas of the
+   artifacts pane, the iframe that shows a page or a project and reloads
+   it in place (the canvas is rchat's), and the button of a ```hiccup
+   block that sends the boxes ticked in it.
 
    The composer takes files, the way pchat's does: an image picked,
    dropped or pasted goes up scaled and in one request, a video or an
@@ -371,11 +372,39 @@
                                              (reset! canvas-node* nil)
                                              (reset! canvas-src* nil))}]))
 
+(defn- checked-values
+  "The `value`s of the inputs ticked in the ```hiccup block around
+   `node`, comma-separated."
+  [^js node]
+  (let [block (or (some-> node (.closest ".genui")) js/document)]
+    (->> (array-seq (.querySelectorAll block "input:checked"))
+         (map #(.-value ^js %))
+         (remove str/blank?)
+         (str/join ", "))))
+
+(defn send-checked
+  "A button of a ```hiccup block (`rragent.genui`) whose text to send
+   has `{checked}` in it: a click puts the values ticked in its block
+   there and sends the text as the person's message, the way a button
+   with a plain `:send` does. Which boxes are ticked only the page
+   knows, so the text is made here."
+  [{:keys [ui/send] :as attrs} children]
+  (into [:button (-> (dissoc attrs :ui/send)
+                     (assoc :on {:click (fn [^js event]
+                                          ;; split and join, not str/replace: a `$` in a value is no replacement pattern
+                                          (let [text (str/join (checked-values (.-currentTarget event))
+                                                               (str/split (str send) #"\{checked\}" -1))]
+                                            (state/dispatch! [[:data/command {:command/kind :chat/send
+                                                                              :command/data {:text text}}]])))}))]
+        children))
+
 (def register
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
    {:ui.alias/kind :ui/canvas
-    :ui.alias/fn canvas}])
+    :ui.alias/fn canvas}
+   {:ui.alias/kind :ui/send-checked
+    :ui.alias/fn send-checked}])
 
 (defn init!
   []

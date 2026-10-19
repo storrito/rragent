@@ -489,6 +489,58 @@ button.primary {
   border-top: 1px solid var(--line);
 }
 
+/* A ```hiccup block of the answer (rragent.genui): buttons in a row that
+   wraps, a checkbox or a radio button on a line of its own with its
+   text, media no wider than the chat. `contain: paint` keeps whatever
+   the model writes inside the block's box: nothing of it lies over the
+   page. */
+.genui {
+  margin: 8px 0;
+  contain: paint;
+}
+
+/* A button always shows and stays a button's size: a style of the
+   model's cannot make it an invisible screen that sends on a click
+   (inline styles never beat !important), its height capped in rem, not
+   in its own font size; its colors stay the model's, a swatch is a
+   button. */
+.genui button {
+  margin: 4px 6px 4px 0;
+  opacity: 1 !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 100% !important;
+  max-height: 4rem !important;
+  overflow: hidden !important;
+}
+
+.genui label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  cursor: pointer;
+}
+
+.genui input[type="checkbox"],
+.genui input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.genui img,
+.genui video,
+.genui audio {
+  max-width: 100%;
+}
+
+.genui-error pre {
+  white-space: pre-wrap;
+}
+
 .item.streaming .markdown > :last-child::after {
   content: "▍";
   color: var(--muted);

@@ -166,3 +166,38 @@
   (testing "the same text comes from the cache"
     (is (identical? (markdown/hiccup sample) (markdown/hiccup sample)))
     (is (= (markdown/parse sample) (markdown/hiccup sample)))))
+
+(deftest hiccup-block-test
+  (testing "a closed ```hiccup fence is a part of the page"
+    (let [hiccup (markdown/parse "Which?\n\n```hiccup\n[:button {:send \"This\"} \"This one\"]\n```\n\nOr type.")]
+      (is (= [:p "Which?"] (first hiccup)))
+      (is (= [:div.genui [:button {:on {:click [[:data/command {:command/kind :chat/send
+                                                                 :command/data {:text "This"}}]]}
+                                   :title "This"}
+                          "This one"]]
+             (second hiccup)))
+      (is (= [:p "Or type."] (nth hiccup 2)))))
+  (testing "one still being written stays code until its fence closes"
+    (is (= [[:pre [:code {:class "language-hiccup"} "[:button {:send \"Th\n"]]]
+           (markdown/parse "```hiccup\n[:button {:send \"Th\n"))))
+  (testing "an open one without a newline at its end is still being written"
+    (is (= :pre (ffirst (markdown/parse "```hiccup\n[:p \"a\"]")))))
+  (testing "a longer closing fence closes it"
+    (is (= :div.genui (ffirst (markdown/parse "```hiccup\n[:p \"a\"]\n````")))))
+  (testing "where markdown-it closes a fence: in a list, a blockquote, after CR line ends"
+    (is (= [:li [:p "a"] [:div.genui [:p {} "x"]]]
+           (second (first (markdown/parse "- a\n\n  ```hiccup\n  [:p \"x\"]\n  ```"))))
+        "in a list")
+    (is (= [:blockquote [:div.genui [:p {} "x"]]]
+           (first (markdown/parse "> ```hiccup\n> [:p \"x\"]\n> ```"))))
+    (is (= [[:div.genui [:p {} "x"]]] (markdown/parse "```hiccup\r\n[:p \"x\"]\r\n```")))
+    (is (= [[:div.genui [:p {} "x"]]] (markdown/parse "```hiccup\r[:p \"x\"]\r```"))))
+  (testing "a block that does not read is shown as code with what went wrong"
+    (let [[block] (markdown/parse "```hiccup\n[:p \"a\"\n```")]
+      (is (= :div.genui.genui-error (first block)))
+      (is (= :genui/rejected (second (second (second block)))))
+      (is (= [:pre [:code "[:p \"a\"\n"]] (nth block 2)))))
+  (testing "the part of the page is data a frame carries"
+    (let [hiccup (markdown/parse "```hiccup\n[:div [:input {:type \"checkbox\" :value \"a\"}] [:button {:send \"On: {checked}\"} \"Go\"]]\n```")]
+      (is (not-any? fn? (tree-seq coll? seq hiccup)))
+      (is (= hiccup (transit/read-str (transit/write-str hiccup)))))))
