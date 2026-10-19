@@ -18,8 +18,8 @@
     (binding [sprite/*sprite-env* script]
       (testing "the first alarm is made (the update of what is not there fails), then enabled"
         (is (true? (wake/arm! at now)))
-        (is (= [(str "automation update rragent-wake --cron " cron " --wake --timeout 300")
-                (str "automation create rragent-wake --cron " cron " --wake --timeout 300")
+        (is (= [(str "automation update rragent-wake --cron " cron " --exec --after none --timeout 60 -- /bin/true")
+                (str "automation create rragent-wake --cron " cron " --exec --after none --timeout 60 -- /bin/true")
                 "automation resume rragent-wake"]
                (fake/calls log))))
       (testing "the next alarm updates it"
@@ -33,7 +33,7 @@
         (is (= "automation delete rragent-wake" (last (fake/calls log)))))
       (testing "the daily wake is made once"
         (is (true? (wake/ensure-daily!)))
-        (is (= "automation create rragent-daily --cron 17 3 * * * --wake --timeout 300" (last (butlast (fake/calls log)))))
+        (is (= "automation create rragent-daily --cron 17 3 * * * --exec --after none --timeout 60 -- /bin/true" (last (butlast (fake/calls log)))))
         (let [before (count (fake/calls log))]
           (is (true? (wake/ensure-daily!)))
           (is (= (inc before) (count (fake/calls log))) "only the get"))))))

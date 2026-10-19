@@ -32,6 +32,23 @@
   [cron tz from-ms]
   (some-> (.nextRun (check-cron cron tz) (js/Date. from-ms)) .getTime))
 
+(def catch-up-ms
+  "How far behind a schedule is still run: a machine asleep for an hour
+   runs what it missed, one asleep for a day does not run a day of
+   runs."
+  (* 60 60 1000))
+
+(defn next-after
+  "The run after the one at `at`: the schedule's own next run, so that
+   a rerun of the phase after a crash (its submission deduplicated by
+   the request id) does not skip a run; but one more than `catch-up-ms`
+   behind `now` is skipped, the next run from now instead."
+  [cron tz at now]
+  (let [next (next-run cron tz (inc at))]
+    (if (and next (< next (- now catch-up-ms)))
+      (next-run cron tz now)
+      next)))
+
 (defn next-due
   "The earliest next run of the schedules in the document, nil without
    any."
@@ -72,7 +89,7 @@
                      ;; set again or deleted meanwhile: this task's time is over
                      (await (.commit runtime (fn [] (terminal #js {:status "completed" :result nil})) context))
                      (let [conversation (await (.conversation runtime (.-conversationId runtime) context))
-                           next (next-run cron tz (max (inc at) (.now runtime)))]
+                           next (next-after cron tz at (.now runtime))]
                        (await (.submit conversation
                                        #js {:type "input"
                                             :content (message name cron tz text at)
