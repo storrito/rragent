@@ -459,11 +459,11 @@
   [{:keys [agent conversation locale onboarding] pane :artifacts}]
   (let [items (items conversation)
         status (status (:live conversation))
-        empty? (not-any? shown? items)]
+        fresh? (not-any? shown? items)]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
      (header agent status)
      [:div.body
       [:div.chat
        (feed items status onboarding)
-       (composer status (when empty? (:placeholder onboarding)))]
+       (composer status (when fresh? (:placeholder onboarding)))]
       (artifacts pane)]]))

@@ -3,8 +3,9 @@
    introduces itself from the `metadata` of its SKILL.md, the keys
    agentitos keeps for harnesses: `title`, the task's name; `ask`, the
    first message, what the person should bring; `placeholder`, the
-   composer's. Each text can have a `-<locale>` variant, `-de` for
-   German. A definition without an `ask` keeps the plain empty chat.")
+   composer's. Each text can have a `-<locale>` variant for a locale of
+   the page, `-de` for German, the plain one is English. A definition
+   without an `ask` keeps the plain empty chat.")
 
 (defn- text
   "The text of the key in the locale, its `-<locale>` variant when there
