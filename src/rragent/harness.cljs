@@ -1,28 +1,27 @@
 (ns rragent.harness
   "pi-durable opened on the agent's folder: the SQLite storage, the
-   models (OpenRouter with the key from the environment, or what a test
+   models (OpenRouter through the gateway's connector when there is
+   one, else with the key from the environment, or what a test
    passes), the registry with pi-durable's coding tools (read, write,
-   edit, bash in `work/`), rragent's own (remember and recall, fetch, eval, schedule,
-   hook, and the tools of the artifacts: project, render, image, voice,
-   music; the pane shows what they make) and the integrations the
-   environment names (Storrito's procedures as deferred tools with
-   `tool_search` to find them, Composio's meta tools), the root
-   conversation configured from the definition each time it opens, and
-   the runs the last process left unfinished resumed. One process owns
-   the storage at a time."
+   edit, bash in `work/`) and rragent's own (remember and recall,
+   fetch, the REPL `eval` with the connectors of the gateway as
+   functions, schedule, hook, and the tools of the artifacts: project,
+   render, image, voice, music; the pane shows what they make), the
+   root conversation configured from the definition each time it
+   opens, and the runs the last process left unfinished resumed. One
+   process owns the storage at a time."
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai/models" :refer [createModels]]
             ["@earendil-works/pi-ai/providers/openrouter" :refer [openrouterProvider]]
             ["@earendil-works/pi-durable" :refer [AssistantEntry Harness MemoryStorage createRegistry defineExtension]]
             ["@earendil-works/pi-durable/env/node" :refer [NodeExecutionEnv]]
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
-            ["@earendil-works/pi-durable/tool-search" :refer [createToolSearchExtension]]
             ["@earendil-works/pi-durable/tools" :refer [CodingTools]]
-            [rragent.composio :as composio]
+            [rragent.codemode :as codemode]
             [rragent.definition :as definition]
+            [rragent.gateway :as gateway]
             [rragent.home :as home]
             [rragent.schedule :as schedule]
-            [rragent.storrito :as storrito]
             [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]
             [rragent.tools.hook :as hook-tool]
@@ -38,60 +37,86 @@
 
 (defn extension
   "rragent's own tools for the agent of `definition`: the project tool
-   names the templates the definition allows."
-  [definition]
+   names the templates the definition allows, the eval tool runs in
+   the REPL `codemode`."
+  [definition codemode]
   (defineExtension #js {:name "rragent"
-                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool
+                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
                                     (project-tool/tool definition) render-tool/tool media-tool/image media-tool/voice media-tool/music]
                         :tasks #js [schedule/Task]}))
 
+(defn gateway-base-url
+  "Where OpenRouter's API is behind the gateway's `connection`: its
+   base and `/v1`, as `openrouter.ai/api/v1` is behind OpenRouter's
+   host."
+  [discovery connection]
+  (str (gateway/connection-base discovery connection) "/v1"))
+
+(defn gateway-provider
+  "`provider` with its requests sent to the gateway's `connection`:
+   its base URL, and a key that is only a placeholder, since the
+   gateway adds the real one. Every request of pi-ai takes the base
+   URL from the resolved auth, so it is here, not only on the
+   provider."
+  [provider discovery connection]
+  (let [base (gateway-base-url discovery connection)
+        source (str "the Sprites gateway, connection " (:id connection))]
+    (js/Object.assign #js {} provider
+                      #js {:baseUrl base
+                           :auth #js {:apiKey #js {:name (str (.-name provider) " through the Sprites gateway")
+                                                   :resolve (fn [_input]
+                                                              (js/Promise.resolve #js {:auth #js {:apiKey "sprite" :baseUrl base}
+                                                                                       :source source}))}}})))
+
+(defn model-route
+  "Where the models' requests go: the gateway's `openrouter`
+   connector when `discovery` has one, else OpenRouter itself with
+   `OPENROUTER_API_KEY`; one line for the console."
+  [discovery]
+  (if-let [connection (gateway/connection discovery "openrouter")]
+    (str "OpenRouter through the Sprites gateway (" (gateway-base-url discovery connection) ")")
+    "OpenRouter with OPENROUTER_API_KEY"))
+
 (defn openrouter-models
-  "The models through OpenRouter, the key from OPENROUTER_API_KEY."
-  []
-  (doto (createModels)
-    (.setProvider (openrouterProvider))))
+  "The models through OpenRouter: through the gateway's connector when
+   `discovery` has one, else with the key from OPENROUTER_API_KEY."
+  [discovery]
+  (let [provider (openrouterProvider)]
+    (doto (createModels)
+      (.setProvider (if-let [connection (gateway/connection discovery "openrouter")]
+                      (gateway-provider provider discovery connection)
+                      provider)))))
 
 (defn registry
-  "The registry: pi-durable's coding tools, rragent's own for the
-   `definition` and the `extensions` of the integrations, in that
-   order."
-  [definition extensions]
-  (let [registry (doto (createRegistry)
-                   (.install CodingTools)
-                   (.install (extension definition)))]
-    (doseq [e extensions]
-      (.install registry e))
-    registry))
-
-(defn ^:async integrations
-  "The extensions of the integrations: Storrito's with `tool_search`
-   before it, since its tools are deferred, and Composio's. Each from
-   its environment variables, or from what a test passes as `:storrito`
-   and `:composio` (nil for none)."
-  [options]
-  (let [storrito (await (storrito/extension (if (contains? options :storrito) (:storrito options) (storrito/config))))
-        composio (composio/extension (if (contains? options :composio) (:composio options) (composio/config)))]
-    (remove nil? [(when storrito (createToolSearchExtension)) storrito composio])))
+  "The registry: pi-durable's coding tools and rragent's own for the
+   `definition`, with the REPL `codemode`."
+  [definition codemode]
+  (doto (createRegistry)
+    (.install CodingTools)
+    (.install (extension definition codemode))))
 
 (defn ^:async open
-  "The harness of the agent in `home`: `{:harness :root :view :definition :home :models}`.
-   `models` and `storage` are the production ones unless given (a test
-   passes the faux provider and memory storage); `provider` names the
-   models' provider, `openrouter` by default; `now` a clock for tests;
-   `storrito` and `composio` the integrations' configs, from the
-   environment unless given."
-  [{:keys [home models storage provider now] :as options}]
+  "The harness of the agent in `home`: `{:harness :root :view :definition
+   :home :models :codemode}`. `models` and `storage` are the production
+   ones unless given (a test passes the faux provider and memory
+   storage); `provider` names the models' provider, `openrouter` by
+   default; `now` a clock for tests; `gateway` the Sprites gateway's
+   base URL, `RRAGENT_GATEWAY` or `http://sprite.internal` unless
+   given (a test passes its fake). The gateway's connectors are
+   discovered here, for the REPL (`rragent.codemode`) and for the
+   models' route."
+  [{:keys [home models storage provider now gateway]}]
   (let [home (or home (home/home))
         file (or (home/definition-file home)
                  (throw (ex-info (str "No AGENT.md or SKILL.md in " home) {:home home})))
         definition (definition/definition file)
         work (home/work-dir home)
         storage (or storage (await (openNodeSqliteStorage (home/database home))))
-        models (or models (openrouter-models))
-        extensions (await (integrations options))
+        codemode (codemode/handle (gateway/base gateway))
+        models (or models (openrouter-models (codemode/discovery codemode)))
         harness (await (.open Harness storage
                               #js {:models models
-                                   :registry (registry definition extensions)
+                                   :registry (registry definition codemode)
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) work)}))
                                    :settings #js {:compaction #js {:enabled true}}
                                    :now (or now js/undefined)
@@ -107,7 +132,7 @@
                                  :cwd work}
                        context))
     (.resume harness)
-    {:harness harness :root root :view view :definition definition :home home :models models}))
+    {:harness harness :root root :view view :definition definition :home home :models models :codemode codemode}))
 
 (defn busy?
   "Whether a run is going in the conversation: `pi.live` of the view

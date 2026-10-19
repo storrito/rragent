@@ -4,9 +4,10 @@
             ["@earendil-works/pi-ai/providers/faux" :refer [fauxAssistantMessage fauxProvider fauxText fauxToolCall]]
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
+            [rragent.fake-gateway :as fake-gateway]
             [rragent.harness :as harness]
+            [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
-            [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]
             [rragent.facts :as facts]))
 
@@ -78,10 +79,57 @@
           (.catch (fn [e] (is (nil? e) (str e))))
           (.finally (fn [] (.close server) (done)))))))
 
+(defn- ^:async tool-results
+  "The tool results of the root conversation by call id, as the model
+   got them."
+  [agent]
+  (let [page (await (.entries (:root agent) #js {} 100 js/undefined harness/context))]
+    (->> (array-seq (.-items page))
+         (filter #(= "pi.tool-result" (.-kind %)))
+         (map #(aget (.-model %) 0))
+         (into {} (map (fn [r] [(.-toolCallId r) r]))))))
+
+(defn- result-text
+  [result]
+  (apply str (map #(.-text %) (array-seq (.-content result)))))
+
 (deftest eval-test
-  (is (= "3" (eval-tool/evaluate "(+ 1 2)")))
-  (is (= "#'user/x" (eval-tool/evaluate "(def x 21)")))
-  (is (= "42" (eval-tool/evaluate "(* x 2)")) "a def stays for the next call")
-  (is (= "\"node\"" (eval-tool/evaluate "(.-title js/process)")) "the host is reachable as js/...")
-  (is (thrown? js/Error (eval-tool/evaluate "(undefined-fn 1)")))
-  (is (str/ends-with? (eval-tool/evaluate "(apply str (repeat 20000 \"a\"))") "(cut at 10000 characters)")))
+  (async done
+    (-> ((^:async fn []
+           (let [{:keys [url stop]} (await (fake-gateway/start!))
+                 home (test-home/make)
+                 {:keys [faux models]} (faux-models)
+                 program (str "(let [r (call \"echo\" \"/hello\" {:query {:q 1}})]"
+                              "  (remember \"seen\" {:path (get-in r [:body :path]) :q (get-in r [:body :query :q])})"
+                              "  (println \"status\" (:status r))"
+                              "  (count (recall {:event \"seen\"})))")]
+             (.setResponses faux #js [(tool-call "eval" {:code program} "e1")
+                                      (tool-call "eval" {:code "(def n 5)"} "e2")
+                                      (tool-call "eval" {:code "(* n 2)"} "e3")
+                                      (tool-call "eval" {:code "(.-env js/process)"} "e4")
+                                      (tool-call "recall" {:event "seen"} "r1")
+                                      (answer "Done.")])
+             (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux" :gateway url}))]
+               (try
+                 (is (= "Done." (await (harness/ask agent "Look at the echo."))))
+                 (let [results (await (tool-results agent))]
+                   (testing "the program's printed output and its value, the call through the gateway, the fact seen at once"
+                     (is (= "status 200\n=> 1" (result-text (get results "e1")))))
+                   (testing "a def stays for the next call"
+                     (is (= "=> #'user/n" (result-text (get results "e2"))))
+                     (is (= "=> 10" (result-text (get results "e3")))))
+                   (testing "the host is out of reach, as an error the model reads"
+                     (is (true? (.-isError (get results "e4"))))
+                     (is (str/includes? (result-text (get results "e4")) "Unable to resolve symbol: js/process")))
+                   (testing "what the program remembered is a fact of the conversation"
+                     (is (str/includes? (result-text (get results "r1")) ":path \"/hello\""))
+                     (is (str/includes? (result-text (get results "r1")) ":q \"1\""))))
+                 (let [all (await (facts/facts (facts/from-root (:root agent) harness/context)))]
+                   (is (= [{:event "seen" :path "/hello" :q "1"}] (mapv #(dissoc % :at :fact/id) all))))
+                 (finally
+                   (await (harness/close agent))
+                   (test-home/remove! home)
+                   (stop)
+                   (sync-fetch/stop!)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
