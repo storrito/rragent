@@ -42,10 +42,16 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+        # A rerun of the job finds the release already there: the assets are
+        # replaced instead, so the image steps after it can run again.
         run: |
-          gh release create "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 \
-            --title "rragent ${GITHUB_REF_NAME}" \
-            --generate-notes
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 \
+              --title "rragent ${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
       - name: The version, from the tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
