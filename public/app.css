@@ -501,8 +501,9 @@ button.primary {
 
 /* A button always shows and stays a button's size: a style of the
    model's cannot make it an invisible screen that sends on a click
-   (inline styles never beat !important); its colors stay the model's,
-   a swatch is a button. */
+   (inline styles never beat !important), its height capped in rem, not
+   in its own font size; its colors stay the model's, a swatch is a
+   button. */
 .genui button {
   margin: 4px 6px 4px 0;
   opacity: 1 !important;
@@ -510,7 +511,7 @@ button.primary {
   min-width: 0 !important;
   min-height: 0 !important;
   max-width: 100% !important;
-  max-height: 4em !important;
+  max-height: 4rem !important;
   overflow: hidden !important;
 }
 
