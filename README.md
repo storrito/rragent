@@ -306,10 +306,73 @@ come with their own, each optional:
 ## Releases
 
 `npm version <x.y.z>` and `git push --tags`: the tag `v<x.y.z>` builds the
-bundle and publishes a GitHub release with `rragent.tar.gz` (the `dist/`
-folder: `rragent.js` and `public/`) and its checksum. A machine image
-downloads `releases/latest/download/rragent.tar.gz` instead of building
-the app; `deploy/` has what a Sprite needs around it.
+bundle, publishes a GitHub release with `rragent.tar.gz` (the `dist/`
+folder: `rragent.js`, `public/` and `templates/`) and its checksum, and
+builds the Sprite images from that same `dist/` (below). A machine image
+built elsewhere downloads `releases/latest/download/rragent.tar.gz`
+instead of building the app.
+
+## Deploy
+
+An agent runs on a [Sprite](https://sprites.dev) made from an image of
+rragent. `deploy/` has what the Sprite needs around the bundle, and the
+release builds two images of it (`.github/actions/sprite-image`, run by
+the release workflow after the tarball is published) into the private
+package `ghcr.io/storrito/rragent-sprite`:
+
+- `ghcr.io/storrito/rragent-sprite:<x.y.z>` from `deploy/Dockerfile.full`:
+  the bundle on the Sprites base image (`s2-default`, which brings Node
+  through mise) with what the templates need, ffmpeg with the fonts,
+  Google Chrome and the HyperFrames CLI. The image of an agent that
+  renders videos. `latest` is the newest release of it, for a try by
+  hand; a provisioner pins the version (below).
+- `ghcr.io/storrito/rragent-sprite:<x.y.z>-plain` from `deploy/Dockerfile`:
+  the bundle alone, 1.3 GB smaller. The image of an agent that renders
+  no video: a render answers why there is none, everything else works.
+
+Both have the bundle in `/home/sprite/rragent/dist/`, `start.sh` beside
+it and the page watcher's definition in `agent/`, and neither carries a
+secret: `/home/sprite/rragent/.env` is written when the sprite is made,
+`start.sh` refuses to start without it, and what the provisioner writes
+into it is the contract between the two:
+
+- `RRAGENT_TOKEN`, the secret of the page's link.
+- `RRAGENT_URL`, the sprite's public URL, the base of the hooks' addresses.
+- `COMPOSIO_SESSION_ID`, when the agent has a Composio session.
+- `OPENROUTER_API_KEY`, only when no OpenRouter connector of the
+  organization covers the sprite.
+
+The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<x.y.z>
+--image-auth <auth> --service http:8080
+--service-command http=/home/sprite/rragent/start.sh --service-restart
+http=always`, the `.env` written by an exec, then `sprite update <name>
+--public`; the page's link is `<url>?token=<RRAGENT_TOKEN>`.
+
+The package is private, so a pull needs `<auth>`, which Sprites takes
+as `image_auth` at the create only and never stores: the base64 of
+`user:token`, the token a classic personal access token with
+`read:packages` of a user who reads the organization's packages
+(`printf '%s:%s' "$USER" "$TOKEN" | base64 -w0`). Storrito's
+provisioner holds the two as `AGENT_IMAGE_PULL_USER` and
+`AGENT_IMAGE_PULL_TOKEN` and makes the value the same way.
+
+The workflows push with the job's `GITHUB_TOKEN`, which reaches a
+package only when the package's settings grant the repository's actions
+write access (Manage Actions access, once; a package first pushed by a
+workflow has it from the start).
+
+Sprites imports an image tag once per organization (two minutes, which
+the first sprite of it waits for) and never pulls it again: a sprite
+made later from the same tag gets the bytes of that first import,
+whatever the registry holds by then. So every build gets a tag of its
+own, which the version guarantees, and the workflows refuse a tag that
+exists instead of pushing over it. A branch gets to a sprite without a
+release through the Image workflow: "Run workflow" on the branch with a
+tag that names it and the commit, `codemode-96b18a8`, pushes
+`rragent-sprite:<tag>` and `<tag>-plain` from that checkout. Locally,
+`npm run build && docker build -f deploy/Dockerfile.full -t
+rragent-sprite:dev .` builds the full image, `-f deploy/Dockerfile` the
+plain one.
 
 ## License
 
