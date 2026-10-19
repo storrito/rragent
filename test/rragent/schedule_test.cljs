@@ -16,7 +16,12 @@
     (is (= (+ from 2000) (schedule/next-run "*/2 * * * * *" "UTC" from)) "six fields: seconds")
     (is (thrown? js/Error (schedule/next-run "nonsense" "UTC" from)))
     (is (= (+ from 2000) (schedule/next-due #js {:a #js {:cron "*/2 * * * * *" :tz "UTC"} :b #js {:cron "0 8 * * *" :tz "UTC"}} from)) "the earliest of the schedules")
-    (is (nil? (schedule/next-due #js {} from)))))
+    (is (nil? (schedule/next-due #js {} from))))
+  (testing "the run after a run follows the schedule, unless it is more than an hour behind"
+    (let [at (.getTime (js/Date. "2026-10-18T20:10:00Z"))]
+      (is (= (.getTime (js/Date. "2026-10-18T20:15:00Z")) (schedule/next-after "*/5 * * * *" "UTC" at (.getTime (js/Date. "2026-10-18T20:18:00Z")))) "the machine woke late: the missed run still runs")
+      (is (= (.getTime (js/Date. "2026-10-19T09:20:00Z")) (schedule/next-after "*/5 * * * *" "UTC" at (.getTime (js/Date. "2026-10-19T09:17:00Z")))) "a day late: the next run from now")
+      (is (= (.getTime (js/Date. "2026-10-18T20:15:00Z")) (schedule/next-after "*/5 * * * *" "UTC" at at)) "right on time: the next one"))))
 
 (defn- sleep
   [ms]
@@ -77,7 +82,7 @@
                      (is (= 1 armed-at-set) "the alarm set once by the tool")
                      (await (sleep 2500))
                      (is (< armed-at-set (count (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))) "and again after every fire")
-                     (is (every? #(str/includes? % (str "--cron " (wake/cron-of (wake/next-minute (js/Date.now))) " --wake"))
+                     (is (every? #(str/includes? % (str "--cron " (wake/cron-of (wake/next-minute (js/Date.now))) " --exec"))
                                  (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))
                          "to the next minute: a second-by-second schedule is always due within it"))
                    (finally
