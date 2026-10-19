@@ -8,9 +8,12 @@
    that `rragent.i18n/translate` turns into the language of the person.
    The files attached to a user message are the lines of its text that
    name them (`rragent.uploads`), shown as thumbnails and links. The
-   classes follow rchat's stylesheet, which the page ships as app.css."
+   answer of the model is markdown and goes through `rragent.markdown`
+   to the page; the person's own words stay plain text. The classes
+   follow rchat's stylesheet, which the page ships as app.css."
   (:require [clojure.string :as str]
             [rragent.artifacts :as artifacts]
+            [rragent.markdown :as markdown]
             [rragent.uploads :as uploads]))
 
 (defn cut
@@ -241,7 +244,7 @@
     [:div.item.step {:replicant/key id
                      :class (when streaming? "streaming")}
      (when (seq text)
-       [:p.text text])
+       (into [:div.markdown] (markdown/hiccup text)))
      (when aborted?
        [:p.hint [:i18n :chat/aborted]])
      (when error

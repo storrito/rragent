@@ -119,3 +119,24 @@
           (is (= "Remove" (:ui/remove-title (second composer))))
           (is (= "/upload" (:ui/upload-url (second composer))))
           (is (not-any? #(and (vector? %) (= :i18n (first %))) (nodes page)) "no reference is left anywhere, attributes included"))))))
+
+(deftest markdown-test
+  (let [c {:entries [(user 2 "Keep **this** as it is")
+                     (assistant 3 [{:type "text" :text "**Bold** and\n\n- one\n- two\n\n```js\nlet x = 1;\n```"}])]
+           :live {:run {:taskId "t"}
+                  :generation {:message {:role "assistant" :content [{:type "text" :text "Looking *hard*"}] :stopReason "stop" :timestamp 99}}}}
+        page (i18n/translate (view/page {:agent {} :conversation c :locale :en}) :en)
+        answers (filter #(and (vector? %) (= :div.markdown (first %))) (nodes page))
+        answer (first answers)]
+    (testing "the person's message stays plain text"
+      (is (= "Keep **this** as it is" (last (find-tag page :p.text)))))
+    (testing "the answer is rendered from its markdown"
+      (is (= [:strong "Bold"] (find-tag answer :strong)))
+      (is (= 2 (count (filter #(and (vector? %) (= :li (first %))) (nodes answer)))))
+      (is (= "language-js" (:class (second (find-tag answer :code)))))
+      (is (some? (find-tag answer :pre)))
+      (is (not-any? #(str/includes? % "**") (strings answer))))
+    (testing "the streaming partial too"
+      (is (= [:em "hard"] (find-tag (second answers) :em))))
+    (testing "the page stays data a frame can carry"
+      (is (= page (transit/read-str (transit/write-str page)))))))

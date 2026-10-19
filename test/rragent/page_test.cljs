@@ -46,7 +46,7 @@
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
              (.setResponses faux #js [(tools-test/tool-call "remember" {:event "asked" :data {:seen 1}} "c1")
-                                      (tools-test/answer "Paris.")])
+                                      (tools-test/answer "**Paris.**\n\n- the Seine\n- the Louvre\n\n```\n(+ 1 2)\n```")])
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))
                    stop-following (page/start! agent)
                    server (await (http/listen (page/handler "s3cret") 0))
@@ -91,6 +91,13 @@
                          (is (mentions? answer "Noted a fact") "the tool call is on the page")
                          (is (mentions? answer "Noted: asked") "and the fact itself, as a note")
                          (is (not (mentions? answer "Stop")) "the run is over")
+                         (testing "the answer's markdown is rendered"
+                           (let [tags (set (map first (filter vector? (tree-seq coll? seq answer))))]
+                             (is (contains? tags :strong))
+                             (is (contains? tags :li))
+                             (is (contains? tags :pre))
+                             (is (contains? tags :code))
+                             (is (not (mentions? answer "**")) "no raw markdown on the page")))
                          (testing "a picture attached: uploaded, named in the message, seen by the model, a thumbnail on the page"
                            (.setResponses faux #js [(tools-test/answer "A dot.")])
                            (let [uploaded (await (js/fetch (str base "/upload") #js {:method "POST"
