@@ -218,7 +218,7 @@
                       (.slice file offset end)
                       type
                       {:on-progress (fn [loaded]
-                                      (update-chip! #(assoc % :progress (/ (+ offset loaded) (max total 1)))))
+                                      (update-chip! #(update % :progress max (/ (+ offset loaded) (max total 1)))))
                        :on-answer (fn [{:keys [url] :as answer}]
                                     (cond
                                       url (update-chip! #(-> %
@@ -232,7 +232,7 @@
                                        (not (present?)) nil
 
                                        (and (= 409 status) (int? received) (<= 0 received total))
-                                       (step received attempt)
+                                       (step received (if (< offset received) 0 attempt))
 
                                        (and (retry? status) (< attempt (count retry-delays-ms)))
                                        (do (js/console.warn "[upload] a piece failed with" status "- again in"

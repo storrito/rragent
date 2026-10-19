@@ -193,11 +193,17 @@
           (fs/renameSync part file))
         (respond w 200 (stored dir file-name))))))
 
+(defonce ^:private writing
+  ;; the ids of the clips a piece is being written to
+  (atom #{}))
+
 (defn- ^:async piece!
   "One piece of a clip sent in pieces: it must start where the part file
    ends; the last one completes the file. A piece of a clip already
    complete is answered with the file: the answer to its last piece was
-   lost, and the browser sends it again."
+   lost, and the browser sends it again. A piece of a clip whose last
+   piece the server still writes waits (503, the browser tries again):
+   two writers of one part file would mix their bytes."
   [dir w extension {:strs [id offset total]}]
   (let [offset (parse-long (str offset))
         total (parse-long (str total))
@@ -211,6 +217,9 @@
       (< max-bytes total)
       (respond w 413 {:error :too-large})
 
+      (contains? @writing id)
+      (respond w 503 {:error :busy})
+
       (and (pos? offset)
            (http/regular-file? (path/join dir file-name))
            (= total (file-size (path/join dir file-name))))
@@ -223,7 +232,11 @@
       :else
       (do (when (zero? offset)
             (remove! part))
-          (let [length (await (copy-counted! (:body (:ring/request w)) part total nil))]
+          (swap! writing conj id)
+          (let [length (try
+                         (await (copy-counted! (:body (:ring/request w)) part total nil))
+                         (finally
+                           (swap! writing disj id)))]
             (cond
               (nil? length)
               (do (remove! part)
