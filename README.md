@@ -155,6 +155,14 @@ come with their own, each optional:
   adds the key itself; elsewhere it is `https://backend.composio.dev`
   with `COMPOSIO_API_KEY`.
 
+## Releases
+
+`npm version <x.y.z>` and `git push --tags`: the tag `v<x.y.z>` builds the
+bundle and publishes a GitHub release with `rragent.tar.gz` (the `dist/`
+folder: `rragent.js` and `public/`) and its checksum. A machine image
+downloads `releases/latest/download/rragent.tar.gz` instead of building
+the app; `deploy/` has what a Sprite needs around it.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

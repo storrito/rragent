@@ -11,7 +11,9 @@
     "build": "vite build && vite build --config vite.client.config.mjs",
     "start": "node dist/rragent.js serve",
     "test": "cljf build @cljs.edn :test && node target/test/rragent/test_runner.js",
-    "repl": "cljf repl"
+    "repl": "cljf repl",
+    "prebuild": "node scripts/version.mjs",
+    "release": "npm run build && tar -czf rragent.tar.gz -C dist . && sha256sum rragent.tar.gz > rragent.tar.gz.sha256"
   },
   "dependencies": {
     "@earendil-works/chord": "1.3.0",
