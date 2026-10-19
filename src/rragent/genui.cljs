@@ -58,6 +58,13 @@
     :width :height :min-width :max-width :min-height :max-height :aspect-ratio
     :object-fit :overflow :box-sizing :list-style})
 
+(def button-style-properties
+  "What the style of a button may set: its colors, its corners, its type
+   and its size, which the stylesheet caps (a swatch is a button of 34
+   pixels); no padding and no border width, which would make it a screen."
+  #{:background :background-color :color :border-color :border-radius
+    :font-size :font-weight :font-style :width :height})
+
 (def style-functions
   "The CSS functions a style value may call: colors and sums, nothing
    that loads a file (`url`, `image-set`)."
@@ -106,15 +113,15 @@
          (every? style-functions (map (comp str/lower-case second) (re-seq #"([A-Za-z-]+)\s*\(" v))))))
 
 (defn- style
-  "The style map with the properties of `style-properties` and plain
-   values; nil when none is left."
-  [value]
+  "The style map with the `properties` and plain values; nil when none is
+   left."
+  [value properties]
   (when (map? value)
     (not-empty
      (into {}
            (for [[k v] value
                  :let [k (when (or (keyword? k) (string? k)) (keyword (str/lower-case (name k))))]
-                 :when (and (contains? style-properties k)
+                 :when (and (contains? properties k)
                             (or (string? v) (number? v))
                             (style-value? v))]
              [k v])))))
@@ -144,8 +151,8 @@
   (reduce (fn [acc [k v]]
             (cond
               (and (= :name k) (= :input tag) (string? v)) (assoc acc :name (str scope v))
-              (and (= :send k) (= :button tag)) (assoc acc :on (send-actions v) :title (str v))
-              (and (= :open k) (= :button tag)) (assoc acc :on (open-actions v))
+              (and (= :send k) (= :button tag) (string? v)) (assoc acc :on (send-actions v) :title v)
+              (and (= :open k) (= :button tag) (string? v)) (assoc acc :on (open-actions v))
               (= :title k) (cond-> acc (and (string? v) (not (and (= :button tag) (contains? m :send))))
                              (assoc k v))
               (not (contains? attributes k)) acc
@@ -153,7 +160,9 @@
                                           (cond-> (assoc acc k v)
                                             (and (= :href k) (= :a tag)) (assoc :target "_blank" :rel "noopener noreferrer"))
                                           acc)
-              (= :style k) (if-let [v (style v)] (assoc acc :style v) acc)
+              (= :style k) (if-let [v (style v (if (= :button tag) button-style-properties style-properties))]
+                             (assoc acc :style v)
+                             acc)
               (or (string? v) (number? v) (boolean? v)) (assoc acc k v)
               :else acc))
           {}
@@ -212,7 +221,8 @@
            :else
            (into [:span (attrs :span m scope)] children)))
 
-       (sequential? hiccup) (map #(sanitize % deeper) hiccup)
+       ;; eager: what is lazy would run after `block`'s try, in the page's walk
+       (sequential? hiccup) (doall (map #(sanitize % deeper) hiccup))
        (or (string? hiccup) (number? hiccup) (nil? hiccup)) hiccup
        (keyword? hiccup) (name hiccup)
        :else (printed hiccup)))))

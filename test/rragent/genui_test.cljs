@@ -88,6 +88,18 @@
            (genui/sanitize [:label {:style {:display "block" :height "100vh"}} [:button {:send "Do it"} "x"]])))
     (is (= [:label {} [:span {} [:span {} "x"]]]
            (genui/sanitize [:label [:span [:button {:send "On: {checked}"} "x"]]]))))
+  (testing ":send and :open take text only, also in a list: what is lazy would run after the try"
+    (let [deep (reduce (fn [inner _] [1 inner]) 1 (range 1500))]
+      (is (= [:button {} "x"] (genui/sanitize [:button {:send deep} "x"])))
+      (is (= [:button {} "x"] (genui/sanitize [:button {:open {:a deep}} "x"])))
+      (let [[_ _ children] (genui/sanitize [:p (list [:button {:send deep} "x"])])]
+        (is (realized? children))
+        (is (= [[:button {} "x"]] children)))))
+  (testing "a button's style keeps its colors, corners, type and size, no padding or border width"
+    (is (= {:background "#ffb36b" :width "34px" :height "34px" :border-radius "50%"}
+           (:style (second (genui/sanitize [:button {:send "x" :style {:background "#ffb36b" :width "34px" :height "34px" :border-radius "50%"
+                                                                       :padding "40vh 0" :border "40vh solid transparent" :min-height "100vh"
+                                                                       :box-sizing "content-box"}} "x"]))))))
   (testing ":send and :open only on a button"
     (is (= [:div {}] (genui/sanitize [:div {:send "Do this" :open "artifacts/x"}])))
     (is (= [:span {}] (genui/sanitize [:script {:send "Do this"}]))))
