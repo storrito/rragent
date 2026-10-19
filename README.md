@@ -46,6 +46,13 @@ Stop that aborts the run, a program of the REPL in it ended with its
 worker thread. The texts are English or German, by the browser's
 language or `?lang=de`.
 
+A chat with nothing in it opens with the skill's welcome
+(`rragent.onboarding`), from the `metadata` of its SKILL.md: `title`, the
+task's name; `ask`, the first message, what the person should bring;
+`placeholder`, the composer's while the chat is empty. Each can have a
+`-<locale>` variant, `ask-de` for German. Without an `ask` the chat
+starts empty.
+
 An answer can carry a part of the page: a ```hiccup block holds EDN
 hiccup, which `rragent.genui` lets through its allow-lists once the
 fence is closed (a block still being written shows as code). Links and

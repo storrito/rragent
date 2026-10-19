@@ -31,6 +31,7 @@
             [rragent.hooks :as hooks]
             [rragent.i18n :as i18n]
             [rragent.lifecycle :as lifecycle]
+            [rragent.onboarding :as onboarding]
             [rragent.programs :as programs]
             [rragent.projects :as projects]
             [rragent.render :as render]
@@ -70,7 +71,8 @@
                             :model (get-in agent [:definition :model])}
                     :conversation (conversation value)
                     :artifacts (select-keys @db/db [:artifacts/list :artifacts/current :projects :renders])
-                    :locale locale})
+                    :locale locale
+                    :onboarding (onboarding/onboarding (get-in agent [:definition :metadata]) locale)})
         (i18n/translate locale))))
 
 (defn- ^:async send-command

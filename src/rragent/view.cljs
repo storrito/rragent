@@ -258,12 +258,25 @@
     [:div.item.note {:replicant/key id}
      [:p.text text]]))
 
+(defn welcome
+  "A chat with nothing in it, opened by the agent's skill
+   (`rragent.onboarding`): its name and what to bring."
+  [{:keys [title ask]}]
+  [:div.item.step.welcome {:replicant/key "welcome"}
+   (when title
+     [:div.label title])
+   (into [:div.markdown] (markdown/hiccup ask))])
+
 (defn feed
-  [items status]
+  "The items of the conversation; with none shown yet, the skill's
+   welcome, or the plain empty chat for an agent without one."
+  [items status onboarding]
   [:section.feed {:data-stick-to-end "true"}
-   (if (empty? items)
-     [:p.hint.empty [:i18n :chat/empty]]
-     (map item-view (filter shown? items)))
+   (let [shown (filter shown? items)]
+     (cond
+       (seq shown) (map item-view shown)
+       onboarding (welcome onboarding)
+       :else [:p.hint.empty [:i18n :chat/empty]]))
    (when (= :working status)
      [:div.item.working {:replicant/key "working"}
       [:span.dot]
@@ -295,8 +308,9 @@
   "The draft and the attachments are client state (`:ui/composer`, see
    `rragent.client`): a new frame does not reset them. The alias has the
    attach button and Send, which waits for the uploads; Stop aborts the
-   run while one goes."
-  [status]
+   run while one goes. `placeholder` is the skill's while the chat is
+   empty, the page's own otherwise."
+  [status placeholder]
   [:div.composer
    [:ui/composer {:ui/store-key :draft
                   :ui/attachments-key :attachments
@@ -308,7 +322,7 @@
                   :ui/uploading-label [:i18n :composer/uploading]
                   :ui/failed-label [:i18n :composer/upload-failed]
                   :rows 3
-                  :placeholder [:i18n :composer/placeholder]}]
+                  :placeholder (or placeholder [:i18n :composer/placeholder])}]
    (when (= :working status)
      [:button.stop {:on {:click [[:data/command {:command/kind :chat/stop}]]}}
       [:i18n :composer/stop]])])
@@ -440,14 +454,16 @@
 (defn page
   "`opts`: `:agent`, its `:name` and `:model`; `:conversation`, the
    transcript `{:entries :live :inbox}`; `:artifacts`, the pane's keys of
-   the db; `:locale`."
-  [{:keys [agent conversation locale] pane :artifacts}]
+   the db; `:locale`; `:onboarding`, the skill's welcome
+   (`rragent.onboarding`) or nil."
+  [{:keys [agent conversation locale onboarding] pane :artifacts}]
   (let [items (items conversation)
-        status (status (:live conversation))]
+        status (status (:live conversation))
+        empty? (not-any? shown? items)]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
      (header agent status)
      [:div.body
       [:div.chat
-       (feed items status)
-       (composer status)]
+       (feed items status onboarding)
+       (composer status (when empty? (:placeholder onboarding)))]
       (artifacts pane)]]))
