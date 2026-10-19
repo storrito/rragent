@@ -204,20 +204,37 @@
       (clip-type file) (upload-clip! store attachments-key upload-url file)
       (image-file? file) (upload-image! store attachments-key upload-url file))))
 
+(defonce ^:private inner-drag*
+  ;; a drag that started on the page, a picture of the transcript say:
+  ;; the browser lists "Files" for it too, but it brings none
+  (atom false))
+
 (defn- dragging-files?
   "A drag that carries files from outside the page, not a selection of
-   its text or a link."
+   its text, a link or a picture of the page."
   [^js event]
-  (boolean (some #{"Files"} (some-> event .-dataTransfer .-types js/Array.from))))
+  (and (not @inner-drag*)
+       (boolean (some #{"Files"} (some-> event .-dataTransfer .-types js/Array.from)))))
+
+(defn- watch-drags!
+  "Brings up the veil when files are dragged into `win`: the page's
+   window, and the canvas's, which takes the drags over the artifacts
+   pane until the veil covers it."
+  [^js win]
+  (.addEventListener win "dragstart" (fn [_event]
+                                       (reset! inner-drag* true)))
+  (.addEventListener win "dragend" (fn [_event]
+                                     (reset! inner-drag* false)))
+  (.addEventListener win "dragenter" (fn [^js event]
+                                       (when (and (dragging-files? event)
+                                                  (not (:ui/dropping? @state/store)))
+                                         (swap! state/store assoc :ui/dropping? true)))))
 
 (defonce ^:private drop-listeners
   ;; the window takes every drag of files, so that a drop beside the veil
-  ;; does not open the file in the tab; the veil itself is the composer's
-  (do (.addEventListener js/window "dragenter"
-                         (fn [^js event]
-                           (when (and (dragging-files? event)
-                                      (not (:ui/dropping? @state/store)))
-                             (swap! state/store assoc :ui/dropping? true))))
+  ;; does not open the file in the tab; the veil itself is the composer's.
+  ;; Escape takes a veil away that a browser forgot to (no dragleave).
+  (do (watch-drags! js/window)
       (.addEventListener js/window "dragover"
                          (fn [^js event]
                            (when (dragging-files? event)
@@ -227,26 +244,34 @@
                            (when (dragging-files? event)
                              (.preventDefault event)
                              (swap! state/store dissoc :ui/dropping?))))
+      (.addEventListener js/window "keydown"
+                         (fn [^js event]
+                           (when (and (= "Escape" (.-key event))
+                                      (:ui/dropping? @state/store))
+                             (swap! state/store dissoc :ui/dropping?))))
       true))
 
 (defn- drop-veil
   "Over the whole page while files are dragged over it: a drop anywhere
    attaches them. Only the veil takes the drag, its card none of it, so
-   leaving the veil is leaving the window (or Escape)."
+   leaving the veil is leaving the window (or Escape); a click takes a
+   veil away that stayed."
   [store attachments-key upload-url {:keys [title hint]}]
   [:div.drop-veil {:on {:dragover (fn [^js event]
                                     (.preventDefault event)
                                     (set! (.. event -dataTransfer -dropEffect) "copy"))
                         :dragleave (fn [_event]
                                      (swap! store dissoc :ui/dropping?))
+                        :click (fn [_event]
+                                 (swap! store dissoc :ui/dropping?))
                         :drop (fn [^js event]
                                 (.preventDefault event)
                                 (.stopPropagation event)
                                 (swap! store dissoc :ui/dropping?)
                                 (upload-all! store attachments-key upload-url
                                              (array-seq (.. event -dataTransfer -files))))}}
-   [:div.drop-card
-    [:span.icon "📎"]
+   [:div.drop-card {:role "status"}
+    [:span.icon {:aria-hidden "true"} "📎"]
     [:strong (or title "Add files")]
     [:span.hint (or hint "Drop images, videos or audio files to attach them to your message.")]]])
 
@@ -332,12 +357,7 @@
         send! (fn []
                 (when ready?
                   (state/dispatch! send)))]
-    [:div.composer-input {:on {:dragover (fn [^js event]
-                                           (.preventDefault event))
-                               :drop (fn [^js event]
-                                       (.preventDefault event)
-                                       (upload-all! store attachments-key upload-url
-                                                    (array-seq (.. event -dataTransfer -files))))}}
+    [:div.composer-input
      (when (:ui/dropping? state)
        (drop-veil store attachments-key upload-url {:title drop-title
                                                     :hint drop-hint}))
@@ -406,6 +426,14 @@
       (catch :default _
         nil))))
 
+(defn- watch-canvas-drags!
+  "The drags into the canvas's page, same origin; each load is a new
+   window."
+  [^js event]
+  (try
+    (watch-drags! (.. event -target -contentWindow))
+    (catch :default _)))
+
 (defn canvas
   "The creation of the agent: an iframe over the page the server names.
    A new `:ui/rev` changes the src and reloads the page at the position
@@ -421,7 +449,8 @@
                      :title (or title "Your creation")
                      :replicant/on-mount (fn [{:keys [replicant/node]}]
                                            (reset! canvas-node* node)
-                                           (.addEventListener ^js node "load" restore-canvas-scroll!))
+                                           (.addEventListener ^js node "load" restore-canvas-scroll!)
+                                           (.addEventListener ^js node "load" watch-canvas-drags!))
                      :replicant/on-unmount (fn [_]
                                              (reset! canvas-node* nil)
                                              (reset! canvas-src* nil))}]))
