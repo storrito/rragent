@@ -2,7 +2,7 @@
   "pi-durable opened on the agent's folder: the SQLite storage, the
    models (OpenRouter with the key from the environment, or what a test
    passes), the registry with pi-durable's coding tools (read, write,
-   edit, bash in `work/`), rragent's own (state, fetch, eval, schedule,
+   edit, bash in `work/`), rragent's own (remember and recall, fetch, eval, schedule,
    hook, and the tools of the artifacts: project, render, image, voice,
    music; the pane shows what they make) and the integrations the
    environment names (Storrito's procedures as deferred tools with
@@ -30,7 +30,7 @@
             [rragent.tools.project :as project-tool]
             [rragent.tools.render :as render-tool]
             [rragent.tools.schedule :as schedule-tool]
-            [rragent.tools.state :as state-tool]))
+            [rragent.tools.facts :as facts-tool]))
 
 (def context
   "The Chord context every call takes; this one never cancels."
@@ -38,7 +38,7 @@
 
 (def extension
   (defineExtension #js {:name "rragent"
-                        :tools #js [state-tool/tool fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool
+                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool
                                     project-tool/tool render-tool/tool media-tool/image media-tool/voice media-tool/music]
                         :tasks #js [schedule/Task]}))
 

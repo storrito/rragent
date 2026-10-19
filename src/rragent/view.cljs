@@ -41,7 +41,8 @@
     "edit" [:i18n :tool/edit]
     "eval" [:i18n :tool/eval]
     "fetch" [:i18n :tool/fetch]
-    "state" [:i18n :tool/state]
+    "remember" [:i18n :tool/remember]
+    "recall" [:i18n :tool/recall]
     "schedule" [:i18n :tool/schedule]
     "hook" [:i18n :tool/hook]
     "render" [:i18n :tool/render]
@@ -109,6 +110,7 @@
     "pi.assistant" (let [message (first model)]
                      (cons (assistant-item id message)
                            (tool-items message results slots)))
+    "rragent.fact" [{:kind :note :id id :text [:i18n :chat/fact {:event (:event data)}]}]
     "pi.reset" [{:kind :note :id id :text [:i18n :chat/reset]}]
     "pi.compaction" [{:kind :note :id id :text [:i18n :chat/compacted]}]
     nil))

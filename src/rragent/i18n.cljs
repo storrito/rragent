@@ -34,6 +34,7 @@
    :chat/you "You"
    :chat/hook [:fn/str "Hook {{:name}}"]
    :chat/schedule [:fn/str "Schedule {{:name}}"]
+   :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/ready "Ready"
    :chat/empty "Nothing here yet. Write the first message."
@@ -50,7 +51,8 @@
    :tool/edit "Changed a file"
    :tool/eval "Evaluated"
    :tool/fetch "Fetched a page"
-   :tool/state "Changed its state"
+   :tool/remember "Noted a fact"
+   :tool/recall "Recalled its facts"
    :tool/schedule "Changed a schedule"
    :tool/hook "Changed a hook"
    :tool/render "Made a video"
@@ -86,6 +88,7 @@
    :chat/you "Du"
    :chat/hook [:fn/str "Hook {{:name}}"]
    :chat/schedule [:fn/str "Zeitplan {{:name}}"]
+   :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
    :chat/empty "Noch nichts hier. Schreib die erste Nachricht."
@@ -102,7 +105,8 @@
    :tool/edit "Datei geändert"
    :tool/eval "Ausgewertet"
    :tool/fetch "Seite abgerufen"
-   :tool/state "Zustand geändert"
+   :tool/remember "Hat sich etwas gemerkt"
+   :tool/recall "Hat nachgesehen"
    :tool/schedule "Zeitplan geändert"
    :tool/hook "Hook geändert"
    :tool/render "Video erstellt"

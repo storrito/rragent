@@ -43,7 +43,7 @@
     (-> ((^:async fn []
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
-             (.setResponses faux #js [(tools-test/tool-call "state" {:patch {:seen 1}} "c1")
+             (.setResponses faux #js [(tools-test/tool-call "remember" {:event "asked" :data {:seen 1}} "c1")
                                       (tools-test/answer "Paris.")])
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))
                    stop-following (page/start! agent)
@@ -86,7 +86,8 @@
                        (let [{answer :view} (await (within 15000 (next-frame reader decoder buffer #(mentions? % "Paris."))))]
                          (is (some? answer))
                          (is (mentions? answer "Capital of France?") "the question is on the page")
-                         (is (mentions? answer "Changed its state") "the tool call is on the page")
+                         (is (mentions? answer "Noted a fact") "the tool call is on the page")
+                         (is (mentions? answer "Noted: asked") "and the fact itself, as a note")
                          (is (not (mentions? answer "Stop")) "the run is over")))))
                  (testing "a hook with a wrong secret is refused without the cookie"
                    (is (= 403 (.-status (await (js/fetch (str base "/hook/deploy/wrong") #js {:method "POST" :body "x"}))))))

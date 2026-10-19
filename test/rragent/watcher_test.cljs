@@ -2,7 +2,7 @@
   "The job of milestone 1, end to end on a laptop against the faux
    model: a schedule the agent sets, which wakes it every second; at
    each run it fetches a page from a local server and notes what it saw
-   in its state. The model's moves are scripted; the plumbing is real:
+   as a fact. The model's moves are scripted; the plumbing is real:
    the task that sleeps and fires, the input it submits, the tools it
    calls, the document it writes."
   (:require ["node:http" :as http]
@@ -13,7 +13,7 @@
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]
-            [rragent.tools.state :as state-tool]))
+            [rragent.facts :as facts]))
 
 (defn- sleep
   [ms]
@@ -32,7 +32,7 @@
                    home (test-home/make)
                    {:keys [faux models]} (tools-test/faux-models)
                    run (fn [n] [(tools-test/tool-call "fetch" {:url url} (str "f" n))
-                                (tools-test/tool-call "state" {:patch {:last (str "run " n)}} (str "s" n))
+                                (tools-test/tool-call "remember" {:event "page-seen" :data {:run n :title "Hello"}} (str "s" n))
                                 (tools-test/answer (str "Checked, run " n "."))])]
                (.setResponses faux (clj->js (concat [(tools-test/tool-call "schedule" {:action "set" :name "watch" :cron "* * * * * *" :text (str "Check " url " and note what you saw.")} "w1")
                                                      (tools-test/answer "Watching.")]
@@ -42,12 +42,13 @@
                    (try
                      (is (= "Watching." (await (harness/ask agent (str "Watch " url " every second.")))))
                      (await (sleep 3500))
-                     (testing "the schedule fired more than once, each run fetched the page and wrote the state"
+                     (testing "the schedule fired more than once, each run fetched the page and noted a fact"
                        (let [k (await (schedule-test/kinds agent))
-                             state (js->clj (await (.snapshot (:harness agent) state-tool/State (.-id (:root agent)) harness/context)))]
+                             seen (facts/select (await (facts/facts (facts/from-root (:root agent) harness/context))) {:event "page-seen"})]
                          (is (<= 2 (count (filter #(= "rragent.schedule" %) k))) (pr-str k))
                          (is (<= 2 @hits) "the page was fetched at each run")
-                         (is (re-matches #"run \d+" (str (get state "last"))) (pr-str state))))
+                         (is (<= 2 (count seen)) (pr-str seen))
+                         (is (= "#{\"Hello\"}" (facts/project seen "(set (map :title events))")) "a projection over them")))
                      (testing "the fetch tool saw the page"
                        (let [page (await (.entries (:root agent) #js {} 100 js/undefined harness/context))
                              results (->> (array-seq (.-items page))

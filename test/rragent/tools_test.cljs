@@ -8,7 +8,7 @@
             [rragent.test-home :as test-home]
             [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]
-            [rragent.tools.state :as state-tool]))
+            [rragent.facts :as facts]))
 
 (defn faux-models
   "The faux provider playing the model, its answers set with `set-responses!`."
@@ -25,20 +25,30 @@
   [text]
   (fauxAssistantMessage #js [(fauxText text)]))
 
-(deftest state-test
+(deftest facts-test
   (async done
     (-> ((^:async fn []
            (let [home (test-home/make)
                  {:keys [faux models]} (faux-models)]
-             (.setResponses faux #js [(tool-call "state" {:patch {:handled [4711] :last "2026-10-18"}} "s1")
-                                      (tool-call "state" {:patch {:last nil :note "x"}} "s2")
-                                      (tool-call "state" {} "s3")
+             (.setResponses faux #js [(tool-call "remember" {:event "review-posted" :data {:id 4711 :stars 5}} "r1")
+                                      (tool-call "remember" {:event "review-posted" :data {:id 4712 :stars 4}} "r2")
+                                      (tool-call "remember" {:event "price-checked" :data {:eur 180}} "r3")
+                                      (tool-call "recall" {:code "(->> events (filter #(= \"review-posted\" (:event %))) (map :id) set)"} "q1")
+                                      (tool-call "recall" {:event "price-checked"} "q2")
                                       (answer "Noted.")])
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
                (try
-                 (is (= "Noted." (await (harness/ask agent "Remember review 4711."))))
-                 (let [state (js->clj (await (.snapshot (:harness agent) state-tool/State (.-id (:root agent)) harness/context)))]
-                   (is (= {"handled" [4711] "note" "x"} state) "merged, a null key removed, read back as the last call"))
+                 (is (= "Noted." (await (harness/ask agent "Remember the reviews."))))
+                 (let [all (await (facts/facts (facts/from-root (:root agent) harness/context)))]
+                   (is (= ["review-posted" "review-posted" "price-checked"] (mapv :event all)) "three facts, oldest first")
+                   (is (= 4711 (:id (first all))))
+                   (is (every? #(number? (:at %)) all)))
+                 (let [page (await (.entries (:root agent) #js {} 100 js/undefined harness/context))
+                       results (->> (array-seq (.-items page))
+                                    (filter #(= "pi.tool-result" (.-kind %)))
+                                    (map #(js/JSON.stringify (.-model %))))]
+                   (is (some #(str/includes? % "#{4711 4712}") results) "the projection the model wrote, over the facts")
+                   (is (some #(str/includes? % ":eur 180") results) "the facts of one event, as they are"))
                  (finally
                    (await (harness/close agent))
                    (test-home/remove! home)))))))
