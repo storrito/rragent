@@ -36,10 +36,12 @@ their videos.
 
 `rragent serve` opens the agent of `RRAGENT_HOME` (`./agent`) and serves its
 page on `PORT` (8080): the conversation as a chat, user messages, the
-agent's answers, its tool calls folded with their output, the answer
-streaming while a run goes, a composer at the bottom and a Stop that aborts
-the run. The texts are English or German, by the browser's language or
-`?lang=de`.
+agent's answers rendered from their markdown (`rragent.markdown`:
+markdown-it's tokens walked into hiccup, so a tag the model writes is
+text, never HTML of the page), its tool calls folded with their output,
+the answer streaming while a run goes, a composer at the bottom and a
+Stop that aborts the run. The texts are English or German, by the
+browser's language or `?lang=de`.
 
 A message can carry files, the way pchat's can: the attach button
 takes an image, a video or an audio file, a picture can be pasted or
