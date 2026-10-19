@@ -1,0 +1,14 @@
+{:paths ["src" "test"]
+ :deps {;; the compiler; the cljf launcher (which the Vite plugin runs) adds it
+        ;; itself when it is missing, listing it pins the version
+        com.whimsical/clojurific {:mvn/version "0.12.7"}
+        ;; the dev server's nREPL server, for npm run repl and editors
+        nrepl/nrepl {:mvn/version "1.8.0"}}
+ ;; Clojurific replaces stock ClojureScript, which must not be on the classpath
+ ;; too. The cljf launcher drops it itself; with the Clojure CLI
+ ;; (clojure -M:cljs -m cljf.esm build ...) this alias overrides it with
+ ;; Clojurific's empty project.
+ :aliases {:cljs {:override-deps {org.clojure/clojurescript
+                                  {:git/url "https://github.com/WhimsicalCode/clojurific"
+                                   :git/tag "v0.12.7" :git/sha "ef958e6"
+                                   :deps/root "no-clojurescript"}}}}}

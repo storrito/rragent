@@ -1,0 +1,31 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      # the compiler is Clojure: Java for cljf, the Clojure dependencies cached
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: clojure-${{ hashFiles('deps.edn') }}
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
