@@ -1,0 +1,25 @@
+# rragent on a Sprite with everything the renders need: deploy/Dockerfile
+# plus ffmpeg and the fonts, Google Chrome and the HyperFrames CLI, as
+# the Storrito agent image carries them. Build from the repository's
+# root after `npm run build`:
+#   docker build -f deploy/Dockerfile.full -t rragent-full .
+FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
+
+ARG HYPERFRAMES_VERSION=0.8.172
+
+USER root
+RUN apt-get update -qq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg fonts-noto-core fonts-noto-color-emoji fonts-liberation >/dev/null \
+    && curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/chrome.deb >/dev/null \
+    && rm -f /tmp/chrome.deb && rm -rf /var/lib/apt/lists/*
+
+USER sprite
+WORKDIR /home/sprite/rragent
+SHELL ["/bin/bash", "-lc"]
+RUN PUPPETEER_SKIP_DOWNLOAD=1 npm install -g --prefix ~/.local --ignore-scripts --no-fund --no-audit --progress=false \
+      hyperframes@${HYPERFRAMES_VERSION} @hyperframes/player@${HYPERFRAMES_VERSION} \
+    && hyperframes --version && ffmpeg -version | head -1 && google-chrome --version
+COPY --chown=sprite:sprite dist/ /home/sprite/rragent/dist/
+COPY --chown=sprite:sprite --chmod=700 deploy/start.sh /home/sprite/rragent/start.sh
+COPY --chown=sprite:sprite deploy/agent/ /home/sprite/rragent/agent/

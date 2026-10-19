@@ -82,3 +82,40 @@
             text (set (strings empty))]
         (is (contains? text "Noch nichts hier. Schreib die erste Nachricht."))
         (is (not (contains? text "Stopp")))))))
+
+(defn- nodes
+  [tree]
+  (tree-seq (fn [node] (or (vector? node) (seq? node)))
+            (fn [node] (if (vector? node) (rest node) node))
+            tree))
+
+(defn- find-tag
+  [tree tag]
+  (some #(when (and (vector? %) (= tag (first %))) %) (nodes tree)))
+
+(deftest attachments-test
+  (let [text "What is in it?\nimage: uploads/0a0b.png\nvideo: uploads/ab12.mp4\naudio: uploads/ff00.wav"
+        c {:entries [(user 2 [{:type "text" :text text} {:type "image" :data "iVBOR" :mimeType "image/png"}])]
+           :inbox {:items [{:id "s1" :mode "followUp" :content "audio: uploads/ee11.mp3"}]}}
+        items (view/items c)]
+    (testing "the item carries the text without the lines and the files as media"
+      (is (= "What is in it?" (:text (first items))))
+      (is (= [{:kind :image :name "0a0b.png"} {:kind :video :name "ab12.mp4"} {:kind :audio :name "ff00.wav"}]
+             (:media (first items))))
+      (is (= "" (:text (second items))) "a queued input too")
+      (is (= [{:kind :audio :name "ee11.mp3"}] (:media (second items)))))
+    (let [page (i18n/translate (view/page {:agent {} :conversation c :locale :en}) :en)
+          img (find-tag page :img)
+          clip (find-tag page :a.clip)]
+      (testing "a picture is a thumbnail, a clip its name, each a link to the file"
+        (is (= "/uploads/0a0b.png" (:src (second img))))
+        (is (= "Attached picture" (:alt (second img))))
+        (is (= "/uploads/ab12.mp4" (:href (second clip))))
+        (is (some #{"ab12.mp4"} (strings clip))))
+      (testing "the base64 of the image never reaches the page"
+        (is (not-any? #(and (string? %) (str/includes? % "iVBOR")) (strings page))))
+      (testing "the composer's labels are translated like the rest"
+        (let [composer (find-tag page :ui/composer)]
+          (is (= "Remove" (:ui/remove-title (second composer))))
+          (is (= "/upload" (:ui/upload-url (second composer))))
+          (is (not-any? #(and (vector? %) (= :i18n (first %))) (nodes page)) "no reference is left anywhere, attributes included"))))))

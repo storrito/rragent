@@ -6,10 +6,12 @@
    keys of `rragent.artifacts`, `rragent.projects` and `rragent.render`
    in the db). The texts are m1p reference tuples, `[:i18n :chat/you]`,
    that `rragent.i18n/translate` turns into the language of the person.
-   The classes follow rchat's stylesheet, which the page ships as
-   app.css."
+   The files attached to a user message are the lines of its text that
+   name them (`rragent.uploads`), shown as thumbnails and links. The
+   classes follow rchat's stylesheet, which the page ships as app.css."
   (:require [clojure.string :as str]
-            [rragent.artifacts :as artifacts]))
+            [rragent.artifacts :as artifacts]
+            [rragent.uploads :as uploads]))
 
 (defn cut
   "At most `n` characters of `text`."
@@ -41,7 +43,8 @@
     "edit" [:i18n :tool/edit]
     "eval" [:i18n :tool/eval]
     "fetch" [:i18n :tool/fetch]
-    "state" [:i18n :tool/state]
+    "remember" [:i18n :tool/remember]
+    "recall" [:i18n :tool/recall]
     "schedule" [:i18n :tool/schedule]
     "hook" [:i18n :tool/hook]
     "render" [:i18n :tool/render]
@@ -89,12 +92,21 @@
             [:i18n :chat/model-failed {:error (str errorMessage)}])
    :aborted? (= "aborted" stopReason)})
 
+(defn- with-media
+  "The user item with its text, less the lines that name attached
+   files, and the files as `:media` (`rragent.uploads/attachments`)."
+  [item content]
+  (let [text (text-of content)]
+    (assoc item
+           :text (uploads/without-lines text)
+           :media (uploads/attachments text))))
+
 (defn- user-item
   [id label model]
-  {:kind :user
-   :id id
-   :label label
-   :text (text-of (:content (first model)))})
+  (with-media {:kind :user
+               :id id
+               :label label}
+              (:content (first model))))
 
 (defn- entry-items
   "An entry of the transcript as the items a person reads about it: a
@@ -109,6 +121,7 @@
     "pi.assistant" (let [message (first model)]
                      (cons (assistant-item id message)
                            (tool-items message results slots)))
+    "rragent.fact" [{:kind :note :id id :text [:i18n :chat/fact {:event (:event data)}]}]
     "pi.reset" [{:kind :note :id id :text [:i18n :chat/reset]}]
     "pi.compaction" [{:kind :note :id id :text [:i18n :chat/compacted]}]
     nil))
@@ -143,10 +156,10 @@
   [inbox]
   (for [{:keys [id mode content]} (:items inbox)
         :when (not= "write" mode)]
-    {:kind :user
-     :id id
-     :pending? true
-     :text (text-of content)}))
+    (with-media {:kind :user
+                 :id id
+                 :pending? true}
+                content)))
 
 (defn items
   "The feed of a conversation `{:entries :live :inbox}`."
@@ -188,14 +201,39 @@
    (when (seq result)
      [:pre.output (cut 2000 result)])])
 
+(defn- media-view
+  "The files attached to a message: a picture as a thumbnail, a clip as
+   its name, each a link to the file."
+  [media]
+  [:div.looks
+   (for [{:keys [kind name]} media
+         :let [url (str uploads/url-prefix "/" name)]]
+     (if (= :image kind)
+       [:a {:replicant/key name
+            :href url
+            :target "_blank"
+            :rel "noopener"}
+        [:img {:src url
+               :alt [:i18n :chat/picture]
+               :loading "lazy"}]]
+       [:a.clip {:replicant/key name
+                 :href url
+                 :target "_blank"
+                 :rel "noopener"}
+        (if (= :audio kind) "🎵 " "🎬 ")
+        name]))])
+
 (defn- item-view
-  [{:keys [kind id label text pending? streaming? error aborted?] :as item}]
+  [{:keys [kind id label text media pending? streaming? error aborted?] :as item}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
                      :class (when pending? "pending")}
      [:div.label (or label [:i18n :chat/you])]
-     [:p.text text]
+     (when (seq text)
+       [:p.text text])
+     (when (seq media)
+       (media-view media))
      (when pending?
        [:p.hint [:i18n :chat/queued]])]
 
@@ -240,24 +278,34 @@
       [:i18n :chat/ready])]])
 
 (defn send-actions
-  "Sends the draft to the conversation, then clears it."
+  "Sends the draft and the attachments to the conversation, then clears
+   both."
   []
   [[:data/command
     {:command/kind :chat/send
-     :command/data {:text [:store/deref :draft]}}
-    {:on-success [[:store/dissoc :draft]]}]])
+     :command/data {:text [:store/deref :draft]
+                    :attachments [:store/deref :attachments]}}
+    {:on-success [[:store/dissoc :draft]
+                  [:store/dissoc :attachments]]}]])
 
 (defn composer
-  "The draft is client state (`:ui/composer`, see `rragent.client`): a
-   new frame does not reset it. Stop aborts the run while one goes."
+  "The draft and the attachments are client state (`:ui/composer`, see
+   `rragent.client`): a new frame does not reset them. The alias has the
+   attach button and Send, which waits for the uploads; Stop aborts the
+   run while one goes."
   [status]
   [:div.composer
    [:ui/composer {:ui/store-key :draft
+                  :ui/attachments-key :attachments
+                  :ui/upload-url uploads/upload-path
                   :ui/send (send-actions)
+                  :ui/send-label [:i18n :composer/send]
+                  :ui/attach-title [:i18n :composer/attach]
+                  :ui/remove-title [:i18n :composer/remove]
+                  :ui/uploading-label [:i18n :composer/uploading]
+                  :ui/failed-label [:i18n :composer/upload-failed]
                   :rows 3
                   :placeholder [:i18n :composer/placeholder]}]
-   [:button.primary {:on {:click (send-actions)}}
-    [:i18n :composer/send]]
    (when (= :working status)
      [:button.stop {:on {:click [[:data/command {:command/kind :chat/stop}]]}}
       [:i18n :composer/stop]])])
@@ -331,7 +379,7 @@
   (if (and (:started render) (nil? (:exit render)))
     [:span.rendering
      (rendering render)
-     " · "
+     " Â· "
      [:button.link {:on {:click [[:data/command {:command/kind :artifacts/render-stop
                                                  :command/data {:path path}}]]}}
       [:i18n :artifacts/render-stop]]]

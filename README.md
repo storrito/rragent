@@ -40,6 +40,23 @@ streaming while a run goes, a composer at the bottom and a Stop that aborts
 the run. The texts are English or German, by the browser's language or
 `?lang=de`.
 
+A message can carry files, the way pchat's can: the attach button
+takes an image, a video or an audio file, a picture can be pasted or
+dropped onto the composer, a dropped clip too. A picture goes up scaled
+to 1600 pixels on its long side and is stored content-addressed; a clip
+goes up in pieces of 8 MB (`POST /upload?id=<hex>&offset=<n>&total=<n>`,
+appended to a part file and renamed when the last piece is in, a
+gigabyte at most), with its progress on its chip, and Send waits until
+every clip is in. The files land in `work/uploads/` of the agent's
+folder (`rragent.uploads`) and the message names each one on a line of
+its own, `video: uploads/ab12.mp4`, `audio: …` or `image: …`, so the
+agent reaches the file from its working directory with its tools; a
+picture goes to the model as an image block besides, when the model
+takes images (pi-ai puts a placeholder where one was when it does not,
+so a picture then goes as its line and a note). The transcript shows a
+picture as a thumbnail and a clip as its name, linked to `/uploads/<name>`,
+which serves the files with ranges, behind the token.
+
 The page is served the way pchat does
 it with [rframes](https://github.com/simplemono/rframes): the server renders
 the whole page as hiccup and pushes it as a transit frame over an SSE

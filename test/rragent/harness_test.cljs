@@ -1,5 +1,6 @@
 (ns rragent.harness-test
-  (:require [clojure.test :refer [async deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [async deftest is testing]]
             [rragent.harness :as harness]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]))
@@ -21,5 +22,23 @@
                  (finally
                    (await (harness/close agent))
                    (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest sees-images-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make "AGENT.md" (str/replace test-home/definition-text "faux-1" "blind-1"))
+                 {:keys [models]} (tools-test/faux-models {:models [{:id "blind-1" :input ["text"]}]})
+                 agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
+             (try
+               (is (false? (await (harness/sees-images? agent))) "a model without image input")
+               (await (.configure (:root agent) #js {:model #js {:provider "faux" :modelId "faux-1"}} harness/context))
+               (is (true? (await (harness/sees-images? agent))) "faux-1 takes images")
+               (await (.configure (:root agent) #js {:model #js {:provider "faux" :modelId "unknown-9"}} harness/context))
+               (is (true? (await (harness/sees-images? agent))) "a model the catalog does not know counts as one that does")
+               (finally
+                 (await (harness/close agent))
+                 (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

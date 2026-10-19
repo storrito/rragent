@@ -2,7 +2,7 @@
   "pi-durable opened on the agent's folder: the SQLite storage, the
    models (OpenRouter with the key from the environment, or what a test
    passes), the registry with pi-durable's coding tools (read, write,
-   edit, bash in `work/`), rragent's own (state, fetch, eval, schedule,
+   edit, bash in `work/`), rragent's own (remember and recall, fetch, eval, schedule,
    hook, and the tools of the artifacts: project, render, image, voice,
    music; the pane shows what they make) and the integrations the
    environment names (Storrito's procedures as deferred tools with
@@ -30,7 +30,7 @@
             [rragent.tools.project :as project-tool]
             [rragent.tools.render :as render-tool]
             [rragent.tools.schedule :as schedule-tool]
-            [rragent.tools.state :as state-tool]))
+            [rragent.tools.facts :as facts-tool]))
 
 (def context
   "The Chord context every call takes; this one never cancels."
@@ -38,7 +38,7 @@
 
 (def extension
   (defineExtension #js {:name "rragent"
-                        :tools #js [state-tool/tool fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool
+                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool
                                     project-tool/tool render-tool/tool media-tool/image media-tool/voice media-tool/music]
                         :tasks #js [schedule/Task]}))
 
@@ -70,7 +70,7 @@
     (remove nil? [(when storrito (createToolSearchExtension)) storrito composio])))
 
 (defn ^:async open
-  "The harness of the agent in `home`: `{:harness :root :view :definition :home}`.
+  "The harness of the agent in `home`: `{:harness :root :view :definition :home :models}`.
    `models` and `storage` are the production ones unless given (a test
    passes the faux provider and memory storage); `provider` names the
    models' provider, `openrouter` by default; `now` a clock for tests;
@@ -83,9 +83,10 @@
         definition (definition/definition file)
         work (home/work-dir home)
         storage (or storage (await (openNodeSqliteStorage (home/database home))))
+        models (or models (openrouter-models))
         extensions (await (integrations options))
         harness (await (.open Harness storage
-                              #js {:models (or models (openrouter-models))
+                              #js {:models models
                                    :registry (registry extensions)
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) work)}))
                                    :settings #js {:compaction #js {:enabled true}}
@@ -102,13 +103,25 @@
                                  :cwd work}
                        context))
     (.resume harness)
-    {:harness harness :root root :view view :definition definition :home home}))
+    {:harness harness :root root :view view :definition definition :home home :models models}))
 
 (defn busy?
   "Whether a run is going in the conversation: `pi.live` of the view
    holds one then."
   [{:keys [view]}]
   (some? (.-run (or (aget (.-docs (.-value view)) "pi.live") #js {}))))
+
+(defn ^:async sees-images?
+  "Whether the conversation's model takes images, by its entry in the
+   catalog of `models`; a model the catalog does not know counts as one
+   that does, as pi-durable's `read` tool counts it (and pi-ai puts a
+   placeholder where an image was when the model takes none)."
+  [{:keys [root models]}]
+  (let [ref (.-model (await (.agent root context)))
+        model (when ref (.getModel models (.-provider ref) (.-modelId ref)))]
+    (if model
+      (boolean (some #{"image"} (array-seq (.-input model))))
+      true)))
 
 (defn ^:async schedules
   "The schedules document, for the alarm."

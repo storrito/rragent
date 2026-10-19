@@ -34,6 +34,7 @@
    :chat/you "You"
    :chat/hook [:fn/str "Hook {{:name}}"]
    :chat/schedule [:fn/str "Schedule {{:name}}"]
+   :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/ready "Ready"
    :chat/empty "Nothing here yet. Write the first message."
@@ -43,6 +44,7 @@
    :chat/retry [:fn/str "The model call failed, trying again: {{:error}}"]
    :chat/model-failed [:fn/str "The model call failed: {{:error}}"]
    :chat/aborted "Stopped."
+   :chat/picture "Attached picture"
 
    :tool/bash "Ran a command"
    :tool/read "Looked at a file"
@@ -50,7 +52,8 @@
    :tool/edit "Changed a file"
    :tool/eval "Evaluated"
    :tool/fetch "Fetched a page"
-   :tool/state "Changed its state"
+   :tool/remember "Noted a fact"
+   :tool/recall "Recalled its facts"
    :tool/schedule "Changed a schedule"
    :tool/hook "Changed a hook"
    :tool/render "Made a video"
@@ -62,9 +65,13 @@
    :tool/running " …"
    :tool/failed " · did not work"
 
-   :composer/placeholder "What should the agent do? Enter sends, Shift+Enter breaks the line."
+   :composer/placeholder "What should the agent do? Enter sends, Shift+Enter breaks the line, a picture can be pasted."
    :composer/send "Send"
-   :composer/stop "Stop"})
+   :composer/stop "Stop"
+   :composer/attach "Attach an image, a video or an audio file; a picture can also be pasted or dropped here"
+   :composer/remove "Remove"
+   :composer/uploading "Uploading"
+   :composer/upload-failed "The upload failed"})
 
 (def de
   {:page/title "rragent"
@@ -86,6 +93,7 @@
    :chat/you "Du"
    :chat/hook [:fn/str "Hook {{:name}}"]
    :chat/schedule [:fn/str "Zeitplan {{:name}}"]
+   :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
    :chat/empty "Noch nichts hier. Schreib die erste Nachricht."
@@ -95,6 +103,7 @@
    :chat/retry [:fn/str "Der Aufruf des Modells ist fehlgeschlagen, nächster Versuch: {{:error}}"]
    :chat/model-failed [:fn/str "Der Aufruf des Modells ist fehlgeschlagen: {{:error}}"]
    :chat/aborted "Gestoppt."
+   :chat/picture "Angehängtes Bild"
 
    :tool/bash "Befehl ausgeführt"
    :tool/read "Datei angesehen"
@@ -102,7 +111,8 @@
    :tool/edit "Datei geändert"
    :tool/eval "Ausgewertet"
    :tool/fetch "Seite abgerufen"
-   :tool/state "Zustand geändert"
+   :tool/remember "Hat sich etwas gemerkt"
+   :tool/recall "Hat nachgesehen"
    :tool/schedule "Zeitplan geändert"
    :tool/hook "Hook geändert"
    :tool/render "Video erstellt"
@@ -114,9 +124,13 @@
    :tool/running " …"
    :tool/failed " · hat nicht geklappt"
 
-   :composer/placeholder "Was soll der Agent tun? Enter sendet, Shift+Enter bricht die Zeile um."
+   :composer/placeholder "Was soll der Agent tun? Enter sendet, Shift+Enter bricht die Zeile um, ein Bild kann eingefügt werden."
    :composer/send "Senden"
-   :composer/stop "Stopp"})
+   :composer/stop "Stopp"
+   :composer/attach "Ein Bild, ein Video oder eine Tonaufnahme anhängen; ein Bild kann auch hier eingefügt oder abgelegt werden"
+   :composer/remove "Entfernen"
+   :composer/uploading "Lädt hoch"
+   :composer/upload-failed "Hochladen fehlgeschlagen"})
 
 (def locales
   [:en :de])

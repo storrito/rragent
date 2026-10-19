@@ -15,8 +15,9 @@
    Routes: the page at `/`, its stream (POST /), `/command` (a command
    posted from a project's page goes to the project), the built client
    under `/app.css` and `/assets/*`, the artifacts under `/artifacts/*`
-   (a running project's page through the proxy, else the file), all
-   behind the token (`rragent.auth`); `POST /hook/<name>/<secret>`
+   (a running project's page through the proxy, else the file), the
+   files attached to a message, `POST /upload` and `/uploads/*`
+   (`rragent.uploads`), all behind the token (`rragent.auth`); `POST /hook/<name>/<secret>`
    outside it, the hooks' own secrets are their keys (`rragent.hooks`)."
   (:require ["node:path" :as path]
             [clojure.string :as str]
@@ -36,11 +37,12 @@
             [rragent.rframes.replicant :as replicant]
             [rragent.rframes.sse :as sse]
             [rragent.rframes.transit :as transit]
+            [rragent.uploads :as uploads]
             [rragent.view :as view]))
 
-(defonce ^{:doc "The handles of the pane while the page runs: `{:dir :projects :render}`,
-                 the artifacts folder and the handles of `rragent.projects` and
-                 `rragent.render`."}
+(defonce ^{:doc "The handles of the pane while the page runs: `{:dir :projects :render :uploads}`,
+                 the artifacts folder, the handles of `rragent.projects` and
+                 `rragent.render`, and the uploads folder (`rragent.uploads`)."}
   pane
   (atom nil))
 
@@ -69,14 +71,21 @@
         (i18n/translate locale))))
 
 (defn- ^:async send-command
-  "The text of the composer submitted as an input; the answer arrives
-   as frames."
+  "The text of the composer and the files attached to it submitted as
+   an input (`rragent.uploads/content`: a line per file, the pictures
+   as image blocks when the model takes them); the answer arrives as
+   frames."
   [w]
-  (let [text (str/trim (str (:text (command/command-data w))))]
-    (if (str/blank? text)
+  (let [{:keys [text attachments]} (command/command-data w)
+        text (str/trim (str text))
+        agent (:agent @db/db)
+        dir (:uploads @pane)
+        attachments (uploads/named dir (when (sequential? attachments) (keep :name attachments)))]
+    (if (and (str/blank? text) (empty? attachments))
       (command/rejected w :empty-message)
-      (do (await (.submit (get-in @db/db [:agent :root]) #js {:type "input" :content text} harness/context))
-          (command/accepted w)))))
+      (let [content (uploads/content dir text attachments (await (harness/sees-images? agent)))]
+        (await (.submit (:root agent) #js {:type "input" :content (clj->js content)} harness/context))
+        (command/accepted w)))))
 
 (defn- stop-command
   "The run aborted; the abort resolves once the conversation is idle,
@@ -158,29 +167,32 @@
 (defn register
   []
   (let [dir (assets/public-dir)]
-    [(http/files "/app.css" (path/join dir "app.css"))
-     (http/files "/assets/*" (path/join dir "assets"))
-     {:replicant/shim "/"
-      :head (assets/head (assets/client))}
-     {:replicant/render "/"
-      :render/fn #'page-view}
-     {:command/kind :chat/send
-      :command/fn #'send-command}
-     {:command/kind :chat/stop
-      :command/fn #'stop-command}
-     ;; before the page's own command route: a command from a project's page
-     {:ring/route [:post "/command"]
-      :ring/handler #'project-command}
-     {:ring/route [:get "/artifacts/*"]
-      :ring/handler #'artifacts-get}
-     {:ring/route [:post "/artifacts/*"]
-      :ring/handler #'artifacts-post}
-     {:command/kind :artifacts/open
-      :command/fn #'open-artifact-command}
-     {:command/kind :artifacts/render
-      :command/fn #'render-command}
-     {:command/kind :artifacts/render-stop
-      :command/fn #'render-stop-command}]))
+    (concat
+     [(http/files "/app.css" (path/join dir "app.css"))
+      (http/files "/assets/*" (path/join dir "assets"))
+      {:replicant/shim "/"
+       :head (assets/head (assets/client))}
+      {:replicant/render "/"
+       :render/fn #'page-view}
+      {:command/kind :chat/send
+       :command/fn #'send-command}
+      {:command/kind :chat/stop
+       :command/fn #'stop-command}
+      ;; before the page's own command route: a command from a project's page
+      {:ring/route [:post "/command"]
+       :ring/handler #'project-command}
+      {:ring/route [:get "/artifacts/*"]
+       :ring/handler #'artifacts-get}
+      {:ring/route [:post "/artifacts/*"]
+       :ring/handler #'artifacts-post}]
+     ;; the files attached to a message, posted and served
+     (uploads/routes (:uploads @pane))
+     [{:command/kind :artifacts/open
+       :command/fn #'open-artifact-command}
+      {:command/kind :artifacts/render
+       :command/fn #'render-command}
+      {:command/kind :artifacts/render-stop
+       :command/fn #'render-stop-command}])))
 
 (defn get-register
   []
@@ -206,17 +218,20 @@
   "The page's state follows the conversation of `agent`: the view value
    now, and every one after it; and the artifacts folder of its `work/`:
    the files watched, the projects in it run while someone looks at the
-   page (`rragent.projects`), the renders kept. Answers a function that
+   page (`rragent.projects`), the renders kept, and the uploads folder
+   of its `work/` known (`rragent.uploads`). Answers a function that
    ends the following, the watches and the projects."
   [agent]
-  (let [dir (home/artifacts-dir (home/work-dir (:home agent)))
+  (let [work (home/work-dir (:home agent))
+        dir (home/artifacts-dir work)
         projects (projects/handle {:db db/db
                                    :dir dir
                                    :shown? (fn [] (pos? (sse/connections)))
                                    :env (render/environment)})]
     (reset! pane {:dir dir
                   :projects projects
-                  :render (render/handle {:db db/db :dir dir})})
+                  :render (render/handle {:db db/db :dir dir})
+                  :uploads (home/uploads-dir work)})
     (swap! db/db assoc :agent agent :value (.-value (:view agent)))
     (sse/watch! db/db)
     (let [unsubscribe (.subscribe (:view agent) (fn [value] (swap! db/db assoc :value value)))
