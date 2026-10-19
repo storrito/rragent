@@ -96,7 +96,11 @@
                    (is (= 25 size))
                    (is (= (vec content) (vec (fs/readFileSync (path/join dir name)))))
                    (is (= [name] (visible-files dir)))
-                   (is (empty? (part-files dir)))))
+                   (is (empty? (part-files dir)))
+                   (testing ", and answers the last piece sent again, whose answer was lost, with the clip"
+                     (is (= [200 {:name name :url url :kind :video :size 25}]
+                            (await (post "video/quicktime" (.slice content 20 25) (str "id=" id "&offset=20&total=25")))))
+                     (is (empty? (part-files dir))))))
                (testing "a piece longer than the total, nothing left"
                  (is (= [400 {:error :longer-than-total}] (await (post "video/mp4" (bytes-of 30) "id=ffeeddccbbaa99887766554433221100&offset=0&total=25"))))
                  (is (empty? (part-files dir))))

@@ -29,6 +29,17 @@
   "The size of one request of a clip upload."
   (* 8 1024 1024))
 
+(def retry-delays-ms
+  "The pauses before a failed piece is sent again, one per try: some two
+   minutes in all, enough for a dropped connection or a restarting
+   machine, so a clip of gigabytes survives what one piece meets."
+  [2000 5000 15000 30000 60000])
+
+(def piece-timeout-ms
+  "A piece that has not gone up in this time failed: 8 MB in five
+   minutes is some 27 KB/s."
+  (* 5 60 1000))
+
 (def clip-types
   "The media type of a clip by its extension, for a browser that names
    none (an .mkv, a .flac) and for the type the server knows."
@@ -138,27 +149,51 @@
 (defn- send-piece!
   "POSTs one piece with an XMLHttpRequest, which reports the progress of
    its upload: `on-progress` with the bytes of the piece sent so far,
-   `on-answer` with the server's answer, `on-error` with the status."
+   `on-answer` with the server's answer, `on-error` with the status and
+   the answer when it reads (0 without one: no connection, a timeout)."
   [url ^js blob type {:keys [on-progress on-answer on-error]}]
-  (let [xhr (js/XMLHttpRequest.)]
+  (let [xhr (js/XMLHttpRequest.)
+        answer (fn []
+                 (try
+                   (read-answer (.-responseText xhr))
+                   (catch :default _)))]
     (.open xhr "POST" url)
     (.setRequestHeader xhr "Content-Type" type)
+    (set! (.-timeout xhr) piece-timeout-ms)
     (set! (.. xhr -upload -onprogress) (fn [^js event]
                                          (on-progress (.-loaded event))))
     (set! (.-onload xhr) (fn [_]
-                           (if (<= 200 (.-status xhr) 299)
-                             (on-answer (read-answer (.-responseText xhr)))
-                             (on-error (.-status xhr)))))
+                           (let [status (.-status xhr)
+                                 answer (answer)]
+                             (if (and (<= 200 status 299) (map? answer))
+                               (on-answer answer)
+                               (on-error status answer)))))
     (set! (.-onerror xhr) (fn [_]
-                            (on-error 0)))
+                            (on-error 0 nil)))
+    (set! (.-ontimeout xhr) (fn [_]
+                              (on-error 0 nil)))
     (.send xhr blob)))
+
+(defn- retry?
+  "Whether a piece that failed with `status` may go again: no
+   connection, a timeout, the server or its proxy failing; not what the
+   server refused (too large, a bad piece, a type it does not take)."
+  [status]
+  (or (zero? status)
+      (= 408 status)
+      (= 429 status)
+      (<= 500 status)))
 
 (defn- upload-clip!
   "Uploads a video or an audio file in pieces. Its chip is in the
    attachments from the start, `:uploading?` with its `:progress`; the
    last answer turns it into `{:name :url :kind :size}` of the stored
-   file. A chip the person removes stops the upload after the piece
-   under way."
+   file. A piece that fails goes again after the pauses of
+   `retry-delays-ms`, the chip counting the tries (`:retry`); the server
+   answers a piece that does not start where its part file ends with
+   what it holds (409, `:received`), and the upload goes on from there,
+   so what a broken piece left is kept. A chip the person removes stops
+   the upload after the piece under way."
   [store attachments-key upload-url ^js file]
   (let [type (clip-type file)
         id (random-id)
@@ -177,7 +212,7 @@
                                             :size total
                                             :uploading? true
                                             :progress 0})
-    ((fn step [offset]
+    ((fn step [offset attempt]
        (let [end (min total (+ offset piece-bytes))]
          (send-piece! (str upload-url "?id=" id "&offset=" offset "&total=" total)
                       (.slice file offset end)
@@ -188,14 +223,31 @@
                                     (cond
                                       url (update-chip! #(-> %
                                                              (merge (select-keys answer [:name :url :kind :size]))
-                                                             (dissoc :uploading? :progress)))
-                                      (present?) (step end)))
-                       :on-error (fn [status]
-                                   (js/console.error "[upload] a piece failed with" status)
-                                   (update-chip! #(-> %
-                                                      (dissoc :uploading? :progress)
-                                                      (assoc :failed? true))))})))
-     0)))
+                                                             (dissoc :uploading? :progress :retry)))
+                                      (present?) (do (update-chip! #(dissoc % :retry))
+                                                     (step end 0))))
+                       :on-error (fn [status answer]
+                                   (let [received (:received answer)]
+                                     (cond
+                                       (not (present?)) nil
+
+                                       (and (= 409 status) (int? received) (<= 0 received total))
+                                       (step received attempt)
+
+                                       (and (retry? status) (< attempt (count retry-delays-ms)))
+                                       (do (js/console.warn "[upload] a piece failed with" status "- again in"
+                                                            (nth retry-delays-ms attempt) "ms")
+                                           (update-chip! #(assoc % :retry (inc attempt)))
+                                           (js/setTimeout #(when (present?)
+                                                             (step offset (inc attempt)))
+                                                          (nth retry-delays-ms attempt)))
+
+                                       :else
+                                       (do (js/console.error "[upload] a piece failed with" status)
+                                           (update-chip! #(-> %
+                                                              (dissoc :uploading? :progress :retry)
+                                                              (assoc :failed? true)))))))})))
+     0 0)))
 
 (defn- upload-all!
   [store attachments-key upload-url files]
@@ -299,14 +351,16 @@
     (str (if (< mb 10) (.toFixed mb 1) (js/Math.round mb)) " MB")))
 
 (defn- clip-chip
-  [{:keys [kind file-name name size uploading? progress failed?]} uploading-label failed-label]
+  [{:keys [kind file-name name size uploading? progress retry failed?]} uploading-label failed-label]
   [:span.clip
    [:span.icon (if (= :audio kind) "🎵" "🎬")]
    [:span.file (short-name (or file-name name))]
    [:small (megabytes size)
     (cond
       uploading? (str " · " (or uploading-label "Uploading") " "
-                      (js/Math.round (* 100 progress)) " %")
+                      (js/Math.round (* 100 progress)) " %"
+                      (when retry
+                        (str " · ↻ " retry "/" (count retry-delays-ms))))
       failed? (str " · " (or failed-label "The upload failed")))]])
 
 (defn- attachments-view

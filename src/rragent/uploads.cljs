@@ -152,7 +152,10 @@
            settle (fn [value]
                     (.end out (fn [] (resolve value))))]
        (.on out "error" reject)
-       (.on in "error" reject)
+       ;; a request broken off: what came is written out before the next
+       ;; piece asks how much the part file holds
+       (.on in "error" (fn [error]
+                         (.end out (fn [] (reject error)))))
        (.on in "end" (fn [] (settle @length)))
        (.on in "data"
             (fn [^js chunk]
@@ -192,7 +195,9 @@
 
 (defn- ^:async piece!
   "One piece of a clip sent in pieces: it must start where the part file
-   ends; the last one completes the file."
+   ends; the last one completes the file. A piece of a clip already
+   complete is answered with the file: the answer to its last piece was
+   lost, and the browser sends it again."
   [dir w extension {:strs [id offset total]}]
   (let [offset (parse-long (str offset))
         total (parse-long (str total))
@@ -205,6 +210,11 @@
 
       (< max-bytes total)
       (respond w 413 {:error :too-large})
+
+      (and (pos? offset)
+           (http/regular-file? (path/join dir file-name))
+           (= total (file-size (path/join dir file-name))))
+      (respond w 200 (stored dir file-name))
 
       (not= offset (if (zero? offset) 0 received))
       (respond w 409 {:error :out-of-order
