@@ -74,7 +74,7 @@
       (is (contains? text "Paris."))
       (is (contains? text "Fetched a page"))
       (is (contains? text "Hook deploy"))
-      (is (contains? text "The artifacts come here."))
+      (is (contains? text "What the agent makes for you appears here."))
       (is (contains? text "Stop") "a run goes")
       (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated"))
     (testing "an idle conversation with nothing in it"

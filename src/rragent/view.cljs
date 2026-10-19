@@ -1,12 +1,15 @@
 (ns rragent.view
-  "The page as a function of the conversation: the transcript of
-   pi-durable's view (`rragent.page/conversation` turns the view value
-   into the data this namespace reads) as a feed of items, the header,
-   the composer, and the pane of the artifacts, empty for now. The texts
-   are m1p reference tuples, `[:i18n :chat/you]`, that
-   `rragent.i18n/translate` turns into the language of the person. The
-   classes follow rchat's stylesheet, which the page ships as app.css."
-  (:require [clojure.string :as str]))
+  "The page as a function of the conversation and the artifacts: the
+   transcript of pi-durable's view (`rragent.page/conversation` turns
+   the view value into the data this namespace reads) as a feed of
+   items, the header, the composer, and the pane of the artifacts (the
+   keys of `rragent.artifacts`, `rragent.projects` and `rragent.render`
+   in the db). The texts are m1p reference tuples, `[:i18n :chat/you]`,
+   that `rragent.i18n/translate` turns into the language of the person.
+   The classes follow rchat's stylesheet, which the page ships as
+   app.css."
+  (:require [clojure.string :as str]
+            [rragent.artifacts :as artifacts]))
 
 (defn cut
   "At most `n` characters of `text`."
@@ -41,6 +44,11 @@
     "state" [:i18n :tool/state]
     "schedule" [:i18n :tool/schedule]
     "hook" [:i18n :tool/hook]
+    "render" [:i18n :tool/render]
+    "project" [:i18n :tool/project]
+    "image" [:i18n :tool/image]
+    "voice" [:i18n :tool/voice]
+    "music" [:i18n :tool/music]
     [:i18n :tool/other {:name name}]))
 
 (defn- tool-detail
@@ -50,6 +58,8 @@
       (:file_path args)
       (:url args)
       (:code args)
+      (:name args)
+      (:prompt args)
       (pr-str args)))
 
 (defn- tool-items
@@ -252,17 +262,135 @@
      [:button.stop {:on {:click [[:data/command {:command/kind :chat/stop}]]}}
       [:i18n :composer/stop]])])
 
+(defn- artifact-url
+  [path]
+  (str artifacts/url-prefix "/" path))
+
+(defn- src
+  [{:keys [path mtime]}]
+  (str (artifact-url path) "?rev=" mtime))
+
+(defn- rendering
+  [render]
+  [:i18n :artifacts/rendering {:progress (or (:progress render) "")}])
+
+(defn- content
+  "The artifact on screen by its kind. `project` is the state of its
+   process (`rragent.projects`), `render` the state of its render
+   (`rragent.render`): the one of the project, or the one still writing
+   a video."
+  [{:keys [path kind mtime title] :as artifact} {:keys [project render]}]
+  (case kind
+    :page [:ui/canvas {:ui/src (artifact-url path)
+                       :ui/rev mtime
+                       :ui/title [:i18n :artifacts/creation]}]
+    :image [:div.media
+            [:img {:replicant/key path
+                   :src (src artifact)
+                   :alt title}]]
+    ;; The element stays while a render writes the file (one key, one
+    ;; src): a reload per frame would show nothing but a spinner.
+    :video [:div.media
+            [:video {:replicant/key path
+                     :src (if render
+                            (str (artifact-url path) "?rev=" (:started render))
+                            (src artifact))
+                     :controls true}]
+            (when render
+              [:p.rendering (rendering render)])]
+    :audio [:div.media
+            [:audio {:replicant/key (str path mtime)
+                     :src (src artifact)
+                     :controls true}]]
+    :project (let [{:keys [ready-at exit]} project]
+               (cond
+                 exit [:div.placeholder [:i18n :artifacts/stopped {:exit exit}]]
+                 ready-at (list
+                           (when (:error render)
+                             [:p.error [:i18n :artifacts/render-failed {:error (:error render)}]])
+                           [:ui/canvas {:ui/src (str (artifact-url path) "/")
+                                        :ui/rev ready-at
+                                        :ui/title [:i18n :artifacts/creation]}])
+                 :else [:div.placeholder [:i18n :artifacts/starting]]))
+    [:div.placeholder [:i18n :artifacts/no-preview]]))
+
+(defn- option
+  [{:keys [path title kind]} selected]
+  ;; The option carries the choice: a value on the select alone is set
+  ;; before the options exist on a fresh page.
+  [:option {:value path
+            :selected (= path selected)}
+   title
+   ;; The video of a design shares its name with the design.
+   (when (= :video kind) [:i18n :artifacts/video])])
+
+(defn- render-controls
+  "The video of the project, made here on a click; its progress and Stop
+   while it is made."
+  [path render]
+  (if (and (:started render) (nil? (:exit render)))
+    [:span.rendering
+     (rendering render)
+     " · "
+     [:button.link {:on {:click [[:data/command {:command/kind :artifacts/render-stop
+                                                 :command/data {:path path}}]]}}
+      [:i18n :artifacts/render-stop]]]
+    [:button.link {:on {:click [[:data/command {:command/kind :artifacts/render
+                                                :command/data {:path path}}]]}}
+     [:i18n :artifacts/render]]))
+
+(defn- actions
+  "Open and download links for a file; Open and the render for a project."
+  [{:keys [path kind] :as artifact} render]
+  (if (= :project kind)
+    (list
+     [:a.link {:href (str (artifact-url path) "/")
+               :target "_blank"
+               :rel "noopener"}
+      [:i18n :artifacts/open]]
+     (render-controls path render))
+    (list
+     [:a.link {:href (src artifact)
+               :target "_blank"
+               :rel "noopener"}
+      [:i18n :artifacts/open]]
+     [:a.link {:href (src artifact)
+               :download (last (str/split path #"/"))}
+      [:i18n :artifacts/download]])))
+
 (defn artifacts
-  "The right half of the page, where the live artifacts come."
-  []
-  [:section.artifacts
-   [:div.label [:i18n :page/artifacts]]
-   [:div.placeholder [:i18n :page/artifacts-placeholder]]])
+  "The right half of the page: a chooser over the artifacts, the links of
+   the one on screen, and the one shown by its kind. `pane` holds the
+   keys of `rragent.artifacts` (`:artifacts/list`, `:artifacts/current`),
+   `:projects` and `:renders`."
+  [{:keys [artifacts/list artifacts/current projects renders] :as pane}]
+  (let [artifact (some #(when (= current (:path %)) %) list)
+        project? (= :project (:kind artifact))
+        render (when artifact
+                 (if project?
+                   (get renders (:path artifact))
+                   (artifacts/writing pane artifact)))]
+    [:section.artifacts
+     [:div.bar
+      [:span.label [:i18n :page/artifacts]]
+      (when (seq list)
+        [:select.chooser {:value (:path artifact)
+                          :on {:change [[:data/command {:command/kind :artifacts/open
+                                                        :command/data {:path :event/target.value}}]]}}
+         (for [file list]
+           (option file (:path artifact)))])
+      (when artifact
+        (actions artifact render))]
+     (if artifact
+       (content artifact {:project (get projects (:path artifact))
+                          :render render})
+       [:div.placeholder [:i18n :artifacts/empty]])]))
 
 (defn page
   "`opts`: `:agent`, its `:name` and `:model`; `:conversation`, the
-   transcript `{:entries :live :inbox}`; `:locale`."
-  [{:keys [agent conversation locale]}]
+   transcript `{:entries :live :inbox}`; `:artifacts`, the pane's keys of
+   the db; `:locale`."
+  [{:keys [agent conversation locale] pane :artifacts}]
   (let [items (items conversation)
         status (status (:live conversation))]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
@@ -271,4 +399,4 @@
       [:div.chat
        (feed items status)
        (composer status)]
-      (artifacts)]]))
+      (artifacts pane)]]))

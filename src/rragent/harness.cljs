@@ -3,11 +3,13 @@
    models (OpenRouter with the key from the environment, or what a test
    passes), the registry with pi-durable's coding tools (read, write,
    edit, bash in `work/`), rragent's own (state, fetch, eval, schedule,
-   hook) and the integrations the environment names (Storrito's
-   procedures as deferred tools with `tool_search` to find them,
-   Composio's meta tools), the root conversation configured from the
-   definition each time it opens, and the runs the last process left
-   unfinished resumed. One process owns the storage at a time."
+   hook, and the tools of the artifacts: project, render, image, voice,
+   music; the pane shows what they make) and the integrations the
+   environment names (Storrito's procedures as deferred tools with
+   `tool_search` to find them, Composio's meta tools), the root
+   conversation configured from the definition each time it opens, and
+   the runs the last process left unfinished resumed. One process owns
+   the storage at a time."
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai/models" :refer [createModels]]
             ["@earendil-works/pi-ai/providers/openrouter" :refer [openrouterProvider]]
@@ -24,6 +26,9 @@
             [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]
             [rragent.tools.hook :as hook-tool]
+            [rragent.tools.media :as media-tool]
+            [rragent.tools.project :as project-tool]
+            [rragent.tools.render :as render-tool]
             [rragent.tools.schedule :as schedule-tool]
             [rragent.tools.state :as state-tool]))
 
@@ -33,7 +38,8 @@
 
 (def extension
   (defineExtension #js {:name "rragent"
-                        :tools #js [state-tool/tool fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool]
+                        :tools #js [state-tool/tool fetch-tool/tool eval-tool/tool schedule-tool/tool hook-tool/tool
+                                    project-tool/tool render-tool/tool media-tool/image media-tool/voice media-tool/music]
                         :tasks #js [schedule/Task]}))
 
 (defn openrouter-models
