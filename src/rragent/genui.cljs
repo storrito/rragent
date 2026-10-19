@@ -136,16 +136,18 @@
 (defn- attrs
   "The attributes that are allowed, the ones with a URL checked; on a
    button `:send` and `:open` turned into the commands behind a click,
-   the text it sends its title unless it has one; on an input the
+   the text it sends its title (a title of the model's own could hide
+   it); on an input the
    `:name` in the block's `scope`, so that radio buttons of two answers
    are two groups."
   [tag m scope]
   (reduce (fn [acc [k v]]
             (cond
               (and (= :name k) (= :input tag) (string? v)) (assoc acc :name (str scope v))
-              (and (= :send k) (= :button tag)) (cond-> (assoc acc :on (send-actions v))
-                                                  (not (string? (:title m))) (assoc :title (str v)))
+              (and (= :send k) (= :button tag)) (assoc acc :on (send-actions v) :title (str v))
               (and (= :open k) (= :button tag)) (assoc acc :on (open-actions v))
+              (= :title k) (cond-> acc (not (and (= :button tag) (contains? m :send)))
+                             (assoc k v))
               (not (contains? attributes k)) acc
               (#{:href :src :poster} k) (if-let [v (url v)]
                                           (cond-> (assoc acc k v)
@@ -164,13 +166,23 @@
        (string? (:send m))
        (str/includes? (:send m) checked-mark)))
 
+(defn- printed
+  "A value that is no hiccup as text, at most a few levels and items of
+   it: a set nested a thousand deep would overflow the printer."
+  [value]
+  (binding [*print-level* 3
+            *print-length* 20]
+    (pr-str value)))
+
 (defn sanitize
   "The hiccup with only what the allow-lists know; an input of another
    type than checkbox or radio goes, and so does what is nested deeper
-   than `max-depth`. `scope` prefixes the names of the inputs."
+   than `max-depth`. A button in a label is a span: clicking anywhere on
+   the label would click it, a label as big as the screen a button too.
+   `scope` prefixes the names of the inputs."
   ([hiccup]
    (sanitize hiccup {}))
-  ([hiccup {:keys [scope depth] :or {scope "" depth 0} :as opts}]
+  ([hiccup {:keys [scope depth in-label?] :or {scope "" depth 0} :as opts}]
    (let [deeper (assoc opts :depth (inc depth))]
      (cond
        (< max-depth depth)
@@ -182,15 +194,15 @@
              ;; `:ui/div` is no div: a tag with a namespace names an alias of the client
              allowed? (and (nil? (namespace tag)) (contains? tags base))
              [m body] (if (map? (first body)) [(first body) (rest body)] [{} body])
-             children (map #(sanitize % deeper) body)]
+             allowed? (and allowed? (not (and in-label? (= :button base))))
+             children (map #(sanitize % (cond-> deeper (= :label base) (assoc :in-label? true))) body)]
          (cond
            (and allowed? (= :input base) (not (input-types (:type m))))
            nil
 
            (and allowed? (send-checked? base m))
-           (into [:ui/send-checked (-> (attrs base (dissoc m :send :open) scope)
-                                       (assoc :ui/send (:send m))
-                                       (cond-> (not (string? (:title m))) (assoc :title (:send m))))]
+           (into [:ui/send-checked (-> (attrs base (dissoc m :send :open :title) scope)
+                                       (assoc :ui/send (:send m) :title (:send m)))]
                  children)
 
            allowed?
@@ -203,7 +215,7 @@
        (sequential? hiccup) (map #(sanitize % deeper) hiccup)
        (or (string? hiccup) (number? hiccup) (nil? hiccup)) hiccup
        (keyword? hiccup) (name hiccup)
-       :else (pr-str hiccup)))))
+       :else (printed hiccup)))))
 
 (defn parse
   "`{:hiccup …}` or `{:error \"…\"}`; a tagged literal is its value."
@@ -220,12 +232,19 @@
   "One block as a part of the page, or as code with what went wrong. The
    names of its inputs get the block's own prefix, from its text."
   [text]
-  (let [{:keys [hiccup error]} (parse text)]
+  (let [{:keys [hiccup error]} (parse text)
+        [part error] (if error
+                       [nil error]
+                       ;; whatever the model wrote, the page goes on: a block that fails is code
+                       (try
+                         [(sanitize hiccup {:scope (str "b" (abs (hash text)) "-")}) nil]
+                         (catch :default e
+                           [nil (or (ex-message e) (str e))])))]
     (if error
       [:div.genui.genui-error
        [:p.error [:i18n :genui/rejected {:error error}]]
        [:pre [:code text]]]
-      [:div.genui (sanitize hiccup {:scope (str "b" (abs (hash text)) "-")})])))
+      [:div.genui part])))
 
 (comment
   (block "[:ul [:li [:audio {:src \"artifacts/card/a.mp3\" :controls true}] [:button {:send \"Take a\"} \"Take this one\"]]]")

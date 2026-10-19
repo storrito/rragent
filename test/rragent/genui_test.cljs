@@ -64,14 +64,26 @@
   (testing "what is nested too deep goes"
     (let [deep (reduce (fn [inner _] [:div inner]) "bottom" (range 100))]
       (is (not (str/includes? (pr-str (genui/sanitize deep)) "bottom")))))
+  (testing "a value nested a thousand deep is printed a few levels deep"
+    (let [deep (reduce (fn [inner _] #{inner}) 1 (range 1000))
+          [_ _ text] (genui/sanitize [:p deep])]
+      (is (string? text))
+      (is (< (count text) 100))))
   (testing "texts, numbers and keywords stay, anything else is printed"
     (is (= [:p {} "a" 1 "b" "{:x 1}"] (genui/sanitize [:p "a" 1 :b {:x 1}])))))
 
 (deftest actions-test
-  (testing ":send on a button sends its text, which is its title too"
+  (testing ":send on a button sends its text, which is its title, whatever title the model gave"
     (is (= [:button {:on (send-of "Take 4 shorts") :title "Take 4 shorts"} "4"]
            (genui/sanitize [:button {:send "Take 4 shorts"} "4"])))
-    (is (= "Mine" (:title (second (genui/sanitize [:button {:send "Take 4" :title "Mine"} "4"]))))))
+    (is (= "Take 4" (:title (second (genui/sanitize [:button {:send "Take 4" :title "Show more"} "4"])))))
+    (is (= "On: {checked}" (:title (second (genui/sanitize [:button {:send "On: {checked}" :title "Show more"} "4"])))))
+    (is (= "Mine" (:title (second (genui/sanitize [:button {:title "Mine"} "4"]))))))
+  (testing "a button in a label is a span: the whole label would click it"
+    (is (= [:label {:style {:display "block" :height "100vh"}} [:span {} "x"]]
+           (genui/sanitize [:label {:style {:display "block" :height "100vh"}} [:button {:send "Do it"} "x"]])))
+    (is (= [:label {} [:span {} [:span {} "x"]]]
+           (genui/sanitize [:label [:span [:button {:send "On: {checked}"} "x"]]]))))
   (testing ":send and :open only on a button"
     (is (= [:div {}] (genui/sanitize [:div {:send "Do this" :open "artifacts/x"}])))
     (is (= [:span {}] (genui/sanitize [:script {:send "Do this"}]))))
