@@ -17,7 +17,22 @@
         {:git/url "https://github.com/simplemono/rframes.git"
          :git/sha "986826428665e0ee6d9de6affeb1dcb266b670c1"
          :deps/root "client"}
-        no.cjohansen/replicant {:mvn/version "2026.07.1"}}
+        no.cjohansen/replicant {:mvn/version "2026.07.1"}
+        ;; the motion designs: fnmotion's pure parts (core, timeline,
+        ;; captions, cljc) for the design files and the player; its JVM
+        ;; parts and their dependencies are excluded, rragent.motion.render
+        ;; is the Node port of fnmotion.render, and its Replicant is a git
+        ;; coordinate tools.deps cannot compare with the one above
+        io.github.simplemono/fnmotion
+        {:git/url "https://github.com/simplemono/fnmotion.git"
+         :git/sha "727c668e158f4e21ab669fce012d68adeb6eca16"
+         :exclusions [no.cjohansen/replicant
+                      io.github.simplemono/rframes$server
+                      babashka/fs
+                      babashka/process
+                      org.babashka/http-client
+                      cheshire/cheshire
+                      hiccup/hiccup]}}
  ;; Clojurific replaces stock ClojureScript, which must not be on the classpath
  ;; too. The cljf launcher drops it itself; with the Clojure CLI
  ;; (clojure -M:cljs -m cljf.esm build ...) this alias overrides it with

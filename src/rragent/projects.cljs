@@ -1,11 +1,14 @@
 (ns rragent.projects
   "An artifact with a process: a directory under `work/artifacts/` with
    a package.json. rragent starts it (`node <main>`, `server.mjs`
-   unless the package names another file, PORT in its environment)
-   when it is on screen or changed lately, stops it when no one wanted
-   it for a while, shows its page in the iframe through a proxy under
-   `/artifacts/<name>/` (`rragent.proxy`), restarts it when it dies,
-   and writes its output to `.log` in the directory. The port of
+   unless the package names another file; or, with `\"rragent\":
+   \"motion\"` in the package, this program's `motion` command on the
+   folder; PORT in its environment) when it is on screen or changed
+   lately, stops it when no one wanted it for a while, shows its page
+   in the iframe through a proxy under `/artifacts/<name>/`
+   (`rragent.proxy`), passes a command posted from that page on to it,
+   restarts it when it dies, and writes its output to `.log` in the
+   directory. The port of
    pchat.projects: one folder, no chats, and no nREPL reload, since a
    Node project of the templates reads its files again per request and
    its page loads them again when they change.
@@ -19,6 +22,7 @@
             ["node:path" :as path]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
+            [rragent.program :as program]
             [rragent.proxy :as proxy]
             [rragent.rframes.http :as http]))
 
@@ -48,15 +52,29 @@
        (sort)
        (vec)))
 
+(defn- package
+  [project-dir]
+  (try
+    (js/JSON.parse (fs/readFileSync (path/join project-dir "package.json") "utf8"))
+    (catch :default _
+      #js {})))
+
 (defn main-file
   "The file Node runs for the project: `main` of its package.json,
    `server.mjs` without."
   [project-dir]
-  (or (try
-        (not-empty (aget (js/JSON.parse (fs/readFileSync (path/join project-dir "package.json") "utf8")) "main"))
-        (catch :default _
-          nil))
+  (or (not-empty (aget (package project-dir) "main"))
       "server.mjs"))
+
+(defn command
+  "What runs the project, `{:cmd :args}`: this program's `motion`
+   command for a package that says `\"rragent\": \"motion\"`, else
+   Node on the main file."
+  [project-dir]
+  (if (= "motion" (aget (package project-dir) "rragent"))
+    (program/command "motion" project-dir)
+    {:cmd (.-execPath js/process)
+     :args [(main-file project-dir)]}))
 
 (defn ^:async free-port
   "A port nothing listens on right now."
@@ -124,8 +142,9 @@
   (let [project-dir (project-dir handle name)
         port (await (free-port))
         log (fs/openSync (path/join project-dir ".log") "a")
-        process (child/spawn (.-execPath js/process)
-                             #js [(main-file project-dir)]
+        {:keys [cmd args]} (command project-dir)
+        process (child/spawn cmd
+                             (clj->js args)
                              #js {:cwd project-dir
                                   :env (environment handle name port)
                                   :stdio #js ["ignore" log log]
@@ -280,3 +299,23 @@
 
       :else
       (assoc w :ring/response (await (proxy/request port rest (:ring/request w)))))))
+
+(defn referer-project
+  "The running project whose page a request came from: the Referer
+   names `/artifacts/<name>/`, and the project is ready."
+  [{:keys [procs db]} request]
+  (when-let [[_ name] (re-find #"^https?://[^/]+/artifacts/([^/?#]+)/" (str (get-in request [:headers "referer"])))]
+    (when (and (get @procs name)
+               (get-in @db [:projects name :ready-at]))
+      name)))
+
+(defn ^:async command-handler
+  "`POST /command` from a project's page goes to the project's process:
+   the runtime of the page posts its commands to the origin's /command,
+   and the page belongs to the project (its Referer says so). Any other
+   request is left to the caller, without a response."
+  [{:keys [procs] :as handle} w]
+  (let [request (:ring/request w)]
+    (if-let [name (referer-project handle request)]
+      (assoc w :ring/response (await (proxy/request (:port (get @procs name)) "command" request)))
+      w)))
