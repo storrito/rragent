@@ -4,8 +4,10 @@
    the agent's instructions, `<skill>` and `<agent>` in it meaning the
    folder. The frontmatter carries the name and the description, and
    under `metadata` what the harness reads: `model` (an OpenRouter
-   model id), `thinking` (a level). The same reading of the frontmatter
-   as Storrito's `app.agent.skills` and pchat's `pchat.skills`."
+   model id), `thinking` (a level), `templates` (the templates the
+   agent may make projects from, `[motion, hyperframes]`; every
+   installed one without). The same reading of the frontmatter as
+   Storrito's `app.agent.skills` and pchat's `pchat.skills`."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]))
@@ -63,10 +65,21 @@
               :else
               (recur more nil (assoc out (keyword k) (scalar v))))))))))
 
+(defn templates
+  "The templates the metadata allows, a vector of names: `[motion,
+   hyperframes]` or `motion, hyperframes`, `[]` for none; nil when the
+   metadata names none at all, which means every installed one."
+  [metadata]
+  (when (contains? metadata "templates")
+    (->> (str/split (str/replace (str (get metadata "templates")) #"[\[\]]" "") #"[,\s]+")
+         (remove str/blank?)
+         (vec))))
+
 (defn definition
   "The definition read from `file`, its folder the agent's:
-   `{:name :description :metadata :model :thinking :instructions :folder}`.
-   Throws when the file has no frontmatter or no name."
+   `{:name :description :metadata :model :thinking :templates
+   :instructions :folder}`. Throws when the file has no frontmatter or
+   no name."
   [file]
   (let [folder (path/dirname (path/resolve file))
         {:keys [name description metadata body] :as read} (frontmatter (fs/readFileSync file "utf8"))]
@@ -77,6 +90,7 @@
      :metadata metadata
      :model (or (not-empty (get metadata "model")) default-model)
      :thinking (not-empty (get metadata "thinking"))
+     :templates (templates metadata)
      :instructions (-> body
                        (str/replace "<skill>" folder)
                        (str/replace "<agent>" folder))

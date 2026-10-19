@@ -1,5 +1,6 @@
 {
-  "name": "artifact",
+  "name": "rragent-template-motion",
   "private": true,
-  "rragent": "motion"
+  "type": "module",
+  "description": "The motion template of rragent: its serve and render executables are ES modules, its program is built into dist/ by the root's npm run build (vite.config.mjs and vite.client.config.mjs here)."
 }

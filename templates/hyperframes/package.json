@@ -1,6 +1,6 @@
 {
-  "name": "artifact",
+  "name": "rragent-template-hyperframes",
   "private": true,
   "type": "module",
-  "main": "server.mjs"
+  "description": "The HyperFrames template of rragent: its serve and render executables are ES modules on node:http and node:child_process, no dependencies; the player, the runtime and the CLI come from the HyperFrames install of the machine."
 }

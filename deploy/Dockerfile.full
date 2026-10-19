@@ -1,7 +1,9 @@
-# rragent on a Sprite with everything the renders need: deploy/Dockerfile
-# plus ffmpeg and the fonts, Google Chrome and the HyperFrames CLI, as
-# the Storrito agent image carries them. Build from the repository's
-# root after `npm run build`:
+# rragent on a Sprite with everything the templates need: deploy/Dockerfile
+# plus the `needs` of templates/*/TEMPLATE.md, which rragent.programs
+# looks for on the machine: ffmpeg (with the fonts) and Google Chrome for
+# the motion template, the HyperFrames CLI for the hyperframes template
+# besides. A template added later brings its needs to this list. Build
+# from the repository's root after `npm run build`:
 #   docker build -f deploy/Dockerfile.full -t rragent-full .
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 

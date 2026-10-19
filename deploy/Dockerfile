@@ -1,5 +1,7 @@
 # rragent on a Sprite (sprites.dev, 2.0): the bundle on the Sprites base
-# image, which brings Node through mise. The agent's folder is
+# image, which brings Node through mise, without what the templates need
+# (deploy/Dockerfile.full has that: the renders answer why there is no
+# video here, everything else works). The agent's folder is
 # /home/sprite/rragent/agent with its AGENT.md; `.env` next to the bundle
 # holds OPENROUTER_API_KEY and RRAGENT_TOKEN and is written when the
 # machine is set up, never into the image. Build from the repository's

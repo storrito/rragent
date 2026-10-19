@@ -3,9 +3,12 @@
             ["node:os" :as os]
             ["node:path" :as path]
             ["node:stream" :refer [Readable]]
+            [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.projects :as projects]
-            [rragent.rframes.transit :as transit]))
+            [rragent.rframes.transit :as transit]
+            [rragent.templates :as templates]
+            [rragent.test-templates :as test-templates]))
 
 (defn- temp-dir
   []
@@ -51,10 +54,96 @@
       (finally
         (fs/rmSync dir #js {:recursive true :force true})))))
 
+(deftest command-test
+  (let [dir (temp-dir)
+        {templates-dir :dir restore! :restore!} (test-templates/install! [test-templates/fake test-templates/static])]
+    (try
+      (project! dir "plain")
+      (templates/copy! "fake" (path/join dir "card"))
+      (templates/copy! "static" (path/join dir "page"))
+      (testing "a project without a template runs with Node on its main file"
+        (is (= {:cmd (.-execPath js/process) :args ["server.mjs"] :needs []} (projects/command (path/join dir "plain")))))
+      (testing "a project of a template runs with the template's entry on its folder"
+        (is (= {:cmd (path/join templates-dir "fake" "serve") :args [(path/join dir "card")] :needs ["chrome" "ffmpeg"]}
+               (projects/command (path/join dir "card"))))
+        (is (nil? (projects/static-template (path/join dir "card")))))
+      (testing "a project of a static template has no process"
+        (is (= "static" (:name (projects/static-template (path/join dir "page"))))))
+      (testing "a template that is gone"
+        (fs/writeFileSync (path/join dir "card" "package.json") "{\"template\": \"gone\"}")
+        (is (thrown-with-msg? js/Error #"not installed" (projects/command (path/join dir "card")))))
+      (finally
+        (restore!)
+        (fs/rmSync dir #js {:recursive true :force true})))))
+
+(deftest template-project-test
+  (async done
+    (-> ((^:async fn []
+           (let [dir (temp-dir)
+                 {:keys [restore!]} (test-templates/install! [test-templates/fake test-templates/static])
+                 db (atom {:artifacts/current "card"})
+                 handle (projects/handle {:db db :dir dir :procs (atom {})})
+                 w (fn [path]
+                     {:ring/route-params {:* path}
+                      :ring/request {:request-method :get :uri (str "/artifacts/" path) :headers {}}})]
+             (templates/copy! "fake" (path/join dir "card"))
+             (templates/copy! "static" (path/join dir "page"))
+             (try
+               (testing "the project of the template is started with the template's entry, the static one is ready as it is"
+                 (await (projects/sync! handle))
+                 (loop [n 0]
+                   (when (and (< n 50) (nil? (get-in @db [:projects "card" :ready-at])))
+                     (await (sleep 100))
+                     (await (projects/sync! handle))
+                     (recur (inc n))))
+                 (is (number? (get-in @db [:projects "card" :ready-at])) (str (fs/readFileSync (path/join dir "card" ".log") "utf8")))
+                 (is (true? (get-in @db [:projects "page" :static?])))
+                 (is (= "index.html" (get-in @db [:projects "page" :entry])))
+                 (is (number? (get-in @db [:projects "page" :ready-at])))
+                 (is (nil? (get @(:procs handle) "page")) "no process for a page"))
+               (testing "the page of the process, through the proxy"
+                 (let [{:keys [status body]} (:ring/response (await (projects/handler handle (w "card/"))))]
+                   (is (= 200 status))
+                   (is (= (str "page of " (path/join dir "card") " GET /") (await (transit/read-body body))))))
+               (testing "the static page, served as it is; its other files are left to the files route"
+                 (let [{:keys [status body headers]} (:ring/response (await (projects/handler handle (w "page/"))))]
+                   (is (= 200 status))
+                   (is (str/starts-with? (get headers "Content-Type") "text/html"))
+                   (is (= "<h1>static</h1>" (await (transit/read-body body)))))
+                 (is (= 302 (:status (:ring/response (await (projects/handler handle (w "page")))))))
+                 (is (nil? (:ring/response (await (projects/handler handle (w "page/style.css")))))))
+               (testing "an eval goes to the process, which answers; a project that does not run is started for it"
+                 (is (= {:status 200 :text "(+ 1 2)"} (-> (await (projects/eval! handle "card" "(+ 1 2)")) (update :text str/upper-case))))
+                 (is (= {:status 400 :text "boom failed"} (await (projects/eval! handle "card" "boom"))))
+                 (projects/stop! handle "card")
+                 (is (= {:status 200 :text "AGAIN"} (await (projects/eval! handle "card" "again"))))
+                 (is (number? (get-in @db [:projects "card" :ready-at]))))
+               (testing "no eval into a page, or into no project"
+                 (let [error (await (-> (projects/eval! handle "page" "x") (.catch identity)))]
+                   (is (str/includes? (.-message error) "has no process")))
+                 (let [error (await (-> (projects/eval! handle "nope" "x") (.catch identity)))]
+                   (is (str/includes? (.-message error) "no project"))))
+               (testing "a project whose template is gone is noted as failed, its .log saying why"
+                 (projects/stop! handle "card")
+                 (fs/writeFileSync (path/join dir "card" "package.json") "{\"template\": \"gone\"}")
+                 (await (projects/sync! handle))
+                 (is (= 1 (get-in @db [:projects "card" :exit])))
+                 (is (str/includes? (fs/readFileSync (path/join dir "card" ".log") "utf8") "The template gone is not installed")))
+               (testing "a static project that goes leaves the db"
+                 (fs/rmSync (path/join dir "page") #js {:recursive true :force true})
+                 (await (projects/sync! handle))
+                 (is (nil? (get-in @db [:projects "page"]))))
+               (finally
+                 (projects/stop-all! handle)
+                 (restore!)
+                 (fs/rmSync dir #js {:recursive true :force true}))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
 (deftest handler-passes-unknown-test
   (async done
     (-> ((^:async fn []
-           (let [handle (projects/handle {:db (atom {}) :dir "/tmp/none"})
+           (let [handle (projects/handle {:db (atom {}) :dir "/tmp/none" :procs (atom {})})
                  w {:ring/route-params {:* "hello.html"} :ring/request {:uri "/artifacts/hello.html" :headers {}}}]
              (testing "a path that is no running project is left to the caller"
                (is (= w (await (projects/handler handle w)))))
@@ -70,7 +159,7 @@
            (let [dir (temp-dir)
                  db (atom {:artifacts/current "short"})
                  shown? (atom true)
-                 handle (projects/handle {:db db :dir dir :shown? (fn [] @shown?)})
+                 handle (projects/handle {:db db :dir dir :shown? (fn [] @shown?) :procs (atom {})})
                  w (fn [path & [method body]]
                      {:ring/route-params {:* path}
                       :ring/request {:request-method (or method :get)

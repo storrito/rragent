@@ -1,0 +1,58 @@
+#!/usr/bin/env node
+// render <project-dir> <output.mp4>: the video of a HyperFrames project
+// through the HyperFrames CLI, `hyperframes render . --output <out>` in
+// the project's composition/, with the values of the project's
+// variables.json and the Chrome of the machine (CHROME and HYPERFRAMES
+// in the environment, from rragent, see TEMPLATE.md). The CLI's progress
+// lines, `@hf-progress {"pct": 30, ...}`, become `progress 30%` lines,
+// which rragent shows; everything else passes through. The CLI's exit
+// status is this script's. RRAGENT_RENDER_ARGS adds arguments for the
+// CLI, `--browser-gpu` on a machine with a graphics card for example.
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
+
+const [projectDir, out] = process.argv.slice(2);
+if (!projectDir || !out) {
+  console.error("render <project-dir> <out.mp4>");
+  process.exit(2);
+}
+
+const composition = path.join(path.resolve(projectDir), "composition");
+const variables = path.join(path.resolve(projectDir), "variables.json");
+const cli = process.env.HYPERFRAMES || "hyperframes";
+const chrome = process.env.CHROME;
+const extra = (process.env.RRAGENT_RENDER_ARGS || "").trim().split(/\s+/).filter(Boolean);
+const args = ["render", ".", "--output", path.resolve(out), ...extra];
+if (fs.existsSync(variables)) args.push("--variables-file", variables);
+
+const env = {
+  ...process.env,
+  HYPERFRAMES_NO_TELEMETRY: "1",
+  HYPERFRAMES_SKIP_SKILLS: "1",
+  PUPPETEER_SKIP_DOWNLOAD: "1",
+  ...(chrome ? { HYPERFRAMES_BROWSER_PATH: chrome, PRODUCER_HEADLESS_SHELL_PATH: chrome } : {}),
+};
+
+const child = spawn(cli, args, { cwd: composition, env, stdio: ["ignore", "pipe", "inherit"] });
+readline.createInterface({ input: child.stdout }).on("line", (line) => {
+  const progress = /^@hf-progress\s+(\{.*\})\s*$/.exec(line);
+  if (progress) {
+    try {
+      const pct = JSON.parse(progress[1]).pct;
+      if (typeof pct === "number") console.log(`progress ${Math.round(pct)}%`);
+      return;
+    } catch {
+      // not the CLI's JSON: shown as it is
+    }
+  }
+  console.log(line);
+});
+child.on("error", (error) => {
+  console.error(`${cli}: ${error.message}`);
+  process.exit(1);
+});
+child.on("close", (code, signal) => {
+  process.exit(code ?? (signal ? 1 : 0));
+});

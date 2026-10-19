@@ -1,18 +1,20 @@
-// This artifact's server, a small Node program rragent starts with PORT
-// set and shows in the pane beside the chat (see README.md). It serves
-// composition/index.html with the HyperFrames runtime and the values of
-// variables.json, the page with the HyperFrames player and one control
-// per declared variable, and `rev`, the newest change of the files, which
-// the page polls to load the composition again at the same position.
-// The player and the runtime come from the HyperFrames install the
-// `hyperframes` command belongs to. Plain JavaScript on node:http, no
-// dependencies, so that nothing has to be installed in this folder.
+#!/usr/bin/env node
+// serve <project-dir>: the server of a HyperFrames project, a small Node
+// program rragent starts with PORT set and shows in the pane beside the
+// chat (see TEMPLATE.md). It serves the project's composition/index.html
+// with the HyperFrames runtime and the values of its variables.json, the
+// page with the HyperFrames player and one control per declared
+// variable, and `rev`, the newest change of the files, which the page
+// polls to load the composition again at the same position. The player
+// and the runtime come from the HyperFrames install of the machine:
+// HYPERFRAMES in the environment names the CLI (rragent sets it), else
+// the one on the PATH. Plain JavaScript on node:http, no dependencies.
+// It takes no eval: the page is the composition's own.
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+const here = path.resolve(process.argv[2] || ".");
 const compositionDir = path.join(here, "composition");
 const stillsDir = path.join(here, "stills");
 const variablesFile = path.join(here, "variables.json");
@@ -30,18 +32,25 @@ function exitWithParent() {
   }, 2000).unref();
 }
 
+// The node_modules above a file, or null.
+function nodeModulesAbove(file) {
+  let p = path.dirname(fs.realpathSync(file));
+  while (p !== path.dirname(p)) {
+    if (path.basename(p) === "node_modules") return p;
+    p = path.dirname(p);
+  }
+  return null;
+}
+
 // The HyperFrames install: HYPERFRAMES_NODE_MODULES, else the
-// node_modules above the `hyperframes` command on the PATH.
+// node_modules above the CLI, HYPERFRAMES in the environment or
+// `hyperframes` on the PATH.
 function nodeModules() {
   if (process.env.HYPERFRAMES_NODE_MODULES) return process.env.HYPERFRAMES_NODE_MODULES;
+  if (process.env.HYPERFRAMES && fs.existsSync(process.env.HYPERFRAMES)) return nodeModulesAbove(process.env.HYPERFRAMES);
   for (const dir of (process.env.PATH || "").split(":")) {
     const bin = path.join(dir, "hyperframes");
-    if (!fs.existsSync(bin)) continue;
-    let p = path.dirname(fs.realpathSync(bin));
-    while (p !== path.dirname(p)) {
-      if (path.basename(p) === "node_modules") return p;
-      p = path.dirname(p);
-    }
+    if (fs.existsSync(bin)) return nodeModulesAbove(bin);
   }
   return null;
 }

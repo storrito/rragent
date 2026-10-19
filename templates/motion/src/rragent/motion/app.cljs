@@ -1,14 +1,17 @@
 (ns rragent.motion.app
-  "The process of a motion project, `rragent motion <dir>`: the design
-   of `design.cljs` (`rragent.motion.design`) played on a page of
+  "The process of a motion project, `serve <dir>` of the template: the
+   design of `design.cljs` (`rragent.motion.design`) played on a page of
    rframes (`rragent.motion.player`) that rragent proxies into the pane,
    the data of `design.edn` kept across restarts, both files watched so
    that a saved change shows at once, the media files of the folder
-   served to the frames. `rragent motion-render <dir> <out>` is the
-   video of the same design (`rragent.motion.render`), `frame n/m` on
-   its output as the progress. The port of pchat's motion template,
-   whose babashka app held all of this; here the project folder holds
-   the design alone and rragent runs it."
+   served to the frames, the page's own scripts from the template's
+   `dist/public`. `POST /eval` takes code into the design's namespace,
+   the way the README of rragent describes an eval into a page: a
+   redefined function shows at once. `render <dir> <out>` is the video
+   of the same design (`rragent.motion.render`), `progress n/m` on its
+   output as the progress. The port of pchat's motion template, whose
+   babashka app held all of this; here the project folder holds the
+   design alone and the template's program runs it."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
@@ -19,13 +22,19 @@
             [rragent.rframes.command :as command]
             [rragent.rframes.http :as http]
             [rragent.rframes.replicant :as replicant]
-            [rragent.rframes.sse :as sse]))
+            [rragent.rframes.sse :as sse]
+            [rragent.rframes.transit :as transit]))
 
 (def design-file
   "design.cljs")
 
 (def data-file
   "design.edn")
+
+(def client
+  "The namespace of the page's bundle, its name in the manifest of the
+   template's dist/public."
+  "rragent.motion.client")
 
 (def poll-ms
   "How often the design file is looked at for a change."
@@ -78,18 +87,25 @@
        ".controls label { display: flex; align-items: center; gap: 8px; }"
        player/css))
 
+(defn- relative
+  "A URL of the manifest without its leading slash: the page lives under
+   `/artifacts/<name>/` of rragent, and its scripts must come through
+   that path to this process."
+  [href]
+  (str/replace-first (str href) #"^/" ""))
+
 (defn head
   "The head of the page: the styles, the player's script, and the page's
-   scripts of rragent, whose origin this page lives under."
+   scripts, the template's own bundle of the rframes client."
   [{:keys [loaded]}]
-  (let [{:keys [scripts preload]} (assets/client)]
+  (let [{:keys [scripts preload]} (assets/built (assets/beside-bundle) client)]
     (str "<title>artifact</title>"
          "<style>" styles (:styles @loaded) "</style>"
          "<script>" player/script "</script>"
          (apply str (for [href preload]
-                      (str "<link rel=\"modulepreload\" href=\"" href "\">")))
+                      (str "<link rel=\"modulepreload\" href=\"" (relative href) "\">")))
          (apply str (for [src scripts]
-                      (str "<script type=\"module\" src=\"" src "\"></script>"))))))
+                      (str "<script type=\"module\" src=\"" (relative src) "\"></script>"))))))
 
 (def media
   "What a frame may refer to by its name: pictures, sounds, videos, fonts."
@@ -109,13 +125,36 @@
                               (http/file-response (:ring/request w) file)
                               http/not-found))))
 
+(defn- text-response
+  [status text]
+  {:status status
+   :headers {"Content-Type" "text/plain; charset=utf-8"}
+   :body (str text)})
+
+(defn- ^:async eval-handler
+  "`POST /eval`: the body evaluated in the design's namespace, the
+   printed value with 200, the error with 400; the design is read
+   again from the namespace, so a redefinition shows on the page."
+  [{:keys [loaded]} w]
+  (let [code (await (transit/read-body (:body (:ring/request w))))
+        {:keys [value error] :as result} (design/eval-in @loaded code)]
+    (when-not error
+      (reset! loaded (:loaded result))
+      (sse/refresh-all!))
+    (assoc w :ring/response (if error
+                              (text-response 400 error)
+                              (text-response 200 value)))))
+
 (defn register
   [{:keys [db loaded] :as state}]
   (replicant/expand
    (concat [{:replicant/shim "/"
              :head (head state)}
             {:replicant/render "/"
-             :render/fn (fn [w] (page-view state w))}]
+             :render/fn (fn [w] (page-view state w))}
+            {:ring/route [:post "/eval"]
+             :ring/handler (fn [w] (eval-handler state w))}
+            (http/files "/assets/*" (path/join (assets/beside-bundle) "assets"))]
            (player/commands db {:duration (fn [] (or (:duration @loaded) 0))})
            command/register
            ;; last: the files of the folder
@@ -166,10 +205,10 @@
                (.close server))})))
 
 (defn ^:async serve-main
-  "`rragent motion <dir>`: PORT from the environment, a line on the port."
+  "`serve <dir>`: PORT from the environment, a line on the port."
   [dir]
   (when (str/blank? dir)
-    (throw (js/Error. "rragent motion <dir>: the folder of the design")))
+    (throw (js/Error. "serve <dir>: the folder of the design")))
   (exit-with-parent!)
   (let [{:keys [server]} (await (serve! dir (js/parseInt (or (not-empty (aget (.-env js/process) "PORT")) "0") 10)))]
     (println (str "artifact on http://127.0.0.1:" (.-port (.address server))))))
@@ -194,12 +233,12 @@
                             :on-progress on-progress}))))
 
 (defn ^:async render-main
-  "`rragent motion-render <dir> <out>`: `frame n/m` every second of
-   video and at the end, then the file and the time it took."
+  "`render <dir> <out>`: `progress n/m` every second of video and at
+   the end, then the file and the time it took."
   [dir out]
   (when (or (str/blank? dir) (str/blank? out))
-    (throw (js/Error. "rragent motion-render <dir> <out.mp4>")))
+    (throw (js/Error. "render <dir> <out.mp4>")))
   (let [{:keys [frames seconds]} (await (render-file! dir out (fn [done all]
                                                                  (when (or (= done all) (zero? (mod done 30)))
-                                                                   (println (str "frame " done "/" all))))))]
+                                                                   (println (str "progress " done "/" all))))))]
     (println (str out ": " frames " frames in " (js/Math.round seconds) " s"))))

@@ -1,16 +1,20 @@
 (ns rragent.render
-  "A video from an artifact project: the `render` tool
+  "A render of an artifact project: the `render` tool
    (`rragent.tools.render`) or a click in the pane starts it, its
    progress is in the db while it runs, the file it writes shows up as
    an artifact by itself (`rragent.artifacts`), Stop ends the process
-   and removes the half-written file. A HyperFrames project
-   (`composition/index.html`) renders through the HyperFrames CLI,
-   `hyperframes` on the PATH or RRAGENT_HYPERFRAMES, with the Chrome of
-   the machine (CHROME, or the usual names on the PATH), the values of
-   its `variables.json` passed along; the progress lines the CLI prints
-   (`@hf-progress {...}`) are the progress. The port of pchat.render
-   and bin/render: the render is a child process of the agent's own,
-   no babashka. The motion design comes with the next milestone.
+   and removes the half-written file. How the file is made is the
+   project's template's business (`rragent.templates`): its `render`
+   executable is run as `render <project-dir> <output>` in the
+   project's folder, with the programs the template needs in its
+   environment (`rragent.programs`), and writes the file,
+   `artifacts/<name>.<ext>` with the first of the template's `renders`.
+   A line `progress <done>/<total>` or `progress <n>%` on its output is
+   the progress the pane shows, every other line is the render's
+   output; its exit status says whether it worked, its stderr why not.
+   A render that runs longer than the timeout is ended. The port of
+   pchat.render and bin/render: the render is a child process of the
+   agent's own.
 
    The key this namespace owns in the db (`rragent.db`):
 
@@ -21,89 +25,20 @@
             ["node:readline" :as readline]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
-            [rragent.program :as program]))
+            [rragent.programs :as programs]
+            [rragent.templates :as templates]))
 
-(def chrome-names
-  ["google-chrome" "google-chrome-stable" "chromium" "chromium-browser" "chrome"])
-
-(defn on-path
-  "The executable `name` on the PATH, or nil."
-  [name]
-  (some (fn [dir]
-          (let [file (path/join dir name)]
-            (when (try (.isFile (fs/statSync file)) (catch :default _ false))
-              file)))
-        (str/split (str (aget (.-env js/process) "PATH")) #":")))
-
-(defn chrome
-  "`CHROME` in the environment, else the first of the usual names on the
-   PATH, else nil."
-  []
-  (or (not-empty (aget (.-env js/process) "CHROME"))
-      (some on-path chrome-names)))
-
-(defn hyperframes
-  "The HyperFrames CLI: RRAGENT_HYPERFRAMES, else `hyperframes` on the
-   PATH, else nil."
-  []
-  (or (not-empty (aget (.-env js/process) "RRAGENT_HYPERFRAMES"))
-      (on-path "hyperframes")))
-
-(defn missing-tools
-  "The names of the video tools that are not there: for every render a
-   Chrome and ffmpeg, for a HyperFrames composition its CLI too."
-  ([]
-   (missing-tools :hyperframes))
-  ([kind]
-   (cond-> []
-     (nil? (on-path "ffmpeg")) (conj "ffmpeg")
-     (nil? (chrome)) (conj "google-chrome")
-     (and (= :hyperframes kind) (nil? (hyperframes))) (conj "hyperframes"))))
-
-(defn not-ready-message
-  "Why a render cannot start, or nil when the video tools are there:
-   the words for the person, no stack trace."
-  [missing]
-  (when (seq missing)
-    (str "The video tools are not installed on this machine (" (str/join ", " missing)
-         "), so no video: the operator installs them.")))
-
-(defn report
-  "One line on what is there and what is missing, for the start."
-  []
-  (let [found (fn [name file] (str name (if file (str " at " file) " missing")))]
-    (str "videos: " (found "Chrome" (chrome)) ", " (found "ffmpeg" (on-path "ffmpeg")) ", " (found "hyperframes" (hyperframes)))))
-
-(defn node-modules
-  "The node_modules of the HyperFrames install the CLI belongs to, where
-   the player and the runtime of a composition's page lie; nil without
-   the CLI."
-  []
-  (when-let [cli (hyperframes)]
-    (let [real (try (fs/realpathSync cli) (catch :default _ cli))]
-      (loop [dir (path/dirname real)]
-        (cond
-          (= "node_modules" (path/basename dir)) dir
-          (= dir (path/dirname dir)) nil
-          :else (recur (path/dirname dir)))))))
-
-(defn environment
-  "What the HyperFrames CLI and a project's process get: the Chrome of
-   the machine, no telemetry, no browser download."
-  []
-  (let [chrome (chrome)]
-    (cond-> {"HYPERFRAMES_NO_TELEMETRY" "1"
-             "HYPERFRAMES_SKIP_SKILLS" "1"
-             "PUPPETEER_SKIP_DOWNLOAD" "1"}
-      chrome (assoc "CHROME" chrome
-                    "HYPERFRAMES_BROWSER_PATH" chrome
-                    "PRODUCER_HEADLESS_SHELL_PATH" chrome)
-      (node-modules) (assoc "HYPERFRAMES_NODE_MODULES" (node-modules)))))
+(def default-timeout-ms
+  "A render that runs longer is ended: RRAGENT_RENDER_TIMEOUT_MIN
+   minutes, thirty without."
+  (* 60 1000 (or (some-> (aget (.-env js/process) "RRAGENT_RENDER_TIMEOUT_MIN") js/parseFloat (as-> n (when-not (js/isNaN n) n)))
+                 30)))
 
 (defn handle
-  "`{:db the db, :dir the artifacts folder}`; `:procs`, the table of the
-   running renders by name, is shared by every handle of the process
-   unless given, so that the tool starts what the pane stops."
+  "`{:db the db, :dir the artifacts folder, :timeout-ms}`; `:procs`, the
+   table of the running renders by name, is shared by every handle of
+   the process unless given, so that the tool starts what the pane
+   stops."
   [{:keys [dir] :as opts}]
   (assoc opts :dir (path/resolve dir)))
 
@@ -123,55 +58,55 @@
   [handle]
   (boolean (seq @(table handle))))
 
-(defn output-file
-  "Where the video of the project goes: beside the project, with its name."
+(defn template-of
+  "The project's template, see `rragent.templates/of-project`."
   [{:keys [dir]} name]
-  (path/join dir (str name ".mp4")))
+  (templates/of-project (path/join dir name)))
 
-(defn kind-of
-  "What the project is: `:motion` with a design.cljs, `:hyperframes` with
-   a composition, nil otherwise."
-  [project-dir]
-  (cond
-    (fs/existsSync (path/join project-dir "design.cljs")) :motion
-    (fs/existsSync (path/join project-dir "composition" "index.html")) :hyperframes))
+(defn extension
+  "What the template's render makes, the first of its `renders`; mp4
+   without."
+  [template]
+  (or (first (:renders template)) "mp4"))
 
-(defn extra-args
-  "RRAGENT_RENDER_ARGS, more arguments for the CLI, `--browser-gpu` on a
-   machine with a graphics card for example."
-  []
-  (some-> (aget (.-env js/process) "RRAGENT_RENDER_ARGS") str/trim not-empty (str/split #"\s+")))
-
-(defn command
-  "The command that renders the project: `{:cmd :args :cwd}`, nil for a
-   project of no known kind."
+(defn output-file
+  "Where the render of the project goes: beside the project, with its
+   name and the template's extension."
   [{:keys [dir] :as handle} name]
-  (let [project-dir (path/join dir name)
-        variables (path/join project-dir "variables.json")]
-    (case (kind-of project-dir)
-      :hyperframes {:cmd (hyperframes)
-                    :args (-> ["render" "." "--output" (output-file handle name)]
-                              (into (extra-args))
-                              (cond-> (fs/existsSync variables) (into ["--variables-file" variables])))
-                    :cwd (path/join project-dir "composition")}
-      :motion (assoc (program/command "motion-render" project-dir (output-file handle name))
-                     :cwd project-dir)
-      nil)))
+  (path/join dir (str name "." (extension (template-of handle name)))))
 
 (defn progress-of
-  "The progress a line of a render reports, as `\"30 %\"`: the CLI's
-   `@hf-progress {\"pct\":30 ...}`, the motion render's `frame 54/180`;
-   nil for any other line."
+  "The progress a line of a render reports, as `\"30 %\"`: `progress
+   54/180` or `progress 30%`; nil for any other line."
   [line]
-  (if-let [[_ json] (re-find #"^@hf-progress\s+(\{.*\})\s*$" (str line))]
-    (try
-      (let [pct (aget (js/JSON.parse json) "pct")]
-        (when (number? pct)
-          (str (js/Math.round pct) " %")))
-      (catch :default _
-        nil))
-    (when-let [[_ done all] (re-find #"^frame (\d+)/(\d+)" (str line))]
-      (str (js/Math.round (* 100 (/ (js/parseInt done 10) (max 1 (js/parseInt all 10))))) " %"))))
+  (when-let [[_ a b] (re-find #"^progress\s+(\d+)\s*(?:/\s*(\d+)|%)\s*$" (str line))]
+    (if b
+      (str (js/Math.round (* 100 (/ (js/parseInt a 10) (max 1 (js/parseInt b 10))))) " %")
+      (str a " %"))))
+
+(defn refusal
+  "Why the project cannot be rendered, or nil: no template, one that is
+   not installed, one that renders nothing, a need missing."
+  [{:keys [dir] :as handle} name]
+  (let [template (template-of handle name)]
+    (cond
+      (not (artifacts/project? (path/join dir name)))
+      (str name " is no project: a project is a folder under artifacts/ with a package.json.")
+
+      (nil? template)
+      (str name " was not made from a template, so nothing knows how to render it.")
+
+      (:missing? template)
+      (str "The template " (:name template) " of " name " is not installed.")
+
+      (empty? (:renders template))
+      (str "The template " (:name template) " renders nothing.")
+
+      (not (fs/existsSync (templates/render-file template)))
+      (str "The template " (:name template) " has no render script.")
+
+      :else
+      (programs/not-ready-message (:name template) (programs/missing (:needs template))))))
 
 (defn- kill!
   [^js process]
@@ -181,12 +116,19 @@
       (catch :default _
         (try (.kill process "SIGTERM") (catch :default _ nil))))))
 
+(defn- error-of
+  "The words of a failed render: the end of its stderr, else the last
+   line of its output, else the exit."
+  [exit lines errors]
+  (or (not-empty (str/join "\n" errors))
+      (last (remove progress-of lines))
+      (str "exit " exit)))
+
 (defn- finish!
-  "The exit of the process into the db: an error with the last line of
-   the output, nothing of it after a stop; the finished video is news
-   for the pane."
-  [{:keys [db] :as handle} name exit lines]
-  (let [stopped? (get-in @(table handle) [name :stopped?])]
+  "The exit of the process into the db: the error with the reason,
+   nothing of it after a stop; the finished file is news for the pane."
+  [{:keys [db] :as handle} name exit lines errors]
+  (let [{:keys [stopped? timed-out?]} (get @(table handle) name)]
     (swap! (table handle) dissoc name)
     (swap! db update :renders
            (fn [renders]
@@ -195,9 +137,11 @@
                (update renders name
                        (fn [render]
                          (cond-> (-> render (dissoc :progress) (assoc :exit exit))
-                           (not (zero? exit))
-                           (assoc :error (or (last (remove progress-of lines))
-                                             (str "exit " exit)))))))))
+                           timed-out?
+                           (assoc :error (str "The render took longer than " (js/Math.round (/ (:timeout-ms timed-out?) 60000)) " minutes and was ended."))
+
+                           (and (not timed-out?) (not (zero? exit)))
+                           (assoc :error (error-of exit lines errors))))))))
     (artifacts/refollow! db)
     (get-in @db [:renders name])))
 
@@ -217,56 +161,71 @@
          (when-not (str/blank? line)
            (on-line line)))))
 
+(defn- spawn!
+  "The template's render script on the project, its output followed:
+   a promise of the render's state once it ended."
+  [{:keys [db dir timeout-ms] :as handle} name template on-line]
+  (let [project-dir (path/join dir name)
+        out (output-file handle name)
+        process (child/spawn (templates/render-file template) #js [project-dir out]
+                             #js {:cwd project-dir
+                                  :env (js/Object.assign #js {} (.-env js/process) (clj->js (programs/environment (:needs template))))
+                                  :stdio #js ["ignore" "pipe" "pipe"]
+                                  :detached true})
+        lines (atom [])
+        errors (atom [])
+        timeout-ms (or timeout-ms default-timeout-ms)
+        note! (fn [line]
+                (swap! lines #(vec (take-last 20 (conj % line))))
+                (when-let [progress (progress-of line)]
+                  (swap! db assoc-in [:renders name :progress] progress))
+                (when on-line
+                  (on-line line)))
+        timer (js/setTimeout (fn []
+                               (when (running? handle name)
+                                 (swap! (table handle) assoc-in [name :timed-out?] {:timeout-ms timeout-ms})
+                                 (kill! process)))
+                             timeout-ms)]
+    (swap! (table handle) assoc name {:process process :waiting []})
+    (swap! db assoc-in [:renders name] {:started (js/Date.now)})
+    (lines! (.-stdout process) note!)
+    (lines! (.-stderr process) (fn [line]
+                                 (swap! errors #(vec (take-last 5 (conj % line))))
+                                 (note! line)))
+    (js/Promise. (fn [resolve]
+                   (swap! (table handle) update-in [name :waiting] conj resolve)
+                   (let [settle! (fn [exit]
+                                   ;; once: `close` follows `error` for a process that could not start
+                                   (when (running? handle name)
+                                     (js/clearTimeout timer)
+                                     (let [waiting (get-in @(table handle) [name :waiting])
+                                           render (finish! handle name exit @lines @errors)]
+                                       (doseq [f waiting]
+                                         (f render)))))]
+                     (.on process "error" (fn [error]
+                                            (swap! errors conj (str error))
+                                            (note! (str error))
+                                            (settle! 1)))
+                     (.on process "close" (fn [code signal]
+                                            (settle! (or code (if signal 1 0))))))))))
+
 (defn start!
   "The render of the project `name` started, unless it runs already or
-   the video tools are not there (then the reason is the render's
-   error, see `not-ready-message`). `on-line` gets every line the
-   render prints. Answers a promise of the render's state once it ended."
+   it cannot (then the reason is the render's error, see `refusal`).
+   `on-line` gets every line the render prints. Answers a promise of
+   the render's state once it ended."
   ([handle name]
    (start! handle name nil))
-  ([{:keys [db dir] :as handle} name on-line]
+  ([handle name on-line]
    (cond
      (running? handle name)
      (js/Promise. (fn [resolve]
                     (swap! (table handle) update-in [name :waiting] (fnil conj []) resolve)))
 
-     (not (kind-of (path/join dir name)))
-     (js/Promise.resolve (refuse! handle name (str name " is no project that can be rendered: a motion design has design.cljs, a HyperFrames composition composition/index.html.")))
-
      :else
-     (if-let [message (not-ready-message (missing-tools (kind-of (path/join dir name))))]
+     (if-let [message (refusal handle name)]
        (js/Promise.resolve (refuse! handle name message))
-       (let [{:keys [cmd args cwd]} (command handle name)
-             process (child/spawn cmd (clj->js args)
-                                  #js {:cwd cwd
-                                       :env (js/Object.assign #js {} (.-env js/process) (clj->js (environment)))
-                                       :stdio #js ["ignore" "pipe" "pipe"]
-                                       :detached true})
-             lines (atom [])
-             note! (fn [line]
-                     (swap! lines #(vec (take-last 20 (conj % line))))
-                     (when-let [progress (progress-of line)]
-                       (swap! db assoc-in [:renders name :progress] progress))
-                     (when on-line
-                       (on-line line)))]
-         (swap! (table handle) assoc name {:process process :waiting []})
-         (swap! db assoc-in [:renders name] {:started (js/Date.now)})
-         (lines! (.-stdout process) note!)
-         (lines! (.-stderr process) note!)
-         (js/Promise. (fn [resolve]
-                        (swap! (table handle) update-in [name :waiting] conj resolve)
-                        (let [settle! (fn [exit]
-                                        ;; once: `close` follows `error` for a process that could not start
-                                        (when (running? handle name)
-                                          (let [waiting (get-in @(table handle) [name :waiting])
-                                                render (finish! handle name exit @lines)]
-                                            (doseq [f waiting]
-                                              (f render)))))]
-                          (.on process "error" (fn [error]
-                                                 (note! (str error))
-                                                 (settle! 1)))
-                          (.on process "close" (fn [code signal]
-                                                 (settle! (or code (if signal 1 0)))))))))))))
+       (spawn! handle name (template-of handle name) on-line)))))
 
 (defn stop!
   "Ends a running render; the file it was writing goes with it."

@@ -34,7 +34,9 @@
   (is (= "Guest review card" (artifacts/title "guest-review_card.html")))
   (is (= "Pool" (artifacts/title "photos/Pool.JPG")))
   (is (= "story" (artifacts/render-name "story.mp4")))
-  (is (nil? (artifacts/render-name "story.png"))))
+  (is (= "story" (artifacts/render-name "story.png")) "whatever a template renders")
+  (is (nil? (artifacts/render-name "card/story.png")) "a file in a project is no render")
+  (is (nil? (artifacts/render-name "notes"))))
 
 (deftest list-and-follow-test
   (let [root (temp-dir "rragent-artifacts-")
