@@ -3,7 +3,8 @@
    `RRAGENT_HOME`, `./agent` by default. In it: `AGENT.md` (or a
    `SKILL.md` of agentitos), the definition; `agent.sqlite`, the
    transcript and the state; `work/`, where the tools read and write,
-   with `work/artifacts/`, what the pane shows."
+   with `work/artifacts/`, what the pane shows, and `work/uploads/`, what
+   the person attached to a message."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]))
 
@@ -36,5 +37,14 @@
    pane shows (`rragent.artifacts`); made on first use."
   [work]
   (let [dir (path/join work "artifacts")]
+    (fs/mkdirSync dir #js {:recursive true})
+    dir))
+
+(defn uploads-dir
+  "What the person attaches to a message, under `work/`: the files
+   `rragent.uploads` stores, which the agent reaches as `uploads/<name>`;
+   made on first use."
+  [work]
+  (let [dir (path/join work "uploads")]
     (fs/mkdirSync dir #js {:recursive true})
     dir))

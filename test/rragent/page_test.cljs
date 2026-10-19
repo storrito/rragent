@@ -6,8 +6,10 @@
             [rragent.page :as page]
             [rragent.rframes.http :as http]
             [rragent.rframes.transit :as transit]
+            [rragent.db :as db]
             [rragent.test-home :as test-home]
-            [rragent.tools-test :as tools-test]))
+            [rragent.tools-test :as tools-test]
+            [rragent.uploads-test :as uploads-test]))
 
 (defn- mentions?
   "Whether a string of the hiccup contains `s`."
@@ -83,12 +85,42 @@
                                                                               :body (transit/write-str {:command/kind :chat/send
                                                                                                         :command/data {:text "Capital of France?"}})}))]
                          (is (= {:success? true} (transit/read-str (await (.text sent))))))
-                       (let [{answer :view} (await (within 15000 (next-frame reader decoder buffer #(mentions? % "Paris."))))]
+                       (let [{answer :view buffer :buffer} (await (within 15000 (next-frame reader decoder buffer #(mentions? % "Paris."))))]
                          (is (some? answer))
                          (is (mentions? answer "Capital of France?") "the question is on the page")
                          (is (mentions? answer "Noted a fact") "the tool call is on the page")
                          (is (mentions? answer "Noted: asked") "and the fact itself, as a note")
-                         (is (not (mentions? answer "Stop")) "the run is over")))))
+                         (is (not (mentions? answer "Stop")) "the run is over")
+                         (testing "a picture attached: uploaded, named in the message, seen by the model, a thumbnail on the page"
+                           (.setResponses faux #js [(tools-test/answer "A dot.")])
+                           (let [uploaded (await (js/fetch (str base "/upload") #js {:method "POST"
+                                                                                      :headers #js {:cookie cookie
+                                                                                                    :content-type "image/png"}
+                                                                                      :body uploads-test/png}))
+                                 {:keys [name url]} (transit/read-str (await (.text uploaded)))
+                                 sent (await (js/fetch (str base "/command") #js {:method "POST"
+                                                                                   :headers #js {:cookie cookie
+                                                                                                 :content-type "application/transit+json"}
+                                                                                   :body (transit/write-str {:command/kind :chat/send
+                                                                                                             :command/data {:text "What is this?"
+                                                                                                                            :attachments [{:name name :url url :kind :image}]}})}))]
+                             (is (= 200 (.-status uploaded)))
+                             (is (= {:success? true} (transit/read-str (await (.text sent)))))
+                             (let [{answer :view} (await (within 15000 (next-frame reader decoder buffer #(mentions? % "A dot."))))
+                                   img (some #(when (and (vector? %) (= :img (first %))) %) (tree-seq coll? seq answer))
+                                   message (->> (:entries (page/conversation (:value @db/db)))
+                                                (filter #(= "pi.user" (:kind %)))
+                                                (last)
+                                                (:model)
+                                                (first)
+                                                (:content))]
+                               (is (= (str "/uploads/" name) (:src (second img))) "the thumbnail")
+                               (is (not (mentions? answer "image: uploads/")) "the line is not shown as text")
+                               (is (= (str "What is this?\nimage: uploads/" name) (:text (first message))) "the model reads the line")
+                               (is (= "image" (:type (second message))) "and sees the picture")
+                               (is (= "image/png" (:mimeType (second message))))
+                               (is (= 200 (.-status (await (js/fetch (str base url) #js {:headers #js {:cookie cookie}})))) "the file is served behind the token")
+                               (is (= 403 (.-status (await (js/fetch (str base url)))))))))))))
                  (testing "a hook with a wrong secret is refused without the cookie"
                    (is (= 403 (.-status (await (js/fetch (str base "/hook/deploy/wrong") #js {:method "POST" :body "x"}))))))
                  (finally

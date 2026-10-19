@@ -44,6 +44,7 @@
    :chat/retry [:fn/str "The model call failed, trying again: {{:error}}"]
    :chat/model-failed [:fn/str "The model call failed: {{:error}}"]
    :chat/aborted "Stopped."
+   :chat/picture "Attached picture"
 
    :tool/bash "Ran a command"
    :tool/read "Looked at a file"
@@ -64,9 +65,13 @@
    :tool/running " …"
    :tool/failed " · did not work"
 
-   :composer/placeholder "What should the agent do? Enter sends, Shift+Enter breaks the line."
+   :composer/placeholder "What should the agent do? Enter sends, Shift+Enter breaks the line, a picture can be pasted."
    :composer/send "Send"
-   :composer/stop "Stop"})
+   :composer/stop "Stop"
+   :composer/attach "Attach an image, a video or an audio file; a picture can also be pasted or dropped here"
+   :composer/remove "Remove"
+   :composer/uploading "Uploading"
+   :composer/upload-failed "The upload failed"})
 
 (def de
   {:page/title "rragent"
@@ -98,6 +103,7 @@
    :chat/retry [:fn/str "Der Aufruf des Modells ist fehlgeschlagen, nächster Versuch: {{:error}}"]
    :chat/model-failed [:fn/str "Der Aufruf des Modells ist fehlgeschlagen: {{:error}}"]
    :chat/aborted "Gestoppt."
+   :chat/picture "Angehängtes Bild"
 
    :tool/bash "Befehl ausgeführt"
    :tool/read "Datei angesehen"
@@ -118,9 +124,13 @@
    :tool/running " …"
    :tool/failed " · hat nicht geklappt"
 
-   :composer/placeholder "Was soll der Agent tun? Enter sendet, Shift+Enter bricht die Zeile um."
+   :composer/placeholder "Was soll der Agent tun? Enter sendet, Shift+Enter bricht die Zeile um, ein Bild kann eingefügt werden."
    :composer/send "Senden"
-   :composer/stop "Stopp"})
+   :composer/stop "Stopp"
+   :composer/attach "Ein Bild, ein Video oder eine Tonaufnahme anhängen; ein Bild kann auch hier eingefügt oder abgelegt werden"
+   :composer/remove "Entfernen"
+   :composer/uploading "Lädt hoch"
+   :composer/upload-failed "Hochladen fehlgeschlagen"})
 
 (def locales
   [:en :de])
