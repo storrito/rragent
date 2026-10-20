@@ -679,6 +679,92 @@ pre {
   border-color: var(--muted);
 }
 
+/* The microphone button while it records, and the strip above the
+   text: a red dot, the time and the level of the voice (`--level`, 0 to
+   1, set by the page twenty times a second), then dots until the last
+   piece is written down. No words, the same in every language. */
+.composer .dictate {
+  font: inherit;
+  color: inherit;
+}
+
+.composer .dictate.recording {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 25%, var(--panel));
+}
+
+.composer .dictate.failed {
+  border-color: var(--accent);
+}
+
+.composer-input .dictation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 16px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dictation .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dictation .meter {
+  --level: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.dictation .meter span {
+  width: 3px;
+  height: calc(3px + var(--level) * 13px);
+  border-radius: 2px;
+  background: var(--accent);
+  transition: height 60ms linear;
+}
+
+.dictation .meter span:nth-child(odd) {
+  height: calc(3px + var(--level) * 8px);
+}
+
+.dictation .meter span:nth-child(3) {
+  height: calc(3px + var(--level) * 13px);
+}
+
+.dictation .dots {
+  display: flex;
+  gap: 4px;
+}
+
+.dictation .dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.dictation .dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.dictation .dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.composer .dictate:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .attachments {
   display: flex;
   flex-wrap: wrap;

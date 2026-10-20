@@ -77,6 +77,10 @@
    :composer/upload-failed "The upload failed"
    :composer/drop-title "Add files"
    :composer/drop-hint "Drop images, videos or audio files to attach them to your message."
+   :composer/dictate "Dictate the message; click again when you are done"
+   :composer/dictate-stop "End the dictation, the text goes into the message"
+   :composer/transcribing "Writing down what you said"
+   :composer/dictation-failed "The dictation did not come through; click to try again"
    :starting/title "The agent is starting …"
    :starting/hint "This takes a few seconds; the page comes by itself."})
 
@@ -143,6 +147,10 @@
    :composer/upload-failed "Hochladen fehlgeschlagen"
    :composer/drop-title "Dateien anhängen"
    :composer/drop-hint "Leg Bilder, Videos oder Tonaufnahmen hier ab, um sie an deine Nachricht anzuhängen."
+   :composer/dictate "Nachricht diktieren; zum Beenden noch einmal klicken"
+   :composer/dictate-stop "Diktat beenden, der Text kommt in die Nachricht"
+   :composer/transcribing "Das Gesagte wird aufgeschrieben"
+   :composer/dictation-failed "Das Diktat ist nicht angekommen; klicken, um es noch einmal zu versuchen"
    :starting/title "Der Agent startet …"
    :starting/hint "Das dauert ein paar Sekunden; die Seite kommt von selbst."})
 

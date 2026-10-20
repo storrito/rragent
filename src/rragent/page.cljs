@@ -17,7 +17,9 @@
    under `/app.css` and `/assets/*`, the artifacts under `/artifacts/*`
    (a running project's page through the proxy, else the file), the
    files attached to a message, `POST /upload` and `/uploads/*`
-   (`rragent.uploads`), all behind the token (`rragent.auth`); `POST /hook/<name>/<secret>`
+   (`rragent.uploads`), a dictated message, `POST /dictation`
+   (`rragent.dictation`) and `POST /dictation/correct`
+   (`rragent.correction`), all behind the token (`rragent.auth`); `POST /hook/<name>/<secret>`
    outside it, the hooks' own secrets are their keys (`rragent.hooks`)."
   (:require ["node:path" :as path]
             [clojure.string :as str]
@@ -25,8 +27,10 @@
             [rragent.assets :as assets]
             [rragent.auth :as auth]
             [rragent.codemode :as codemode]
+            [rragent.correction :as correction]
             [rragent.db :as db]
             [rragent.definition :as definition]
+            [rragent.dictation :as dictation]
             [rragent.harness :as harness]
             [rragent.home :as home]
             [rragent.hooks :as hooks]
@@ -197,6 +201,10 @@
        :ring/handler #'artifacts-post}]
      ;; the files attached to a message, posted and served
      (uploads/routes (:uploads @pane))
+     ;; a recording of the person, answered as text for the draft, and
+     ;; the dictation corrected with the agent's context
+     dictation/routes
+     correction/routes
      [{:command/kind :artifacts/open
        :command/fn #'open-artifact-command}
       {:command/kind :artifacts/render

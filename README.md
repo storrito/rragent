@@ -97,6 +97,24 @@ so a picture then goes as its line and a note). The transcript shows a
 picture as a thumbnail and a clip as its name, linked to `/uploads/<name>`,
 which serves the files with ranges, behind the token.
 
+A message can be dictated: the microphone button beside the attach
+button records until it is clicked again, a strip above the text shows
+a red dot, the time and the level of the voice, no words in any
+language. At every pause in the speech (0.7 s, a piece of 30 s at
+most) the page cuts the recording and posts the piece to `POST
+/dictation` (`rragent.dictation`), which has a speech-to-text model
+behind OpenRouter write it down (`RRAGENT_DICTATION_MODEL`, AssemblyAI's
+Universal-3.6 Pro: it detects the language and scores every word); the
+pieces fill the draft as they come back. After the stop, when a word
+scored below 0.85, `POST /dictation/correct` (`rragent.correction`) has
+a small model (`RRAGENT_CORRECTION_MODEL`, Gemini 3.1 Flash-Lite) fix
+the misheard words with the agent's context: the messages of the
+conversation's next request, cached by the provider, with one asking
+for the dictation after them, never written into the conversation.
+With 35k tokens of context a correction costs about $0.001 from the
+cache, $0.009 when it is cold. The draft is the dictation's until the
+correction is in.
+
 The page is served the way pchat does
 it with [rframes](https://github.com/simplemono/rframes): the server renders
 the whole page as hiccup and pushes it as a transit frame over an SSE

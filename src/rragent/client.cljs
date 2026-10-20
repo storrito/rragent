@@ -14,12 +14,16 @@
    beside the draft, a frame from the server does not reset them. Files
    dragged over the page bring up a veil that takes them anywhere, as in
    ChatGPT, LibreChat or Open WebUI, and a file dropped beside it never
-   opens in the tab instead of the page."
+   opens in the tab instead of the page.
+
+   The microphone button beside them dictates into the draft
+   (`rragent.client.dictation`)."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             [rframes.client :as rframes]
             [rframes.client.state :as state]
-            [rframes.client.ui :as ui]))
+            [rframes.client.ui :as ui]
+            [rragent.client.dictation :as dictation]))
 
 (def max-side
   "Pixels on the long side of an uploaded image, pchat's."
@@ -423,14 +427,17 @@
    `:ui/send`, the actions of the server, with a text, files or both;
    while files go up they run once the last is in (`pending-step`), the
    button says so (`:ui/send-pending-label`) and a click on it takes the
-   send back. Shift+Enter breaks the line. A paste with files on the
-   clipboard uploads them, a paste of text pastes; files dragged over the page
+   send back. Shift+Enter breaks the line. The microphone button
+   dictates into the draft, its pieces go to `:ui/dictation-url`; while
+   it runs the draft is the dictation's and Send waits. A paste with
+   files on the clipboard uploads them, a paste of text pastes; files dragged over the page
    bring up the veil (`drop-veil`), a drop on it uploads them. The labels
    are the server's, translated; the other attributes pass through to
    the textarea."
   [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label ui/send-pending-label
            ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
-           ui/drop-title ui/drop-hint ui/state]
+           ui/drop-title ui/drop-hint ui/dictation-url ui/dictate-title ui/dictate-stop-title
+           ui/transcribing-title ui/dictation-failed-title ui/state]
     :as attrs}
    _children]
   (let [store state/store
@@ -440,7 +447,8 @@
         attachments (get state attachments-key [])
         uploading? (some :uploading? attachments)
         pending? (some? (:ui/send-pending state))
-        ready? (and (or (not (str/blank? draft))
+        ready? (and (not (dictation/active? state))
+                    (or (not (str/blank? draft))
                         (some #(not (:failed? %)) attachments))
                     (not pending?)
                     (not (ui/kind-issued? state :chat/send)))
@@ -457,6 +465,7 @@
      (when (:ui/dropping? state)
        (drop-veil store attachments-key upload-url {:title drop-title
                                                     :hint drop-hint}))
+     (dictation/indicator state)
      (attachments-view store attachments-key attachments {:remove-title remove-title
                                                           :uploading-label uploading-label
                                                           :failed-label failed-label})
@@ -464,8 +473,10 @@
       [:textarea
        (-> (dissoc attrs :ui/store-key :ui/attachments-key :ui/upload-url :ui/send
                    :ui/send-label :ui/send-pending-label :ui/send-cancel-title :ui/attach-title :ui/remove-title :ui/uploading-label
-                   :ui/failed-label :ui/drop-title :ui/drop-hint :ui/state)
+                   :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
+                   :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title :ui/state)
            (assoc :value draft
+                  :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
                        :paste (fn [^js event]
                                 (let [files (pasted-files event)]
@@ -478,6 +489,11 @@
                                              (not (.-isComposing event)))
                                     (.preventDefault event)
                                     (send!)))}))]
+      (dictation/button store store-key (or dictation-url "/dictation") state
+                        {:dictate-title dictate-title
+                         :dictate-stop-title dictate-stop-title
+                         :transcribing-title transcribing-title
+                         :failed-title dictation-failed-title})
       [:label.attach {:title (or attach-title "Attach an image, a video or an audio file")}
        "📎"
        [:input {:type "file"
