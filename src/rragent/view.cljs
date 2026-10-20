@@ -244,7 +244,7 @@
     [:div.item.step {:replicant/key id
                      :class (when streaming? "streaming")}
      (when (seq text)
-       (into [:div.markdown] (markdown/hiccup text)))
+       (into [:div.markdown] (markdown/hiccup text {:streaming? streaming?})))
      (when aborted?
        [:p.hint [:i18n :chat/aborted]])
      (when error

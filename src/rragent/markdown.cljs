@@ -97,12 +97,23 @@
 
 (defn- fence
   "The code block with its language as a class, `language-clojure`; a
-   closed ```hiccup block a part of the page (`rragent.genui`), one still
-   being written its code until its fence closes."
+   closed ```hiccup block a part of the page (`rragent.genui`); one the
+   model is still writing a placeholder until its fence closes (its code
+   in an answer that has ended without the closing fence)."
   [^js token]
-  (let [lang (language (.-info token))]
-    (if (and (= "hiccup" lang) (some-> (.-meta token) .-closed))
+  (let [lang (language (.-info token))
+        meta (.-meta token)]
+    (cond
+      (and (= "hiccup" lang) (some-> meta .-closed))
       (genui/block (.-content token))
+
+      (and (= "hiccup" lang) (some-> meta .-streaming))
+      ;; no text: the same in every language
+      [:div.genui.genui-pending {:aria-busy "true"}
+       [:span.genui-pending-bar]
+       [:span.genui-pending-bar]]
+
+      :else
       [:pre (element :code
                      (when (seq lang) {:class (str "language-" lang)})
                      [(.-content token)])])))
@@ -229,17 +240,24 @@
 
 (defn- mark-closed!
   "The fences of the token stream marked, `meta.closed`, when their
-   closing line is there; nested ones too (a fence in a list or a
-   blockquote is a token of the top level as well)."
-  [tokens]
+   closing line is there, and `meta.streaming` for the one still being
+   written: in an answer still streaming, the fence that runs to the end
+   of the text (one a list or a blockquote ended is done); nested ones
+   too (a fence in a list or a blockquote is a token of the top level as
+   well)."
+  [tokens streaming? lines]
   (doseq [^js token (array-seq tokens)
           :when (and (= "fence" (.-type token)) (.-map token))]
-    (set! (.-meta token) #js {:closed (closed? token)}))
+    (set! (.-meta token) #js {:closed (closed? token)
+                              :streaming (and (boolean streaming?)
+                                              (= lines (second (array-seq (.-map token)))))}))
   tokens)
 
 (defn parse
-  [text]
-  (from-tokens (mark-closed! (.parse parser (str text) #js {}))))
+  ([text]
+   (parse text {}))
+  ([text {:keys [streaming?]}]
+   (from-tokens (mark-closed! (.parse parser (str text) #js {}) streaming? (line-count text)))))
 
 (def ^:private cache-size
   "Entries the cache holds before it is emptied: every chunk of a
@@ -249,17 +267,26 @@
 (defonce ^:private cache
   (js/Map.))
 
+(defonce ^:private streaming-cache
+  ;; the same text in an answer still streaming may read differently (an
+  ;; open ```hiccup fence), so it has a cache of its own
+  (js/Map.))
+
 (defn hiccup
   "The hiccup of a markdown `text`, a vector of its block elements; the
-   one of the last texts asked for again from the cache."
-  [text]
-  (let [text (str text)]
-    (or (.get cache text)
-        (let [result (parse text)]
-          (when (<= cache-size (.-size cache))
-            (.clear cache))
-          (.set cache text result)
-          result))))
+   one of the last texts asked for again from the cache. `:streaming?`
+   for an answer still being written (see `fence`)."
+  ([text]
+   (hiccup text {}))
+  ([text {:keys [streaming?] :as opts}]
+   (let [text (str text)
+         ^js cache (if streaming? streaming-cache cache)]
+     (or (.get cache text)
+         (let [result (parse text opts)]
+           (when (<= cache-size (.-size cache))
+             (.clear cache))
+           (.set cache text result)
+           result)))))
 
 (comment
   (parse "**Bold** and a [link](https://example.com).")

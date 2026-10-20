@@ -135,6 +135,16 @@
           (is (= "/upload" (:ui/upload-url (second composer))))
           (is (not-any? #(and (vector? %) (= :i18n (first %))) (nodes page)) "no reference is left anywhere, attributes included"))))))
 
+(deftest streaming-hiccup-test
+  (let [c {:entries [(user 2 "Where?")]
+           :live {:run {:taskId "t"}
+                  :generation {:message {:role "assistant" :content [{:type "text" :text "Pick one:\n\n```hiccup\n[:div [:button {:send \"A\"}"}] :timestamp 99}}}}
+        page (i18n/translate (view/page {:agent {} :conversation c :locale :de}) :de)
+        text (set (strings page))]
+    (testing "a ```hiccup block the model is still writing shows a placeholder, not its code"
+      (is (some #(and (vector? %) (= :div.genui.genui-pending (first %))) (nodes page)))
+      (is (not-any? #(and (string? %) (str/includes? % "[:button")) (strings page))))))
+
 (deftest markdown-test
   (let [c {:entries [(user 2 "Keep **this** as it is")
                      (assistant 3 [{:type "text" :text "**Bold** and\n\n- one\n- two\n\n```js\nlet x = 1;\n```"}])]
