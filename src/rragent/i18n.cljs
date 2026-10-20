@@ -46,6 +46,7 @@
    :chat/aborted "Stopped."
    :chat/picture "Attached picture"
    :genui/rejected [:fn/str "This part of the answer could not be shown ({{:error}}):"]
+   :genui/pending "Preparing the view …"
 
    :tool/bash "Ran a command"
    :tool/read "Looked at a file"
@@ -112,6 +113,7 @@
    :chat/aborted "Gestoppt."
    :chat/picture "Angehängtes Bild"
    :genui/rejected [:fn/str "Dieser Teil der Antwort ließ sich nicht anzeigen ({{:error}}):"]
+   :genui/pending "Bereitet die Ansicht vor …"
 
    :tool/bash "Befehl ausgeführt"
    :tool/read "Datei angesehen"

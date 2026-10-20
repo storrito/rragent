@@ -836,3 +836,24 @@ pre {
     animation: none;
   }
 }
+
+/* A ```hiccup block the model is still writing: a placeholder in its
+   place, not its code, until the fence closes. */
+.genui-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.genui-pending .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: pulse 1.2s ease-in-out infinite;
+}
