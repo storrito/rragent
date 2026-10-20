@@ -255,15 +255,25 @@
   [name]
   (not-empty (aget (.-env js/process) name)))
 
+(defn- token-line
+  "Where the page is and where its token came from, never the token
+   itself; the link with the token only when it was generated for this
+   run, the one way anyone could learn it then."
+  [base {:keys [token source]}]
+  (case source
+    :label (str base " (the token from the sprite's label)")
+    :environment (str base " (the token from the environment)")
+    (auth/link base token)))
+
 (defn ^:async serve
   "`rragent serve`: the agent of RRAGENT_HOME opened, its page served on
-   PORT (8080) behind RRAGENT_TOKEN, generated and printed in the link
-   when absent; the machine's alarm and sleep watch started
+   PORT (8080) behind the token of `rragent.auth/token` (the sprite's
+   label, else RRAGENT_TOKEN, else one generated and printed in the
+   link); the machine's alarm and sleep watch started
    (`rragent.lifecycle`), a connected page keeping it awake. The port is
    taken before the agent opens, `rragent.starting` answers until then."
   []
-  (let [given (env "RRAGENT_TOKEN")
-        token (or given (auth/generate-token))
+  (let [{:keys [token] :as from} (auth/token)
         port (js/parseInt (or (env "PORT") "8080") 10)
         opened! (atom nil)
         opened (js/Promise. (fn [resolve] (reset! opened! resolve)))
@@ -290,9 +300,7 @@
       (println (codemode/report (:codemode agent)))
       (println (harness/model-route (codemode/discovery (:codemode agent))))
       (println (str "rragent on "
-                    (if given
-                      (str base " (the token is in the environment)")
-                      (auth/link base token))
+                    (token-line base from)
                     ", the agent " (definition/display-name (:definition agent))
                     " on " (get-in agent [:definition :model])
                     (when-let [origin (assets/dev-origin)]

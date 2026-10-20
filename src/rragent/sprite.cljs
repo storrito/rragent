@@ -36,3 +36,38 @@
 (defn ok?
   [{:keys [exit]}]
   (zero? exit))
+
+(defn- parse-json
+  [text]
+  (try
+    (js->clj (js/JSON.parse text) :keywordize-keys true)
+    (catch :default _
+      nil)))
+
+(defn discover
+  "What the machine says of itself, `sprite-env discover`: `{:name
+   :labels :status}` of the sprite, the labels plain strings. nil on
+   another kind of machine (no `sprite-env`), when the command fails or
+   when its answer is no JSON with a `sprite` in it."
+  []
+  (when (available?)
+    (let [{:keys [out] :as result} (sprite-env! "discover")
+          sprite (when (ok? result)
+                   (:sprite (parse-json out)))]
+      (when (map? sprite)
+        {:name (:name sprite)
+         :labels (vec (:labels sprite))
+         :status (:status sprite)}))))
+
+(defn label
+  "The value of the `key:` label among `labels`, the shape the
+   provisioner writes (`token:<hex>`, `agent:<uuid>`): what follows the
+   colon of the first label that starts with `key:`, nil without one or
+   when nothing follows."
+  [labels key]
+  (let [prefix (str key ":")]
+    (some (fn [candidate]
+            (let [candidate (str candidate)]
+              (when (str/starts-with? candidate prefix)
+                (not-empty (subs candidate (count prefix))))))
+          labels)))

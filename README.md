@@ -108,11 +108,15 @@ browser (`rragent.client`). The page is a function of the conversation's
 view (pi-durable's `viewState`): every commit of the conversation pushes a
 new frame.
 
-The login is a secret link, as pchat's: `RRAGENT_TOKEN` is the secret, one is
-generated and printed in the link when the variable is absent. `?token=<t>`
-on any path sets a cookie and redirects, everything else behind the cookie
-answers 403. The hooks of the agent, `POST /hook/<name>/<secret>`, are outside
-the token; their secrets are their keys.
+The login is a secret link, as pchat's. On a Sprite the secret is the
+sprite's own label `token:<secret>`, read with `sprite-env discover` when
+the server starts (`rragent.sprite/discover`, `rragent.auth/token`);
+elsewhere it is `RRAGENT_TOKEN`, and one is generated and printed in the
+link when neither is there. `rragent serve` says where the token came
+from, never what it is. `?token=<t>` on any path sets a cookie and
+redirects, everything else behind the cookie answers 403. The hooks of
+the agent, `POST /hook/<name>/<secret>`, are outside the token; their
+secrets are their keys.
 
 ## The artifacts
 
@@ -453,12 +457,15 @@ arguments `SKILLS_REPO` (`storrito/agentitos`) and `SKILLS_BRANCH`
 `skills-branch` of the action. `start.sh` pulls the clone before it
 starts rragent (20 seconds at most, a failure said on stderr and the
 clone from the image stands), so a machine that wakes offers the
-current skills. Neither image carries a secret: `/home/sprite/rragent/.env`
-is written when the sprite is made, `start.sh` refuses to start without
-it, and what the provisioner writes into it is the contract between
-the two:
+current skills. Neither image carries a secret. The secret of the
+page's link is a label of the sprite, `token:<hex>`, set with the
+sprite's other labels when it is made and read by rragent at start
+(`sprite-env discover`); `RRAGENT_TOKEN` is the laptop's way and the
+fallback of a sprite without the label. The rest is
+`/home/sprite/rragent/.env`, written when the sprite is made,
+`start.sh` refuses to start without it, and what the provisioner
+writes into it is the contract between the two:
 
-- `RRAGENT_TOKEN`, the secret of the page's link.
 - `RRAGENT_URL`, the sprite's public URL, the base of the hooks' addresses.
 - `RRAGENT_NAME`, optional: the name the page shows while the
   definition is still the generic one (`name: Assistant`); once the
@@ -470,8 +477,9 @@ the two:
 The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<x.y.z>
 --image-auth <auth> --service http:8080
 --service-command http=/home/sprite/rragent/start.sh --service-restart
-http=always`, the `.env` written by an exec, then `sprite update <name>
---public`; the page's link is `<url>?token=<RRAGENT_TOKEN>`.
+http=always` with the label `token:<hex>` among its labels, the `.env`
+written by an exec, then `sprite update <name> --public`; the page's
+link is `<url>?token=<hex>`.
 
 The package is private, so a pull needs `<auth>`, which Sprites takes
 as `image_auth` at the create only and never stores: the base64 of

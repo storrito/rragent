@@ -21,7 +21,7 @@
   []
   (println (str "rragent " version/version))
   (println "  rragent ask <text>   asks the agent of RRAGENT_HOME (./agent) and prints the answer")
-  (println "  rragent serve        serves the agent's page on PORT (8080), behind RRAGENT_TOKEN"))
+  (println "  rragent serve        serves the agent's page on PORT (8080), behind the sprite's token label or RRAGENT_TOKEN"))
 
 (defn ^:async ask
   [text]
