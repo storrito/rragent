@@ -26,6 +26,18 @@
     (is (= "Liste:\nerstens"
            (dictation/draft {:base "Liste:\n" :segments [{:id 0 :text "erstens"}]})))))
 
+(deftest caret-test
+  (testing "the dictation goes between the text before and after the caret"
+    (let [dictation {:base "Bitte" :after "an Anna." :segments [{:id 0 :text "schick das Video"}]}]
+      (is (= "Bitte schick das Video an Anna." (dictation/draft dictation)))
+      (is (= (count "Bitte schick das Video") (dictation/caret dictation)))))
+  (testing "no space before punctuation after the caret, none added while nothing is dictated"
+    (is (= "Hallo Anna." (dictation/draft {:base "Hallo" :after "." :segments [{:id 0 :text "Anna"}]})))
+    (is (= "Hallo Welt" (dictation/draft {:base "Hallo " :after "Welt" :segments [{:id 0 :pending? true}]}))))
+  (testing "the typed space of a held Space goes, the caret with it"
+    (is (= ["ab" 1] (dictation/without-typed-space "a b" 2)))
+    (is (= ["ab" 1] (dictation/without-typed-space "ab" 1)))))
+
 (deftest corrected-test
   (testing "the correction takes the place of the pieces"
     (is (= "Bitte: Hi the Storrito editor."

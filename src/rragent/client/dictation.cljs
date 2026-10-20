@@ -23,8 +23,12 @@
    and the level of the voice, after the stop dots until the last piece
    is back (`indicator`): no words, the same in every language.
 
-   The state is in the store under `:ui/dictation`: the draft as it was
-   (`:base`), the pieces sent (`:segments`, each with its `:text`, its
+   The dictation goes where the caret is: between the draft before it
+   (`:base`) and after it (`:after`), in place of a selection; the caret
+   stands after it once it is over.
+
+   The state is in the store under `:ui/dictation`: the draft before and
+   after the caret, the pieces sent (`:segments`, each with its `:text`, its
    `:words` and whether one is `:unsure?` once back), the `:seconds`
    recorded, the `:status`, and the `:correction` (`:running`, `:done`)
    with its text (`:corrected`). Every change writes
@@ -80,12 +84,34 @@
       (or (str/blank? draft) (re-find #"\s$" draft)) (str draft text)
       :else (str draft " " text))))
 
+(defn- spoken
+  "The corrected dictation, or every piece the model wrote down so far."
+  [{:keys [segments corrected]}]
+  (or (not-empty corrected)
+      (join-text (map :text segments))))
+
+(defn- joined-after
+  "The draft after the caret, a space before it when something was
+   dictated and it starts with a word."
+  [spoken after]
+  (let [after (str after)]
+    (if (and (not (str/blank? spoken))
+             (seq after)
+             (not (re-find #"^[\s.,;:!?)\]]" after)))
+      (str " " after)
+      after)))
+
 (defn draft
-  "The draft of a dictation: what was there before, then the corrected
-   dictation or every piece the model wrote down so far."
-  [{:keys [base segments corrected]}]
-  (with-dictation base (or (not-empty corrected)
-                           (join-text (map :text segments)))))
+  "The draft of a dictation: what was before the caret, the dictation,
+   what was after it."
+  [{:keys [base after] :as dictation}]
+  (let [text (spoken dictation)]
+    (str (with-dictation base text) (joined-after text after))))
+
+(defn caret
+  "Where the caret stands once the dictation is in: after it."
+  [{:keys [base] :as dictation}]
+  (count (with-dictation base (spoken dictation))))
 
 (defn words-to-correct
   "The words of every piece in the order spoken when one of them is
@@ -127,14 +153,27 @@
                (throw (js/Error. (str "dictation failed with " (.-status response) ": "
                                       (or (:message answer) (:error answer))))))))))
 
+(defonce ^:private textarea*
+  (atom nil))
+
 (defn- end!
-  "The dictation is over, the draft stays as it is; with a piece that
-   did not come back the button says so."
+  "The dictation is over, the draft stays as it is, the caret after the
+   dictation; with a piece that did not come back the button says so."
   [{:keys [store]}]
-  (swap! store (fn [state]
-                 (if (some :failed? (get-in state [:ui/dictation :segments]))
-                   (assoc state :ui/dictation {:status :failed})
-                   (dissoc state :ui/dictation)))))
+  (let [at (caret (:ui/dictation @store))]
+    (swap! store (fn [state]
+                   (if (some :failed? (get-in state [:ui/dictation :segments]))
+                     (assoc state :ui/dictation {:status :failed})
+                     (dissoc state :ui/dictation))))
+    ;; after the render that lifts the read-only
+    (js/requestAnimationFrame
+     (fn []
+       (when-let [^js textarea (let [^js t @textarea*]
+                                 (if (and t (.-isConnected t))
+                                   t
+                                   (js/document.querySelector ".composer-input textarea")))]
+         (.focus textarea)
+         (.setSelectionRange textarea at at))))))
 
 (defn- correct-dictation!
   "Has the dictation of `words` corrected with the agent's context and
@@ -291,13 +330,28 @@
 
 (declare stop!)
 
+(defn- selection
+  "The caret or the selection of `textarea` in `text`, the end of the
+   text without one."
+  [^js textarea text]
+  (let [n (count text)
+        clamp #(min n (max 0 (or % n)))]
+    (if textarea
+      [(clamp (.-selectionStart textarea)) (clamp (.-selectionEnd textarea))]
+      [n n])))
+
 (defn start!
-  "Starts a dictation into the draft under `store-key`, its pieces
-   posted to `url`. The browser asks for the microphone the first time."
-  [store store-key url]
-  (let [ctx {:store store :store-key store-key :url url}]
+  "Starts a dictation into the draft under `store-key` at the caret of
+   `textarea`, or at `range` of the draft, its pieces posted to `url`.
+   The browser asks for the microphone the first time."
+  [store store-key url ^js textarea & [range]]
+  (let [ctx {:store store :store-key store-key :url url}
+        text (str (get @store store-key ""))
+        [from to] (or range (selection textarea text))]
+    (reset! textarea* textarea)
     (swap! store assoc :ui/dictation {:status :starting
-                                      :base (str (get @store store-key ""))
+                                      :base (subs text 0 from)
+                                      :after (subs text to)
                                       :segments []})
     (-> (js/navigator.mediaDevices.getUserMedia #js {:audio true})
         (.then (fn [^js stream]
@@ -353,15 +407,13 @@
     (when (= :starting (status store))
       (swap! store assoc-in [:ui/dictation :stop-when-ready?] true))))
 
-(defn- without-typed-space
-  "The text of `textarea` without the space before the caret, the one
-   the held key typed before it repeated."
-  [^js textarea]
-  (let [text (.-value textarea)
-        at (.-selectionStart textarea)]
-    (if (and (pos? at) (= " " (subs text (dec at) at)))
-      (str (subs text 0 (dec at)) (subs text at))
-      text)))
+(defn without-typed-space
+  "`text` without the space before the caret `at`, the one the held key
+   typed before it repeated, and where the caret is then."
+  [text at]
+  (if (and (pos? at) (<= at (count text)) (= " " (subs text (dec at) at)))
+    [(str (subs text 0 (dec at)) (subs text at)) (dec at)]
+    [text at]))
 
 (defn key-down!
   "Space held in the text starts a dictation once it repeats; its
@@ -374,10 +426,12 @@
 
       (and (.-repeat event)
            (not (contains? #{:starting :recording :finishing} (status store))))
-      (do (.preventDefault event)
-          (swap! store assoc store-key (without-typed-space (.-target event)))
-          (reset! press* {:by :space})
-          (start! store store-key url)))))
+      (let [^js textarea (.-target event)
+            [text at] (without-typed-space (.-value textarea) (.-selectionStart textarea))]
+        (.preventDefault event)
+        (swap! store assoc store-key text)
+        (reset! press* {:by :space})
+        (start! store store-key url textarea [at at])))))
 
 (defn key-up!
   "Space let go ends the dictation it held."
@@ -395,16 +449,30 @@
     (reset! press* nil)
     (let-go! store store-key url)))
 
+(defn- textarea-of
+  "The text of the composer the button `node` is in."
+  [^js node]
+  (some-> node (.closest ".composer-input") (.querySelector "textarea")))
+
+(defn- keep-focus!
+  "The press does not take the focus from the text, which gets it with
+   its caret where it was: Enter there sends once the dictation is in,
+   on the button it would start another."
+  [^js event]
+  (.preventDefault event)
+  (some-> (textarea-of (.-currentTarget event)) (.focus)))
+
 (defn- press!
   "The button pressed: a dictation that records stops (a second click),
    otherwise one starts and the press is timed."
   [store store-key url ^js event]
   (when (zero? (.-button event))
+    (keep-focus! event)
     (case (status store)
       :recording (stop! store store-key url)
       (:starting :finishing) nil
       (do (reset! press* {:by :button :at (now)})
-          (start! store store-key url)))))
+          (start! store store-key url (textarea-of (.-currentTarget event)))))))
 
 (defn- release!
   "The button let go: held longer than `hold-ms` while it recorded, the
@@ -478,5 +546,5 @@
                                              (when (zero? (.-detail event))
                                                (if (= :recording status)
                                                  (stop! store store-key url)
-                                                 (start! store store-key url))))}}
+                                                 (start! store store-key url (textarea-of (.-currentTarget event))))))}}
        "🎤"])))

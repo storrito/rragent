@@ -81,6 +81,7 @@
    :composer/dictate-stop "End the dictation, the text goes into the message"
    :composer/transcribing "Writing down what you said"
    :composer/dictation-failed "The dictation did not come through; click to try again"
+   :composer/send-after-dictation "Sends once the text is in"
    :starting/title "The agent is starting …"
    :starting/hint "This takes a few seconds; the page comes by itself."})
 
@@ -151,6 +152,7 @@
    :composer/dictate-stop "Diktat beenden, der Text kommt in die Nachricht"
    :composer/transcribing "Das Gesagte wird aufgeschrieben"
    :composer/dictation-failed "Das Diktat ist nicht angekommen; klicken, um es noch einmal zu versuchen"
+   :composer/send-after-dictation "Sendet, sobald der Text da ist"
    :starting/title "Der Agent startet …"
    :starting/hint "Das dauert ein paar Sekunden; die Seite kommt von selbst."})
 

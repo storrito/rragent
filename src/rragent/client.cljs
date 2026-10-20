@@ -315,7 +315,8 @@
    leaving the veil is leaving the window (or Escape); a click takes a
    veil away that stayed."
   [store attachments-key upload-url {:keys [title hint]}]
-  [:div.drop-veil {:on {:dragover (fn [^js event]
+  [:div.drop-veil {:replicant/key "drop-veil"
+                   :on {:dragover (fn [^js event]
                                     (.preventDefault event)
                                     (set! (.. event -dataTransfer -dropEffect) "copy"))
                         :dragleave (fn [_event]
@@ -372,7 +373,7 @@
 (defn- attachments-view
   [store attachments-key attachments {:keys [remove-title uploading-label failed-label]}]
   (when (seq attachments)
-    [:div.attachments
+    [:div.attachments {:replicant/key "attachments"}
      (for [{:keys [name url kind failed?] :as attachment} attachments]
        [:span.attachment {:replicant/key name
                           :class (when failed? "failed")}
@@ -389,10 +390,11 @@
          "×"]])]))
 
 (defn- pending-step
-  "What a message sent while its files go up does on a change of the
-   store: `:wait` while one is uploading, `:send` once none is, `:cancel`
-   when a file it waited for failed or was taken off (the person sees
-   the failure and the draft stays), or when nothing is left to send."
+  "What a message sent while its files go up or its dictation is written
+   down does on a change of the store: `:wait` while a file is uploading
+   or the dictation runs, `:send` once neither does, `:cancel` when a
+   file it waited for failed or was taken off (the person sees the
+   failure and the draft stays), or when nothing is left to send."
   [{:keys [store-key attachments-key chips]} state]
   (let [attachments (get state attachments-key)
         present (set (keep :chip attachments))]
@@ -400,13 +402,14 @@
       (some #(or (not (present %))
                  (some (fn [a] (and (= % (:chip a)) (:failed? a))) attachments))
             chips) :cancel
+      (dictation/active? state) :wait
       (some :uploading? attachments) :wait
       (or (not (str/blank? (get state store-key)))
           (some #(not (:failed? %)) attachments)) :send
       :else :cancel)))
 
-;; a message sent while its files go up goes once none is uploading, with
-;; the draft as it is then. Not in the watch itself: the render watch,
+;; a message sent while its files go up or its dictation is written down
+;; goes once neither is, with the draft as it is then. Not in the watch itself: the render watch,
 ;; notified after it, would draw this change's state over the newer one
 (add-watch state/store ::send-pending
            (fn [_ _ _ state]
@@ -429,8 +432,9 @@
    button says so (`:ui/send-pending-label`) and a click on it takes the
    send back. Shift+Enter breaks the line. The microphone button, or
    Space held in the text, dictates into the draft, its pieces go to
-   `:ui/dictation-url`; while it runs the draft is the dictation's and
-   Send waits. A paste with
+   `:ui/dictation-url`; while it runs the draft is the dictation's, and
+   Enter or Send end it and send once its text is in
+   (`:ui/send-after-dictation-label`). A paste with
    files on the clipboard uploads them, a paste of text pastes; files dragged over the page
    bring up the veil (`drop-veil`), a drop on it uploads them. The labels
    are the server's, translated; the other attributes pass through to
@@ -438,7 +442,7 @@
   [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label ui/send-pending-label
            ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
            ui/drop-title ui/drop-hint ui/dictation-url ui/dictate-title ui/dictate-stop-title
-           ui/transcribing-title ui/dictation-failed-title ui/state]
+           ui/transcribing-title ui/dictation-failed-title ui/send-after-dictation-label ui/state]
     :as attrs}
    _children]
   (let [store state/store
@@ -449,19 +453,28 @@
         attachments (get state attachments-key [])
         uploading? (some :uploading? attachments)
         pending? (some? (:ui/send-pending state))
+        dictating (#{:recording :finishing} (get-in state [:ui/dictation :status]))
         ready? (and (not (dictation/active? state))
                     (or (not (str/blank? draft))
                         (some #(not (:failed? %)) attachments))
                     (not pending?)
                     (not (ui/kind-issued? state :chat/send)))
+        send-later! (fn []
+                      (swap! store assoc :ui/send-pending {:actions send
+                                                           :store-key store-key
+                                                           :attachments-key attachments-key
+                                                           :chips (set (keep #(when (:uploading? %) (:chip %))
+                                                                             attachments))}))
         send! (fn []
-                (when ready?
+                (cond
+                  (and dictating (not pending?) (not (ui/kind-issued? state :chat/send)))
+                  (do (when (= :recording dictating)
+                        (dictation/stop! store store-key dictation-url))
+                      (send-later!))
+
+                  ready?
                   (if uploading?
-                    (swap! store assoc :ui/send-pending {:actions send
-                                                         :store-key store-key
-                                                         :attachments-key attachments-key
-                                                         :chips (set (keep #(when (:uploading? %) (:chip %))
-                                                                           attachments))})
+                    (send-later!)
                     (state/dispatch! send))))]
     [:div.composer-input
      (when (:ui/dropping? state)
@@ -471,12 +484,16 @@
      (attachments-view store attachments-key attachments {:remove-title remove-title
                                                           :uploading-label uploading-label
                                                           :failed-label failed-label})
-     [:div.row
+     ;; keyed, as all the composer's children that come and go: the strip
+     ;; of a dictation appearing above would otherwise make Replicant build
+     ;; the row again, and the text would lose the focus and its caret
+     [:div.row {:replicant/key "row"}
       [:textarea
        (-> (dissoc attrs :ui/store-key :ui/attachments-key :ui/upload-url :ui/send
                    :ui/send-label :ui/send-pending-label :ui/send-cancel-title :ui/attach-title :ui/remove-title :ui/uploading-label
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
-                   :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title :ui/state)
+                   :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
+                   :ui/send-after-dictation-label :ui/state)
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -511,15 +528,16 @@
                                (upload-all! store attachments-key upload-url
                                             (array-seq (.. event -target -files)))
                                (set! (.. event -target -value) ""))}}]]
-      [:button.primary {:disabled (not (or ready? pending?))
+      [:button.primary {:disabled (not (or ready? pending? dictating))
                         :title (when pending? send-cancel-title)
                         :on {:click (fn [_event]
                                       (if pending?
                                         (swap! store dissoc :ui/send-pending)
                                         (send!)))}}
-       (if pending?
-         (or send-pending-label "Sends after the upload")
-         (or send-label "Send"))]]]))
+       (cond
+         (and pending? (dictation/active? state)) (or send-after-dictation-label "Sends once the text is in")
+         pending? (or send-pending-label "Sends after the upload")
+         :else (or send-label "Send"))]]]))
 
 (defonce ^:private canvas-node*
   (atom nil))

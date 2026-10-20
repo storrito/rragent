@@ -332,6 +332,7 @@
                   :ui/dictate-stop-title [:i18n :composer/dictate-stop]
                   :ui/transcribing-title [:i18n :composer/transcribing]
                   :ui/dictation-failed-title [:i18n :composer/dictation-failed]
+                  :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
                   :rows 3
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]
    (when (= :working status)
