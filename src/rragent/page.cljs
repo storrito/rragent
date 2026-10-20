@@ -26,6 +26,7 @@
             [rragent.auth :as auth]
             [rragent.codemode :as codemode]
             [rragent.db :as db]
+            [rragent.definition :as definition]
             [rragent.harness :as harness]
             [rragent.home :as home]
             [rragent.hooks :as hooks]
@@ -63,11 +64,14 @@
        :inbox (js->clj (aget docs "pi.inbox") :keywordize-keys true)})))
 
 (defn page-view
-  "The page in the language of the connection."
+  "The page in the language of the connection. The agent's name and
+   model are the definition's as last read (`rragent.reload` replaces
+   the db's copy when the file changed), the name shown as
+   `rragent.definition/display-name` has it."
   [w]
   (let [{:keys [agent value]} @db/db
         locale (i18n/locale (:ring/request w))]
-    (-> (view/page {:agent {:name (get-in agent [:definition :name])
+    (-> (view/page {:agent {:name (definition/display-name (:definition agent))
                             :model (get-in agent [:definition :model])}
                     :conversation (conversation value)
                     :artifacts (select-keys @db/db [:artifacts/list :artifacts/current :projects :renders])
@@ -89,7 +93,7 @@
     (if (and (str/blank? text) (empty? attachments))
       (command/rejected w :empty-message)
       (let [content (uploads/content dir text attachments (await (harness/sees-images? agent)))]
-        (await (.submit (:root agent) #js {:type "input" :content (clj->js content)} harness/context))
+        (await (harness/submit agent #js {:type "input" :content (clj->js content)}))
         (command/accepted w)))))
 
 (defn- stop-command
@@ -273,7 +277,7 @@
                     (if given
                       (str base " (the token is in the environment)")
                       (auth/link base token))
-                    ", the agent " (get-in agent [:definition :name])
+                    ", the agent " (definition/display-name (:definition agent))
                     " on " (get-in agent [:definition :model])
                     (when-let [origin (assets/dev-origin)]
                       (str ", the page's scripts from " origin)))))))

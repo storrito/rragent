@@ -18,7 +18,10 @@ shown, and a restarted process picks up where it stopped. That fits a machine
 that sleeps when nothing happens and restarts its processes when it wakes.
 
 The agent's definition is a folder with an `AGENT.md` (`SKILL.md` works too):
-its instructions, its tools, its schedule. The agent runs on
+its instructions, its tools, its schedule. The file is read again before
+every run (`rragent.reload`): an edit of it, or the agent's own rewrite
+of it when it takes a skill, is the definition of the next turn, the
+model and the name on the page with it, without a restart. The agent runs on
 [OpenRouter](https://openrouter.ai), through the connector of its Sprite or
 with a key of its own. It reaches the outside world through typed tools, a
 REPL whose functions are the organization's connectors, a schedule it writes

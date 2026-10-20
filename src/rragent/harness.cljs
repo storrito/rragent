@@ -7,9 +7,10 @@
    fetch, the REPL `eval` with the connectors of the gateway as
    functions, schedule, hook, and the tools of the artifacts: project,
    render, image, voice, music; the pane shows what they make), the
-   root conversation configured from the definition each time it
-   opens, and the runs the last process left unfinished resumed. One
-   process owns the storage at a time."
+   root conversation configured from the definition when it opens and
+   again before every submission when the file changed
+   (`rragent.reload`), and the runs the last process left unfinished
+   resumed. One process owns the storage at a time."
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai/models" :refer [createModels]]
             ["@earendil-works/pi-ai/providers/openrouter" :refer [openrouterProvider]]
@@ -22,6 +23,7 @@
             [rragent.definition :as definition]
             [rragent.gateway :as gateway]
             [rragent.home :as home]
+            [rragent.reload :as reload]
             [rragent.schedule :as schedule]
             [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]
@@ -106,7 +108,10 @@
    given (a test passes its fake). The gateway's connectors are
    discovered here, for the REPL (`rragent.codemode`), whose programs
    run in a worker thread started at the first one
-   (`rragent.codemode-worker`), and for the models' route."
+   (`rragent.codemode-worker`), and for the models' route. The
+   definition read here names the templates of the project tool; the
+   root conversation is configured from the file by `rragent.reload`,
+   which reads it again before every submission."
   [{:keys [home models storage provider now gateway]}]
   (let [home (or home (home/home))
         file (or (home/definition-file home)
@@ -128,12 +133,10 @@
                               context))
         root (await (.root harness context))
         view (await (.viewState root context))]
-    ;; the definition may have changed since the last run: applied on every open
-    (await (.configure root #js {:model #js {:provider (or provider "openrouter") :modelId (:model definition)}
-                                 :thinkingLevel (or (:thinking definition) js/undefined)
-                                 :instructions (:instructions definition)
-                                 :cwd work}
-                       context))
+    ;; the definition may have changed since the last run: applied on every
+    ;; open, and again before every submission when the file changed
+    (reload/register! (.-id root) {:home home :work work :provider (or provider "openrouter")})
+    (await (reload/reload! root context))
     (.resume harness)
     {:harness harness :root root :view view :definition definition :home home :models models :codemode codemode :worker worker}))
 
@@ -168,11 +171,19 @@
        (map #(.-text %))
        (apply str)))
 
+(defn ^:async submit
+  "`draft` submitted to the root conversation, the definition read
+   again first (`rragent.reload`), so that the run has the file as it
+   is now. Answers the submission."
+  [{:keys [root]} draft]
+  (await (reload/reload! root context))
+  (await (.submit root draft context)))
+
 (defn ^:async ask
   "`text` submitted to the conversation and answered: the answer's
    text, or `{:unanswered reason}`."
-  [{:keys [root]} text]
-  (let [submission (await (.submit root #js {:type "input" :content text} context))
+  [{:keys [root] :as agent} text]
+  (let [submission (await (submit agent #js {:type "input" :content text}))
         settled (await (.wait submission context))]
     (if (and (= "done" (.-status settled)) (= "input" (.-type settled)))
       (answer-text (await (.commit root (fn [tx] (.entry tx AssistantEntry (.-answer settled))) context)))
@@ -181,8 +192,9 @@
 (defn ^:async close
   "The harness closed, which aborts a running program with its call,
    and the REPL's worker ended with it."
-  [{:keys [harness worker]}]
+  [{:keys [harness root worker]}]
   (await (.close harness context))
+  (reload/forget! (.-id root))
   (codemode-worker/stop! worker "The agent closed."))
 
 (def memory-storage

@@ -50,6 +50,18 @@
       (finally
         (test-home/remove! home)))))
 
+(deftest display-name-test
+  (let [env (.-env js/process)
+        before (aget env "RRAGENT_NAME")]
+    (try
+      (js-delete env "RRAGENT_NAME")
+      (is (= "Assistant" (definition/display-name {:name "Assistant"})) "no name given: the generic one")
+      (aset env "RRAGENT_NAME" "Kim's machine")
+      (is (= "Kim's machine" (definition/display-name {:name "Assistant"})) "the machine's name while the definition is the generic one")
+      (is (= "kinetic-lyrics" (definition/display-name {:name "kinetic-lyrics"})) "a skill taken: the file's name wins")
+      (finally
+        (if before (aset env "RRAGENT_NAME" before) (js-delete env "RRAGENT_NAME"))))))
+
 (deftest a-definition-without-a-name-test
   (let [home (test-home/make "AGENT.md" "---\ndescription: nameless\n---\nBody\n")]
     (try
