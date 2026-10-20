@@ -261,19 +261,24 @@
   (let [given (env "RRAGENT_TOKEN")
         token (or given (auth/generate-token))
         port (js/parseInt (or (env "PORT") "8080") 10)
-        handler* (atom starting/response)
+        opened! (atom nil)
+        opened (js/Promise. (fn [resolve] (reset! opened! resolve)))
+        handler* (atom (partial starting/response opened))
         server (await (http/listen (fn [request] (@handler* request)) port))
         base (str "http://localhost:" (.-port (.address server)))]
     (println (str "rragent on " base ", the agent opens"))
     ;; an agent that does not open ends the process, as before: the server
     ;; would keep it alive, answering "starting" for ever
     (let [agent (try
-                  (await (harness/open {}))
+                  (let [agent (await (harness/open {}))
+                        page-handler (handler token)]
+                    (start! agent)
+                    (reset! handler* page-handler)
+                    (@opened! page-handler)
+                    agent)
                   (catch :default error
                     (.close server)
                     (throw error)))]
-      (start! agent)
-      (reset! handler* (handler token))
       ;; a connected page and a render on its way keep the machine awake
       (await (lifecycle/start! agent [(fn [] (pos? (sse/connections)))
                                       (fn [] (render/any-running? (:render @pane)))]))

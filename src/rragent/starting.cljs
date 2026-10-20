@@ -5,14 +5,20 @@
    Sprite's proxy waits for the port before it answers `internal_error`.
    So a browser that asks for the page gets one that says the agent is
    starting and asks again every second, until the page itself comes;
-   anything else (a command, the frame stream, an upload, a hook) gets a
-   503 with Retry-After."
+   anything else (a command, the frame stream, an upload, a hook that
+   woke the machine) waits for the agent, as it waited at the proxy
+   before, and goes to the page's handler once it is there; after
+   `wait-ms` it gets a 503 with Retry-After."
   (:require [clojure.string :as str]
             [rragent.i18n :as i18n]))
 
 (def poll-ms
   "How often the page asks whether the agent is there."
   1000)
+
+(def wait-ms
+  "How long a request other than the page waits for the agent."
+  30000)
 
 (defn- text
   [k locale]
@@ -55,22 +61,32 @@
   (and (= :get (:request-method request))
        (str/includes? (str (get-in request [:headers "accept"])) "text/html")))
 
+(def unavailable
+  {:status 503
+   :headers {"Content-Type" "text/plain; charset=utf-8"
+             "Cache-Control" "no-store"
+             "Retry-After" "1"}
+   :body "starting"})
+
 (defn response
-  "The answer to `request` while the agent opens, see the namespace."
-  [request]
+  "The answer to `request` while the agent opens, see the namespace.
+   `opened` is a promise of the page's handler."
+  [opened request]
   (if (page-request? request)
     {:status 503
      :headers {"Content-Type" "text/html; charset=utf-8"
                "Cache-Control" "no-store"
                "Retry-After" "1"}
      :body (html (i18n/locale request))}
-    {:status 503
-     :headers {"Content-Type" "text/plain; charset=utf-8"
-               "Cache-Control" "no-store"
-               "Retry-After" "1"}
-     :body "starting"}))
+    (js/Promise. (fn [resolve reject]
+                   (let [timer (js/setTimeout #(resolve unavailable) wait-ms)]
+                     (-> opened
+                         (.then (fn [handler]
+                                  (js/clearTimeout timer)
+                                  (handler request)))
+                         (.then resolve reject)))))))
 
 (comment
-  (response {:request-method :get :headers {"accept" "text/html" "accept-language" "de"}})
-  (response {:request-method :post :uri "/command" :headers {}})
+  (response (js/Promise. (fn [_])) {:request-method :get :headers {"accept" "text/html" "accept-language" "de"}})
+  (response (js/Promise.resolve (fn [_] {:status 200})) {:request-method :post :uri "/command" :headers {}})
   )

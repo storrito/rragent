@@ -1,11 +1,15 @@
 (ns rragent.starting-test
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [async deftest is testing]]
             [rragent.starting :as starting]))
+
+(def never
+  "An agent that is still opening."
+  (js/Promise. (fn [_])))
 
 (deftest response-test
   (testing "a browser asking for the page gets the page that waits, in its language"
-    (let [{:keys [status headers body]} (starting/response {:request-method :get
+    (let [{:keys [status headers body]} (starting/response never {:request-method :get
                                                             :uri "/"
                                                             :query-string "token=secret"
                                                             :headers {"accept" "text/html,application/xhtml+xml"
@@ -17,15 +21,16 @@
       (is (str/includes? body "location.reload()"))
       (is (not (str/includes? body "secret")) "nothing of the request goes into it")))
   (testing "?lang=en beats the browser"
-    (is (str/includes? (:body (starting/response {:request-method :get
+    (is (str/includes? (:body (starting/response never {:request-method :get
                                                   :query-string "lang=en"
                                                   :headers {"accept" "text/html" "accept-language" "de"}}))
                        "The agent is starting")))
-  (testing "a command, the frame stream or an upload gets a plain 503"
-    (doseq [request [{:request-method :post :uri "/command" :headers {"accept" "application/transit+json"}}
-                     {:request-method :get :uri "/stream" :headers {"accept" "text/event-stream"}}
-                     {:request-method :post :uri "/upload" :headers {}}]]
-      (let [{:keys [status headers body]} (starting/response request)]
-        (is (= 503 status))
-        (is (= "1" (get headers "Retry-After")))
-        (is (= "starting" body))))))
+  (testing "a command, the frame stream, an upload or a hook waits for the agent and goes to the page's handler"
+    (async done
+      (let [request {:request-method :post :uri "/hook/github/secret" :headers {}}]
+        (-> (starting/response (js/Promise.resolve (fn [r] {:status 202 :body (:uri r)})) request)
+            (.then (fn [answer]
+                     (is (= {:status 202 :body "/hook/github/secret"} answer))
+                     (done)))))))
+  (testing "the page itself never waits"
+    (is (= 503 (:status (starting/response never {:request-method :get :headers {"accept" "text/html"}}))))))
