@@ -139,8 +139,7 @@
   (let [c {:entries [(user 2 "Where?")]
            :live {:run {:taskId "t"}
                   :generation {:message {:role "assistant" :content [{:type "text" :text "Pick one:\n\n```hiccup\n[:div [:button {:send \"A\"}"}] :timestamp 99}}}}
-        page (i18n/translate (view/page {:agent {} :conversation c :locale :de}) :de)
-        text (set (strings page))]
+        page (i18n/translate (view/page {:agent {} :conversation c :locale :de}) :de)]
     (testing "a ```hiccup block the model is still writing shows a placeholder, not its code"
       (is (some #(and (vector? %) (= :div.genui.genui-pending (first %))) (nodes page)))
       (is (not-any? #(and (string? %) (str/includes? % "[:button")) (strings page))))))
