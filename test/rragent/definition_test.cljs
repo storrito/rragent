@@ -50,6 +50,27 @@
       (finally
         (test-home/remove! home)))))
 
+(deftest the-generic-definition-test
+  (testing "the definition every new machine starts with reads, and names the skills folder"
+    (let [{:keys [name model instructions]} (definition/definition "deploy/agent/AGENT.md")]
+      (is (= definition/generic-name name))
+      (is (= definition/default-model model))
+      (is (str/includes? instructions "/home/sprite/skills"))
+      (is (str/includes? instructions "github.com/SKILLS_REPO") "the placeholder the Dockerfile fills")
+      (is (not (str/includes? instructions "<agent>")) "the agent's folder is in the text"))))
+
+(deftest display-name-test
+  (let [env (.-env js/process)
+        before (aget env "RRAGENT_NAME")]
+    (try
+      (js-delete env "RRAGENT_NAME")
+      (is (= "Assistant" (definition/display-name {:name "Assistant"})) "no name given: the generic one")
+      (aset env "RRAGENT_NAME" "Kim's machine")
+      (is (= "Kim's machine" (definition/display-name {:name "Assistant"})) "the machine's name while the definition is the generic one")
+      (is (= "kinetic-lyrics" (definition/display-name {:name "kinetic-lyrics"})) "a skill taken: the file's name wins")
+      (finally
+        (if before (aset env "RRAGENT_NAME" before) (js-delete env "RRAGENT_NAME"))))))
+
 (deftest a-definition-without-a-name-test
   (let [home (test-home/make "AGENT.md" "---\ndescription: nameless\n---\nBody\n")]
     (try

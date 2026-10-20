@@ -7,10 +7,12 @@
    taskId}}`; a schedule set again or deleted leaves its old task to
    end at its next wake, when it finds it is no longer the current one.
    Five fields, or six with seconds first; the time zone an IANA name,
-   UTC by default."
+   UTC by default. A run reads the definition again before it submits
+   (`rragent.reload`), as the composer does."
   (:require ["croner" :refer [Cron]]
             ["@earendil-works/pi-durable" :refer [defineDoc defineTask]]
             [clojure.string :as str]
+            [rragent.reload :as reload]
             [rragent.wake :as wake]))
 
 (def Schedules
@@ -90,6 +92,7 @@
                      (await (.commit runtime (fn [] (terminal #js {:status "completed" :result nil})) context))
                      (let [conversation (await (.conversation runtime (.-conversationId runtime) context))
                            next (next-after cron tz at (.now runtime))]
+                       (await (reload/reload-in-task! runtime context))
                        (await (.submit conversation
                                        #js {:type "input"
                                             :content (message name cron tz text at)

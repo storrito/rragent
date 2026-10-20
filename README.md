@@ -18,7 +18,10 @@ shown, and a restarted process picks up where it stopped. That fits a machine
 that sleeps when nothing happens and restarts its processes when it wakes.
 
 The agent's definition is a folder with an `AGENT.md` (`SKILL.md` works too):
-its instructions, its tools, its schedule. The agent runs on
+its instructions, its tools, its schedule. The file is read again before
+every run (`rragent.reload`): an edit of it, or the agent's own rewrite
+of it when it takes a skill, is the definition of the next turn, the
+model and the name on the page with it, without a restart. The agent runs on
 [OpenRouter](https://openrouter.ai), through the connector of its Sprite or
 with a key of its own. It reaches the outside world through typed tools, a
 REPL whose functions are the organization's connectors, a schedule it writes
@@ -197,8 +200,9 @@ folder without a `TEMPLATE.md` is no template.
 The agent's definition names the templates it may use,
 `metadata.templates: [motion, hyperframes]` in its `AGENT.md`; every
 installed one when it names none, none with `[]` (the page watcher of
-`deploy/agent/AGENT.md`). The `project` tool refuses the others, with
-the allowed ones in the error.
+`deploy/examples/watcher/AGENT.md`). The `project` tool refuses the
+others, with the allowed ones in the error. The templates are read
+when the agent opens, not again with the file.
 
 The two templates that come with rragent:
 
@@ -437,13 +441,28 @@ package `ghcr.io/storrito/rragent-sprite`:
   no video: a render answers why there is none, everything else works.
 
 Both have the bundle in `/home/sprite/rragent/dist/`, `start.sh` beside
-it and the page watcher's definition in `agent/`, and neither carries a
-secret: `/home/sprite/rragent/.env` is written when the sprite is made,
-`start.sh` refuses to start without it, and what the provisioner writes
-into it is the contract between the two:
+it and the generic definition in `agent/` (`deploy/agent/AGENT.md`):
+every new machine starts as an assistant that offers the skills of
+`/home/sprite/skills` and becomes the one the person picks, by writing
+that skill's `SKILL.md` body into its own `AGENT.md`, or works from the
+job the person describes when no skill fits. The skills folder is a
+clone of a GitHub repository in the Agent Skills format, one folder per
+skill with a `SKILL.md`, made when the image is built: the build
+arguments `SKILLS_REPO` (`storrito/agentitos`) and `SKILLS_BRANCH`
+(`main`) of both Dockerfiles, the inputs `skills-repo` and
+`skills-branch` of the action. `start.sh` pulls the clone before it
+starts rragent (20 seconds at most, a failure said on stderr and the
+clone from the image stands), so a machine that wakes offers the
+current skills. Neither image carries a secret: `/home/sprite/rragent/.env`
+is written when the sprite is made, `start.sh` refuses to start without
+it, and what the provisioner writes into it is the contract between
+the two:
 
 - `RRAGENT_TOKEN`, the secret of the page's link.
 - `RRAGENT_URL`, the sprite's public URL, the base of the hooks' addresses.
+- `RRAGENT_NAME`, optional: the name the page shows while the
+  definition is still the generic one (`name: Assistant`); once the
+  agent has taken a skill or a job, the name in its `AGENT.md` wins.
 - `COMPOSIO_SESSION_ID`, when the agent has a Composio session.
 - `OPENROUTER_API_KEY`, only when no OpenRouter connector of the
   organization covers the sprite.
@@ -478,7 +497,8 @@ tag that names it and the commit, `codemode-96b18a8`, pushes
 `rragent-sprite:<tag>` and `<tag>-plain` from that checkout. Locally,
 `npm run build && docker build -f deploy/Dockerfile.full -t
 rragent-sprite:dev .` builds the full image, `-f deploy/Dockerfile` the
-plain one.
+plain one, `--build-arg SKILLS_REPO=<owner/name>` with another skills
+repository.
 
 ## License
 

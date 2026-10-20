@@ -4,10 +4,12 @@
    `rragent.hooks`; its address is `/hook/<name>/<secret>` on the
    agent's page. A call with the right secret submits the call's body
    as an input, as if the person had typed it, with the headers that
-   say who sent it."
+   say who sent it, the definition read again first
+   (`rragent.reload`)."
   (:require ["node:crypto" :as crypto]
             ["@earendil-works/pi-durable" :refer [defineDoc]]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [rragent.reload :as reload]))
 
 (def Hooks
   (defineDoc #js {:kind "rragent.hooks"
@@ -83,6 +85,7 @@
         hook (some-> hooks (aget name))]
     (if (and hook (= secret (.-secret hook)))
       (let [kept (into {} (keep (fn [h] (when-let [v (get headers h)] [h v]))) kept-headers)
+            _ (await (reload/reload! root context))
             submission (await (.submit root #js {:type "input"
                                                   :content (message name (.-purpose hook) kept body)
                                                   :whenBusy "followUp"

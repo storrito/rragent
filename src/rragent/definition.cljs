@@ -75,14 +75,14 @@
          (remove str/blank?)
          (vec))))
 
-(defn definition
-  "The definition read from `file`, its folder the agent's:
-   `{:name :description :metadata :model :thinking :templates
-   :instructions :folder}`. Throws when the file has no frontmatter or
+(defn from-text
+  "The definition in `text`, the content of `file`, whose folder is the
+   agent's: `{:name :description :metadata :model :thinking :templates
+   :instructions :folder}`. Throws when the text has no frontmatter or
    no name."
-  [file]
+  [text file]
   (let [folder (path/dirname (path/resolve file))
-        {:keys [name description metadata body] :as read} (frontmatter (fs/readFileSync file "utf8"))]
+        {:keys [name description metadata body] :as read} (frontmatter text)]
     (when-not (and read name)
       (throw (ex-info (str "The definition " file " needs a frontmatter with a name.") {:file file})))
     {:name name
@@ -95,3 +95,24 @@
                        (str/replace "<skill>" folder)
                        (str/replace "<agent>" folder))
      :folder folder}))
+
+(defn definition
+  "The definition read from `file` (`from-text`)."
+  [file]
+  (from-text (fs/readFileSync file "utf8") file))
+
+(def generic-name
+  "The name of the definition every new machine starts with
+   (`deploy/agent/AGENT.md`): an agent that has not taken a skill or a
+   job yet."
+  "Assistant")
+
+(defn display-name
+  "The name the page shows for the definition: its own, unless it is
+   the generic one and `RRAGENT_NAME` is set, the name the provisioner
+   gave the machine. Once the agent has taken a skill or a job, its
+   file's name wins."
+  [{:keys [name]}]
+  (if (= generic-name name)
+    (or (not-empty (aget (.-env js/process) "RRAGENT_NAME")) name)
+    name))

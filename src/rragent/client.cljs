@@ -282,6 +282,8 @@
                                                   (not (:ui/dropping? @state/store)))
                                          (swap! state/store assoc :ui/dropping? true)))))
 
+;; the var is nobody's, the listeners are the point
+#_{:clj-kondo/ignore [:unused-private-var]}
 (defonce ^:private drop-listeners
   ;; the window takes every drag of files, so that a drop beside the veil
   ;; does not open the file in the tab; the veil itself is the composer's.

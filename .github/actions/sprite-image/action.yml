@@ -3,10 +3,12 @@ description: >-
   Builds the two Sprite images from the dist/ of the checkout and pushes
   them to the private package ghcr.io/storrito/rragent-sprite: the full one
   (deploy/Dockerfile.full, with what the templates need) as <tag>, the
-  plain one (deploy/Dockerfile) as <tag>-plain. Sprites imports an image
-  tag once per organization and never pulls it again, so a tag that exists
-  is refused instead of pushed over. The release workflow runs it with the
-  version as the tag, the image workflow with a tag of its own.
+  plain one (deploy/Dockerfile) as <tag>-plain, both with a clone of the
+  skills repository the generic agent offers (the SKILLS_REPO and
+  SKILLS_BRANCH build arguments of the Dockerfiles). Sprites imports an
+  image tag once per organization and never pulls it again, so a tag that
+  exists is refused instead of pushed over. The release workflow runs it
+  with the version as the tag, the image workflow with a tag of its own.
 
 inputs:
   tag:
@@ -16,6 +18,14 @@ inputs:
     description: Tag the full image as latest too ("true" for a release).
     required: false
     default: "false"
+  skills-repo:
+    description: The GitHub repository of the skills, owner/name, cloned into the images.
+    required: false
+    default: storrito/agentitos
+  skills-branch:
+    description: The branch of the skills repository to clone.
+    required: false
+    default: main
 
 runs:
   using: composite
@@ -49,10 +59,12 @@ runs:
       shell: bash
       env:
         IMAGE: ghcr.io/storrito/rragent-sprite:${{ inputs.tag }}
+        SKILLS_REPO: ${{ inputs.skills-repo }}
+        SKILLS_BRANCH: ${{ inputs.skills-branch }}
       run: |
         test -f dist/rragent.js || { echo "::error::no dist/rragent.js: build the bundle first"; exit 1; }
-        docker build -f deploy/Dockerfile.full -t "$IMAGE" .
-        docker build -f deploy/Dockerfile -t "$IMAGE-plain" .
+        docker build -f deploy/Dockerfile.full --build-arg "SKILLS_REPO=$SKILLS_REPO" --build-arg "SKILLS_BRANCH=$SKILLS_BRANCH" -t "$IMAGE" .
+        docker build -f deploy/Dockerfile --build-arg "SKILLS_REPO=$SKILLS_REPO" --build-arg "SKILLS_BRANCH=$SKILLS_BRANCH" -t "$IMAGE-plain" .
 
     - name: Push the images
       shell: bash

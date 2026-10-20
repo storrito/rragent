@@ -2,8 +2,9 @@
 # plus the `needs` of templates/*/TEMPLATE.md, which rragent.programs
 # looks for on the machine: ffmpeg (with the fonts) and Google Chrome for
 # the motion template, the HyperFrames CLI for the hyperframes template
-# besides. A template added later brings its needs to this list. Build
-# from the repository's root after `npm run build`:
+# besides. A template added later brings its needs to this list. The
+# skills clone and the generic AGENT.md are deploy/Dockerfile's (SKILLS_REPO,
+# SKILLS_BRANCH). Build from the repository's root after `npm run build`:
 #   docker build -f deploy/Dockerfile.full -t rragent-full .
 # The release workflow pushes it as ghcr.io/storrito/rragent-sprite:<version>
 # and :latest (.github/actions/sprite-image); the README's Deploy section
@@ -11,6 +12,8 @@
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
 ARG HYPERFRAMES_VERSION=0.8.172
+ARG SKILLS_REPO=storrito/agentitos
+ARG SKILLS_BRANCH=main
 
 USER root
 RUN apt-get update -qq \
@@ -25,6 +28,9 @@ SHELL ["/bin/bash", "-lc"]
 RUN PUPPETEER_SKIP_DOWNLOAD=1 npm install -g --prefix ~/.local --ignore-scripts --no-fund --no-audit --progress=false \
       hyperframes@${HYPERFRAMES_VERSION} @hyperframes/player@${HYPERFRAMES_VERSION} \
     && hyperframes --version && ffmpeg -version | head -1 && google-chrome --version
+RUN git clone --depth 1 --branch "${SKILLS_BRANCH}" "https://github.com/${SKILLS_REPO}.git" /home/sprite/skills
 COPY --chown=sprite:sprite dist/ /home/sprite/rragent/dist/
 COPY --chown=sprite:sprite --chmod=700 deploy/start.sh /home/sprite/rragent/start.sh
 COPY --chown=sprite:sprite deploy/agent/ /home/sprite/rragent/agent/
+# the definition names the repository the skills come from
+RUN sed -i "s#github.com/SKILLS_REPO#github.com/${SKILLS_REPO}#" /home/sprite/rragent/agent/AGENT.md
