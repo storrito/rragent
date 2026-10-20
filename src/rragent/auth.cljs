@@ -6,9 +6,13 @@
    about auth is stored on the server, so the cookie survives restarts by
    itself; rotating the token logs every browser out at once, which is
    the only revocation there is. Anyone without the cookie sees an
-   \"access required\" page. The port of rchat.auth to node:crypto."
+   \"access required\" page. The port of rchat.auth to node:crypto.
+
+   The token itself comes from the machine when the machine is a
+   Sprite, from the environment otherwise (`token`)."
   (:require ["node:crypto" :as crypto]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [rragent.sprite :as sprite]))
 
 (def cookie-name
   "rragent")
@@ -108,9 +112,24 @@
   (str base-url "/?token=" (js/encodeURIComponent (str token))))
 
 (defn generate-token
-  "A token for a server started without RRAGENT_TOKEN."
+  "A token for a server started without one."
   []
   (.toString (crypto/randomBytes 18) "base64url"))
+
+(defn token
+  "The page's token and where it came from, `{:token :source}`. On a
+   Sprite the token is the sprite's own label `token:<secret>`, read
+   with `sprite-env discover` (`rragent.sprite`): the provisioner sets
+   it at the create, nothing has to be written into the machine. Else
+   `RRAGENT_TOKEN`, the laptop's way. Else one generated for this run,
+   which `rragent serve` prints in the link. The source is `:label`,
+   `:environment` or `:generated`."
+  []
+  (if-let [of-label (sprite/label (:labels (sprite/discover)) "token")]
+    {:token of-label :source :label}
+    (if-let [of-environment (not-empty (aget (.-env js/process) "RRAGENT_TOKEN"))]
+      {:token of-environment :source :environment}
+      {:token (generate-token) :source :generated})))
 
 (comment
   (link "http://localhost:8080" "s3cret")

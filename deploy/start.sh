@@ -1,10 +1,11 @@
 #!/bin/bash
 # rragent as the Sprite's http service: the environment from .env
-# (RRAGENT_TOKEN, RRAGENT_URL, COMPOSIO_SESSION_ID when the agent has a
-# Composio session; the models and the integrations come through the
-# sprite's gateway, see the README), the port the sprite's URL routes
-# to, the agent's folder, Node through mise's shims. Without a readable
-# .env there is no token and the page would be open to anyone: not
+# (RRAGENT_URL, COMPOSIO_SESSION_ID when the agent has a Composio
+# session, RRAGENT_TOKEN only on a sprite without the token label; the
+# page's token is the sprite's label `token:<hex>`, the models and the
+# integrations come through the sprite's gateway, see the README), the
+# port the sprite's URL routes to, the agent's folder, Node through
+# mise's shims. Without a readable .env the sprite is not set up: not
 # started then, the service's restart tries again. The skills clone of
 # the image (/home/sprite/skills, see deploy/Dockerfile) is pulled first,
 # so a machine that wakes offers the current skills; a pull that fails
