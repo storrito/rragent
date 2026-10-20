@@ -110,12 +110,12 @@ Universal-3.6 Pro: it detects the language and scores every word); the
 pieces fill the draft as they come back. After the stop, when a word
 scored below 0.85, `POST /dictation/correct` (`rragent.correction`) has
 a small model (`RRAGENT_CORRECTION_MODEL`, Gemini 3.1 Flash-Lite) fix
-the misheard words with the agent's context: the messages of the
-conversation's next request, cached by the provider, with one asking
-for the dictation after them, never written into the conversation.
-With 35k tokens of context a correction costs about $0.001 from the
-cache, $0.009 when it is cold. The draft is the dictation's until the
-correction is in.
+the misheard words with the agent's context: its system prompt and what
+the person and the agent wrote, without the tools' calls and results,
+never written into the conversation. On a sprite with 12k tokens of it
+a correction took 0.8-1 s and cost $0.0004 from the cache, $0.003 when
+it was cold; after 4 s the dictation stays as the speech model wrote it.
+The draft is the dictation's until the correction is in.
 
 The page is served the way pchat does
 it with [rframes](https://github.com/simplemono/rframes): the server renders

@@ -6,18 +6,19 @@
    misheard fixed. The browser asks once a dictation is over and only
    when a word is below the threshold (`rragent.client.dictation`).
 
-   A small model corrects it with the agent's context: the messages the
-   conversation's next request would send, as pi-durable has them
-   (`Conversation.context`, the system prompt and the tools in them),
-   with one message after them that asks for the dictation. The model
-   is RRAGENT_CORRECTION_MODEL, not the agent's: the context is tens of
-   thousands of tokens, and at the agent's price a correction whose
-   cache was cold cost $0.155 (`openai/gpt-6.1-sol`, writing 62k tokens
-   to the cache), more than the dictation is worth. The small model
-   keeps a cache of its own, the same beginning every time; the
-   provider session is the conversation's (`pi.provider`), so a route
-   that sticks to a session finds it. Nothing of it goes into the
-   conversation.
+   A small model corrects it with the agent's context, as pi-durable
+   has it (`Conversation.context`): the agent's system prompt, then one
+   message with what the person and the agent wrote and the ask for the
+   dictation. Not the whole context: its tools' calls and results made
+   it 100k tokens on a sprite after an afternoon, several seconds when
+   the provider's cache had gone cold after a few minutes; the text
+   alone is a fraction, and the names and terms are in it. No tool is
+   declared, so none is called. The model is RRAGENT_CORRECTION_MODEL,
+   not the agent's: at the agent's price a correction cost up to $0.155
+   (`openai/gpt-6.1-sol`, writing 62k tokens to its cache), more than
+   the dictation is worth. The provider session is the conversation's
+   (`pi.provider`). Nothing of it goes into the conversation; the log
+   says how long each took and its generation at OpenRouter.
 
    An answer that does not look like the dictation (empty, a tool call,
    far longer or shorter, late) leaves it as the speech model wrote it."
@@ -37,8 +38,17 @@
       "google/gemini-3.1-flash-lite"))
 
 (def timeout-ms
-  "How long a correction may take; the piece stays as it is after."
-  10000)
+  "How long a correction may take; the dictation stays as the speech
+   model wrote it after, which the person sees already."
+  4000)
+
+(def max-message-chars
+  "A message of the conversation is cut after this many characters."
+  1500)
+
+(def max-conversation-chars
+  "The conversation is cut to its last this many characters."
+  24000)
 
 (def unsure-below
   "A word with a lower confidence is marked for the model."
@@ -96,10 +106,80 @@
                (<= (* 0.5 (count original)) (count answer) (+ 20 (* 1.5 (count original)))))
       answer)))
 
+(defn- texts
+  "The texts of a message's content, a string or parts."
+  [content]
+  (if (string? content)
+    [content]
+    (keep #(when (= "text" (:type %)) (:text %)) content)))
+
+(defn- merge-sections
+  "The sections of a system message over the ones before: one of the
+   same name replaces it where it stands, nil removes it."
+  [acc sections]
+  (reduce (fn [acc [k v]]
+            (let [i (first (keep-indexed #(when (= k (first %2)) %1) acc))]
+              (cond
+                (and (nil? v) i) (into (subvec acc 0 i) (subvec acc (inc i)))
+                (nil? v) acc
+                i (assoc acc i [k v])
+                :else (conj acc [k v]))))
+          acc
+          sections))
+
+(defn instructions
+  "The agent's system prompt from the system messages of its context:
+   their instructions and their sections, without the tools they
+   declare."
+  [messages]
+  (let [system (filter #(= "system" (:role %)) messages)
+        sections (reduce merge-sections [] (map :sections system))]
+    (str/join "\n\n" (concat (mapcat (comp texts :content) system)
+                             (map second sections)))))
+
+(defn- cut
+  [text n]
+  (if (< n (count text))
+    (str (subs text 0 n) " …")
+    text))
+
+(defn conversation
+  "What the person and the agent wrote, without the tools' calls and
+   results, each message cut after `max-message-chars`, the whole to its
+   last `max-conversation-chars`."
+  [messages]
+  (let [text (->> messages
+                  (keep (fn [{:keys [role content]}]
+                          (let [text (str/trim (str/join "\n" (texts content)))]
+                            (when (and (#{"user" "assistant"} role) (seq text))
+                              (str (if (= "user" role) "Person: " "Agent: ")
+                                   (cut text max-message-chars))))))
+                  (str/join "\n\n"))]
+    (if (< max-conversation-chars (count text))
+      (str "… " (subs text (- (count text) max-conversation-chars)))
+      text)))
+
+(defn request-messages
+  "The agent's system prompt, then one message with the conversation
+   and the ask for the dictation: tens of thousands of tokens fewer
+   than the whole context with the tools' output, and no tool to call."
+  [messages words before]
+  (let [now (js/Date.now)]
+    [{:role "system" :content (instructions messages) :timestamp now}
+     {:role "user"
+      :content [{:type "text"
+                 :text (str "Our conversation so far:\n<conversation>\n"
+                            (conversation messages)
+                            "\n</conversation>\n\n"
+                            (prompt words before))}]
+      :timestamp now}]))
+
 (defn ^:async correct!
   "The dictation of `words` corrected by the model `id` (`model-id`
-   unless given) with the agent's context, `{:text :usage}`; `:text` nil
-   when the answer was refused."
+   unless given) with the agent's context, `{:text :usage :ms :id
+   :stop}`: `:text` nil when the answer was refused, `:ms` how long it
+   took, `:id` the generation's at OpenRouter, `:stop` why it ended
+   (`aborted` after `timeout-ms`)."
   [{:keys [harness root models]} words before id]
   (let [ref (.-model (await (.agent root harness/context)))
         model (when ref (.getModel models (.-provider ref) (or id model-id)))]
@@ -107,18 +187,19 @@
       (throw (js/Error. (str "No model " (or id model-id) " at " (some-> ref .-provider) "."))))
     (let [view (await (.context root harness/context))
           provider (await (.snapshot harness ProviderDoc (.-id root) harness/context))
-          messages (.concat (.-messages view)
-                            #js [#js {:role "user"
-                                      :content #js [#js {:type "text" :text (prompt words before)}]
-                                      :timestamp (js/Date.now)}])
-          message (await (.completeSimple models model #js {:messages messages}
+          messages (request-messages (js->clj (.-messages view) :keywordize-keys true) words before)
+          started (js/Date.now)
+          message (await (.completeSimple models model #js {:messages (clj->js messages)}
                                           (clj->js (cond-> {:signal (js/AbortSignal.timeout timeout-ms)
                                                             :maxTokens 2000}
                                                      provider (assoc :sessionId (.-sessionId provider))))))]
       (when (= "error" (.-stopReason message))
         (throw (js/Error. (str "The model answered with an error: " (.-errorMessage message)))))
       {:text (accepted words (answer-text message))
-       :usage (js->clj (.-usage message) :keywordize-keys true)})))
+       :usage (js->clj (.-usage message) :keywordize-keys true)
+       :ms (- (js/Date.now) started)
+       :id (.-responseId message)
+       :stop (.-stopReason message)})))
 
 (defn- respond
   [w status value]
@@ -150,12 +231,16 @@
     (if (empty? words)
       (respond w 400 {:error :no-words})
       (try
-        (let [{:keys [text usage]} (await (correct! (:agent @db/db) words before model))]
+        (let [{:keys [text usage ms id stop]} (await (correct! (:agent @db/db) words before model))]
           (println (str "[dictation] corrected " (count words) " words with " (or model model-id)
-                        (when-not text " (answer refused)")
+                        " in " ms " ms"
+                        (cond
+                          (= "aborted" stop) (str " (no answer within " timeout-ms " ms)")
+                          (not text) " (answer refused)")
                         ", " (:input usage) " input tokens, " (:cacheRead usage) " from the cache"
                         (when-let [cost (get-in usage [:cost :total])]
-                          (str ", $" (.toFixed cost 5)))))
+                          (str ", $" (.toFixed cost 5)))
+                        (when id (str ", " id))))
           (respond w 200 {:text (or text original)
                           :corrected? (some? text)}))
         (catch :default error

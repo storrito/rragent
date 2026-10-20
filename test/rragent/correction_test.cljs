@@ -39,12 +39,39 @@
   (is (nil? (correction/answer-text #js {:content #js [#js {:type "text" :text "I'll look"}
                                                        #js {:type "toolCall" :name "read"}]}))))
 
+(def context
+  "A context as pi-durable has it: system messages with sections and
+   tools, the person, the agent's text and tool calls, a tool's result."
+  [{:role "system" :content "You are the agent." :sections {:skill "# Kinetic lyrics" :old "gone soon"}
+    :toolsAdded [{:name "read" :description "Reads a file."}]}
+   {:role "user" :content [{:type "text" :text "Edit the Storrito story."} {:type "image" :data "…"}]}
+   {:role "assistant" :content [{:type "thinking" :thinking "hm"}
+                                {:type "text" :text "I will render it with HyperFrames."}
+                                {:type "toolCall" :name "read" :arguments {:path "x"}}]}
+   {:role "toolResult" :toolName "read" :content [{:type "text" :text "a huge file"}]}
+   {:role "system" :content "Later instructions." :sections {:skill "# Kinetic lyrics 2" :old nil}}])
+
+(deftest instructions-test
+  (is (= "You are the agent.\n\nLater instructions.\n\n# Kinetic lyrics 2"
+         (correction/instructions context))
+      "the instructions, then the sections, a later one replacing, nil removing; no tools"))
+
+(deftest conversation-test
+  (is (= "Person: Edit the Storrito story.\n\nAgent: I will render it with HyperFrames."
+         (correction/conversation context))
+      "the text of the person and the agent, no thinking, no tool calls or results")
+  (testing "a long message is cut, the whole to its last part"
+    (let [long (apply str (repeat 3000 "a"))]
+      (is (= (+ (count "Person: ") correction/max-message-chars (count " …"))
+             (count (correction/conversation [{:role "user" :content long}]))))
+      (is (= (+ 2 correction/max-conversation-chars)
+             (count (correction/conversation (repeat 40 {:role "user" :content long}))))))))
+
 (defn- fake-agent
   "A conversation of two messages in provider session s1, whose models
    answer `text`; the request one got lands in `seen`."
   [seen text]
-  (let [context #js [#js {:role "system" :content "You are the agent."}
-                     #js {:role "user" :content #js [#js {:type "text" :text "Edit the Storrito story."}]}]]
+  (let [context (clj->js context)]
     {:root #js {:id "c1"
                 :agent (fn [_] (js/Promise.resolve #js {:model #js {:provider "openrouter" :modelId "openai/m"}}))
                 :context (fn [_] (js/Promise.resolve #js {:messages context}))}
@@ -66,9 +93,14 @@
              (is (= "Hi the Storrito editor." text))
              (is (= 1024 (:cacheRead usage)))
              (is (= correction/model-id (.-id model)) "the correction's model, at the conversation's provider")
-             (is (= 3 (.-length messages)) "the conversation's messages, then the one asking")
-             (is (= "You are the agent." (.-content (aget messages 0))))
-             (is (str/includes? (.-text (aget (.-content (aget messages 2)) 0)) "[[Stuito]]"))
+             (is (= 2 (.-length messages)) "the agent's system prompt, then the conversation with the ask")
+             (is (= "system" (.-role (aget messages 0))))
+             (is (str/starts-with? (.-content (aget messages 0)) "You are the agent."))
+             (is (nil? (.-toolsAdded (aget messages 0))) "no tool to call")
+             (let [ask (.-text (aget (.-content (aget messages 1)) 0))]
+               (is (str/includes? ask "Person: Edit the Storrito story."))
+               (is (not (str/includes? ask "a huge file")))
+               (is (str/includes? ask "[[Stuito]]")))
              (is (= "s1" (.-sessionId options)) "the conversation's provider session")
              (testing "an answer that is no correction leaves the piece"
                (is (nil? (:text (await (correction/correct! (fake-agent (atom nil) "Done, I fixed it and also planned your story for tomorrow at nine.") words "" nil)))))))))
