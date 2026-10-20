@@ -76,7 +76,9 @@
    :composer/uploading "Uploading"
    :composer/upload-failed "The upload failed"
    :composer/drop-title "Add files"
-   :composer/drop-hint "Drop images, videos or audio files to attach them to your message."})
+   :composer/drop-hint "Drop images, videos or audio files to attach them to your message."
+   :starting/title "The agent is starting …"
+   :starting/hint "This takes a few seconds; the page comes by itself."})
 
 (def de
   {:page/title "rragent"
@@ -140,7 +142,9 @@
    :composer/uploading "Lädt hoch"
    :composer/upload-failed "Hochladen fehlgeschlagen"
    :composer/drop-title "Dateien anhängen"
-   :composer/drop-hint "Leg Bilder, Videos oder Tonaufnahmen hier ab, um sie an deine Nachricht anzuhängen."})
+   :composer/drop-hint "Leg Bilder, Videos oder Tonaufnahmen hier ab, um sie an deine Nachricht anzuhängen."
+   :starting/title "Der Agent startet …"
+   :starting/hint "Das dauert ein paar Sekunden; die Seite kommt von selbst."})
 
 (def locales
   [:en :de])

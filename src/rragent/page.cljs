@@ -41,6 +41,7 @@
             [rragent.rframes.replicant :as replicant]
             [rragent.rframes.sse :as sse]
             [rragent.rframes.transit :as transit]
+            [rragent.starting :as starting]
             [rragent.templates :as templates]
             [rragent.uploads :as uploads]
             [rragent.view :as view]))
@@ -258,15 +259,30 @@
   "`rragent serve`: the agent of RRAGENT_HOME opened, its page served on
    PORT (8080) behind RRAGENT_TOKEN, generated and printed in the link
    when absent; the machine's alarm and sleep watch started
-   (`rragent.lifecycle`), a connected page keeping it awake."
+   (`rragent.lifecycle`), a connected page keeping it awake. The port is
+   taken before the agent opens, `rragent.starting` answers until then."
   []
-  (let [agent (await (harness/open {}))
-        given (env "RRAGENT_TOKEN")
+  (let [given (env "RRAGENT_TOKEN")
         token (or given (auth/generate-token))
-        port (js/parseInt (or (env "PORT") "8080") 10)]
-    (start! agent)
-    (let [server (await (http/listen (handler token) port))
-          base (str "http://localhost:" (.-port (.address server)))]
+        port (js/parseInt (or (env "PORT") "8080") 10)
+        opened! (atom nil)
+        opened (js/Promise. (fn [resolve] (reset! opened! resolve)))
+        handler* (atom (partial starting/response opened))
+        server (await (http/listen (fn [request] (@handler* request)) port))
+        base (str "http://localhost:" (.-port (.address server)))]
+    (println (str "rragent on " base ", the agent opens"))
+    ;; an agent that does not open ends the process, as before: the server
+    ;; would keep it alive, answering "starting" for ever
+    (let [agent (try
+                  (let [agent (await (harness/open {}))
+                        page-handler (handler token)]
+                    (start! agent)
+                    (reset! handler* page-handler)
+                    (@opened! page-handler)
+                    agent)
+                  (catch :default error
+                    (.close server)
+                    (throw error)))]
       ;; a connected page and a render on its way keep the machine awake
       (await (lifecycle/start! agent [(fn [] (pos? (sse/connections)))
                                       (fn [] (render/any-running? (:render @pane)))]))
