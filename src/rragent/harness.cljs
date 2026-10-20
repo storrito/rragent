@@ -1,8 +1,9 @@
 (ns rragent.harness
   "pi-durable opened on the agent's folder: the SQLite storage, the
    models (OpenRouter through the gateway's connector when there is
-   one, else with the key from the environment, or what a test
-   passes), the registry with pi-durable's coding tools (read, write,
+   one, found at start or at a model call after the gateway came up,
+   else with the key from the environment, or what a test passes),
+   the registry with pi-durable's coding tools (read, write,
    edit, bash in `work/`) and rragent's own (remember and recall,
    fetch, the REPL `eval` with the connectors of the gateway as
    functions, schedule, hook, and the tools of the artifacts: project,
@@ -55,40 +56,96 @@
   [discovery connection]
   (str (gateway/connection-base discovery connection) "/v1"))
 
-(defn gateway-provider
-  "`provider` with its requests sent to the gateway's `connection`:
+(def probe-interval-ms
+  "How long the models' auth waits before it asks the gateway again
+   for an `openrouter` connection it has not found: the gateway of a
+   fresh sprite comes up seconds after the service, and the first
+   model call after that should go through it, without a request
+   before every call meanwhile."
+  10000)
+
+(defn gateway-auth
+  "The resolved auth of a request through the gateway's `connection`:
    its base URL, and a key that is only a placeholder, since the
    gateway adds the real one. Every request of pi-ai takes the base
    URL from the resolved auth, so it is here, not only on the
    provider."
-  [provider discovery connection]
-  (let [base (gateway-base-url discovery connection)
-        source (str "the Sprites gateway, connection " (:id connection))]
-    (js/Object.assign #js {} provider
-                      #js {:baseUrl base
-                           :auth #js {:apiKey #js {:name (str (.-name provider) " through the Sprites gateway")
-                                                   :resolve (fn [_input]
-                                                              (js/Promise.resolve #js {:auth #js {:apiKey "sprite" :baseUrl base}
-                                                                                       :source source}))}}})))
+  [discovery connection]
+  #js {:auth #js {:apiKey "sprite" :baseUrl (gateway-base-url discovery connection)}
+       :source (str "the Sprites gateway, connection " (:id connection))})
+
+(defn- own-auth
+  "The provider's own auth resolution of `input`, as pi-ai asks for
+   it: OpenRouter's reads OPENROUTER_API_KEY; nothing is a provider
+   that is not configured, which pi-ai says."
+  [provider input]
+  (if-let [api-key (.. provider -auth -apiKey)]
+    (.resolve api-key input)
+    (js/Promise.resolve js/undefined)))
+
+(defn- known-connection
+  "The gateway's `openrouter` connection as the REPL `codemode` has
+   it; nil while it has none."
+  [codemode]
+  (gateway/connection (codemode/discovery codemode) "openrouter"))
+
+(defn- openrouter-connection
+  "The gateway's `openrouter` connection: the one the REPL `codemode`
+   knows, else the gateway asked again, one request, when the last
+   asking (`probed`, its time) is `interval-ms` ago; what it lists is
+   the REPL's from then on (`rragent.codemode/connectors`)."
+  [codemode probed interval-ms]
+  (or (known-connection codemode)
+      (let [now (js/Date.now)]
+        (when (<= interval-ms (- now @probed))
+          (reset! probed now)
+          (gateway/connection (codemode/connectors codemode) "openrouter")))))
+
+(defn gateway-provider
+  "`provider` with its requests sent through the gateway's `openrouter`
+   connection when the REPL `codemode` knows one. The discovery at
+   start may have found no gateway, or no such connection (the
+   gateway of a fresh sprite comes up after the service), so nothing
+   is fixed: pi-ai resolves the auth before every request, and this
+   one looks at the discovery as it is and asks the gateway again,
+   one blocking request (`rragent.sync-fetch`) at most every
+   `interval-ms` (`probe-interval-ms` without), until it lists the
+   connection; without one the provider's own auth, the key from the
+   environment. The provider's `baseUrl` follows the same."
+  [provider codemode & [interval-ms]]
+  (let [probed (atom 0)
+        interval-ms (or interval-ms probe-interval-ms)
+        wrapped (js/Object.assign #js {} provider
+                                  #js {:auth #js {:apiKey #js {:name (str (.-name provider) " through the Sprites gateway, or its own key")
+                                                               :resolve (fn [input]
+                                                                          (if-let [connection (openrouter-connection codemode probed interval-ms)]
+                                                                            (js/Promise.resolve (gateway-auth (codemode/discovery codemode) connection))
+                                                                            (own-auth provider input)))}}})]
+    (js/Object.defineProperty wrapped "baseUrl"
+                              #js {:enumerable true
+                                   :get (fn []
+                                          (if-let [connection (known-connection codemode)]
+                                            (gateway-base-url (codemode/discovery codemode) connection)
+                                            (.-baseUrl provider)))})
+    wrapped))
 
 (defn model-route
   "Where the models' requests go: the gateway's `openrouter`
    connector when `discovery` has one, else OpenRouter itself with
-   `OPENROUTER_API_KEY`; one line for the console."
+   `OPENROUTER_API_KEY`, the gateway asked again before a model call
+   (`gateway-provider`); one line for the console."
   [discovery]
   (if-let [connection (gateway/connection discovery "openrouter")]
     (str "OpenRouter through the Sprites gateway (" (gateway-base-url discovery connection) ")")
-    "OpenRouter with OPENROUTER_API_KEY"))
+    "OpenRouter with OPENROUTER_API_KEY; the gateway is asked again for an openrouter connection before a model call"))
 
 (defn openrouter-models
   "The models through OpenRouter: through the gateway's connector when
-   `discovery` has one, else with the key from OPENROUTER_API_KEY."
-  [discovery]
-  (let [provider (openrouterProvider)]
-    (doto (createModels)
-      (.setProvider (if-let [connection (gateway/connection discovery "openrouter")]
-                      (gateway-provider provider discovery connection)
-                      provider)))))
+   the REPL `codemode` knows one, now or at a later model call
+   (`gateway-provider`), else with the key from OPENROUTER_API_KEY."
+  [codemode]
+  (doto (createModels)
+    (.setProvider (gateway-provider (openrouterProvider) codemode))))
 
 (defn registry
   "The registry: pi-durable's coding tools and rragent's own for the
@@ -105,23 +162,28 @@
    storage); `provider` names the models' provider, `openrouter` by
    default; `now` a clock for tests; `gateway` the Sprites gateway's
    base URL, `RRAGENT_GATEWAY` or `http://sprite.internal` unless
-   given (a test passes its fake). The gateway's connectors are
-   discovered here, for the REPL (`rragent.codemode`), whose programs
-   run in a worker thread started at the first one
-   (`rragent.codemode-worker`), and for the models' route. The
+   given (a test passes its fake); `retry` how the gateway's list is
+   tried again at start, `{:delays-ms :timeout-ms}` as
+   `rragent.gateway/discover-at-start` takes it (a test shortens
+   them). The gateway's connectors are discovered here, tried again
+   while the gateway comes up, for the REPL (`rragent.codemode`),
+   whose programs run in a worker thread started at the first one
+   (`rragent.codemode-worker`), and for the models' route, which
+   asks the gateway again at a model call when nothing was found. The
    definition read here names the templates of the project tool; the
    root conversation is configured from the file by `rragent.reload`,
    which reads it again before every submission."
-  [{:keys [home models storage provider now gateway]}]
+  [{:keys [home models storage provider now gateway retry]}]
   (let [home (or home (home/home))
         file (or (home/definition-file home)
                  (throw (ex-info (str "No AGENT.md or SKILL.md in " home) {:home home})))
         definition (definition/definition file)
         work (home/work-dir home)
         storage (or storage (await (openNodeSqliteStorage (home/database home))))
-        codemode (codemode/handle (gateway/base gateway))
+        base (gateway/base gateway)
+        codemode (codemode/handle base (await (gateway/discover-at-start base retry)))
         worker (codemode-worker/handle codemode)
-        models (or models (openrouter-models (codemode/discovery codemode)))
+        models (or models (openrouter-models codemode))
         harness (await (.open Harness storage
                               #js {:models models
                                    :registry (registry definition worker)

@@ -297,12 +297,17 @@
    :context (atom nil)})
 
 (defn handle
-  "The REPL of the agent: the gateway at `base` discovered, the
-   Storrito catalog read; the context is made at the first program."
-  [base]
-  (let [handle (handle-of {:gateway base :discovery (gateway/discover base)})]
-    (install-storrito! handle (partial call handle))
-    handle))
+  "The REPL of the agent over the gateway at `base`: its connectors
+   discovered now, one request, or `discovery` as another reading of
+   them found it (`rragent.gateway/discover-at-start`, which tries
+   again while the gateway comes up); the Storrito catalog read; the
+   context is made at the first program."
+  ([base]
+   (handle base (gateway/discover base)))
+  ([base discovery]
+   (let [handle (handle-of {:gateway base :discovery discovery})]
+     (install-storrito! handle (partial call handle))
+     handle)))
 
 (defn snapshot
   "What a handle in another thread starts from (`handle-of`): the
@@ -357,15 +362,21 @@
               (when (and (seq printed) (not (str/ends-with? printed "\n"))) "\n")
               "=> " (pr-str value)))))
 
+(defn- tries-text
+  "How many tries the list took at start, when more than one."
+  [tries]
+  (when (< 1 (or tries 1))
+    (str " after " tries " tries")))
+
 (defn report
   "One line for the console at start: what the gateway has, or why
-   nothing."
+   nothing, and the tries the list took when it took more than one."
   [handle]
-  (let [{:keys [gateway connections available error]} @(:discovery handle)
+  (let [{:keys [gateway connections available error tries]} @(:discovery handle)
         {:keys [catalog connection link] catalog-error :error} @(:storrito handle)]
     (if error
-      (str "no gateway at " gateway " (" error "): no connectors")
-      (str "connectors at " gateway ": "
+      (str "no gateway at " gateway " (" error ")" (tries-text tries) ": no connectors")
+      (str "connectors at " gateway (tries-text tries) ": "
            (if (seq connections)
              (str/join ", " (map (fn [c]
                                    (str (gateway/describe c)
