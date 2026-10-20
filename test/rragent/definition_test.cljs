@@ -50,6 +50,15 @@
       (finally
         (test-home/remove! home)))))
 
+(deftest the-generic-definition-test
+  (testing "the definition every new machine starts with reads, and names the skills folder"
+    (let [{:keys [name model instructions]} (definition/definition "deploy/agent/AGENT.md")]
+      (is (= definition/generic-name name))
+      (is (= definition/default-model model))
+      (is (str/includes? instructions "/home/sprite/skills"))
+      (is (str/includes? instructions "github.com/SKILLS_REPO") "the placeholder the Dockerfile fills")
+      (is (not (str/includes? instructions "<agent>")) "the agent's folder is in the text"))))
+
 (deftest display-name-test
   (let [env (.-env js/process)
         before (aget env "RRAGENT_NAME")]
