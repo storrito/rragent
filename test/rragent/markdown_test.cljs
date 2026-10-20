@@ -178,7 +178,7 @@
              (second hiccup)))
       (is (= [:p "Or type."] (nth hiccup 2)))))
   (testing "one the model is still writing is a placeholder until its fence closes"
-    (is (= [[:div.genui.genui-pending [:span.dot] [:span [:i18n :genui/pending]]]]
+    (is (= [[:div.genui.genui-pending {:aria-busy "true"} [:span.bar] [:span.bar]]]
            (markdown/parse "```hiccup\n[:button {:send \"Th\n" {:streaming? true})))
     (is (= :div.genui (ffirst (markdown/parse "```hiccup\n[:p \"a\"]\n```" {:streaming? true}))) "closed, it is the block")
     (is (= :pre (ffirst (markdown/parse "```clojure\n(+ 1\n" {:streaming? true}))) "other code stays code"))

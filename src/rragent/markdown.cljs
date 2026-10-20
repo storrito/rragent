@@ -108,9 +108,10 @@
       (genui/block (.-content token))
 
       (and (= "hiccup" lang) (some-> meta .-streaming))
-      [:div.genui.genui-pending
-       [:span.dot]
-       [:span [:i18n :genui/pending]]]
+      ;; no text: the same in every language
+      [:div.genui.genui-pending {:aria-busy "true"}
+       [:span.bar]
+       [:span.bar]]
 
       :else
       [:pre (element :code

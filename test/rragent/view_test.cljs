@@ -142,7 +142,7 @@
         page (i18n/translate (view/page {:agent {} :conversation c :locale :de}) :de)
         text (set (strings page))]
     (testing "a ```hiccup block the model is still writing shows a placeholder, not its code"
-      (is (contains? text "Bereitet die Ansicht vor …"))
+      (is (some #(and (vector? %) (= :div.genui.genui-pending (first %))) (nodes page)))
       (is (not-any? #(and (string? %) (str/includes? % "[:button")) (strings page))))))
 
 (deftest markdown-test

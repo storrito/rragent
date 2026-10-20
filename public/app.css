@@ -838,22 +838,35 @@ pre {
 }
 
 /* A ```hiccup block the model is still writing: a placeholder in its
-   place, not its code, until the fence closes. */
+   place, not its code, until the fence closes; two bars that shimmer,
+   no text, the same in every language. */
 .genui-pending {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 12px;
   border: 1px dashed var(--line);
   border-radius: 8px;
-  color: var(--muted);
-  font-size: 14px;
 }
 
-.genui-pending .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--muted);
+.genui-pending .bar {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--line);
   animation: pulse 1.2s ease-in-out infinite;
+}
+
+.genui-pending .bar + .bar {
+  width: 60%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .genui-pending .bar {
+    animation: none;
+  }
+}
+
+/* the shimmer says the answer goes on, no caret below it */
+.item.streaming .markdown > .genui-pending:last-child::after {
+  content: none;
 }
