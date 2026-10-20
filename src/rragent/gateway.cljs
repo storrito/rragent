@@ -12,8 +12,12 @@
    gateway is `RRAGENT_GATEWAY`, `http://sprite.internal` by default,
    which answers only inside a sprite: elsewhere the list is empty and
    says why, and the agent runs with what the environment holds. The
-   requests block (`rragent.sync-fetch`), so that a program of the
-   REPL makes them in the middle of a loop."
+   gateway of a fresh sprite comes up after the service that runs the
+   agent, so the list at start is tried again for a while
+   (`discover-at-start`) when the failure is one of a gateway that is
+   not up yet, and a port that refuses at once, a laptop, costs one
+   try. The requests block (`rragent.sync-fetch`), so that a program
+   of the REPL makes them in the middle of a loop."
   (:require [clojure.string :as str]
             [rragent.sync-fetch :as sync-fetch]))
 
@@ -22,6 +26,21 @@
 
 (def list-timeout-ms
   5000)
+
+(def retry-delays-ms
+  "The waits between the tries of the list at start, about fifteen
+   seconds of waiting with the tries' own timeouts on top: enough for
+   a gateway that is starting with the sprite, short enough for a
+   service that waits for the agent."
+  [1000 2000 4000 8000])
+
+(def not-up-yet
+  "What a gateway that is not up yet fails with: a timeout, a
+   connection the other side closed under the request, or a 502, 503
+   or 504 of what stands in front of it. A port that refuses, a name
+   that does not resolve, any other status or an answer that is no
+   list is no gateway on this machine, and is not tried again."
+  #"aborted|timeout|ECONNRESET|EPIPE|UND_ERR_SOCKET|other side closed|no answer in time|^HTTP 50[234] ")
 
 (def call-timeout-ms
   120000)
@@ -51,9 +70,9 @@
     (catch :default _ text)))
 
 (defn- listing
-  [base]
+  [base timeout-ms]
   (try
-    (let [{:keys [status text]} (sync-fetch/request {:url (list-url base) :timeout-ms list-timeout-ms})
+    (let [{:keys [status text]} (sync-fetch/request {:url (list-url base) :timeout-ms timeout-ms})
           body (parse text)]
       (cond
         (not= 200 status) {:error (str "HTTP " status " from " (list-url base))}
@@ -64,13 +83,42 @@
       {:error (.-message e)})))
 
 (defn discover
-  "The connectors of the gateway at `base`, read now: `{:gateway
-   :connections [...] :available [...]}`, each entry as the gateway
-   lists it, keywordized; with an `:error` and empty lists when the
-   gateway does not answer (not inside a sprite) or answers no list."
-  [base]
-  (merge {:gateway base :connections [] :available []}
-         (listing base)))
+  "The connectors of the gateway at `base`, read now, one request:
+   `{:gateway :connections [...] :available [...]}`, each entry as the
+   gateway lists it, keywordized; with an `:error` and empty lists
+   when the gateway does not answer (not inside a sprite) or answers
+   no list. `timeout-ms` is the request's, `list-timeout-ms` without."
+  ([base]
+   (discover base list-timeout-ms))
+  ([base timeout-ms]
+   (merge {:gateway base :connections [] :available []}
+          (listing base timeout-ms))))
+
+(defn retry?
+  "Whether the failure of `discovery` is one of a gateway that is not
+   up yet (`not-up-yet`), worth another try."
+  [{:keys [error]}]
+  (boolean (and error (re-find not-up-yet error))))
+
+(defn- sleep
+  [ms]
+  (js/Promise. (fn [resolve] (js/setTimeout resolve ms))))
+
+(defn ^:async discover-at-start
+  "`discover` for the start of the agent: tried again after each wait
+   of `delays-ms` (`retry-delays-ms` without) while the failure is one
+   of a gateway that is not up yet (`retry?`), each try with
+   `timeout-ms` (`list-timeout-ms` without); the first answer, or the
+   last failure, with `:tries`, how many it took. The waits are
+   awaited, so the page says that the agent is starting meanwhile."
+  [base & [{:keys [delays-ms timeout-ms]}]]
+  (loop [[delay & more] (or delays-ms retry-delays-ms)
+         tries 1]
+    (let [discovery (assoc (discover base (or timeout-ms list-timeout-ms)) :tries tries)]
+      (if (and delay (retry? discovery))
+        (do (await (sleep delay))
+            (recur more (inc tries)))
+        discovery))))
 
 (defn host
   "The host of `url`; nil for no URL."

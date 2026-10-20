@@ -17,9 +17,24 @@
    would), the custom API `conn_storrito` the procedures of a small
    Storrito catalog (`flaky-once` answers 503 once), any other custom
    API an echo. The catalog itself is at `/storrito` of the fake, the
-   organization's host, outside the gateway."
-  (:require ["node:worker_threads" :refer [Worker]]
+   organization's host, outside the gateway. A `plan` says what the
+   first list requests get before the list, one entry each: `reset`
+   closes the connection, `hang` never answers, a number is that
+   status; a `port` is where the fake listens, for a test that
+   starts it after the agent looked."
+  (:require ["node:net" :as net]
+            ["node:worker_threads" :refer [Worker]]
             [rragent.sync-fetch :as sync-fetch]))
+
+(defn ^:async free-port
+  "A port of 127.0.0.1 that nothing listens on, for a fake that
+   starts after the agent looked there: refused until then."
+  []
+  (let [server (net/createServer)]
+    (await (js/Promise. (fn [resolve] (.listen server 0 "127.0.0.1" resolve))))
+    (let [port (.-port (.address server))]
+      (await (js/Promise. (fn [resolve] (.close server resolve))))
+      port)))
 
 (def catalog
   "A catalog as the organization's host serves it: a procedure
@@ -69,6 +84,7 @@
 import http from 'node:http';
 let list = null;
 const catalog = JSON.parse(workerData.catalog);
+const plan = JSON.parse(workerData.plan);
 let flaky = 0;
 const json = (res, status, value) => { res.setHeader('content-type', 'application/json'); res.writeHead(status); res.end(JSON.stringify(value)); };
 const read = (req) => new Promise((resolve) => { let body = ''; req.on('data', (c) => body += c); req.on('end', () => resolve(body)); });
@@ -80,7 +96,13 @@ const server = http.createServer(async (req, res) => {
   if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
   let parsed = body;
   try { parsed = JSON.parse(body); } catch (e) {}
-  if (path === '/v1/gateway/list') return json(res, 200, list);
+  if (path === '/v1/gateway/list') {
+    const step = plan.shift();
+    if (step === 'reset') return req.socket.destroy();
+    if (step === 'hang') return;
+    if (typeof step === 'number') return json(res, step, { error: 'the gateway is starting' });
+    return json(res, 200, list);
+  }
   if (path === '/storrito/documentation/api/v1/catalog.json') return json(res, 200, catalog);
   if (path.startsWith('/storrito/') || path.startsWith('/other/')) return json(res, 404, { error: 'not through the gateway' });
   const m = path.match(/^\\/v1\\/gateway\\/([^/]+)\\/([^/]+)(\\/.*)?$/);
@@ -128,7 +150,7 @@ const server = http.createServer(async (req, res) => {
   }
   return echo(200);
 });
-server.listen(0, '127.0.0.1', () => {
+server.listen(workerData.port, '127.0.0.1', () => {
   const base = 'http://127.0.0.1:' + server.address().port;
   list = JSON.parse(workerData.list.split('{base}').join(base));
   for (const c of list.connections) { if (!c.gateway_base_url) c.gateway_base_url = base + '/v1/gateway/' + c.provider + '/' + c.id; }
@@ -137,13 +159,17 @@ server.listen(0, '127.0.0.1', () => {
 ")
 
 (defn ^:async start!
-  "The fake listening on a free port: `{:url :stop}`. `list` is what
-   `/v1/gateway/list` answers, `default-list` without; a connected
-   entry without `gateway_base_url` gets the fake's."
-  [& [list]]
+  "The fake listening on a free port, or on `port`: `{:url :stop}`.
+   `list` is what `/v1/gateway/list` answers, `default-list` without;
+   a connected entry without `gateway_base_url` gets the fake's.
+   `plan`, what the first list requests get instead, as the
+   namespace says."
+  [& [list {:keys [plan port]}]]
   (let [worker (Worker. (sync-fetch/module-url code)
                         #js {:workerData #js {:list (js/JSON.stringify (clj->js (or list default-list)))
-                                              :catalog (js/JSON.stringify (clj->js catalog))}})
+                                              :catalog (js/JSON.stringify (clj->js catalog))
+                                              :plan (js/JSON.stringify (clj->js (vec plan)))
+                                              :port (or port 0)}})
         url (await (js/Promise. (fn [resolve reject]
                                   (.once worker "message" resolve)
                                   (.once worker "error" reject))))]

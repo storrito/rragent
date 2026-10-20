@@ -331,13 +331,22 @@ sprite may use (`connections`: each with its `id`, `provider`,
 could be set up (`available`).
 
 rragent reads that list when it opens (`rragent.gateway`), and again
-whenever a program asks, and makes three things of it:
+whenever a program asks, and makes three things of it. The gateway of
+a fresh sprite comes up after the service that runs the agent, so a
+list that times out or whose connection is closed under it is tried
+again, after 1, 2, 4 and 8 seconds, before rragent concludes that
+there is no gateway (a port that refuses at once, a laptop, costs one
+try); `rragent serve` says how many tries it took when more than one.
 
 - The models. With an `openrouter` connection, the harness's OpenRouter
   provider sends its requests to that connection's base and `/v1`, with
   a placeholder key the gateway replaces; without one, to OpenRouter
   itself with `OPENROUTER_API_KEY` (a laptop). `rragent serve` prints
-  which, and the connections it found.
+  which, and the connections it found. Nothing of it is fixed for the
+  life of the process: while no `openrouter` connection is known, the
+  provider asks the gateway again before a model call, at most every
+  ten seconds, so the first call after the gateway came up goes
+  through it, and the REPL's `(connectors)` has the list from then on.
 - Composio, the organization's third-party services (Google Drive,
   Gmail, Notion, Slack and the like through Composio's managed OAuth):
   a `custom_api` connection whose base is `backend.composio.dev`. The
