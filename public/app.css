@@ -849,19 +849,19 @@ pre {
   border-radius: 8px;
 }
 
-.genui-pending .bar {
+.genui-pending-bar {
   height: 12px;
   border-radius: 6px;
   background: var(--line);
   animation: pulse 1.2s ease-in-out infinite;
 }
 
-.genui-pending .bar + .bar {
+.genui-pending-bar + .genui-pending-bar {
   width: 60%;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .genui-pending .bar {
+  .genui-pending-bar {
     animation: none;
   }
 }

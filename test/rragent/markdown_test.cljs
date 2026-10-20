@@ -178,10 +178,21 @@
              (second hiccup)))
       (is (= [:p "Or type."] (nth hiccup 2)))))
   (testing "one the model is still writing is a placeholder until its fence closes"
-    (is (= [[:div.genui.genui-pending {:aria-busy "true"} [:span.bar] [:span.bar]]]
+    (is (= [[:div.genui.genui-pending {:aria-busy "true"} [:span.genui-pending-bar] [:span.genui-pending-bar]]]
            (markdown/parse "```hiccup\n[:button {:send \"Th\n" {:streaming? true})))
     (is (= :div.genui (ffirst (markdown/parse "```hiccup\n[:p \"a\"]\n```" {:streaming? true}))) "closed, it is the block")
     (is (= :pre (ffirst (markdown/parse "```clojure\n(+ 1\n" {:streaming? true}))) "other code stays code"))
+  (testing "of several blocks the closed ones are blocks, the open last one the placeholder"
+    (let [hiccup (markdown/parse "```hiccup\n[:p \"a\"]\n```\n\nAnd:\n\n```hiccup\n[:p \"b" {:streaming? true})]
+      (is (= :div.genui (ffirst hiccup)))
+      (is (= :div.genui.genui-pending (first (last hiccup))))))
+  (testing "a fence a blockquote ended is no longer being written: code until the answer ends"
+    (is (= :pre (first (second (first (markdown/parse "> ```hiccup\n> [:p \"a\"]\n\nAfter" {:streaming? true}))))))
+    (is (= :div.genui.genui-pending (first (second (first (markdown/parse "> ```hiccup\n> [:p \"a\"]" {:streaming? true})))))))
+  (testing "the same text read streaming and then ended: the ended one is code, not the cached placeholder"
+    (let [text "```hiccup\n[:p \"cache"]
+      (is (= :div.genui.genui-pending (ffirst (markdown/hiccup text {:streaming? true}))))
+      (is (= :pre (ffirst (markdown/hiccup text))))))
   (testing "in an answer that ended without the closing fence it stays code"
     (is (= [[:pre [:code {:class "language-hiccup"} "[:button {:send \"Th\n"]]]
            (markdown/parse "```hiccup\n[:button {:send \"Th\n"))))

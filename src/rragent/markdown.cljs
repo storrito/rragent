@@ -110,8 +110,8 @@
       (and (= "hiccup" lang) (some-> meta .-streaming))
       ;; no text: the same in every language
       [:div.genui.genui-pending {:aria-busy "true"}
-       [:span.bar]
-       [:span.bar]]
+       [:span.genui-pending-bar]
+       [:span.genui-pending-bar]]
 
       :else
       [:pre (element :code
@@ -240,21 +240,24 @@
 
 (defn- mark-closed!
   "The fences of the token stream marked, `meta.closed`, when their
-   closing line is there, and `meta.streaming` in an answer still being
-   written; nested ones too (a fence in a list or a blockquote is a token
-   of the top level as well)."
-  [tokens streaming?]
+   closing line is there, and `meta.streaming` for the one still being
+   written: in an answer still streaming, the fence that runs to the end
+   of the text (one a list or a blockquote ended is done); nested ones
+   too (a fence in a list or a blockquote is a token of the top level as
+   well)."
+  [tokens streaming? lines]
   (doseq [^js token (array-seq tokens)
           :when (and (= "fence" (.-type token)) (.-map token))]
     (set! (.-meta token) #js {:closed (closed? token)
-                              :streaming (boolean streaming?)}))
+                              :streaming (and (boolean streaming?)
+                                              (= lines (second (array-seq (.-map token)))))}))
   tokens)
 
 (defn parse
   ([text]
    (parse text {}))
   ([text {:keys [streaming?]}]
-   (from-tokens (mark-closed! (.parse parser (str text) #js {}) streaming?))))
+   (from-tokens (mark-closed! (.parse parser (str text) #js {}) streaming? (line-count text)))))
 
 (def ^:private cache-size
   "Entries the cache holds before it is emptied: every chunk of a
@@ -262,6 +265,11 @@
   1024)
 
 (defonce ^:private cache
+  (js/Map.))
+
+(defonce ^:private streaming-cache
+  ;; the same text in an answer still streaming may read differently (an
+  ;; open ```hiccup fence), so it has a cache of its own
   (js/Map.))
 
 (defn hiccup
@@ -272,12 +280,12 @@
    (hiccup text {}))
   ([text {:keys [streaming?] :as opts}]
    (let [text (str text)
-         k (if streaming? (str "streaming:" text) text)]
-     (or (.get cache k)
+         ^js cache (if streaming? streaming-cache cache)]
+     (or (.get cache text)
          (let [result (parse text opts)]
            (when (<= cache-size (.-size cache))
              (.clear cache))
-           (.set cache k result)
+           (.set cache text result)
            result)))))
 
 (comment
