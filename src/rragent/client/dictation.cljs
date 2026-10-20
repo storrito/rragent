@@ -2,6 +2,12 @@
   "The microphone button of the composer (`rragent.client`): the person
    speaks and the draft fills piece by piece while they speak.
 
+   Held, the button records until it is let go; a click starts and a
+   second click stops (`hold-ms` tells them apart). Space held in the
+   text records too, until it is let go, as in Claude Code: the key's
+   repeat says it is held, the one space it typed before goes again; a
+   space typed is a space.
+
    The page records, and at every pause in the speech (`silence-ms`, at
    the latest after `max-segment-ms`) it cuts the recording and sends
    the piece to the server (`rragent.dictation`), whose model detects
@@ -46,7 +52,15 @@
   "How often the level of the microphone is measured."
   50)
 
+(def hold-ms
+  "A press of the button longer than this holds it: the dictation ends
+   when it is let go. A shorter one is a click, the dictation goes on."
+  400)
+
 (defonce ^:private session*
+  (atom nil))
+
+(defonce ^:private press*
   (atom nil))
 
 (defn join-text
@@ -275,6 +289,8 @@
                        (<= silence-ms (- t silent-since))))
           (cut! ctx false))))))
 
+(declare stop!)
+
 (defn start!
   "Starts a dictation into the draft under `store-key`, its pieces
    posted to `url`. The browser asks for the microphone the first time."
@@ -297,7 +313,10 @@
                                      :started (now)})
                    (start-recorder! ctx stream)
                    (swap! session* assoc :timer (js/setInterval #(tick! ctx) tick-ms))
-                   (update! ctx assoc :status :recording :seconds 0))))
+                   (update! ctx assoc :status :recording :seconds 0)
+                   ;; let go while the browser was still asking for the microphone
+                   (when (get-in @store [:ui/dictation :stop-when-ready?])
+                     (stop! store store-key url)))))
         (.catch (fn [error]
                   (js/console.error "[dictation]" error)
                   (swap! store assoc :ui/dictation {:status :failed}))))))
@@ -320,6 +339,84 @@
   "Whether a dictation owns the draft now."
   [state]
   (contains? #{:starting :recording :finishing} (get-in state [:ui/dictation :status])))
+
+(defn- status
+  [store]
+  (get-in @store [:ui/dictation :status]))
+
+(defn- let-go!
+  "The end of a dictation held: now, or once the browser has the
+   microphone."
+  [store store-key url]
+  (if @session*
+    (stop! store store-key url)
+    (when (= :starting (status store))
+      (swap! store assoc-in [:ui/dictation :stop-when-ready?] true))))
+
+(defn- without-typed-space
+  "The text of `textarea` without the space before the caret, the one
+   the held key typed before it repeated."
+  [^js textarea]
+  (let [text (.-value textarea)
+        at (.-selectionStart textarea)]
+    (if (and (pos? at) (= " " (subs text (dec at) at)))
+      (str (subs text 0 (dec at)) (subs text at))
+      text)))
+
+(defn key-down!
+  "Space held in the text starts a dictation once it repeats; its
+   repeats while it records type nothing."
+  [store store-key url ^js event]
+  (when (= " " (.-key event))
+    (cond
+      (= :space (:by @press*))
+      (.preventDefault event)
+
+      (and (.-repeat event)
+           (not (contains? #{:starting :recording :finishing} (status store))))
+      (do (.preventDefault event)
+          (swap! store assoc store-key (without-typed-space (.-target event)))
+          (reset! press* {:by :space})
+          (start! store store-key url)))))
+
+(defn key-up!
+  "Space let go ends the dictation it held."
+  [store store-key url ^js event]
+  (when (and (= " " (.-key event)) (= :space (:by @press*)))
+    (.preventDefault event)
+    (reset! press* nil)
+    (let-go! store store-key url)))
+
+(defn blur!
+  "The text losing the focus while Space holds a dictation lets it go:
+   its key-up goes elsewhere."
+  [store store-key url]
+  (when (= :space (:by @press*))
+    (reset! press* nil)
+    (let-go! store store-key url)))
+
+(defn- press!
+  "The button pressed: a dictation that records stops (a second click),
+   otherwise one starts and the press is timed."
+  [store store-key url ^js event]
+  (when (zero? (.-button event))
+    (case (status store)
+      :recording (stop! store store-key url)
+      (:starting :finishing) nil
+      (do (reset! press* {:by :button :at (now)})
+          (start! store store-key url)))))
+
+(defn- release!
+  "The button let go: held longer than `hold-ms` while it recorded, the
+   dictation ends; a click leaves it running. Let go before the browser
+   had the microphone (its question in between) counts as a click."
+  [store store-key url]
+  (when-let [{:keys [by at]} @press*]
+    (when (= :button by)
+      (reset! press* nil)
+      (when (and (<= hold-ms (- (now) at))
+                 (= :recording (status store)))
+        (stop! store store-key url)))))
 
 (defn- clock
   "Seconds as m:ss."
@@ -345,9 +442,11 @@
     nil))
 
 (defn button
-  "The microphone button: a click starts a dictation, a click while it
-   records (red and pulsing, see app.css) stops it; while the last
-   pieces are written down it waits. Only in a browser that records."
+  "The microphone button: held, it records until let go; a click starts
+   a dictation, a click while it records (red, see app.css) stops it;
+   while the last pieces are written down it waits. A click from the
+   keyboard (Enter, Space on the button) starts and stops. Only in a
+   browser that records."
   [store store-key url state {:keys [dictate-title dictate-stop-title transcribing-title failed-title]}]
   (when (and (exists? js/MediaRecorder)
              (exists? js/AudioContext)
@@ -364,8 +463,20 @@
                                         :finishing (or transcribing-title "Writing down what you said")
                                         :failed (or failed-title "The dictation did not come through")
                                         (or dictate-title "Dictate the message"))
-                               :on {:click (fn [_event]
-                                             (if (= :recording status)
-                                               (stop! store store-key url)
-                                               (start! store store-key url)))}}
+                               :on {:pointerdown (fn [event]
+                                                   (press! store store-key url event))
+                                    :pointerup (fn [_]
+                                                 (release! store store-key url))
+                                    :pointercancel (fn [_]
+                                                     (release! store store-key url))
+                                    :pointerleave (fn [_]
+                                                    (release! store store-key url))
+                                    :contextmenu (fn [^js event]
+                                                   (.preventDefault event))
+                                    :click (fn [^js event]
+                                             ;; a click of a pointer was its press and its release
+                                             (when (zero? (.-detail event))
+                                               (if (= :recording status)
+                                                 (stop! store store-key url)
+                                                 (start! store store-key url))))}}
        "🎤"])))

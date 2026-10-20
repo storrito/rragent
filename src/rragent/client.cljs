@@ -427,9 +427,10 @@
    `:ui/send`, the actions of the server, with a text, files or both;
    while files go up they run once the last is in (`pending-step`), the
    button says so (`:ui/send-pending-label`) and a click on it takes the
-   send back. Shift+Enter breaks the line. The microphone button
-   dictates into the draft, its pieces go to `:ui/dictation-url`; while
-   it runs the draft is the dictation's and Send waits. A paste with
+   send back. Shift+Enter breaks the line. The microphone button, or
+   Space held in the text, dictates into the draft, its pieces go to
+   `:ui/dictation-url`; while it runs the draft is the dictation's and
+   Send waits. A paste with
    files on the clipboard uploads them, a paste of text pastes; files dragged over the page
    bring up the veil (`drop-veil`), a drop on it uploads them. The labels
    are the server's, translated; the other attributes pass through to
@@ -443,6 +444,7 @@
   (let [store state/store
         attachments-key (or attachments-key :attachments)
         upload-url (or upload-url "/upload")
+        dictation-url (or dictation-url "/dictation")
         draft (str (get state store-key ""))
         attachments (get state attachments-key [])
         uploading? (some :uploading? attachments)
@@ -484,12 +486,17 @@
                                     (.preventDefault event)
                                     (upload-all! store attachments-key upload-url files))))
                        :keydown (fn [^js event]
+                                  (dictation/key-down! store store-key dictation-url event)
                                   (when (and (= "Enter" (.-key event))
                                              (not (.-shiftKey event))
                                              (not (.-isComposing event)))
                                     (.preventDefault event)
-                                    (send!)))}))]
-      (dictation/button store store-key (or dictation-url "/dictation") state
+                                    (send!)))
+                       :keyup (fn [^js event]
+                                (dictation/key-up! store store-key dictation-url event))
+                       :blur (fn [_]
+                               (dictation/blur! store store-key dictation-url))}))]
+      (dictation/button store store-key dictation-url state
                         {:dictate-title dictate-title
                          :dictate-stop-title dictate-stop-title
                          :transcribing-title transcribing-title

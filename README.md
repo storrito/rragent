@@ -98,7 +98,9 @@ picture as a thumbnail and a clip as its name, linked to `/uploads/<name>`,
 which serves the files with ranges, behind the token.
 
 A message can be dictated: the microphone button beside the attach
-button records until it is clicked again, a strip above the text shows
+button records while it is held, or from a click to the next; Space
+held in the text records too, until it is let go, as in Claude Code (a
+space typed stays a space). A strip above the text shows
 a red dot, the time and the level of the voice, no words in any
 language. At every pause in the speech (0.7 s, a piece of 30 s at
 most) the page cuts the recording and posts the piece to `POST
