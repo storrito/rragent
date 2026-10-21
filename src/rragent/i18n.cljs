@@ -62,6 +62,7 @@
    :tool/image "Made a picture"
    :tool/voice "Made a voice"
    :tool/music "Made music"
+   :tool/subagent "Handed a task to a subagent"
    :tool/other [:fn/str "Used {{:name}}"]
    :tool/running " …"
    :tool/failed " · did not work"
@@ -128,6 +129,7 @@
    :tool/image "Bild erstellt"
    :tool/voice "Stimme erstellt"
    :tool/music "Musik erstellt"
+   :tool/subagent "Aufgabe an einen Subagenten gegeben"
    :tool/other [:fn/str "{{:name}} benutzt"]
    :tool/running " …"
    :tool/failed " · hat nicht geklappt"

@@ -7,7 +7,8 @@
    edit, bash in `work/`) and rragent's own (remember and recall,
    fetch, the REPL `eval` with the connectors of the gateway as
    functions, schedule, hook, and the tools of the artifacts: project,
-   render, image, voice, music; the pane shows what they make), the
+   render, image, voice, music; the pane shows what they make; and
+   subagent, which hands a task to a conversation of its own), the
    root conversation configured from the definition when it opens and
    again before every submission when the file changed
    (`rragent.reload`), and the runs the last process left unfinished
@@ -33,6 +34,7 @@
             [rragent.tools.project :as project-tool]
             [rragent.tools.render :as render-tool]
             [rragent.tools.schedule :as schedule-tool]
+            [rragent.tools.subagent :as subagent-tool]
             [rragent.tools.facts :as facts-tool]))
 
 (def context
@@ -148,12 +150,14 @@
     (.setProvider (gateway-provider (openrouterProvider) codemode))))
 
 (defn registry
-  "The registry: pi-durable's coding tools and rragent's own for the
-   `definition`, with the `worker` of the REPL."
+  "The registry: pi-durable's coding tools, rragent's own for the
+   `definition`, with the `worker` of the REPL, and the subagent tool in
+   an extension of its own, which a subagent's agent leaves out."
   [definition worker]
   (doto (createRegistry)
     (.install CodingTools)
-    (.install (extension definition worker))))
+    (.install (extension definition worker))
+    (.install subagent-tool/extension)))
 
 (defn ^:async open
   "The harness of the agent in `home`: `{:harness :root :view :definition
@@ -225,14 +229,6 @@
   [{:keys [harness root]}]
   (await (.snapshot harness schedule/Schedules (.-id root) context)))
 
-(defn answer-text
-  "The text of an assistant entry's model message."
-  [entry]
-  (->> (.-content (aget (.-model entry) 0))
-       (filter #(= "text" (.-type %)))
-       (map #(.-text %))
-       (apply str)))
-
 (defn ^:async submit
   "`draft` submitted to the root conversation, the definition read
    again first (`rragent.reload`), so that the run has the file as it
@@ -248,7 +244,7 @@
   (let [submission (await (submit agent #js {:type "input" :content text}))
         settled (await (.wait submission context))]
     (if (and (= "done" (.-status settled)) (= "input" (.-type settled)))
-      (answer-text (await (.commit root (fn [tx] (.entry tx AssistantEntry (.-answer settled))) context)))
+      (subagent-tool/answer-text (await (.commit root (fn [tx] (.entry tx AssistantEntry (.-answer settled))) context)))
       {:unanswered (.-reason settled)})))
 
 (defn ^:async close

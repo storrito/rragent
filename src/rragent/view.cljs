@@ -55,6 +55,7 @@
     "image" [:i18n :tool/image]
     "voice" [:i18n :tool/voice]
     "music" [:i18n :tool/music]
+    "subagent" [:i18n :tool/subagent]
     [:i18n :tool/other {:name name}]))
 
 (defn- tool-detail
@@ -66,6 +67,7 @@
       (:code args)
       (:name args)
       (:prompt args)
+      (:task args)
       (pr-str args)))
 
 (defn- tool-items

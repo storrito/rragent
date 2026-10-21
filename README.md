@@ -25,7 +25,11 @@ model and the name on the page with it, without a restart. The agent runs on
 [OpenRouter](https://openrouter.ai), through the connector of its Sprite or
 with a key of its own. It reaches the outside world through typed tools, a
 REPL whose functions are the organization's connectors, a schedule it writes
-itself as a cron line, and named hooks that other systems call.
+itself as a cron line, and named hooks that other systems call. A long job
+it can hand to a subagent (`rragent.tools.subagent`): a conversation owned
+by the tool call, with the agent's model, tools and instructions, whose
+answer alone enters the transcript. It ends with the call, so it is a
+helper of the agent, not a second one.
 
 ## Status
 
