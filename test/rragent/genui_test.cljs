@@ -54,7 +54,9 @@
     (is (= [:div {}] (genui/sanitize [:div {:style {:background "image-set(\"https://x.test/t.gif\" 1x)"}}])))
     (is (= [:div {}] (genui/sanitize [:div {:style {:background "\\75 rl(https://x.test/t.gif)"}}])))
     (is (= [:div {}] (genui/sanitize [:div {:style {:background "linear-gradient(#000, #fff), url(https://x.test/t.gif)"}}]))
-        "a gradient does not carry a file in"))
+        "a gradient does not carry a file in")
+    (is (= [:div {}] (genui/sanitize [:div {:style {:background "linear-gradient(var(--x), red)"}}]))
+        "nor a function of its own inside"))
   (testing "a background may be a gradient, a skill's backgrounds are"
     (is (= {:background "radial-gradient(circle at 25% 25%, #ffcf8a 0 8%, transparent 9%), linear-gradient(#2a1208, #120806)"
             :color "#fff"}
@@ -67,7 +69,10 @@
            (:style (second (genui/sanitize [:div {:style {:display "grid" :grid-template-columns "repeat(auto-fill, minmax(180px, 1fr))" :gap "8px"}}]))))))
   (testing "a color goes with a background that did not get through: dark text was meant for a light card"
     (is (= {:padding "12px"}
-           (:style (second (genui/sanitize [:div {:style {:background "url(https://x.test/paper.png)" :color "#222" :padding "12px"}}]))))))
+           (:style (second (genui/sanitize [:div {:style {:background "url(https://x.test/paper.png)" :color "#222" :padding "12px"}}])))))
+    (is (= {:padding "12px"}
+           (:style (second (genui/sanitize [:div {:style {:background-image "linear-gradient(#111, #222)" :color "#fff" :padding "12px"}}]))))
+        "a background-image is a background too"))
   (testing "an input is a checkbox or a radio button, nothing else"
     (is (= [:input {:type "checkbox" :value "a" :checked true}]
            (genui/sanitize [:input {:type "checkbox" :value "a" :checked true}])))

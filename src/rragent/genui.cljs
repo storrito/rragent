@@ -76,7 +76,9 @@
     "repeating-linear-gradient" "repeating-radial-gradient" "repeating-conic-gradient"})
 
 (def background-properties
-  #{:background :background-color})
+  "The properties that paint a background, allowed or not: a color
+   given with one that did not get through goes with it (`style`)."
+  #{:background :background-color :background-image})
 
 (def max-depth
   "Elements deeper than this go: markdown-it nests at most 100 deep, the
