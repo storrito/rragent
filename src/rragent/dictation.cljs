@@ -13,13 +13,14 @@
    and ElevenLabs' Scribe v2 score words (October 2026, Deepgram's
    Nova-3 among those that do not); its scores are the lower ones where
    it misheard, a name it did not know at 0.2. No language is named,
-   the model detects the one spoken. The key is OPENROUTER_API_KEY, the
-   address OPENROUTER_BASE_URL, as the media tools have them
-   (`rragent.tools.media`)."
+   the model detects the one spoken. The request goes where the REPL
+   `codemode` of the agent knows OpenRouter: through the gateway's
+   connection, else with OPENROUTER_API_KEY (`rragent.openrouter`, as
+   the models and the media tools have it)."
   (:require [clojure.string :as str]
             [rragent.correction :as correction]
-            [rragent.rframes.transit :as transit]
-            [rragent.tools.media :as media]))
+            [rragent.openrouter :as openrouter]
+            [rragent.rframes.transit :as transit]))
 
 (def path
   "Where the browser posts a recording."
@@ -111,15 +112,14 @@
                              words))}))
 
 (defn ^:async transcribe!
-  "The transcription of `audio` by OpenRouter as `answer`; throws with
-   the service's message."
-  [audio format]
-  (let [key (or (not-empty (aget (.-env js/process) "OPENROUTER_API_KEY"))
-                (throw (js/Error. "OPENROUTER_API_KEY is not set, so no dictation.")))
-        response (await (js/fetch (str (media/base-url) "/audio/transcriptions")
+  "The transcription of `audio` by OpenRouter, where `codemode` knows
+   it (`rragent.openrouter/route!`), as `answer`; throws with the
+   service's message, or with why there is no OpenRouter."
+  [codemode audio format]
+  (let [{:keys [base-url headers]} (openrouter/route! codemode "dictation")
+        response (await (js/fetch (str base-url "/audio/transcriptions")
                                   #js {:method "POST"
-                                       :headers #js {"Authorization" (str "Bearer " key)
-                                                     "Content-Type" "application/json"}
+                                       :headers (clj->js (assoc headers "Content-Type" "application/json"))
                                        :body (js/JSON.stringify (clj->js (request-body audio format)))
                                        :signal (js/AbortSignal.timeout 90000)}))
         text (await (.text response))
@@ -131,8 +131,8 @@
 
 (defn ^:async handler
   "`POST /dictation`: the recording as the body with its media type,
-   the text it says as the answer."
-  [w]
+   the text it says as the answer, by the OpenRouter `codemode` knows."
+  [codemode w]
   (let [request (:ring/request w)
         format (format-of request)]
     (if-not format
@@ -147,12 +147,14 @@
 
           :else
           (try
-            (respond w 200 (await (transcribe! audio format)))
+            (respond w 200 (await (transcribe! codemode audio format)))
             (catch :default error
               (js/console.error "[dictation]" (.-message error))
               (respond w 502 {:error :transcription-failed
                               :message (.-message error)}))))))))
 
-(def routes
+(defn routes
+  "The route of the agent whose REPL is `codemode`."
+  [codemode]
   [{:ring/route [:post path]
-    :ring/handler #'handler}])
+    :ring/handler (fn [w] (handler codemode w))}])

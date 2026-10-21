@@ -112,8 +112,10 @@ language. At every pause in the speech (0.7 s, a piece of 30 s at
 most) the page cuts the recording and posts the piece to `POST
 /dictation` (`rragent.dictation`), which has a speech-to-text model
 behind OpenRouter write it down (`RRAGENT_DICTATION_MODEL`, AssemblyAI's
-Universal-3.6 Pro: it detects the language and scores every word); the
-pieces fill the draft as they come back. After the stop, when a word
+Universal-3.6 Pro: it detects the language and scores every word; the
+request goes the way of every call to OpenRouter, through the gateway's
+connector or with the key, see [Connectors and the REPL](#connectors-and-the-repl));
+the pieces fill the draft as they come back. After the stop, when a word
 scored below 0.85, `POST /dictation/correct` (`rragent.correction`) has
 a small model (`RRAGENT_CORRECTION_MODEL`, Gemini 3.1 Flash-Lite) fix
 the misheard words with the agent's context: its system prompt and what
@@ -177,8 +179,9 @@ script on the project and the file it writes, `artifacts/<name>.mp4`
 for a template that renders an mp4, shows up beside the chat like any
 video; the pane has the same as a button, with the progress and a Stop
 while it runs. The render's lines are the running output of the tool
-call. Three more tools make material for a project through OpenRouter
-(`rragent.tools.media`): `image`, a picture from a description
+call. Three more tools make material for a project through OpenRouter,
+the gateway's connector or the key, as the models reach it
+(`rragent.tools.media`, `rragent.openrouter`): `image`, a picture from a description
 (`RRAGENT_IMAGE_MODEL`), `voice`, text to speech into the project's
 folder (`RRAGENT_VOICE_MODEL`, `RRAGENT_VOICE`), and `music`, a clip or
 a whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`). The
@@ -337,9 +340,10 @@ Node 26 (`mise install`), Java 17 or later for the compiler.
     npm run build    # the templates, then dist/rragent.js and dist/public, run with npm start
 
 An `.env` next to the project is never committed. On a Sprite the agent
-needs no key at all: the models and the integrations come through the
-gateway (below). On a laptop, `OPENROUTER_API_KEY` is the one variable the
-agent needs to talk to a model.
+needs no key at all: the models, dictation, the media tools and the
+integrations come through the gateway (below). On a laptop,
+`OPENROUTER_API_KEY` is the one variable the agent needs: the models,
+dictation and the media tools all use it.
 
 ## Connectors and the REPL
 
@@ -364,15 +368,19 @@ again, after 1, 2, 4 and 8 seconds, before rragent concludes that
 there is no gateway (a port that refuses at once, a laptop, costs one
 try); `rragent serve` says how many tries it took when more than one.
 
-- The models. With an `openrouter` connection, the harness's OpenRouter
-  provider sends its requests to that connection's base and `/v1`, with
-  a placeholder key the gateway replaces; without one, to OpenRouter
-  itself with `OPENROUTER_API_KEY` (a laptop). `rragent serve` prints
-  which, and the connections it found. Nothing of it is fixed for the
-  life of the process: while no `openrouter` connection is known, the
-  provider asks the gateway again before a model call, at most every
-  ten seconds, so the first call after the gateway came up goes
-  through it, and the REPL's `(connectors)` has the list from then on.
+- OpenRouter, one route for the models, dictation and the media tools
+  (`rragent.openrouter`). With an `openrouter` connection, every
+  request goes to that connection's base and `/v1`: the models' with a
+  placeholder key the gateway replaces, dictation's and the media
+  tools' with no key at all, the gateway adds the credential; without
+  one, to OpenRouter itself with `OPENROUTER_API_KEY` (a laptop;
+  `OPENROUTER_BASE_URL` points dictation and the media tools at a
+  test's fake). `rragent serve` prints which, and the connections it
+  found. Nothing of it is fixed for the life of the process: while no
+  `openrouter` connection is known, a call asks the gateway again
+  first, at most every ten seconds, so the first model call,
+  dictation or picture after the gateway came up goes through it, and
+  the REPL's `(connectors)` has the list from then on.
 - Composio, the organization's third-party services (Google Drive,
   Gmail, Notion, Slack and the like through Composio's managed OAuth):
   a `custom_api` connection whose base is `backend.composio.dev`. The
@@ -539,7 +547,9 @@ writes into it is the contract between the two:
   agent has taken a skill or a job, the name in its `AGENT.md` wins.
 - `COMPOSIO_SESSION_ID`, when the agent has a Composio session.
 - `OPENROUTER_API_KEY`, only when no OpenRouter connector of the
-  organization covers the sprite.
+  organization covers the sprite: the models, dictation and the media
+  tools all go through the connector, and all fall back to the key
+  (`rragent.openrouter`).
 
 The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<x.y.z>
 --image-auth <auth> --service http:8080

@@ -4,30 +4,24 @@
    from a description, a ratio, a picture to start from), the `voice`
    tool (text to speech into a project's folder) and the `music` tool
    (a piece from a description, a clip or a whole song). The
-   counterparts of pchat's bin/image, bin/voice and bin/music; the key
-   is OPENROUTER_API_KEY, the models RRAGENT_IMAGE_MODEL,
-   RRAGENT_VOICE_MODEL, RRAGENT_MUSIC_MODEL and RRAGENT_MUSIC_MODEL_LONG,
-   the address OPENROUTER_BASE_URL (a test points it at a fake)."
+   counterparts of pchat's bin/image, bin/voice and bin/music. Each
+   tool is made for the REPL `codemode` of its agent, whose gateway
+   connection or key is the route to OpenRouter (`rragent.openrouter`,
+   where a test points it at a fake); the models are
+   RRAGENT_IMAGE_MODEL, RRAGENT_VOICE_MODEL, RRAGENT_MUSIC_MODEL and
+   RRAGENT_MUSIC_MODEL_LONG."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             ["node:child_process" :as child]
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
+            [rragent.openrouter :as openrouter]
             [rragent.tools.work :as work]))
 
 (defn- env
   [name default]
   (or (not-empty (aget (.-env js/process) name)) default))
-
-(defn base-url
-  []
-  (str/replace (env "OPENROUTER_BASE_URL" "https://openrouter.ai/api/v1") #"/+$" ""))
-
-(defn- key!
-  [what]
-  (or (not-empty (aget (.-env js/process) "OPENROUTER_API_KEY"))
-      (throw (js/Error. (str "OPENROUTER_API_KEY is not set, so no " what ".")))))
 
 (defn- check-path
   "A path under artifacts/, nothing above it."
@@ -51,13 +45,13 @@
       nil)))
 
 (defn- ^:async post
-  "One POST to OpenRouter: the response, or a throw with its status and
+  "One POST to OpenRouter at `path` of `route` (`rragent.openrouter/route!`,
+   its base and headers): the response, or a throw with its status and
    message."
-  [what route body key]
-  (let [response (await (js/fetch (str (base-url) route)
+  [what path body {:keys [base-url headers]}]
+  (let [response (await (js/fetch (str base-url path)
                                   #js {:method "POST"
-                                       :headers #js {"Authorization" (str "Bearer " key)
-                                                     "Content-Type" "application/json"}
+                                       :headers (clj->js (assoc headers "Content-Type" "application/json"))
                                        :body (js/JSON.stringify (clj->js body))
                                        :signal (js/AbortSignal.timeout 300000)}))]
     (when-not (.-ok response)
@@ -93,15 +87,15 @@
 
 (defn ^:async image!
   "The picture written; answers the line for the model."
-  [{:keys [dir work prompt file ratio from]}]
+  [{:keys [codemode dir work prompt file ratio from]}]
   (check-path file)
-  (let [key (key! "picture")
+  (let [route (openrouter/route! codemode "picture")
         response (await (post "image" "/images"
                               (cond-> {:model image-model :prompt prompt :n 1}
                                 (seq ratio) (assoc :aspect_ratio ratio)
                                 (seq from) (assoc :input_references [{:type "image_url"
                                                                       :image_url {:url (data-url (source-file dir work from))}}]))
-                              key))
+                              route))
         body (await (.json response))
         first-image (aget (or (.-data body) #js []) 0)
         b64 (some-> first-image .-b64_json)
@@ -114,7 +108,9 @@
       (write! target bytes)
       (str "artifacts/" (path/relative dir target) ": " (.-length bytes) " bytes" (cost-text (some-> body .-usage .-cost)) ", model " image-model))))
 
-(def image
+(defn image
+  "The tool for the agent whose REPL is `codemode`."
+  [codemode]
   (defineTool
    #js {:name "image"
         :description (str "A picture from a description, by an image model (about 7 cents). `file` is a path under artifacts/: "
@@ -126,7 +122,8 @@
                                        :ratio (.Optional Type (.String Type #js {:description "1:1, 9:16, 16:9, 4:5, 3:4 ..."}))
                                        :from (.Optional Type (.String Type #js {:description "A picture under artifacts/ to start from"}))})
         :execute (^:async fn [args api _call-context]
-                   (work/text (await (image! {:dir (work/artifacts-dir api)
+                   (work/text (await (image! {:codemode codemode
+                                              :dir (work/artifacts-dir api)
                                               :work (work/dir api)
                                               :prompt (.-prompt args)
                                               :file (.-file args)
@@ -142,15 +139,15 @@
   (env "RRAGENT_VOICE" "sarah"))
 
 (defn ^:async voice!
-  [{:keys [dir project text file voice]}]
+  [{:keys [codemode dir project text file voice]}]
   (let [voice (or (not-empty voice) default-voice)
         project-dir (path/join dir (str project))
         target (path/join project-dir (or (not-empty file) "voice.mp3"))]
     (check-path (str project "/" (or file "voice.mp3")))
     (when-not (fs/existsSync project-dir)
       (throw (js/Error. (str "artifacts/" project " does not exist."))))
-    (let [key (key! "voice")
-          response (await (post "voice" "/audio/speech" {:model voice-model :input text :voice voice :response_format "mp3"} key))
+    (let [route (openrouter/route! codemode "voice")
+          response (await (post "voice" "/audio/speech" {:model voice-model :input text :voice voice :response_format "mp3"} route))
           bytes (js/Buffer.from (await (.arrayBuffer response)))]
       (when (zero? (.-length bytes))
         (throw (js/Error. "The voice service sent no audio.")))
@@ -161,7 +158,9 @@
            ", about $" (.toFixed (* 0.00002 (count text)) 4)
            ", voice " voice ", model " voice-model))))
 
-(def voice
+(defn voice
+  "The tool for the agent whose REPL is `codemode`."
+  [codemode]
   (defineTool
    #js {:name "voice"
         :description (str "The words spoken by an AI voice, in the language of the words (a tenth of a cent a sentence), written as artifacts/<project>/voice.mp3 or the file named: "
@@ -171,7 +170,8 @@
                                        :file (.Optional Type (.String Type #js {:description "The file in the project's folder, voice.mp3 by default"}))
                                        :voice (.Optional Type (.String Type #js {:description "The voice, sarah by default"}))})
         :execute (^:async fn [args api _call-context]
-                   (work/text (await (voice! {:dir (work/artifacts-dir api)
+                   (work/text (await (voice! {:codemode codemode
+                                              :dir (work/artifacts-dir api)
                                               :project (.-project args)
                                               :text (.-text args)
                                               :file (.-file args)
@@ -205,21 +205,21 @@
      :cost (:cost out)}))
 
 (defn ^:async music!
-  [{:keys [dir project prompt file long?]}]
+  [{:keys [codemode dir project prompt file long?]}]
   (let [project-dir (path/join dir (str project))
         target (path/join project-dir (or (not-empty file) "music.mp3"))
         model (get music-models (if long? :long :clip))]
     (check-path (str project "/" (or file "music.mp3")))
     (when-not (fs/existsSync project-dir)
       (throw (js/Error. (str "artifacts/" project " does not exist."))))
-    (let [key (key! "music")
+    (let [route (openrouter/route! codemode "music")
           response (await (post "music" "/chat/completions"
                                 {:model model
                                  :modalities ["text" "audio"]
                                  :audio {:format "mp3"}
                                  :stream true
                                  :messages [{:role "user" :content prompt}]}
-                                key))
+                                route))
           {:keys [bytes cost]} (audio-of-stream (await (.text response)))]
       (when (zero? (.-length bytes))
         (throw (js/Error. "The music service sent no audio.")))
@@ -229,7 +229,9 @@
            (cost-text cost)
            ", model " model))))
 
-(def music
+(defn music
+  "The tool for the agent whose REPL is `codemode`."
+  [codemode]
   (defineTool
    #js {:name "music"
         :description (str "A piece of music from a description, by an AI music model: a 30-second clip (about 4 cents), a whole song with `long` (about 8 cents), "
@@ -240,7 +242,8 @@
                                        :file (.Optional Type (.String Type #js {:description "The file in the project's folder, music.mp3 by default"}))
                                        :long (.Optional Type (.Boolean Type #js {:description "True: a whole song"}))})
         :execute (^:async fn [args api _call-context]
-                   (work/text (await (music! {:dir (work/artifacts-dir api)
+                   (work/text (await (music! {:codemode codemode
+                                              :dir (work/artifacts-dir api)
                                               :project (.-project args)
                                               :prompt (.-prompt args)
                                               :file (.-file args)
