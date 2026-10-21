@@ -66,6 +66,8 @@
    :tool/other [:fn/str "Used {{:name}}"]
    :tool/running " …"
    :tool/failed " · did not work"
+   :theme/light "Light theme"
+   :theme/dark "Dark theme"
 
    :composer/placeholder "What should the agent do? Enter sends, Shift+Enter breaks the line, a picture can be pasted."
    :composer/send "Send"
@@ -148,6 +150,8 @@
    :tool/other [:fn/str "{{:name}} benutzt"]
    :tool/running " …"
    :tool/failed " · hat nicht geklappt"
+   :theme/light "Helles Design"
+   :theme/dark "Dunkles Design"
 
    :composer/placeholder "Was soll der Agent tun? Enter sendet, Shift+Enter bricht die Zeile um, ein Bild kann eingefügt werden."
    :composer/send "Senden"

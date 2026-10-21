@@ -19,6 +19,7 @@
       (is (str/starts-with? (get headers "Content-Type") "text/html"))
       (is (str/includes? body "Der Agent startet"))
       (is (str/includes? body "location.reload()"))
+      (is (str/includes? body "rragent.theme") "the theme the person chose, before it paints")
       (is (not (str/includes? body "secret")) "nothing of the request goes into it")))
   (testing "?lang=en beats the browser"
     (is (str/includes? (:body (starting/response never {:request-method :get

@@ -17,7 +17,8 @@
    opens in the tab instead of the page.
 
    The microphone button beside them dictates into the draft
-   (`rragent.client.dictation`)."
+   (`rragent.client.dictation`); a button in the header switches between
+   the light and the dark theme."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             [rframes.client :as rframes]
@@ -623,13 +624,50 @@
                                                                               :command/data {:text text}}]])))}))]
         children))
 
+(def theme-key
+  "Where the browser keeps the theme the person chose."
+  "rragent.theme")
+
+(defn- dark?
+  "Whether the page shows dark: the theme chosen, else the system's."
+  [state]
+  (case (or (:ui/theme state) (.. js/document -documentElement -dataset -theme))
+    "dark" true
+    "light" false
+    (.-matches (js/matchMedia "(prefers-color-scheme: dark)"))))
+
+(defn- choose-theme!
+  "`theme` on the page and kept for the next visit; a browser that keeps
+   nothing (a private window) still switches."
+  [theme]
+  (set! (.. js/document -documentElement -dataset -theme) theme)
+  (try
+    (.setItem js/localStorage theme-key theme)
+    (catch :default _ nil))
+  (swap! state/store assoc :ui/theme theme))
+
+(defn theme-toggle
+  "The header's button that switches between the light and the dark
+   theme, showing the one it switches to. The head's script
+   (`rragent.assets/head`) puts the kept theme on the page before it
+   paints; without one the system's applies."
+  [{:keys [ui/light-title ui/dark-title ui/state] :as attrs} _children]
+  (let [dark (dark? state)]
+    [:button.theme (-> (dissoc attrs :ui/light-title :ui/dark-title :ui/state)
+                       (assoc :title (if dark light-title dark-title)
+                              :aria-label (if dark light-title dark-title)
+                              :on {:click (fn [_] (choose-theme! (if dark "light" "dark")))}))
+     (if dark "☀" "☾")]))
+
 (def register
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
    {:ui.alias/kind :ui/canvas
     :ui.alias/fn canvas}
    {:ui.alias/kind :ui/send-checked
-    :ui.alias/fn send-checked}])
+    :ui.alias/fn send-checked}
+   {:ui.alias/kind :ui/theme-toggle
+    :ui.alias/fn theme-toggle}])
 
 (defn init!
   []

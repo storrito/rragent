@@ -1,9 +1,11 @@
 /* The page: the chat on the left, the artifacts on the right, stacked
-   on a narrow screen. Light by default, dark with the system. The look
-   follows pchat's (rchat's stylesheet); every color is a variable. */
+   on a narrow screen. Light by default, dark with the system, unless
+   the person chose a theme with the header's button (`data-theme` on
+   the root, `rragent.client/theme-toggle`). The look follows pchat's
+   (rchat's stylesheet); every color is a variable. */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #faf9f7;
   --panel: #ffffff;
   --line: #e4e1dc;
@@ -18,7 +20,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #111315;
     --panel: #1a1d21;
     --line: #2b3036;
@@ -31,6 +34,21 @@
     --code-bg: #0b0c0e;
     --code-text: #c5cad1;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111315;
+  --panel: #1a1d21;
+  --line: #2b3036;
+  --text: #e8eaed;
+  --muted: #8d949e;
+  --accent: #ff4d5e;
+  --ok: #3ecf8e;
+  --warn: #f5b942;
+  --on-accent: #ffffff;
+  --code-bg: #0b0c0e;
+  --code-text: #c5cad1;
 }
 
 * {
@@ -1010,4 +1028,18 @@ pre {
 .bar button.version:hover {
   color: var(--text);
   text-decoration: underline;
+}
+
+.bar button.theme {
+  padding: 2px 8px;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.bar button.theme:hover {
+  border-color: var(--line);
+  color: var(--text);
 }
