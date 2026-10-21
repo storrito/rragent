@@ -5,8 +5,8 @@
    things for the person go (`rragent.artifacts`), and the bot of the
    call: the conversation of the call, or, for a call of a subagent,
    whose conversation a task of the bot's owns, the bot's conversation
-   up the chain of owners, so that the bot's atom of the page
-   (`rragent.db/pane`) and its REPL worker are the call's too."
+   up the chain of owners, so that the bot's map in the one atom
+   (`rragent.db`) and its REPL worker are the call's too."
   (:require ["node:path" :as path]
             [rragent.db :as db]
             [rragent.home :as home]))
@@ -31,10 +31,10 @@
                           id))))
                   call-context)))
 
-(defn ^:async pane
-  "The atom of the bot's page."
+(defn ^:async bot-path
+  "Where the bot of the call is in the one atom (`rragent.db`)."
   [api call-context]
-  (db/pane (await (bot-id api call-context))))
+  (db/bot-path (await (bot-id api call-context))))
 
 (defn artifacts-dir
   [api]

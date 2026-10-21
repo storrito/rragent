@@ -3,11 +3,12 @@
    the one a tab shows, served the way pchat does it with rframes. The
    server renders the page as hiccup and pushes it as frames over the
    SSE connection of every open tab (`rragent.rframes`), the browser
-   sends commands back. The page is a function of the atoms of
-   `rragent.db`: the page's own, with the bot each tab shows, and one
-   per bot, which follows the bot's conversation (pi-durable's
-   `viewState`, see `rragent.machine`) and its artifacts; every change
-   pushes a new frame.
+   sends commands back. The page is a function of the one atom of
+   `rragent.db`: the bot each tab shows, the version and the banner,
+   and every bot's map, which follows the bot's conversation
+   (pi-durable's `viewState`, see `rragent.machine`) and its
+   artifacts; a change of a bot's values pushes a frame to the tabs
+   showing it (`affected`), a change of the page's own to every tab.
 
    Which bot a tab shows is the tab's: its URL, `/bot/<id>`, the id of
    the bot's conversation, until a click in the sidebar names another
@@ -62,11 +63,26 @@
             [rragent.uploads :as uploads]
             [rragent.view :as view]))
 
-(defonce ^{:doc "The handle of `rragent.update` while the page runs, set by `serve`;
-                 its `:apply!` is what the Update button runs, a test gives
-                 another."}
-  updater
-  (atom nil))
+(def bot-value-keys
+  "The keys of a bot's map the page is a function of: its
+   conversation's view value, its definition, its state and its pane.
+   The other keys of the map are the handles of its runtime (the
+   conversation, the view, the worker, the reload's text, the schedule
+   source, the pane's handles), which change without a difference on
+   the page, so the watch (`affected`) leaves them out of its
+   comparison: a change of one pushes no frame."
+  #{:value :definition :schedules/next :failed
+    :artifacts/list :artifacts/rev :artifacts/current :artifacts/picked-at :projects :renders
+    :deleting? :renaming?})
+
+(def sidebar-keys
+  "The value keys of a bot every tab shows, in the sidebar: its name
+   (the definition), its state (asleep, failed) and a rename or delete
+   under way in its row. A change of one goes to every tab, as a run
+   of the bot starting or ending does (the state running); the rest
+   of the value keys, the conversation's view as it streams and the
+   pane, go to the tabs showing the bot."
+  #{:definition :schedules/next :failed :deleting? :renaming?})
 
 (defn conversation
   "The view value of pi-durable as the data the view reads:
@@ -87,42 +103,85 @@
     [id (or (first rest) "")]))
 
 (defn shown-bot
-  "The bot a connection shows: the one its tab picked since
-   (`:bot/show`), else the one of its URL; the machine's default when
-   that one is not there, with the id that was asked for under
-   `:missing`."
-  [tabs tabid url-id]
+  "The bot a connection shows among `bots`, the open ones by id: the
+   one its tab picked since (`:bot/show`), else the one of its URL;
+   the machine's default when that one is not there, with the id that
+   was asked for under `:missing`."
+  [bots tabs tabid url-id]
   (let [wanted (or (get tabs tabid) url-id)]
-    (if (machine/bot wanted)
+    (if (contains? bots wanted)
       {:id wanted}
       {:id (machine/default-id)
        :missing wanted})))
 
+(defn- url-bot
+  "The bot id in the path of a connection's world, `/bot/<id>`."
+  [w]
+  (first (split-bot (get-in w [:ring/route-params :*]))))
+
 (defn page-view
   "The page in the language of the connection, with the bot of the
    tab. The bot's name and model are its definition's as last read
-   (`rragent.reload` replaces the copy in the bot's atom when the file
-   changed)."
+   (`rragent.reload` replaces the bot's `:definition` in the atom when
+   the file changed)."
   [w]
-  (let [{:keys [tabs deleting renaming update]} @db/db
-        {:keys [id missing]} (shown-bot tabs (:tabid w) (first (split-bot (get-in w [:ring/route-params :*]))))
-        {:keys [pane]} (machine/bot id)
-        value (some-> pane deref)
-        definition (get-in value [:agent :definition])
+  (let [{:keys [tabs update]} @db/db
+        {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
+        {:keys [definition] :as bot} (machine/bot id)
         locale (i18n/locale (:ring/request w))]
     (-> (view/page {:bots (machine/listed)
                     :bot {:id id
                           :name (machine/name-of id)
                           :model (:model definition)}
-                    :conversation (conversation (:value value))
-                    :artifacts (select-keys value [:artifacts/list :artifacts/current :projects :renders])
+                    :conversation (conversation (:value bot))
+                    :artifacts (select-keys bot [:artifacts/list :artifacts/current :projects :renders])
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
                     :update update
-                    :sidebar {:deleting deleting :renaming renaming}
                     :note (when missing [:i18n :bot/missing])
-                    :failed (:failed value)})
+                    :failed (:failed bot)})
         (i18n/translate locale))))
+
+(defn- running?
+  "Whether a run goes in the bot's view value."
+  [bot]
+  (some? (some-> (:value bot) .-docs (aget "pi.live") .-run)))
+
+(defn- sidebar-of
+  "What the sidebar shows of a bot: its `sidebar-keys` and whether it
+   runs."
+  [bot]
+  (assoc (select-keys bot sidebar-keys) :running? (running? bot)))
+
+(defn affected
+  "What a change of the atom from `old` to `new` refreshes
+   (`rragent.rframes.sse/watch!`): every tab when a key of the page's
+   own changed (the version and the banner, the tabs' picks, the
+   machine), when a bot came or went, or when what the sidebar shows
+   of a bot changed (`sidebar-keys`, a run starting or ending); the
+   tabs showing a bot whose other value keys (`bot-value-keys`)
+   changed; nil when only handles changed."
+  [old new]
+  (let [before (:bots old)
+        after (:bots new)]
+    (cond
+      (not= (dissoc old :bots) (dissoc new :bots))
+      :all
+
+      (not= (set (keys before)) (set (keys after)))
+      :all
+
+      (some (fn [id] (not= (sidebar-of (get before id)) (sidebar-of (get after id)))) (keys after))
+      :all
+
+      :else
+      (let [ids (set (for [id (keys after)
+                           :when (not= (select-keys (get before id) bot-value-keys)
+                                       (select-keys (get after id) bot-value-keys))]
+                       id))]
+        (when (seq ids)
+          (fn [w]
+            (contains? ids (:id (shown-bot after (:tabs new) (:tabid w) (url-bot w))))))))))
 
 (def ^:private stream
   "The view stream of a bot's page, POST /bot/<id>: the bot id of the
@@ -169,8 +228,8 @@
     (command/rejected w :no-such-bot)))
 
 (defn- artifact-of
-  [{:keys [pane]} path]
-  (some #(when (= path (:path %)) %) (:artifacts/list @pane)))
+  [bot path]
+  (some #(when (= path (:path %)) %) (:artifacts/list bot)))
 
 (defn- open-artifact-command
   "The person picked an artifact in the chooser."
@@ -178,7 +237,7 @@
   (let [{:keys [path]} (command/command-data w)
         bot (bot-of-command w)]
     (if (and bot (artifact-of bot path))
-      (do (artifacts/pick! (:pane bot) path)
+      (do (artifacts/pick! db/db (db/bot-path (:id bot)) path)
           (command/accepted w))
       (command/rejected w :no-such-artifact))))
 
@@ -188,23 +247,23 @@
   (let [{:keys [path]} (command/command-data w)
         bot (bot-of-command w)]
     (if (and bot (= :project (:kind (artifact-of bot path))))
-      (do (render/start! (:render bot) path)
+      (do (render/start! (:render-handle bot) path)
           (command/accepted w))
       (command/rejected w :no-such-artifact))))
 
 (defn- render-stop-command
   [w]
   (if-let [bot (bot-of-command w)]
-    (do (render/stop! (:render bot) (:path (command/command-data w)))
+    (do (render/stop! (:render-handle bot) (:path (command/command-data w)))
         (command/accepted w))
     (command/rejected w :no-such-bot)))
 
 (defn- update-apply-command
   "The Update button: the known release taken (`rragent.update/apply!`
-   as the updater's `:apply!`); the frames show the banner's state, the
-   page comes back after the restart."
+   as the updater's `:apply!`, the atom's `:updater`); the frames show
+   the banner's state, the page comes back after the restart."
   [w]
-  (if-let [handle @updater]
+  (if-let [handle (:updater @db/db)]
     (do (-> (js/Promise.resolve ((:apply! handle) handle))
             (.catch (fn [error]
                       (js/console.error "[update]" (str error)))))
@@ -215,7 +274,7 @@
   "The version in the header: the newest release looked up now, its
    answer in the banner."
   [w]
-  (if-let [handle @updater]
+  (if-let [handle (:updater @db/db)]
     (do (-> (update/check-now! handle)
             (.catch (fn [error]
                       (js/console.error "[update]" (str error)))))
@@ -251,11 +310,17 @@
           (js/console.error "[bots]" (str e))
           (command/rejected w :not-created))))))
 
+(defn- clear-flags
+  "The atom's value without a delete or a rename under way in any
+   row."
+  [value]
+  (update value :bots (fn [bots] (into {} (map (fn [[id bot]] [id (dissoc bot :deleting? :renaming?)])) bots))))
+
 (defn- rename-start-command
   [w]
   (let [{:keys [id]} (command/command-data w)]
     (if (machine/bot id)
-      (do (swap! db/db assoc :renaming id)
+      (do (swap! db/db #(assoc-in (clear-flags %) (conj (db/bot-path id) :renaming?) true))
           (command/accepted w))
       (command/rejected w :no-such-bot))))
 
@@ -264,7 +329,7 @@
    keeps the old."
   [w]
   (let [{:keys [id name]} (command/command-data w)]
-    (swap! db/db dissoc :renaming)
+    (swap! db/db clear-flags)
     (cond
       (nil? (machine/bot id)) (command/rejected w :no-such-bot)
       (str/blank? (str name)) (command/accepted w)
@@ -281,16 +346,15 @@
       (nil? (machine/bot id))
       (command/rejected w :no-such-bot)
 
-      (not= id (:deleting @db/db))
-      (do (swap! db/db assoc :deleting id)
+      (not (:deleting? (machine/bot id)))
+      (do (swap! db/db #(assoc-in (clear-flags %) (conj (db/bot-path id) :deleting?) true))
           (command/accepted w))
 
       :else
       (let [outcome (await (machine/delete! id))]
         (swap! db/db (fn [value]
-                       (-> value
-                           (dissoc :deleting)
-                           (update :tabs #(into {} (remove (fn [[_ shown]] (= id shown))) %)))))
+                       (-> (clear-flags value)
+                           (update :tabs #(into {} (remove (fn [[_ shown]] (= (str id) shown))) %)))))
         (if (= :deleted outcome)
           (command/accepted w)
           (command/rejected w outcome))))))
@@ -298,7 +362,7 @@
 (defn- keep-command
   "The question of a delete, or the field of a rename, taken back."
   [w]
-  (swap! db/db dissoc :deleting :renaming)
+  (swap! db/db clear-flags)
   (command/accepted w))
 
 (defn- with-subpath
@@ -312,8 +376,8 @@
 (defn- ^:async artifacts-get
   "GET /bot/<id>/artifacts/<path>: a running project's page through the
    proxy, else the file."
-  [{:keys [projects dir]} w]
-  (let [w (await (projects/handler projects w))]
+  [{:keys [projects-handle dir]} w]
+  (let [w (await (projects/handler projects-handle w))]
     (if (:ring/response w)
       w
       (artifacts/file-handler dir w))))
@@ -321,8 +385,8 @@
 (defn- ^:async artifacts-post
   "POST /bot/<id>/artifacts/<name>/...: to the project's process;
    nothing else takes a POST here."
-  [{:keys [projects]} w]
-  (let [w (await (projects/handler projects w))]
+  [{:keys [projects-handle]} w]
+  (let [w (await (projects/handler projects-handle w))]
     (if (:ring/response w)
       w
       (assoc w :ring/response http/not-found))))
@@ -407,11 +471,11 @@
    the bot whose page it is (its Referer names it); any other command
    is left to the page's handler."
   [w]
-  (loop [[bot & more] (vals @machine/bots)]
+  (loop [[bot & more] (vals (machine/bots))]
     (if (nil? bot)
       w
-      (let [answered (if (:projects bot)
-                       (await (projects/command-handler (:projects bot) w))
+      (let [answered (if (:projects-handle bot)
+                       (await (projects/command-handler (:projects-handle bot) w))
                        w)]
         (if (:ring/response answered)
           answered
@@ -531,8 +595,8 @@
         base (str "http://localhost:" (.-port (.address server)))]
     (println (str "rragent on " base ", the bots open"))
     ;; the running version is on the page from the first frame on
-    (reset! updater (update/handle {:db db/db}))
-    (sse/watch! db/db)
+    (swap! db/db assoc :updater (update/handle {:db db/db}))
+    (sse/watch! db/db affected)
     ;; a home that does not open ends the process, as before: the server
     ;; would keep it alive, answering "starting" for ever
     (try
@@ -547,8 +611,8 @@
     ;; machine awake, and hold a known update back
     (await (lifecycle/start! [(fn [] (machine/busy?))
                               (fn [] (pos? (sse/connections)))]
-                             @updater))
-    (println (update/report @updater))
+                             (:updater @db/db)))
+    (println (update/report (:updater @db/db)))
     (println (programs/report (templates/all)))
     (println (codemode/report (machine/codemode)))
     (println (openrouter/report (codemode/discovery (machine/codemode))))

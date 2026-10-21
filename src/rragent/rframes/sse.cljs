@@ -4,7 +4,10 @@
    frame per refresh. Frame encoding belongs to the caller, this namespace
    only knows channels and timing. The port of rframes.sse: the refresh
    waits on a timer instead of a thread, the gzip of a connection is a
-   node:zlib stream, and the lock of a connection is a promise chain."
+   node:zlib stream, and the lock of a connection is a promise chain. A
+   refresh can go to every connection or to the ones a predicate of
+   their world picks (`watch!` with `affected`): a page of several bots
+   pushes a bot's change to the tabs showing it."
   (:require ["node:zlib" :as zlib]
             [clojure.string :as str]))
 
@@ -24,27 +27,55 @@
   (doseq [{:keys [render]} (vals @conns)]
     (render)))
 
-(defonce ^:private refresh-pending?
-  (atom false))
+(defn refresh-where!
+  "The connections whose world `pred` picks rendered."
+  [pred]
+  (doseq [{:keys [render w]} (vals @conns)
+          :when (pred w)]
+    (render)))
+
+(defonce ^:private pending
+  ;; what the next refresh goes to: nil for none, :all, or the predicates
+  ;; gathered since the last one
+  (atom nil))
 
 (defn schedule-refresh!
-  "A refresh of every connection, coalesced to at most 10 per second."
-  []
-  (when (compare-and-set! refresh-pending? false true)
-    (js/setTimeout (fn []
-                     (reset! refresh-pending? false)
-                     (refresh-all!))
-                   100)))
+  "A refresh of every connection (`:all`, the default), or of the ones
+   `which`, a predicate of a connection's world, picks; coalesced to
+   at most 10 per second, the predicates gathered meanwhile all
+   applied."
+  ([]
+   (schedule-refresh! :all))
+  ([which]
+   (let [before @pending]
+     (swap! pending (fn [p]
+                      (cond
+                        (= :all p) :all
+                        (= :all which) :all
+                        :else (conj (or p []) which))))
+     (when (nil? before)
+       (js/setTimeout (fn []
+                        (let [p @pending]
+                          (reset! pending nil)
+                          (if (= :all p)
+                            (refresh-all!)
+                            (refresh-where! (fn [w] (some #(% w) p))))))
+                      100)))))
 
 (defn watch!
-  "Refreshes every connection after a change of the atom `db`. With this
-   watch in place, mutating the atom is all a command has to do to update
-   every open page."
-  [db]
-  (add-watch db ::refresh
-             (fn [_key _ref old-value new-value]
-               (when (not= old-value new-value)
-                 (schedule-refresh!)))))
+  "Refreshes the connections after a change of the atom `db`: every
+   connection, or, with `affected`, what `(affected old new)` answers,
+   nil for none, `:all`, or a predicate of a connection's world for the
+   ones to refresh. With this watch in place, mutating the atom is all
+   a command has to do to update every open page."
+  ([db]
+   (watch! db (fn [_ _] :all)))
+  ([db affected]
+   (add-watch db ::refresh
+              (fn [_key _ref old-value new-value]
+                (when (not= old-value new-value)
+                  (when-let [which (affected old-value new-value)]
+                    (schedule-refresh! which)))))))
 
 (defn unwatch!
   "The watch of `watch!` taken off the atom `db` again."
@@ -94,9 +125,10 @@
 (defn stream-handler
   "A handler `w -> w` that holds an SSE view connection. `:render/fn` is
    `w -> view`, called per refresh with the world of the connection, which
-   is captured at connect. `encode` turns a view into a frame string, nil
-   skips the frame. The response carries `:on-open` and `:on-close` for the
-   adapter (`rragent.rframes.http/respond!`)."
+   is captured at connect and kept with the connection for `refresh-where!`.
+   `encode` turns a view into a frame string, nil skips the frame. The
+   response carries `:on-open` and `:on-close` for the adapter
+   (`rragent.rframes.http/respond!`)."
   [{render-fn :render/fn} encode]
   (fn [w]
     (let [request (:ring/request w)
@@ -128,7 +160,7 @@
                                                                   (send! frame)))))
                                                      (.catch (fn [error]
                                                                (js/console.error "[sse]" (str error))))))))]
-                           (swap! conns assoc conn-id {:render render})
+                           (swap! conns assoc conn-id {:render render :w w})
                            (render)))
               :on-close (fn []
                           (swap! conns dissoc conn-id))}))))

@@ -7,17 +7,20 @@
    a task and is none), less the ones deleted, which the session
    document `rragent.bots` names: a deleted bot is hidden, its
    conversation stays, its folder goes to the trash. The root
-   conversation is the first bot. Each open bot has its page state in
-   an atom of `rragent.db`, its artifacts pane followed
-   (`rragent.artifacts`, `rragent.projects`, `rragent.render`), and
-   its REPL worker made at its first program
-   (`rragent.codemode-worker`). A bot's name is its definition's
-   (`name:` of its `AGENT.md`), as the reload last read it; when it was
-   made, the birth time of its folder; when it was last used, the time
-   of the newest entry of its conversation. A new bot's conversation
-   is made here (`create!`) or by the `bot` tool in its own commit
-   (`rragent.tools.bot`), and `adopt!` gives it its folder and
-   definition, the assistant's text with the instructions on top."
+   conversation is the first bot. Each open bot is a map in the one
+   atom (`rragent.db`, under `[:bots id]`): the view value of its
+   conversation and the keys of its pane, which the page reads, and
+   the handles of its runtime; its artifacts pane is followed
+   (`rragent.artifacts`, `rragent.projects`, `rragent.render`), its
+   REPL worker made at its first program (`rragent.codemode-worker`).
+   The harness map of the machine is the atom's `:machine`. A bot's
+   name is its definition's (`name:` of its `AGENT.md`), as the reload
+   last read it; when it was made, the birth time of its folder; when
+   it was last used, the time of the newest entry of its conversation.
+   A new bot's conversation is made here (`create!`) or by the `bot`
+   tool in its own commit (`rragent.tools.bot`), and `adopt!` gives it
+   its folder and definition, the assistant's text with the
+   instructions on top."
   (:require ["@earendil-works/pi-durable" :refer [defineDoc]]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
@@ -40,60 +43,56 @@
                   :history "latest"
                   :initial (fn [] #js {:hidden #js []})}))
 
-(defonce ^{:doc "The harness map of `rragent.harness/open` while the machine runs."}
-  machine
-  (atom nil))
-
-(defonce ^{:doc "By conversation id, a string: `{:id :conversation :view :pane :dir :work :projects :render :uploads :stop!}`;
-                 a bot that did not open has no `:conversation` and its reason in the pane."}
-  bots
-  (atom {}))
-
 (declare adopt! listed)
 
 (defn agent
   "The harness map of the machine."
   []
-  @machine)
+  (:machine @db/db))
 
 (defn home
   []
-  (:home @machine))
+  (:home (agent)))
 
 (defn bot
-  "The running bot `id`, nil for none."
+  "The map of the open bot `id`, nil for none."
   [id]
-  (get @bots (str id)))
+  (get-in @db/db (db/bot-path id)))
+
+(defn bots
+  "The open bots by id."
+  []
+  (:bots @db/db))
 
 (defn- start-pane!
-  "The page's state follows the bot: the view value now and every one
+  "The bot's map follows the bot: the view value now and every one
    after it, the artifacts folder watched, the projects in it run while
    someone looks at the page, the renders kept, the uploads folder
    known. Answers the handles and what ends the following."
-  [id view pane]
-  (let [work (home/work-dir (home/bot-dir (home) id))
+  [id view]
+  (let [path (db/bot-path id)
+        work (home/work-dir (home/bot-dir (home) id))
         dir (home/artifacts-dir work)
         base (str (bots/url id) artifacts/url-prefix)
-        projects (projects/handle {:db pane
+        projects (projects/handle {:db db/db
+                                   :path path
                                    :dir dir
                                    :base base
                                    :shown? (fn [] (pos? (sse/connections)))})]
-    (swap! pane assoc :value (.-value view))
-    (sse/watch! pane)
-    (let [unsubscribe (.subscribe view (fn [value] (swap! pane assoc :value value)))
-          stop-artifacts (artifacts/watch! pane dir)
+    (swap! db/db assoc-in (conj path :value) (.-value view))
+    (let [unsubscribe (.subscribe view (fn [value] (swap! db/db assoc-in (conj path :value) value)))
+          stop-artifacts (artifacts/watch! db/db path dir)
           stop-projects (projects/watch! projects)]
       {:dir dir
        :work work
-       :projects projects
-       :render (render/handle {:db pane :dir dir})
+       :projects-handle projects
+       :render-handle (render/handle {:db db/db :path path :dir dir})
        :uploads (home/uploads-dir work)
        :stop! (fn []
                 (unsubscribe)
                 (stop-artifacts)
                 (stop-projects)
-                (.dispose view)
-                (sse/unwatch! pane))})))
+                (.dispose view))})))
 
 (defn ^:async open-bot!
   "The bot of the conversation `id` opened and followed: the
@@ -102,9 +101,9 @@
    definition in its folder) is kept with its reason, said on stderr
    and on its page."
   [id]
-  (let [{:keys [harness root] :as agent} @machine
+  (let [{:keys [harness root] :as agent} (agent)
         id (str id)
-        pane (db/pane id)]
+        path (db/bot-path id)]
     (try
       (let [conversation (if (= id (str (.-id root)))
                            root
@@ -114,24 +113,23 @@
             _ (when-not definition
                 (throw (js/Error. (str "no definition in " (home/bot-dir (home) id)))))
             view (await (.viewState conversation harness/context))
-            handles (start-pane! id view pane)]
-        (swap! bots assoc id (merge {:id id :conversation conversation :view view :pane pane} handles))
+            handles (start-pane! id view)]
+        (swap! db/db update-in path merge {:id id :conversation conversation :view view} handles)
         (bot id))
       (catch :default e
         (js/console.error "[bots]" (str "the bot " id " did not open: " (.-message e)))
-        (swap! pane assoc :failed (.-message e))
-        (swap! bots assoc id {:id id :pane pane})
+        (swap! db/db update-in path merge {:id id :failed (.-message e)})
         (bot id)))))
 
 (defn ^:async close-bot!
-  "The bot's following ended and the process's hold on its
-   conversation let go; nothing for a bot that is not open."
+  "The bot's following ended and its map taken out of the atom, the
+   process's hold on its conversation let go; nothing for a bot that
+   is not open."
   [id]
   (when-let [{:keys [stop!]} (bot id)]
     (when stop!
       (stop!))
     (harness/forget-conversation! (js/Number id))
-    (swap! bots dissoc (str id))
     true))
 
 (defn ^:async conversations
@@ -178,7 +176,7 @@
   (let [agent (await (harness/open (assoc opts :extensions [(bot-tool/extension {:adopt! #'adopt! :list #'listed})])))]
     (when-let [id (:migrated agent)]
       (println (str "the agent of " (:home agent) " is the bot " id " now")))
-    (reset! machine agent)
+    (swap! db/db assoc :machine agent)
     (let [hidden (await (hidden (:harness agent)))
           ids (remove hidden (await (conversations (:harness agent))))]
       (doseq [id ids]
@@ -187,30 +185,30 @@
 
 (defn ^:async close-all!
   []
-  (doseq [id (keys @bots)]
+  (doseq [id (keys (bots))]
     (await (close-bot! id)))
-  (when-let [agent @machine]
+  (when-let [agent (agent)]
     (await (harness/close agent)))
-  (reset! machine nil))
+  (swap! db/db dissoc :machine))
 
 (defn codemode
   "The REPL handle of the process."
   []
-  (:codemode @machine))
+  (:codemode (agent)))
 
 (defn busy?
   "Whether any bot runs, or renders."
   []
-  (boolean (some (fn [{:keys [view render]}]
+  (boolean (some (fn [{:keys [view render-handle]}]
                    (or (and view (harness/busy? {:view view}))
-                       (and render (render/any-running? render))))
-                 (vals @bots))))
+                       (and render-handle (render/any-running? render-handle))))
+                 (vals (bots)))))
 
 (defn name-of
   "The bot's name: its definition's as the reload last read it
    (`rragent.definition/display-name`), else the file's, else its id."
   [id]
-  (or (some-> (bot id) :pane deref (get-in [:agent :definition]) definition/display-name)
+  (or (some-> (bot id) :definition definition/display-name)
       (bots/name-of (home) id)
       (str id)))
 
@@ -219,12 +217,11 @@
    goes, `:asleep` when it idles until a scheduled run, `:idle`
    otherwise."
   [id]
-  (let [{:keys [view pane]} (bot id)
-        value (some-> pane deref)]
+  (let [{:keys [view failed schedules/next]} (bot id)]
     (cond
-      (or (nil? view) (:failed value)) :failed
+      (or (nil? view) failed) :failed
       (harness/busy? {:view view}) :running
-      (:schedules/next value) :asleep
+      next :asleep
       :else :idle)))
 
 (defn used-at
@@ -239,16 +236,18 @@
 
 (defn listed
   "The bots in the order they were made, each `{:id :name :state
-   :created :used}`."
+   :created :used :deleting? :renaming?}`, the last two the sidebar's."
   []
-  (->> (vals @bots)
+  (->> (vals (bots))
        (sort-by #(js/Number (:id %)))
-       (mapv (fn [{:keys [id]}]
+       (mapv (fn [{:keys [id deleting? renaming?]}]
                {:id id
                 :name (name-of id)
                 :state (state-of id)
                 :created (bots/created-at (home) id)
-                :used (used-at id)}))))
+                :used (used-at id)
+                :deleting? (boolean deleting?)
+                :renaming? (boolean renaming?)}))))
 
 (defn default-id
   "The bot the root of the page goes to: the one used last, else the
@@ -278,7 +277,7 @@
   (when (str/blank? (str name))
     (throw (js/Error. "A bot needs a name.")))
   (bots/check-skill! skill)
-  (let [conversation (await (.createConversation (:harness @machine) #js {:ownership #js {:kind "ownerless"}} harness/context))]
+  (let [conversation (await (.createConversation (:harness (agent)) #js {:ownership #js {:kind "ownerless"}} harness/context))]
     (await (adopt! (.-id conversation) given))))
 
 (defn ^:async rename!
@@ -299,9 +298,9 @@
   [id]
   (cond
     (nil? (bot id)) :missing
-    (= 1 (count @bots)) :last
+    (= 1 (count (bots))) :last
     :else (do (await (close-bot! id))
-              (await (hide! (:harness @machine) id))
+              (await (hide! (:harness (agent)) id))
               (bots/trash! (home) id)
               :deleted)))
 
@@ -310,10 +309,10 @@
    the answer of the bot whose hook it is, `{:ok false}` when it is
    none's."
   [receive! name secret headers body]
-  (loop [[{:keys [conversation]} & more] (vals @bots)]
+  (loop [[{:keys [conversation]} & more] (vals (bots))]
     (if (nil? conversation)
       (if (seq more) (recur more) {:ok false})
-      (let [answer (await (receive! {:harness (:harness @machine) :conversation conversation} name secret headers body))]
+      (let [answer (await (receive! {:harness (:harness (agent)) :conversation conversation} name secret headers body))]
         (if (:ok answer)
           answer
           (if (seq more) (recur more) {:ok false}))))))

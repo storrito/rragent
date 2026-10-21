@@ -169,7 +169,8 @@
         (is (= {:bot "cc33dd44" :path :event/target.value}
                (get-in (second (find-tag p :select.chooser)) [:on :change 0 1 :command/data])))))
     (testing "a delete armed asks in the row, a rename is a field, a note says the bot of the URL is gone"
-      (let [p (page {:sidebar {:deleting "aa11bb22" :renaming "ee55ff66"} :note [:i18n :bot/missing]})
+      (let [p (page {:bots [(assoc (nth bots 0) :deleting? true) (nth bots 1) (assoc (nth bots 2) :renaming? true)]
+                     :note [:i18n :bot/missing]})
             text (set (strings p))]
         (is (contains? text "Delete this bot? Its folder goes to the trash."))
         (is (= "Watcher" (:value (second (find-tag p :input.name)))))

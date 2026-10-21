@@ -636,9 +636,9 @@
 (defn sidebar
   "The bots of the machine, each a link to its page with its name and
    state, the one shown marked; the way to make one; a row being
-   deleted asks, a row being renamed is a field (`:deleting`,
-   `:renaming` in `opts`)."
-  [bots shown {:keys [deleting renaming]} version]
+   deleted asks, a row being renamed is a field (`:deleting?`,
+   `:renaming?` of the bot)."
+  [bots shown version]
   [:aside.sidebar
    [:div.brand "rragent"
     (when version
@@ -647,13 +647,13 @@
    ;; keyed by its order: a list whose rows move makes a new list
    ;; (Replicant 2026.07.1 keeps a stale vdom for a row moved to the front)
    [:ul.bots {:replicant/key (str/join " " (map :id bots))}
-    (for [{:keys [id name state]} bots]
+    (for [{:keys [id name state deleting? renaming?]} bots]
       [:li {:replicant/key id
             :class (cond-> [(clojure.core/name state)]
                      (= id shown) (conj "current"))}
        (cond
-         (= id deleting) (delete-confirm id)
-         (= id renaming) (rename-field id name)
+         deleting? (delete-confirm id)
+         renaming? (rename-field id name)
          :else (list
                 [:a.row {:href (bots/url id)
                          :data-bot id}
@@ -662,16 +662,16 @@
                 (bot-actions id (< 1 (count bots)))))])]])
 
 (defn page
-  "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :state}`;
-   `:bot`, the one shown, its `:id`, `:name` and `:model`;
-   `:conversation`, its transcript `{:entries :live :inbox}`;
-   `:artifacts`, its pane's keys; `:locale`; `:onboarding`, the skill's
-   welcome (`rragent.onboarding`) or nil; `:update`, the running
-   version and the newer release when one is known (`rragent.update`);
-   `:sidebar`, the delete or rename under way; `:note`, a line above
-   the chat when the bot is not the one the URL named; `:failed`, why
-   the bot did not open, when it did not."
-  [{:keys [bots bot conversation locale onboarding update note failed] pane :artifacts under-way :sidebar}]
+  "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :state
+   :deleting? :renaming?}`; `:bot`, the one shown, its `:id`, `:name`
+   and `:model`; `:conversation`, its transcript `{:entries :live
+   :inbox}`; `:artifacts`, its pane's keys; `:locale`; `:onboarding`,
+   the skill's welcome (`rragent.onboarding`) or nil; `:update`, the
+   running version and the newer release when one is known
+   (`rragent.update`); `:note`, a line above the chat when the bot is
+   not the one the URL named; `:failed`, why the bot did not open,
+   when it did not."
+  [{:keys [bots bot conversation locale onboarding update note failed] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -682,7 +682,7 @@
      ;; the drawer state on a phone, toggled by labels, never rendered
      ;; with :checked so that the person's choice survives a frame
      [:input#nav.toggle {:type "checkbox"}]
-     (sidebar bots id under-way (:current update))
+     (sidebar bots id (:current update))
      [:label.backdrop {:for "nav"}]
      ;; keyed by the bot: a switch builds the chat anew, the transcripts
      ;; of two bots share no element

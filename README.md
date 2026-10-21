@@ -214,11 +214,20 @@ connection it holds open per tab, Replicant diffs the frame into the DOM,
 and the browser posts commands back. `rragent.rframes.*` is rframes' server
 half ported to Node (`node:http`, `node:zlib`, transit-cljs), with the same
 protocol as the Clojure original, so the unchanged rframes client runs in the
-browser (`rragent.client`). The page is a function of the atoms of
-`rragent.db`: the page's own, with the bot each tab shows, and one per
-bot that follows its conversation's view (pi-durable's `viewState`, see
-`rragent.machine`) and its artifacts; every commit of a conversation
-pushes a new frame.
+browser (`rragent.client`). The page is a function of the one atom of
+`rragent.db`, the one place of mutable state: the machine's harness
+map, the updater, the version and the banner, the bot each tab picked,
+and every open bot under `[:bots <conversation id>]` with the value
+keys the page reads (its conversation's view, pi-durable's
+`viewState`, its definition, its state, its pane) beside the handles
+of its runtime (the conversation, the worker, the reload's text, the
+schedule source, the pane's handles). The watch on it compares old and
+new per bot over the value keys (`rragent.page/bot-value-keys`): a
+change of a bot's conversation or pane pushes a frame to the tabs
+showing that bot; a change of what the sidebar shows of it (its name,
+its state, a run starting or ending, a rename or delete under way), a
+bot coming or going, or a key of the page's own pushes to every tab; a
+handle pushes nothing.
 
 The login is a secret link, as pchat's. On a Sprite the secret is the
 sprite's own label `token:<secret>`, read with `sprite-env discover` when

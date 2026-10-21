@@ -102,14 +102,32 @@
      :decoder (js/TextDecoder.)}))
 
 (defn- frames!
-  "A function that reads the next frame of the stream that satisfies
-   its predicate, going on from where the last read ended."
+  "The reader of a stream's frames: `{:frame! :none-within}`. `frame!`
+   answers the next frame that satisfies its predicate, within 15 s;
+   `none-within` whether no frame came within its milliseconds. A read
+   of the stream that is still in flight when a wait ends is kept for
+   the next call, so that no frame is lost to it."
   [reader decoder buffer]
-  (let [buffer (atom buffer)]
-    (^:async fn [pred]
-      (let [found (await (within 15000 (next-frame reader decoder @buffer pred)))]
-        (reset! buffer (:buffer found))
-        (:view found)))))
+  (let [buffer (atom buffer)
+        inflight (atom nil)
+        read! (^:async fn [ms]
+                (let [pending (or @inflight (reset! inflight (next-frame reader decoder @buffer (constantly true))))]
+                  (try
+                    (let [found (await (within ms pending))]
+                      (reset! inflight nil)
+                      (reset! buffer (:buffer found))
+                      (:view found))
+                    (catch :default _
+                      :none))))]
+    {:frame! (^:async fn [pred]
+               (loop []
+                 (let [view (await (read! 15000))]
+                   (cond
+                     (= :none view) (throw (js/Error. "nothing after 15000 ms"))
+                     (pred view) view
+                     :else (recur)))))
+     :none-within (^:async fn [ms]
+                    (= :none (await (read! ms))))}))
 
 (defn- ^:async start!
   "The machine of `home`, a home of the old layout, opened with the
@@ -122,12 +140,12 @@
                                             :storage (harness/memory-storage)}
                                            opts)))
         server (await (http/listen (page/handler "s3cret") 0))]
-    (sse/watch! db/db)
+    (sse/watch! db/db page/affected)
     {:id (:id bot)
      :base (str "http://127.0.0.1:" (.-port (.address server)))
      :stop! (^:async fn []
               (sse/unwatch! db/db)
-              (swap! db/db dissoc :tabs :deleting :renaming)
+              (swap! db/db dissoc :tabs :updater)
               (.closeAllConnections server)
               (await (js/Promise. (fn [resolve] (.close server resolve))))
               (await (machine/close-all!)))}))
@@ -163,7 +181,7 @@
                    (testing "the stream: the empty page with the sidebar first, the question and the answer as frames"
                      (let [{:keys [status content-type reader decoder]} (await (stream bot-url cookie controller "t1"))
                            {first-frame :view buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
-                           frame! (frames! reader decoder buffer)]
+                           {:keys [frame! none-within]} (frames! reader decoder buffer)]
                        (is (= 200 status))
                        (is (= "text/event-stream" content-type))
                        (is (mentions? first-frame "Nothing here yet") "the empty feed, in English")
@@ -204,7 +222,7 @@
                            (is (= {:success? true} sent))
                            (let [answer (await (frame! #(mentions? % "A dot.")))
                                  img (some #(when (and (vector? %) (= :img (first %))) %) (tree-seq coll? seq answer))
-                                 message (->> (:entries (page/conversation (:value @(:pane (machine/bot id)))))
+                                 message (->> (:entries (page/conversation (:value (machine/bot id))))
                                               (filter #(= "pi.user" (:kind %)))
                                               (last)
                                               (:model)
@@ -266,7 +284,36 @@
                                    {frame :view} (await (within 15000 (next-frame reader decoder "" (constantly true))))]
                                (is (= (str "/bot/" id) (url-of frame)))
                                (is (mentions? frame "That bot is not here any more"))
-                               (.abort gone)))))))
+                               (.abort gone)))))
+                       (testing "a change of a bot's pane goes to the tabs showing it, to none other; a handle changes nothing; the sidebar's keys go to every tab"
+                         (is (= {:success? true} (await (command! base cookie :bot/create {:name "Third" :purpose "Count more" :tab "t3"}))))
+                         (let [id3 (:id (last (machine/listed)))
+                               other (js/AbortController.)
+                               {:keys [reader decoder]} (await (stream (str base "/bot/" id3) cookie other "t3"))
+                               {buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
+                               {other-frame! :frame! other-none-within :none-within} (frames! reader decoder buffer)]
+                           (try
+                             (await (frame! #(mentions? % "Third")))
+                             ;; the create's own refresh of every tab, coalesced, may still come
+                             (await (other-none-within 500))
+                             (await (none-within 300))
+                             (fs/writeFileSync (path/join (home/bot-dir home id) "work" "artifacts" "note.html") "<h1>note</h1>")
+                             (is (= (str "/bot/" id "/artifacts/note.html")
+                                    (:ui/src (second (find-tag (await (frame! #(find-tag % :ui/canvas))) :ui/canvas))))
+                                 "the first bot's tab shows its new artifact")
+                             (is (true? (await (other-none-within 1500))) "the other bot's tab gets no frame of it")
+                             (swap! db/db assoc-in [:bots id :worker] {:a "handle"})
+                             (swap! db/db assoc-in [:bots id3 :reload :text] "changed")
+                             (is (true? (await (none-within 1500))) "handles changed: no frame to the first bot's tab")
+                             (is (true? (await (other-none-within 500))) "nor to the other's")
+                             (swap! db/db assoc-in [:bots id3 :failed] "a value")
+                             (is (mentions? (await (other-frame! #(mentions? % "a value"))) "This bot did not open: a value") "the other bot's own tab shows it")
+                             (is (mentions? (await (frame! #(mentions? % "failed"))) "failed") "and the first bot's tab, whose sidebar shows the state")
+                             (swap! db/db update-in [:bots id3] dissoc :failed)
+                             (await (other-frame! #(not (mentions? % "a value"))))
+                             (finally
+                               (.abort other)
+                               (swap! db/db update-in [:bots id] dissoc :worker)))))))
                    (testing "a hook with a wrong secret is refused without the cookie"
                      (is (= 403 (.-status (await (js/fetch (str base "/hook/deploy/wrong") #js {:method "POST" :body "x"}))))))
                    (testing "the Update button's command runs the apply of the updater, the version's click the lookup"
@@ -278,10 +325,10 @@
                                                                                           :body (transit/write-str {:command/kind kind})}))]
                                      (transit/read-str (await (.text sent)))))]
                        (is (= {:success? false :result {:error :no-updater}} (await (post! :update/apply))) "no updater, no apply")
-                       (reset! page/updater {:db db/db
-                                             :current "0.1.2"
-                                             :latest-url "http://127.0.0.1:1/repos/storrito/rragent/releases/latest"
-                                             :apply! (fn [handle] (swap! applied conj (:current handle)) nil)})
+                       (swap! db/db assoc :updater {:db db/db
+                                                    :current "0.1.2"
+                                                    :latest-url "http://127.0.0.1:1/repos/storrito/rragent/releases/latest"
+                                                    :apply! (fn [handle] (swap! applied conj (:current handle)) nil)})
                        (try
                          (is (= {:success? true} (await (post! :update/apply))))
                          (is (= ["0.1.2"] @applied))
@@ -293,14 +340,51 @@
                                                                  (js/setTimeout poll 20))))))))
                          (is (= :failed (get-in @db/db [:update :checked])) "the lookup at a port that refuses fails, said in the banner")
                          (finally
-                           (reset! page/updater nil)
-                           (swap! db/db dissoc :update))))))
+                           (swap! db/db dissoc :updater :update))))))
                  (finally
                    (.abort controller)
                    (await (stop!))
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(defn- view-value
+  "A view value of pi-durable with a run going or not, as the page
+   reads it."
+  [running?]
+  #js {:entries #js [] :docs #js {"pi.live" (if running? #js {:run #js {:taskId "t"}} #js {})}})
+
+(deftest affected-test
+  (let [a (view-value false)
+        b (view-value false)
+        old {:tabs {"t1" "1" "t2" "7"}
+             :bots {"1" {:id "1" :value a :definition {:name "A"} :artifacts/list [] :worker {:w 1} :reload {:text "x"}}
+                    "7" {:id "7" :value b :definition {:name "B"} :artifacts/list []}}}
+        w (fn [tab url-id] {:tabid tab :ring/route-params {:* url-id}})
+        shows-1 (w "t1" "1")
+        shows-7 (w "t2" "7")]
+    (testing "a value of one bot goes to the tabs showing it"
+      (let [pred (page/affected old (assoc-in old [:bots "1" :artifacts/list] [{:path "x.html"}]))]
+        (is (fn? pred))
+        (is (true? (pred shows-1)))
+        (is (false? (pred shows-7)))
+        (is (true? (pred (w "t9" "1"))) "a tab without a pick shows the bot of its URL")))
+    (testing "a new view value with the run as it was: the same, to its tabs"
+      (let [pred (page/affected old (assoc-in old [:bots "7" :value] (view-value false)))]
+        (is (false? (pred shows-1)))
+        (is (true? (pred shows-7)))))
+    (testing "a handle changes nothing"
+      (is (nil? (page/affected old (assoc-in old [:bots "1" :worker] {:w 2}))))
+      (is (nil? (page/affected old (assoc-in old [:bots "1" :reload :text] "y"))))
+      (is (nil? (page/affected old old))))
+    (testing "what the sidebar shows goes to every tab: a name, a run starting, a flag, a bot that comes or goes, and the page's own keys"
+      (is (= :all (page/affected old (assoc-in old [:bots "1" :definition :name] "Anna"))))
+      (is (= :all (page/affected old (assoc-in old [:bots "1" :value] (view-value true)))))
+      (is (= :all (page/affected old (assoc-in old [:bots "7" :deleting?] true))))
+      (is (= :all (page/affected old (update old :bots dissoc "7"))))
+      (is (= :all (page/affected old (assoc-in old [:bots "9"] {:id "9"}))))
+      (is (= :all (page/affected old (assoc-in old [:tabs "t1"] "7"))))
+      (is (= :all (page/affected old (assoc old :update {:current "1"})))))))
 
 (deftest stop-test
   (async done
@@ -319,7 +403,7 @@
                    cookie (await (login base "s3cret"))
                    {:keys [reader decoder]} (await (stream bot-url cookie controller "t2"))
                    {buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
-                   frame! (frames! reader decoder buffer)
+                   {:keys [frame!]} (frames! reader decoder buffer)
                    agent (machine/agent)]
                (try
                  (testing "the main thread is free while a program blocks in a call: the page answers meanwhile"

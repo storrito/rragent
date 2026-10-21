@@ -11,13 +11,14 @@
    (`rragent.reload`), as the composer does.
 
    The machine's alarm (`rragent.wake`) is one for all the bots of
-   the process: every open bot registers how to read its earliest next
-   run (`watch!`, by `rragent.harness`), and `rearm!` sets the
+   the process: every open bot keeps how to read its earliest next
+   run in its map of the one atom (`watch!`, by `rragent.harness`), and `rearm!` sets the
    alarm to the earliest across them, after every change of a schedule
    and after every fire."
   (:require ["croner" :refer [Cron]]
             ["@earendil-works/pi-durable" :refer [defineDoc defineTask]]
             [clojure.string :as str]
+            [rragent.db :as db]
             [rragent.reload :as reload]
             [rragent.wake :as wake]))
 
@@ -65,23 +66,18 @@
     (when (seq runs)
       (apply min runs))))
 
-(defonce ^{:doc "By conversation id: a function of no arguments that answers a promise
-                 of the bot's earliest next run in milliseconds, nil without one."}
-  sources
-  (atom {}))
-
 (defn watch!
-  "The bot of the conversation `id` has schedules to read with `due-fn`."
+  "The bot of the conversation `id` has schedules to read with `due-fn`,
+   a function of no arguments that answers a promise of its earliest
+   next run in milliseconds, nil without one: its `:schedule-source` in
+   the one atom (`rragent.db`)."
   [id due-fn]
-  (swap! sources assoc id due-fn))
+  (swap! db/db assoc-in (conj (db/bot-path id) :schedule-source) due-fn))
 
-(defn unwatch!
-  [id]
-  (swap! sources dissoc id))
-
-(defn unwatch-all!
+(defn sources
+  "The schedule sources of every open bot."
   []
-  (reset! sources {}))
+  (keep :schedule-source (vals (:bots @db/db))))
 
 (defn- ^:async due-of
   "What the source answers; nil when it fails (a bot closing)."
@@ -94,7 +90,7 @@
 (defn ^:async next-due-of-all
   "The earliest next run across the open bots, nil without any."
   []
-  (let [dues (await (js/Promise.all (into-array (map due-of (vals @sources)))))]
+  (let [dues (await (js/Promise.all (into-array (map due-of (sources)))))]
     (when-let [known (seq (remove nil? (array-seq dues)))]
       (apply min known))))
 

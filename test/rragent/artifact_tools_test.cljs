@@ -71,7 +71,7 @@
                    (testing "the render wrote the video through the template's script and said so"
                      (is (= "video\n" (fs/readFileSync (path/join artifacts "card.mp4") "utf8")))
                      (is (some #(str/includes? % "artifacts/card.mp4 is ready.") texts))
-                     (is (= 0 (get-in @(db/pane "1") [:renders "card" :exit])) "the bot's atom knows the render"))
+                     (is (= 0 (get-in @db/db [:bots "1" :renders "card" :exit])) "the bot's map in the atom knows the render"))
                    (testing "the log of a project that never ran"
                      (is (some #(str/includes? % "No log yet for card") texts))))
                  (finally

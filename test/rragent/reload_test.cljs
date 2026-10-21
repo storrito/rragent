@@ -70,7 +70,7 @@
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))
                    root (:root agent)
                    id (.-id root)
-                   pane (db/pane id)
+                   bot (fn [] (get-in @db/db (db/bot-path id)))
                    unsubscribe (.subscribeCommits (:harness agent) (fn [_ _] (swap! commits inc)))]
                (try
                  (is (= "One." (await (harness/ask agent "First?"))))
@@ -88,8 +88,8 @@
                    (is (not (str/includes? (:instructions (last @seen)) "You watch a page.")) "the old ones gone")
                    (is (= "faux-2" (.. (await (.agent root harness/context)) -model -modelId)) "the model follows the file")
                    (is (= "reviewer" (:name (reload/current id))))
-                   (is (= "reviewer" (get-in @pane [:agent :definition :name])) "the page's copy follows")
-                   (is (= "faux-2" (get-in @pane [:agent :definition :model]))))
+                   (is (= "reviewer" (get-in (bot) [:definition :name])) "the bot's map follows")
+                   (is (= "faux-2" (get-in (bot) [:definition :model]))))
                  (testing "a file that does not read leaves the agent as it was"
                    (rewrite! home "---\ndescription: nameless now\n---\n\nNobody.\n")
                    (is (nil? (await (reload/reload! root harness/context))))

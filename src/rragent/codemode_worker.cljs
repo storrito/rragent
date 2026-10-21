@@ -23,6 +23,7 @@
             ["node:worker_threads" :refer [Worker isMainThread parentPort workerData]]
             [rragent.codemode :as codemode]
             [rragent.composio :as composio]
+            [rragent.db :as db]
             [rragent.rframes.transit :as transit]))
 
 (def mark
@@ -157,29 +158,30 @@
     (ended! handle worker reason)
     (.terminate worker)))
 
-(defonce ^{:doc "The handles of the bots' workers by the id of their conversation,
-                 a string; one worker, one SCI context, per bot."}
-  workers
-  (atom {}))
-
 (defn of
-  "The worker handle of the bot whose conversation is `id`, made over
-   the REPL `codemode` on first use."
+  "The worker handle of the bot whose conversation is `id`, its
+   `:worker` in the one atom (`rragent.db`), made over the REPL
+   `codemode` on first use; one worker, one SCI context, per bot."
   [codemode id]
-  (let [id (str id)]
-    (or (get @workers id)
-        (get (swap! workers (fn [m] (if (get m id) m (assoc m id (handle codemode))))) id))))
+  (let [path (conj (db/bot-path id) :worker)]
+    (or (get-in @db/db path)
+        (get-in (swap! db/db (fn [value]
+                               (if (get-in value path)
+                                 value
+                                 (assoc-in value path (handle codemode)))))
+                path))))
 
 (defn stop-of!
   "The bot's worker stopped and forgotten; nothing without one."
   [id reason]
-  (when-let [worker (get @workers (str id))]
-    (stop! worker reason)
-    (swap! workers dissoc (str id))))
+  (let [path (conj (db/bot-path id) :worker)]
+    (when-let [worker (get-in @db/db path)]
+      (stop! worker reason)
+      (swap! db/db update-in (db/bot-path id) dissoc :worker))))
 
 (defn stop-all!
   [reason]
-  (doseq [id (keys @workers)]
+  (doseq [id (keys (:bots @db/db))]
     (stop-of! id reason)))
 
 (defn- noted

@@ -141,7 +141,7 @@
    which configures the conversation from the folder's definition
    now (its instructions, model and `cwd`) and again before every
    submission; its schedules registered with the machine's alarm
-   (`rragent.schedule/watch!`), their next run noted in the bot's atom
+   (`rragent.schedule/watch!`), their next run noted in the bot's map
    as `:schedules/next` for the page. Answers the definition."
   [{:keys [harness home provider]} conversation]
   (let [id (.-id conversation)]
@@ -151,18 +151,17 @@
                           (-> (.snapshot harness schedule/Schedules id context)
                               (.then (fn [schedules]
                                        (let [due (schedule/next-due schedules (js/Date.now))]
-                                         (swap! (db/pane id) assoc :schedules/next due)
+                                         (swap! db/db assoc-in (conj (db/bot-path id) :schedules/next) due)
                                          due))))))
     (reload/current id)))
 
 (defn forget-conversation!
   "The bot of the conversation `id` forgotten by the process: its
-   definition, its alarm source, its worker, its page atom."
+   worker ended, its map taken out of the one atom (`rragent.db`),
+   with its definition, its alarm source and its pane."
   [id]
-  (reload/forget! id)
-  (schedule/unwatch! id)
   (codemode-worker/stop-of! id "The bot closed.")
-  (db/forget-pane! id))
+  (swap! db/db update :bots dissoc (str id)))
 
 (defn ^:async open
   "The harness of the machine in `home`, with the root conversation,
@@ -268,13 +267,11 @@
 
 (defn ^:async close
   "The harness closed, which aborts a running program with its call,
-   every bot forgotten by the process and every REPL worker ended."
+   every REPL worker ended and every bot taken out of the one atom."
   [{:keys [harness]}]
   (await (.close harness context))
-  (reload/forget-all!)
-  (schedule/unwatch-all!)
   (codemode-worker/stop-all! "The agent closed.")
-  (db/forget-panes!))
+  (swap! db/db assoc :bots {}))
 
 (def memory-storage
   "A storage that keeps nothing, for tests."

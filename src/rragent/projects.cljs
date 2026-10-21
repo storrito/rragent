@@ -16,7 +16,8 @@
    pchat.projects: one folder, no chats, and no nREPL reload, since a
    project's process reads its files again when they change.
 
-   The key this namespace owns in the db (`rragent.db`):
+   The key this namespace owns in the bot's map of the db
+   (`rragent.db`, under the handle's `:path`):
 
        :projects {name {:port :ready-at :exit}}         a process
        :projects {name {:static? true :entry :ready-at}} a page served as files"
@@ -26,6 +27,7 @@
             ["node:path" :as path]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
+            [rragent.db :as db]
             [rragent.programs :as programs]
             [rragent.proxy :as proxy]
             [rragent.rframes.http :as http]
@@ -35,18 +37,25 @@
   (atom {}))
 
 (defn handle
-  "`{:db the db, :dir the artifacts folder, :base the path the pane
+  "`{:db the db, :path where the bot's map is in it (the db's value
+   itself without), :dir the artifacts folder, :base the path the pane
    shows the projects under (`/artifacts`, or `/bot/<id>/artifacts`),
    :shown? a function of no arguments, whether someone looks at the
    page right now (yes, by default)}`. `:procs`, the processes by
    name, is shared by every handle of the process unless given, so
    that a tool reaches what the pane started."
-  [{:keys [dir shown? procs base] :as opts}]
+  [{:keys [dir shown? procs base path] :as opts}]
   (assoc opts
          :dir (path/resolve dir)
+         :path (or path [])
          :base (or base artifacts/url-prefix)
          :shown? (or shown? (constantly true))
          :procs (or procs rragent.projects/procs)))
+
+(defn- state
+  "The bot's map the handle writes in."
+  [{:keys [db path]}]
+  (db/at @db path))
 
 (defn names
   "The artifacts that are projects: subdirectories with a package.json."
@@ -140,9 +149,9 @@
 (defn- wanted?
   "The project on screen while someone looks at the page, or one that
    changed lately."
-  [{:keys [db shown?] :as handle} name now]
+  [{:keys [shown?] :as handle} name now]
   (or (and (shown?)
-           (= name (:artifacts/current @db)))
+           (= name (:artifacts/current (state handle))))
       (< (- now (newest-change (project-dir handle name))) recent-ms)))
 
 (defn- environment
@@ -159,23 +168,23 @@
 (defn- note-exit!
   "The exit of the process into the table and the db, when it is still
    the project's process (a restart replaced it otherwise)."
-  [{:keys [procs db]} name process code signal]
+  [{:keys [procs db path]} name process code signal]
   (when (identical? process (:process (get @procs name)))
     (let [exit (or code (if signal 1 0))]
       (swap! procs assoc-in [name :exit] exit)
-      (swap! db assoc-in [:projects name :exit] exit))))
+      (swap! db db/update-at path assoc-in [:projects name :exit] exit))))
 
 (defn- note-failure!
   "A project that cannot start: the reason into its `.log`, the exit
    into the table and the db."
-  [{:keys [procs db] :as handle} name message]
+  [{:keys [procs db path] :as handle} name message]
   (fs/appendFileSync (path/join (project-dir handle name) ".log") (str message "\n"))
   (swap! procs assoc name {:exit 1 :started (js/Date.now) :last-wanted (js/Date.now)})
-  (swap! db assoc-in [:projects name] {:exit 1}))
+  (swap! db db/update-at path assoc-in [:projects name] {:exit 1}))
 
 (defn ^:async start!
   "The project's process started, its output to `.log`."
-  [{:keys [procs db base] :as handle} name]
+  [{:keys [procs db base path] :as handle} name]
   (let [project-dir (project-dir handle name)
         port (await (free-port))
         {:keys [cmd args needs] :as run} (try (command project-dir) (catch :default e {:error (.-message e)}))]
@@ -200,7 +209,7 @@
                                  :port port
                                  :started now
                                  :last-wanted now})
-        (swap! db assoc-in [:projects name] {:port port :ready-at nil})))
+        (swap! db db/update-at path assoc-in [:projects name] {:port port :ready-at nil})))
     name))
 
 (defn- kill!
@@ -216,11 +225,11 @@
             nil))))))
 
 (defn stop!
-  [{:keys [procs db]} name]
+  [{:keys [procs db path]} name]
   (when-let [{:keys [process]} (get @procs name)]
     (some-> process kill!))
   (swap! procs dissoc name)
-  (swap! db update :projects dissoc name))
+  (swap! db db/update-at path update :projects dissoc name))
 
 (defn stop-all!
   [{:keys [procs] :as handle}]
@@ -238,11 +247,11 @@
                    (.once socket "error" (fn [] (resolve false)))))))
 
 (defn- ^:async check-ready!
-  [{:keys [db procs]} name]
+  [{:keys [db procs path] :as handle} name]
   (let [{:keys [port exit]} (get @procs name)]
-    (when (and port (nil? exit) (nil? (get-in @db [:projects name :ready-at])))
+    (when (and port (nil? exit) (nil? (get-in (state handle) [:projects name :ready-at])))
       (when (await (answers? port))
-        (swap! db assoc-in [:projects name :ready-at] (js/Date.now))))))
+        (swap! db db/update-at path assoc-in [:projects name :ready-at] (js/Date.now))))))
 
 (defn- ^:async restart-exited!
   [{:keys [procs] :as handle} name now]
@@ -264,12 +273,12 @@
 (defn- sync-static!
   "A project the pane serves as files: ready at its newest change, so
    that the iframe loads the page again after one."
-  [{:keys [db] :as handle} name template]
+  [{:keys [db path] :as handle} name template]
   (let [entry {:static? true
                :entry (:entry template)
                :ready-at (newest-change (project-dir handle name))}]
-    (when (not= entry (get-in @db [:projects name]))
-      (swap! db assoc-in [:projects name] entry))))
+    (when (not= entry (get-in (state handle) [:projects name]))
+      (swap! db db/update-at path assoc-in [:projects name] entry))))
 
 (defn- ^:async sync-process!
   [{:keys [procs] :as handle} name now]
@@ -286,15 +295,15 @@
    one on screen and the ones with recent changes, stops the ones that
    went or idled, notes which are ready, restarts the dead; a project
    of a static template is noted as ready with its newest change."
-  [{:keys [dir procs db] :as handle}]
+  [{:keys [dir procs db path] :as handle}]
   (let [current (set (names dir))
         now (js/Date.now)]
     (doseq [name (keys @procs)
             :when (not (contains? current name))]
       (stop! handle name))
-    (doseq [name (keys (:projects @db))
+    (doseq [name (keys (:projects (state handle)))
             :when (not (contains? current name))]
-      (swap! db update :projects dissoc name))
+      (swap! db db/update-at path update :projects dissoc name))
     (doseq [name current]
       (if-let [template (static-template (project-dir handle name))]
         (sync-static! handle name template)
@@ -358,10 +367,10 @@
    the slash is sent to `/artifacts/<name>/` so that the page's
    relative links work; its media files and anything else are left to
    the caller, without a response."
-  [{:keys [procs db dir] :as handle} w]
+  [{:keys [procs dir] :as handle} w]
   (let [[name rest] (split-path (get-in w [:ring/route-params :*]))
         {:keys [port]} (get @procs name)
-        {:keys [ready-at static? entry]} (get-in @db [:projects name])
+        {:keys [ready-at static? entry]} (get-in (state handle) [:projects name])
         uri (get-in w [:ring/request :uri])
         folder? (str/blank? rest)]
     (cond
@@ -388,10 +397,10 @@
 (defn referer-project
   "The running project whose page a request came from: the Referer
    names `<base>/<name>/`, and the project is ready."
-  [{:keys [procs db base]} request]
+  [{:keys [procs base] :as handle} request]
   (when-let [[_ name] (re-find (re-pattern (str "^https?://[^/]+" (quoted base) "/([^/?#]+)/")) (str (get-in request [:headers "referer"])))]
     (when (and (get @procs name)
-               (get-in @db [:projects name :ready-at]))
+               (get-in (state handle) [:projects name :ready-at]))
       name)))
 
 (defn ^:async command-handler
@@ -417,7 +426,7 @@
   "The project's process running and ready, started when it does not
    run: its port. Throws when there is no such project, when the pane
    serves it as files, or when it does not come up."
-  [{:keys [procs db dir] :as handle} name]
+  [{:keys [procs db dir path] :as handle} name]
   (when-not (contains? (set (names dir)) name)
     (throw (js/Error. (str "artifacts/" name " is no project."))))
   (when (static-template (project-dir handle name))
@@ -431,8 +440,8 @@
         (throw (js/Error. (str "artifacts/" name " exited with " exit ", its .log says why.")))
 
         (await (answers? port))
-        (do (when (nil? (get-in @db [:projects name :ready-at]))
-              (swap! db assoc-in [:projects name :ready-at] (js/Date.now)))
+        (do (when (nil? (get-in (state handle) [:projects name :ready-at]))
+              (swap! db db/update-at path assoc-in [:projects name :ready-at] (js/Date.now)))
             port)
 
         (< wake-ms waited)

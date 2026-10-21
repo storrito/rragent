@@ -127,7 +127,7 @@
                        (is (str/includes? text "## Your job\n\nCount the things."))
                        (is (str/includes? text "You are a new agent. Offer the skills")))
                      (is (= (str home "/bots/" (:id counter) "/work") (await (cwd-of (:conversation (machine/bot (:id counter)))))) "its own cwd")
-                     (is (= "Counter" (get-in @(:pane (machine/bot (:id counter))) [:agent :definition :name])) "configured from its file")
+                     (is (= "Counter" (get-in (machine/bot (:id counter)) [:definition :name])) "configured from its file")
                      (is (str/includes? (fs/readFileSync (path/join (home/bot-dir home (:id reviewer)) "AGENT.md") "utf8") (bots/skill-line "reviews")))
                      (is (= (str "The bot Counter (" (:id counter) ") is ready on its page, /bot/" (:id counter) ".") (get texts "b1")) "the creator's transcript records it"))
                    (testing "a skill the machine does not have is an error the model reads; its conversation stays unused"
@@ -209,7 +209,7 @@
                                                               (repeat 30 (tools-test/answer "Tock.")))))
                          (is (= "Set." (await (harness/ask-in conversation-b "Every second."))))
                          (is (not= armed-for-a (last (updates))) "b's run is sooner: the alarm moved")
-                         (is (some? (get-in @(:pane (machine/bot id-b)) [:schedules/next])))
+                         (is (some? (:schedules/next (machine/bot id-b))))
                          (is (contains? #{:asleep :running} (machine/state-of id-b)) "a bot that waits for its schedule, or runs it")
                          (await (sleep 1500))
                          (.setResponses faux (clj->js (concat [(tools-test/tool-call "schedule" {:action "delete" :name "tick"} "t2")

@@ -121,7 +121,7 @@
                          "create" (do (when (empty? name)
                                         (throw (js/Error. "create needs the name")))
                                       (work/text (create! dir (allowed (reload/current bot)) name (.-kind args))))
-                         "list" (work/text (let [s (listed dir @(db/pane bot))] (if (str/blank? s) "No projects" s)))
+                         "list" (work/text (let [s (listed dir (get-in @db/db (db/bot-path bot)))] (if (str/blank? s) "No projects" s)))
                          "log" (do (when (empty? name)
                                      (throw (js/Error. "log needs the name")))
                                    (work/text (log dir name))))))})))

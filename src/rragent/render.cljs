@@ -16,7 +16,8 @@
    pchat.render and bin/render: the render is a child process of the
    agent's own.
 
-   The key this namespace owns in the db (`rragent.db`):
+   The key this namespace owns in the bot's map of the db
+   (`rragent.db`, under the handle's `:path`):
 
        :renders {name {:started ms :progress \"30 %\" :exit n :error \"...\"}}"
   (:require ["node:child_process" :as child]
@@ -25,6 +26,7 @@
             ["node:readline" :as readline]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
+            [rragent.db :as db]
             [rragent.programs :as programs]
             [rragent.templates :as templates]))
 
@@ -35,12 +37,13 @@
                  30)))
 
 (defn handle
-  "`{:db the db, :dir the artifacts folder, :timeout-ms}`; `:procs`, the
-   table of the running renders by name, is shared by every handle of
-   the process unless given, so that the tool starts what the pane
+  "`{:db the db, :path where the bot's map is in it (the db's value
+   itself without), :dir the artifacts folder, :timeout-ms}`; `:procs`,
+   the table of the running renders by name, is shared by every handle
+   of the process unless given, so that the tool starts what the pane
    stops."
-  [{:keys [dir] :as opts}]
-  (assoc opts :dir (path/resolve dir)))
+  [{:keys [dir path] :as opts}]
+  (assoc opts :dir (path/resolve dir) :path (or path [])))
 
 (defonce procs
   (atom {}))
@@ -133,10 +136,10 @@
 (defn- finish!
   "The exit of the process into the db: the error with the reason,
    nothing of it after a stop; the finished file is news for the pane."
-  [{:keys [db] :as handle} name exit lines errors]
+  [{:keys [db path] :as handle} name exit lines errors]
   (let [{:keys [stopped? timed-out?]} (get @(table handle) name)]
     (swap! (table handle) dissoc name)
-    (swap! db update :renders
+    (swap! db db/update-at path update :renders
            (fn [renders]
              (if stopped?
                (dissoc renders name)
@@ -148,15 +151,15 @@
 
                            (and (not timed-out?) (not (zero? exit)))
                            (assoc :error (error-of exit lines errors))))))))
-    (artifacts/refollow! db)
-    (get-in @db [:renders name])))
+    (artifacts/refollow! db path)
+    (get-in (db/at @db path) [:renders name])))
 
 (defn- refuse!
   "No process: the render is over before it started, with the message
    as its error, where the person reads it."
-  [{:keys [db]} name message]
+  [{:keys [db path]} name message]
   (let [render {:started (js/Date.now) :exit 1 :error message}]
-    (swap! db assoc-in [:renders name] render)
+    (swap! db db/update-at path assoc-in [:renders name] render)
     render))
 
 (defn- lines!
@@ -182,7 +185,7 @@
 (defn- spawn!
   "The template's render script on the project, its output followed:
    a promise of the render's state once it ended."
-  [{:keys [db dir timeout-ms] :as handle} name template on-line]
+  [{:keys [db dir timeout-ms path] :as handle} name template on-line]
   (let [project-dir (path/join dir name)
         out (output-file handle name)
         before (stamp out)
@@ -197,7 +200,7 @@
         note! (fn [line]
                 (swap! lines #(vec (take-last 20 (conj % line))))
                 (when-let [progress (progress-of line)]
-                  (swap! db assoc-in [:renders name :progress] progress))
+                  (swap! db db/update-at path assoc-in [:renders name :progress] progress))
                 (when on-line
                   (on-line line)))
         timer (js/setTimeout (fn []
@@ -206,7 +209,7 @@
                                  (kill! process)))
                              timeout-ms)]
     (swap! (table handle) assoc name {:process process :waiting [] :before before})
-    (swap! db assoc-in [:renders name] {:started (js/Date.now)})
+    (swap! db db/update-at path assoc-in [:renders name] {:started (js/Date.now)})
     (lines! (.-stdout process) note!)
     (lines! (.-stderr process) (fn [line]
                                  (swap! errors #(vec (take-last 5 (conj % line))))
@@ -248,7 +251,7 @@
 
 (defn stop!
   "Ends a running render; the file it was writing goes with it."
-  [{:keys [db] :as handle} name]
+  [{:keys [db path] :as handle} name]
   (when-let [{:keys [process before]} (get @(table handle) name)]
     (swap! (table handle) assoc-in [name :stopped?] true)
     (kill! process)
@@ -257,7 +260,7 @@
       ;; from before the start, as it was, stays
       (when (and (fs/existsSync file) (not= before (stamp file)))
         (fs/rmSync file #js {:force true})))
-    (swap! db update :renders dissoc name)
+    (swap! db db/update-at path update :renders dissoc name)
     name))
 
 (defn stop-all!
