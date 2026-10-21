@@ -97,7 +97,7 @@
           (str/trim)
           (str/lower-case)))
 
-(defn- query-params
+(defn query-params
   [request]
   (into {}
         (keep (fn [pair]
@@ -106,7 +106,7 @@
                     [k (or v "")]))))
         (str/split (str (:query-string request)) #"&")))
 
-(defn- respond
+(defn respond
   [w status value]
   (assoc w
          :ring/response
@@ -114,7 +114,7 @@
           :headers {"Content-Type" "application/transit+json"}
           :body (transit/write-str value)}))
 
-(defn- file-size
+(defn file-size
   "The bytes of `file`, 0 without it."
   [file]
   (try
@@ -139,7 +139,7 @@
   [^js digest]
   (subs (.digest digest "hex") 0 32))
 
-(defn- copy-counted!
+(defn copy-counted!
   "Appends the readable `in` to `file`, at most `limit` bytes in all, and
    answers a promise of the bytes the file holds then, or of nil when it
    would grow past `limit`; what came after the limit is dropped.

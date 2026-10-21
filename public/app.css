@@ -1199,6 +1199,7 @@ pre {
   }
 
   .composer .attach,
+  .composer button.record,
   .composer button.stop,
   .composer button.send {
     display: inline-flex;
@@ -1215,6 +1216,10 @@ pre {
   .composer label.attach {
     order: 1;
     margin-right: auto;
+  }
+
+  .composer button.record {
+    order: 2;
   }
 
   .composer button.dictate {
@@ -1342,6 +1347,157 @@ pre {
 .composer .dictate:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+/* The screencast panel above the text (rragent.client.recorder): the
+   devices in a row, the camera live with the meter of the microphone,
+   the test's playback, Test and Start; while it records, a bar with a
+   red dot, the time and Stop. The button in the row is red then. */
+.recorder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.recorder .head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recorder button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.recorder button.link:hover {
+  color: var(--text);
+}
+
+.recorder .devices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.recorder .devices label {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.recorder .devices select {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.recorder .preview {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.recorder video.camera {
+  width: 240px;
+  max-width: 60%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: var(--code-bg);
+  object-fit: cover;
+}
+
+.recorder video.test {
+  width: 100%;
+  max-height: 240px;
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.recorder .meter {
+  --level: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  margin-bottom: 8px;
+}
+
+.recorder .meter span {
+  width: 4px;
+  height: calc(3px + var(--level) * 21px);
+  border-radius: 2px;
+  background: var(--ok);
+  transition: height 60ms linear;
+}
+
+.recorder .meter span:nth-child(odd) {
+  height: calc(3px + var(--level) * 13px);
+}
+
+.recorder .meter span:nth-child(3) {
+  height: calc(3px + var(--level) * 21px);
+}
+
+.recorder .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recorder .hint,
+.recorder .error {
+  margin: 0;
+  font-size: 13px;
+}
+
+.recorder .live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.recorder .live .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.recorder .live .time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.recorder .live .hint {
+  flex: 1 1 200px;
+  color: var(--muted);
+}
+
+.composer .record.recording {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 25%, var(--panel));
 }
 
 .attachments {

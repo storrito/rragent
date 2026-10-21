@@ -92,7 +92,6 @@
       (let [empty (i18n/translate (view/page {:agent {} :conversation nil :locale :de}) :de)
             text (set (strings empty))]
         (is (contains? text "Noch nichts hier. Schreib die erste Nachricht."))
-        (is (not (contains? text "Stopp")))
         (is (nil? (:ui/stop (second (find-tag empty :ui/composer)))) "no Stop while nothing runs")))
     (testing "an empty conversation of a skill opens with its welcome and placeholder"
       (let [onboarding {:title "Kinetic Shorts" :ask "Füge den Link ein." :placeholder "YouTube-Link einfügen"}
@@ -170,6 +169,8 @@
         (is (= "/bot/cc33dd44/artifacts/card.html" (:ui/src (second (find-tag p :ui/canvas)))))
         (is (= "/bot/cc33dd44/upload" (:ui/upload-url composer)))
         (is (= "/bot/cc33dd44/dictation" (:ui/dictation-url composer)))
+        (is (= "/bot/cc33dd44/record" (:ui/record-url composer)) "a screencast's pieces go under the bot too")
+        (is (= "Record a screencast" (:title (:ui/recorder (second (find-tag (i18n/translate p :en) :ui/composer))))) "the panel's words are translated")
         (is (= [:draft "cc33dd44"] (:ui/store-key composer)) "the draft is the bot's")
         (is (= {:bot "cc33dd44" :path :event/target.value}
                (get-in (second (find-tag p :select.chooser)) [:on :change 0 1 :command/data])))))

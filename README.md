@@ -435,6 +435,23 @@ Two Vite builds, one dev server:
   for that; the harness's bundle requires nothing of it. `npm run
   build:templates` runs them, `npm run build` runs them first.
 
+## Screencasts
+
+The 🎥 button of the composer records a screencast the way
+[rawcast](https://github.com/maxweber/rawcast) does: the screen and the
+webcam as two files, both with the microphone, no layout up front. The
+panel picks the microphone and the camera (remembered in the browser),
+shows the camera live with the level of the microphone and makes a test
+recording of five seconds to play back; Start opens Chrome's screen
+picker. The pieces go to the machine as they are recorded
+(`rragent.recordings`), into `artifacts/recordings/<stamp>/`:
+`screen.webm`, `webcam.webm` and `recording.json` with the devices and
+when each recorder started (remuxed by ffmpeg when the machine has one,
+so that the files carry their duration). When the recording ends the
+draft names the files; the person tells the agent how the two go
+together, and the agent aligns them by their waveforms and composes the
+video. Chrome on a desktop only.
+
 ## Development
 
 Node 26 (`mise install`), Java 17 or later for the compiler.

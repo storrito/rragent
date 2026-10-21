@@ -32,7 +32,8 @@
             [rframes.client :as rframes]
             [rframes.client.state :as state]
             [rframes.client.ui :as ui]
-            [rragent.client.dictation :as dictation]))
+            [rragent.client.dictation :as dictation]
+            [rragent.client.recorder :as recorder]))
 
 (def max-side
   "Pixels on the long side of an uploaded image, pchat's."
@@ -448,7 +449,9 @@
    files on the clipboard uploads them, a paste of text pastes; files dragged over the page
    bring up the veil (`drop-veil`), a drop on it uploads them. With
    `:ui/stop`, actions, a Stop button beside Send runs them (a run
-   goes). Send and Stop carry their word and an icon; the stylesheet
+   goes). With `:ui/record-url`, where a screencast's pieces go, the
+   row has the screencast button and the panel above the text
+   (`rragent.client.recorder`), its words in `:ui/recorder`. Send and Stop carry their word and an icon; the stylesheet
    shows the word on a wide screen and the icon on a phone, where the
    row is a card like the Claude app's. The labels are the server's,
    translated; the other attributes pass through to the textarea."
@@ -456,7 +459,7 @@
            ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
            ui/drop-title ui/drop-hint ui/dictation-url ui/dictate-title ui/dictate-stop-title
            ui/transcribing-title ui/dictation-failed-title ui/send-after-dictation-label ui/state
-           ui/stop ui/stop-label]
+           ui/stop ui/stop-label ui/record-url ui/recorder]
     :as attrs}
    _children]
   (let [store state/store
@@ -495,6 +498,8 @@
        (drop-veil store attachments-key upload-url {:title drop-title
                                                     :hint drop-hint}))
      (dictation/indicator state)
+     (when record-url
+       (recorder/panel store state recorder))
      (attachments-view store attachments-key attachments {:remove-title remove-title
                                                           :uploading-label uploading-label
                                                           :failed-label failed-label})
@@ -507,7 +512,8 @@
                    :ui/send-label :ui/send-pending-label :ui/send-cancel-title :ui/attach-title :ui/remove-title :ui/uploading-label
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
                    :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
-                   :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label)
+                   :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label
+                   :ui/record-url :ui/recorder)
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -530,6 +536,10 @@
                                 (dictation/key-up! store store-key dictation-url event))
                        :blur (fn [_]
                                (dictation/blur! store store-key dictation-url))}))]
+      (when record-url
+        (recorder/button store state {:url record-url
+                                      :store-key store-key
+                                      :labels recorder}))
       (dictation/button store store-key dictation-url state
                         {:dictate-title dictate-title
                          :dictate-stop-title dictate-stop-title
