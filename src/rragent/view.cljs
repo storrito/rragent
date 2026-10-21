@@ -425,6 +425,7 @@
                   :ui/dictation-failed-title [:i18n :composer/dictation-failed]
                   :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
                   :rows 3
+                  :title [:i18n :composer/keys]
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]
    (when (= :working status)
      [:button.stop {:on {:click [[:data/command {:command/kind :chat/stop
@@ -540,7 +541,7 @@
                  (if project?
                    (get renders (:path artifact))
                    (artifacts/writing pane artifact)))]
-    [:section.artifacts
+    [:section.artifacts {:class (when (empty? list) "empty")}
      [:div.bar
       [:span.label [:i18n :page/artifacts]]
       (when (seq list)
@@ -555,6 +556,16 @@
        (content base artifact {:project (get projects (:path artifact))
                                :render render})
        [:div.placeholder [:i18n :artifacts/empty]])]))
+
+(defn- views
+  "On a phone the chat and the artifacts take turns: two radios in
+   `page`, these labels are the tabs, the stylesheet shows one of the
+   two; nothing of it on a wide screen, where the pane is beside the
+   chat."
+  []
+  [:nav.views
+   [:label {:for "view-chat"} [:i18n :page/view-chat]]
+   [:label {:for "view-made"} [:i18n :page/artifacts]]])
 
 (defn state-label
   [state]
@@ -665,7 +676,8 @@
         base (when id (bots/url id))
         items (items conversation)
         status (status (:live conversation))
-        fresh? (not-any? shown? items)]
+        fresh? (not-any? shown? items)
+        artifacts? (seq (:artifacts/list pane))]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
      [:ui/url {:ui/path base}]
      ;; the drawer state on a phone, toggled by labels, never rendered
@@ -676,7 +688,15 @@
      ;; keyed by the bot: a switch builds the chat anew, the transcripts
      ;; of two bots share no element
      [:div.main {:replicant/key (str "bot-" id)}
+      ;; the view on a phone once there are artifacts, chat or artifacts;
+      ;; never rendered with :checked either, see `views`
+      (when artifacts?
+        (list
+         [:input#view-chat.toggle {:type "radio" :name "view"}]
+         [:input#view-made.toggle {:type "radio" :name "view"}]))
       (header bot status (:current update))
+      (when artifacts?
+        (views))
       [:div.body
        [:div.chat
         (update-banner update)
