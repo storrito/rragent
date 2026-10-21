@@ -42,10 +42,12 @@
   #{"checkbox" "radio"})
 
 (def style-properties
-  "What a style may set: layout inside the block, spacing, borders,
-   colors and type. Nothing that takes an element out of the flow
-   (`position`, `z-index`, `transform`) and over the page."
+  "What a style may set: layout inside the block (flex and grid),
+   spacing, borders, colors and type. Nothing that takes an element out
+   of the flow (`position`, `z-index`, `transform`) and over the page."
   #{:display :flex :flex-direction :flex-wrap :flex-grow :flex-shrink :flex-basis
+    :grid-template-columns :grid-template-rows :grid-auto-rows :grid-auto-flow
+    :grid-column :grid-row :justify-items :place-items
     :gap :row-gap :column-gap :align-items :align-self :justify-content
     :text-align :vertical-align
     :margin :margin-top :margin-right :margin-bottom :margin-left
@@ -66,9 +68,17 @@
     :font-size :font-weight :font-style :width :height})
 
 (def style-functions
-  "The CSS functions a style value may call: colors and sums, nothing
-   that loads a file (`url`, `image-set`)."
-  #{"rgb" "rgba" "hsl" "hsla" "calc"})
+  "The CSS functions a style value may call: colors, sums, gradients (a
+   skill's backgrounds are gradients) and the sizes of a grid's tracks,
+   nothing that loads a file (`url`, `image-set`)."
+  #{"rgb" "rgba" "hsl" "hsla" "calc" "repeat" "minmax" "fit-content"
+    "linear-gradient" "radial-gradient" "conic-gradient"
+    "repeating-linear-gradient" "repeating-radial-gradient" "repeating-conic-gradient"})
+
+(def background-properties
+  "The properties that paint a background, allowed or not: a color
+   given with one that did not get through goes with it (`style`)."
+  #{:background :background-color :background-image})
 
 (def max-depth
   "Elements deeper than this go: markdown-it nests at most 100 deep, the
@@ -114,17 +124,24 @@
 
 (defn- style
   "The style map with the `properties` and plain values; nil when none is
-   left."
+   left. A color goes with a background that did not get through: it was
+   meant for that background, on the page's it may not read."
   [value properties]
   (when (map? value)
-    (not-empty
-     (into {}
-           (for [[k v] value
-                 :let [k (when (or (keyword? k) (string? k)) (keyword (str/lower-case (name k))))]
-                 :when (and (contains? properties k)
-                            (or (string? v) (number? v))
-                            (style-value? v))]
-             [k v])))))
+    (let [given (for [[k v] value
+                      :let [k (when (or (keyword? k) (string? k)) (keyword (str/lower-case (name k))))]]
+                  [k v])
+          kept (into {}
+                     (filter (fn [[k v]]
+                               (and (contains? properties k)
+                                    (or (string? v) (number? v))
+                                    (style-value? v))))
+                     given)
+          lost-background? (some (fn [[k _]]
+                                   (and (background-properties k) (not (contains? kept k))))
+                                 given)]
+      (not-empty (cond-> kept
+                   lost-background? (dissoc :color))))))
 
 (defn- send-actions
   [text]
