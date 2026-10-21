@@ -13,6 +13,7 @@
    follow rchat's stylesheet, which the page ships as app.css."
   (:require [clojure.string :as str]
             [rragent.artifacts :as artifacts]
+            [rragent.dictation :as dictation]
             [rragent.markdown :as markdown]
             [rragent.uploads :as uploads]))
 
@@ -309,9 +310,10 @@
 (defn composer
   "The draft and the attachments are client state (`:ui/composer`, see
    `rragent.client`): a new frame does not reset them. The alias has the
-   attach button and Send, which waits for the uploads; Stop aborts the
-   run while one goes. `placeholder` is the skill's while the chat is
-   empty, the page's own otherwise."
+   microphone button, whose recording goes into the draft as text
+   (`rragent.dictation`), the attach button and Send, which waits for
+   the uploads; Stop aborts the run while one goes. `placeholder` is
+   the skill's while the chat is empty, the page's own otherwise."
   [status placeholder]
   [:div.composer
    [:ui/composer {:ui/store-key :draft
@@ -327,6 +329,12 @@
                   :ui/failed-label [:i18n :composer/upload-failed]
                   :ui/drop-title [:i18n :composer/drop-title]
                   :ui/drop-hint [:i18n :composer/drop-hint]
+                  :ui/dictation-url dictation/path
+                  :ui/dictate-title [:i18n :composer/dictate]
+                  :ui/dictate-stop-title [:i18n :composer/dictate-stop]
+                  :ui/transcribing-title [:i18n :composer/transcribing]
+                  :ui/dictation-failed-title [:i18n :composer/dictation-failed]
+                  :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
                   :rows 3
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]
    (when (= :working status)
