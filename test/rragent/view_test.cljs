@@ -217,3 +217,26 @@
       (is (= [:em "hard"] (find-tag (second answers) :em))))
     (testing "the page stays data a frame can carry"
       (is (= page (transit/read-str (transit/write-str page)))))))
+
+(deftest answered-test
+  (let [block "```hiccup\n[:button {:send \"A\"} \"A\"]\n```\n"
+        answered (fn [c] (into {} (keep (fn [{:keys [kind id answered?]}]
+                                          (when (= :assistant kind) [id (boolean answered?)])))
+                               (view/items c)))]
+    (testing "the answers before the person's last message are answered, the last one is not"
+      (is (= {2 true 4 false}
+             (answered {:entries [(user 1 "Go") (assistant 2 [{:type "text" :text block}])
+                                  (user 3 "A") (assistant 4 [{:type "text" :text block}])]}))))
+    (testing "a message waiting in the inbox answers too"
+      (is (= {2 true}
+             (answered {:entries [(user 1 "Go") (assistant 2 [{:type "text" :text block}])]
+                        :inbox {:items [{:id "s1" :mode "followUp" :content "A"}]}}))))
+    (testing "a hook's call answers nothing"
+      (is (= {2 false}
+             (answered {:entries [(user 1 "Go") (assistant 2 [{:type "text" :text block}])
+                                  {:id 3 :kind "rragent.hook" :data {:name "deploy"} :model [{:role "user" :content "Hook deploy was called."}]}]}))))
+    (testing "on the page, the answered block's button is disabled"
+      (let [page (i18n/translate (view/page {:agent {} :locale :en
+                                             :conversation {:entries [(user 1 "Go") (assistant 2 [{:type "text" :text block}]) (user 3 "A")]}})
+                                 :en)]
+        (is (:disabled (second (find-tag page :button))))))))

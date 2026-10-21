@@ -105,7 +105,7 @@
         meta (.-meta token)]
     (cond
       (and (= "hiccup" lang) (some-> meta .-closed))
-      (genui/block (.-content token))
+      (genui/block (.-content token) {:answered? (boolean (.-answered meta))})
 
       (and (= "hiccup" lang) (some-> meta .-streaming))
       ;; no text: the same in every language
@@ -244,20 +244,22 @@
    written: in an answer still streaming, the fence that runs to the end
    of the text (one a list or a blockquote ended is done); nested ones
    too (a fence in a list or a blockquote is a token of the top level as
-   well)."
-  [tokens streaming? lines]
+   well). `meta.answered` on all of them in an answer the person has
+   answered since (`rragent.genui/block`)."
+  [tokens {:keys [streaming? answered?]} lines]
   (doseq [^js token (array-seq tokens)
           :when (and (= "fence" (.-type token)) (.-map token))]
     (set! (.-meta token) #js {:closed (closed? token)
                               :streaming (and (boolean streaming?)
-                                              (= lines (second (array-seq (.-map token)))))}))
+                                              (= lines (second (array-seq (.-map token)))))
+                              :answered (boolean answered?)}))
   tokens)
 
 (defn parse
   ([text]
    (parse text {}))
-  ([text {:keys [streaming?]}]
-   (from-tokens (mark-closed! (.parse parser (str text) #js {}) streaming? (line-count text)))))
+  ([text opts]
+   (from-tokens (mark-closed! (.parse parser (str text) #js {}) opts (line-count text)))))
 
 (def ^:private cache-size
   "Entries the cache holds before it is emptied: every chunk of a
@@ -272,15 +274,23 @@
   ;; open ```hiccup fence), so it has a cache of its own
   (js/Map.))
 
+(defonce ^:private answered-cache
+  ;; and so does one the person has answered (its buttons are done)
+  (js/Map.))
+
 (defn hiccup
   "The hiccup of a markdown `text`, a vector of its block elements; the
    one of the last texts asked for again from the cache. `:streaming?`
-   for an answer still being written (see `fence`)."
+   for an answer still being written, `:answered?` for one the person
+   has answered since (see `fence`)."
   ([text]
    (hiccup text {}))
-  ([text {:keys [streaming?] :as opts}]
+  ([text {:keys [streaming? answered?] :as opts}]
    (let [text (str text)
-         ^js cache (if streaming? streaming-cache cache)]
+         ^js cache (cond
+                     streaming? streaming-cache
+                     answered? answered-cache
+                     :else cache)]
      (or (.get cache text)
          (let [result (parse text opts)]
            (when (<= cache-size (.-size cache))

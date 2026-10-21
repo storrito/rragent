@@ -217,3 +217,10 @@
     (let [hiccup (markdown/parse "```hiccup\n[:div [:input {:type \"checkbox\" :value \"a\"}] [:button {:send \"On: {checked}\"} \"Go\"]]\n```")]
       (is (not-any? fn? (tree-seq coll? seq hiccup)))
       (is (= hiccup (transit/read-str (transit/write-str hiccup)))))))
+
+(deftest answered-hiccup-test
+  (let [text "Pick one:\n\n```hiccup\n[:button {:send \"A\"} \"A\"]\n```\n"
+        button (fn [blocks] (some #(when (and (vector? %) (= :button (first %))) %) (tree-seq coll? seq blocks)))]
+    (testing "a block of an answer the person has answered has its buttons disabled, the same text otherwise not"
+      (is (:disabled (second (button (markdown/hiccup text {:answered? true})))))
+      (is (not (:disabled (second (button (markdown/hiccup text)))))))))

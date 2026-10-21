@@ -150,3 +150,22 @@
       (is (= :genui/rejected k))
       (is (string? error))
       (is (= [:pre [:code "[:p"]] code)))))
+
+(deftest answered-test
+  (let [hiccup [:div
+                [:label [:input {:type "checkbox" :value "Reel" :checked true}] " Reel"]
+                [:button {:send "Post on: {checked}"} "Take these"]
+                [:button {:send "Not now"} "Later"]
+                [:button {:open "artifacts/shorts"} "Show the shorts"]]
+        [_ _ [_ _ input] checked later open] (genui/sanitize hiccup {:answered? true})]
+    (testing "once the person has answered, the choices are made: buttons that send and inputs are disabled"
+      (is (= [:input {:type "checkbox" :value "Reel" :checked true :disabled true}] input))
+      (is (= [:button {:title "Post on: {checked}" :disabled true} "Take these"] checked)
+          "no alias that sends the ticked values")
+      (is (= [:button {:title "Not now" :disabled true} "Later"] later)))
+    (testing "a button that opens an artifact still does"
+      (is (some? (:on (second open))))
+      (is (not (:disabled (second open))))))
+  (testing "the block says so"
+    (is (= :div.genui.answered (first (genui/block "[:button {:send \"A\"} \"A\"]" {:answered? true}))))
+    (is (= :div.genui (first (genui/block "[:button {:send \"A\"} \"A\"]"))))))

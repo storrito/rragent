@@ -19,8 +19,10 @@
    person's next message; `{checked}` in it becomes the values ticked in
    the same block, which only the browser knows, so such a button is the
    client's alias `:ui/send-checked` (`rragent.client`). `:open` shows an
-   artifact. A block that does not read is shown as code with what went
-   wrong. The contract the skills write against is pchat's
+   artifact. Once the person has answered the message, the block's
+   choices are made: its buttons that send and its inputs are disabled,
+   a button that opens an artifact still does. A block that does not
+   read is shown as code with what went wrong. The contract the skills write against is pchat's
    (`pchat.genui`) with the inputs added."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]))
@@ -205,10 +207,11 @@
    type than checkbox or radio goes, and so does what is nested deeper
    than `max-depth`. A button in a label is a span: clicking anywhere on
    the label would click it, a label as big as the screen a button too.
-   `scope` prefixes the names of the inputs."
+   `scope` prefixes the names of the inputs; with `answered?` a button
+   that sends and an input are disabled."
   ([hiccup]
    (sanitize hiccup {}))
-  ([hiccup {:keys [scope depth in-label?] :or {scope "" depth 0} :as opts}]
+  ([hiccup {:keys [scope depth in-label? answered?] :or {scope "" depth 0} :as opts}]
    (let [deeper (assoc opts :depth (inc depth))]
      (cond
        (< max-depth depth)
@@ -225,6 +228,12 @@
          (cond
            (and allowed? (= :input base) (not (input-types (:type m))))
            nil
+
+           (and allowed? answered? (or (= :input base) (and (= :button base) (string? (:send m)))))
+           (into [(without-id tag) (-> (attrs base m scope)
+                                       (dissoc :on)
+                                       (assoc :disabled true))]
+                 children)
 
            (and allowed? (send-checked? base m))
            (into [:ui/send-checked (-> (attrs base (dissoc m :send :open :title) scope)
@@ -257,21 +266,26 @@
 
 (defn block
   "One block as a part of the page, or as code with what went wrong. The
-   names of its inputs get the block's own prefix, from its text."
-  [text]
-  (let [{:keys [hiccup error]} (parse text)
-        [part error] (if error
-                       [nil error]
-                       ;; whatever the model wrote, the page goes on: a block that fails is code
-                       (try
-                         [(sanitize hiccup {:scope (str "b" (abs (hash text)) "-")}) nil]
-                         (catch :default e
-                           [nil (or (ex-message e) (str e))])))]
-    (if error
-      [:div.genui.genui-error
-       [:p.error [:i18n :genui/rejected {:error error}]]
-       [:pre [:code text]]]
-      [:div.genui part])))
+   names of its inputs get the block's own prefix, from its text;
+   `:answered?` for a block of a message the person has answered since."
+  ([text]
+   (block text {}))
+  ([text {:keys [answered?]}]
+   (let [{:keys [hiccup error]} (parse text)
+         [part error] (if error
+                        [nil error]
+                        ;; whatever the model wrote, the page goes on: a block that fails is code
+                        (try
+                          [(sanitize hiccup {:scope (str "b" (abs (hash text)) "-") :answered? answered?}) nil]
+                          (catch :default e
+                            [nil (or (ex-message e) (str e))])))]
+     (if error
+       [:div.genui.genui-error
+        [:p.error [:i18n :genui/rejected {:error error}]]
+        [:pre [:code text]]]
+       (if answered?
+         [:div.genui.answered part]
+         [:div.genui part])))))
 
 (comment
   (block "[:ul [:li [:audio {:src \"artifacts/card/a.mp3\" :controls true}] [:button {:send \"Take a\"} \"Take this one\"]]]")
