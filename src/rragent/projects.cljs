@@ -203,13 +203,13 @@
 
 (defn- kill!
   "The process group ended; the process alone when it has no group."
-  [^js process]
-  (when-let [pid (.-pid process)]
+  [^js child]
+  (when-let [pid (.-pid child)]
     (try
-      (js/process.kill (- pid) "SIGTERM")
+      (.kill js/process (- pid) "SIGTERM")
       (catch :default _
         (try
-          (.kill process "SIGTERM")
+          (.kill child "SIGTERM")
           (catch :default _
             nil))))))
 

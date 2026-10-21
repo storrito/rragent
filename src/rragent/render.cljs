@@ -109,12 +109,18 @@
       (programs/not-ready-message (:name template) (programs/missing (:needs template))))))
 
 (defn- kill!
-  [^js process]
-  (when-let [pid (.-pid process)]
+  "Ends the render and everything it started: SIGTERM to the process
+   group the detached spawn made. The child is not named `process`
+   here on purpose: that name would shadow Node's `process`, and the
+   group kill would become the child's own `kill` with the negative
+   pid as the signal, so that only the shell died and ffmpeg or Chrome
+   kept the pipes open until they finished on their own."
+  [^js child]
+  (when-let [pid (.-pid child)]
     (try
-      (js/process.kill (- pid) "SIGTERM")
+      (.kill js/process (- pid) "SIGTERM")
       (catch :default _
-        (try (.kill process "SIGTERM") (catch :default _ nil))))))
+        (try (.kill child "SIGTERM") (catch :default _ nil))))))
 
 (defn- error-of
   "The words of a failed render: the end of its stderr, else the last

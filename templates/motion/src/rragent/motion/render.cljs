@@ -99,12 +99,15 @@
   (atom #{}))
 
 (defn- kill-group!
-  [^js process signal]
-  (when-let [pid (.-pid process)]
+  "The signal to the whole process group of the child, Chrome and what
+   it spawned; the child alone when it has no group. Not named
+   `process`: that would shadow Node's `process` here."
+  [^js child signal]
+  (when-let [pid (.-pid child)]
     (try
-      (js/process.kill (- pid) signal)
+      (.kill js/process (- pid) signal)
       (catch :default _
-        (try (.kill process signal) (catch :default _ nil))))))
+        (try (.kill child signal) (catch :default _ nil))))))
 
 (defn- stop-every-chrome!
   "A render that is ended from outside (the person stops it, the process
