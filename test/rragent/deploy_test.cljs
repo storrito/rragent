@@ -1,5 +1,5 @@
 (ns rragent.deploy-test
-  "What the Sprite images are built with: the skills repository as a
+  "What the Sprite image is built with: the skills repository as a
    build argument of both Dockerfiles, passed through by the composite
    action, the placeholder of the generic definition filled by the
    Dockerfile's sed, and start.sh's pull of the clone, run against a
@@ -37,7 +37,8 @@
       (is (re-find #"skills-branch:\n(.*\n){1,3}?\s+default: main\n" action))
       (is (str/includes? action "SKILLS_REPO: ${{ inputs.skills-repo }}"))
       (is (str/includes? action "SKILLS_BRANCH: ${{ inputs.skills-branch }}"))
-      (is (= 2 (count (re-seq #"--build-arg \"SKILLS_REPO=\$SKILLS_REPO\" --build-arg \"SKILLS_BRANCH=\$SKILLS_BRANCH\"" action))) "both images"))))
+      (is (= 1 (count (re-seq #"--build-arg \"SKILLS_REPO=\$SKILLS_REPO\" --build-arg \"SKILLS_BRANCH=\$SKILLS_BRANCH\"" action))) "the one image, deploy/Dockerfile.full")
+      (is (not (str/includes? action "-plain")) "no plain image is published"))))
 
 (deftest the-definition-names-the-repository-test
   (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-deploy-"))
