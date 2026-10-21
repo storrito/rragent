@@ -109,12 +109,18 @@
       (programs/not-ready-message (:name template) (programs/missing (:needs template))))))
 
 (defn- kill!
-  [^js process]
-  (when-let [pid (.-pid process)]
+  "Ends the render and everything it started: SIGTERM to the process
+   group the detached spawn made. The child is not named `process`
+   here on purpose: that name would shadow Node's `process`, and the
+   group kill would become the child's own `kill` with the negative
+   pid as the signal, so that only the shell died and ffmpeg or Chrome
+   kept the pipes open until they finished on their own."
+  [^js child]
+  (when-let [pid (.-pid child)]
     (try
-      (js/process.kill (- pid) "SIGTERM")
+      (.kill js/process (- pid) "SIGTERM")
       (catch :default _
-        (try (.kill process "SIGTERM") (catch :default _ nil))))))
+        (try (.kill child "SIGTERM") (catch :default _ nil))))))
 
 (defn- error-of
   "The words of a failed render: the end of its stderr, else the last
@@ -161,12 +167,25 @@
          (when-not (str/blank? line)
            (on-line line)))))
 
+(defn- stamp
+  "The output file as it is now, nil without one: what tells a file
+   this render wrote from one that was there before it. The file's own
+   stat on both sides, not its time against the clock: the kernel
+   stamps a file with its coarse tick, which runs up to a tick behind
+   `js/Date.now`, so a file written right after the start looked older
+   than the start and a stop left the torso behind."
+  [file]
+  (when (fs/existsSync file)
+    (let [stat (fs/statSync file)]
+      [(.-ino stat) (.-size stat) (.-mtimeMs stat)])))
+
 (defn- spawn!
   "The template's render script on the project, its output followed:
    a promise of the render's state once it ended."
   [{:keys [db dir timeout-ms] :as handle} name template on-line]
   (let [project-dir (path/join dir name)
         out (output-file handle name)
+        before (stamp out)
         process (child/spawn (templates/render-file template) #js [project-dir out]
                              #js {:cwd project-dir
                                   :env (js/Object.assign #js {} (.-env js/process) (clj->js (programs/environment (:needs template))))
@@ -186,7 +205,7 @@
                                  (swap! (table handle) assoc-in [name :timed-out?] {:timeout-ms timeout-ms})
                                  (kill! process)))
                              timeout-ms)]
-    (swap! (table handle) assoc name {:process process :waiting []})
+    (swap! (table handle) assoc name {:process process :waiting [] :before before})
     (swap! db assoc-in [:renders name] {:started (js/Date.now)})
     (lines! (.-stdout process) note!)
     (lines! (.-stderr process) (fn [line]
@@ -230,13 +249,13 @@
 (defn stop!
   "Ends a running render; the file it was writing goes with it."
   [{:keys [db] :as handle} name]
-  (when-let [{:keys [process]} (get @(table handle) name)]
+  (when-let [{:keys [process before]} (get @(table handle) name)]
     (swap! (table handle) assoc-in [name :stopped?] true)
     (kill! process)
-    (let [started (get-in @db [:renders name :started] 0)
-          file (output-file handle name)]
-      ;; the encoder wrote into it since the start: a torso
-      (when (and (fs/existsSync file) (<= started (.-mtimeMs (fs/statSync file))))
+    (let [file (output-file handle name)]
+      ;; the encoder wrote into it since the start: a torso; a file
+      ;; from before the start, as it was, stays
+      (when (and (fs/existsSync file) (not= before (stamp file)))
         (fs/rmSync file #js {:force true})))
     (swap! db update :renders dissoc name)
     name))
