@@ -223,4 +223,7 @@
         button (fn [blocks] (some #(when (and (vector? %) (= :button (first %))) %) (tree-seq coll? seq blocks)))]
     (testing "a block of an answer the person has answered has its buttons disabled, the same text otherwise not"
       (is (:disabled (second (button (markdown/hiccup text {:answered? true})))))
-      (is (not (:disabled (second (button (markdown/hiccup text)))))))))
+      (is (not (:disabled (second (button (markdown/hiccup text)))))))
+    (testing "an answer still streaming that the person answers meanwhile, its text unchanged"
+      (is (not (:disabled (second (button (markdown/hiccup text {:streaming? true}))))))
+      (is (:disabled (second (button (markdown/hiccup text {:streaming? true :answered? true}))))))))

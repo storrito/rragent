@@ -290,12 +290,15 @@
          ^js cache (cond
                      streaming? streaming-cache
                      answered? answered-cache
-                     :else cache)]
-     (or (.get cache text)
+                     :else cache)
+         ;; an answer still streaming may be answered meanwhile (a message
+         ;; waits in the inbox) with its text unchanged
+         k (if streaming? (str (boolean answered?) "\n" text) text)]
+     (or (.get cache k)
          (let [result (parse text opts)]
            (when (<= cache-size (.-size cache))
              (.clear cache))
-           (.set cache text result)
+           (.set cache k result)
            result)))))
 
 (comment
