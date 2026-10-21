@@ -46,6 +46,11 @@
                (when (not= old-value new-value)
                  (schedule-refresh!)))))
 
+(defn unwatch!
+  "The watch of `watch!` taken off the atom `db` again."
+  [db]
+  (remove-watch db ::refresh))
+
 (def gzip?
   "Gzip the stream (default). Every frame is compressed against the frames
    before it, so a frame that barely differs from the last one costs little.

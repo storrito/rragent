@@ -18,7 +18,15 @@
 
    The microphone button beside them dictates into the draft
    (`rragent.client.dictation`); a button in the header switches between
-   the light and the dark theme."
+   the light and the dark theme.
+
+   The bots of the machine are in the sidebar, each a link to its page,
+   `/bot/<id>`: a click changes the URL without a reload (`pushState`)
+   and tells the server which bot this tab shows (`:bot/show`, with the
+   tab's id), the back and forward buttons do the same with the URL
+   they return to, and the `:ui/url` alias corrects the address bar
+   when the server shows another bot than the URL named (one that was
+   deleted). The way pchat does it."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             [rframes.client :as rframes]
@@ -611,18 +619,97 @@
 (defn send-checked
   "A button of a ```hiccup block (`rragent.genui`) whose text to send
    has `{checked}` in it: a click puts the values ticked in its block
-   there and sends the text as the person's message, the way a button
-   with a plain `:send` does. Which boxes are ticked only the page
-   knows, so the text is made here."
-  [{:keys [ui/send] :as attrs} children]
-  (into [:button (-> (dissoc attrs :ui/send)
+   there and sends the text as the person's message to the bot of the
+   block (`:ui/bot`), the way a button with a plain `:send` does. Which
+   boxes are ticked only the page knows, so the text is made here."
+  [{:keys [ui/send ui/bot] :as attrs} children]
+  (into [:button (-> (dissoc attrs :ui/send :ui/bot)
                      (assoc :on {:click (fn [^js event]
                                           ;; split and join, not str/replace: a `$` in a value is no replacement pattern
                                           (let [text (str/join (checked-values (.-currentTarget event))
                                                                (str/split (str send) #"\{checked\}" -1))]
                                             (state/dispatch! [[:data/command {:command/kind :chat/send
-                                                                              :command/data {:text text}}]])))}))]
+                                                                              :command/data {:bot bot :text text}}]])))}))]
         children))
+
+(defn bot-id-of
+  "The bot id of a page path, `/bot/<id>`; nil for any other path."
+  [path]
+  (second (re-matches #"/bot/([0-9a-f]{8})/?" (str path))))
+
+(defn- show!
+  "Tells the server which bot this tab shows now: `id`, or nil for
+   whatever the URL names."
+  [id]
+  (state/dispatch! [[:data/command {:command/kind :bot/show
+                                    :command/data {:id id
+                                                   :tab state/tabid}}]]))
+
+(defn- close-drawer!
+  "On a phone the sidebar is a drawer over a checkbox; a tap on a bot
+   closes it."
+  []
+  (when-let [^js nav (js/document.getElementById "nav")]
+    (set! (.-checked nav) false)))
+
+(defn- go!
+  "To the bot's page without a reload."
+  [id]
+  (js/history.pushState nil "" (str "/bot/" id js/location.search))
+  (close-drawer!)
+  (show! id))
+
+(defn- plain-click?
+  "A left click without a modifier: the ones that open in a new tab or
+   window stay the browser's."
+  [^js event]
+  (and (zero? (.-button event))
+       (not (or (.-metaKey event) (.-ctrlKey event) (.-shiftKey event) (.-altKey event)))))
+
+(defn- close-menus!
+  "The open actions menus of the sidebar (`<details>`, see
+   `rragent.view/bot-actions`) but the one whose three dots were just
+   clicked: the browser toggles that one itself."
+  [^js target]
+  (doseq [^js details (array-seq (js/document.querySelectorAll "details.actions[open]"))]
+    (when-not (and target
+                   (.contains details target)
+                   (.closest target "summary"))
+      (.removeAttribute details "open"))))
+
+;; the var is nobody's, the listeners are the point
+#_{:clj-kondo/ignore [:unused-private-var]}
+(defonce ^:private bot-listeners
+  ;; a click on a link to a bot (`a[data-bot]`, the sidebar rows) stays on
+  ;; the page; the back and forward buttons show the bot of the URL they
+  ;; return to; a click anywhere, or Escape, closes the actions menus
+  (do (js/document.addEventListener
+       "click"
+       (fn [^js event]
+         (close-menus! (.-target event))
+         (when-let [^js link (some-> (.-target event) (.closest "a[data-bot]"))]
+           (when (plain-click? event)
+             (.preventDefault event)
+             (go! (.getAttribute link "data-bot"))))))
+      (js/window.addEventListener
+       "popstate"
+       (fn [_]
+         (show! (bot-id-of js/location.pathname))))
+      (js/document.addEventListener
+       "keydown"
+       (fn [^js event]
+         (when (= "Escape" (.-key event))
+           (close-menus! nil))))
+      true))
+
+(defn url-alias
+  "`[:ui/url {:ui/path \"/bot/<id>\"}]` in a frame: the page of the bot
+   the server shows; when the address bar says another, it is corrected
+   in place, no entry in the history. Renders nothing."
+  [{:keys [ui/path]} _children]
+  (when (and (seq path) (not= path js/location.pathname))
+    (js/history.replaceState nil "" (str path js/location.search)))
+  [:span.url {:hidden true}])
 
 (def theme-key
   "Where the browser keeps the theme the person chose."
@@ -646,6 +733,8 @@
     (catch :default _ nil))
   (swap! state/store assoc :ui/theme theme))
 
+;; the var is nobody's, the listener is the point
+#_{:clj-kondo/ignore [:unused-private-var]}
 (defonce ^:private system-theme-listener
   ;; the system's theme changes while none is chosen (night falls): the
   ;; stylesheet follows at once, the button's symbol with a change of the
@@ -669,6 +758,8 @@
      (if dark "\u2600\uFE0E" "\u263E\uFE0E")]))
 
 (def register
+  "The aliases of the page, the URL of the bot, and `:ui/tabid` in a
+   command, the id of this tab."
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
    {:ui.alias/kind :ui/canvas
@@ -676,7 +767,13 @@
    {:ui.alias/kind :ui/send-checked
     :ui.alias/fn send-checked}
    {:ui.alias/kind :ui/theme-toggle
-    :ui.alias/fn theme-toggle}])
+    :ui.alias/fn theme-toggle}
+   {:ui.alias/kind :ui/url
+    :ui.alias/fn url-alias}
+   {:ui.action-enricher/kind :ui/tabid
+    :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
+                             (when (= :ui/tabid x)
+                               state/tabid))}])
 
 (defn init!
   []

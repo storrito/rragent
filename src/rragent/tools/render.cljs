@@ -6,7 +6,6 @@
    bin/render."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
-            [rragent.db :as db]
             [rragent.render :as render]
             [rragent.tools.work :as work]))
 
@@ -18,7 +17,7 @@
         :parameters (.Object Type #js {:name (.String Type #js {:description "The project's name, its folder under artifacts/"})})
         :execute (^:async fn [args api _call-context]
                    (let [name (.-name args)
-                         handle (render/handle {:db db/db :dir (work/artifacts-dir api)})
+                         handle (render/handle {:db (work/pane api) :dir (work/artifacts-dir api)})
                          render (await (render/start! handle name (fn [line] (.output api (str line "\n")))))]
                      (cond
                        (nil? render)

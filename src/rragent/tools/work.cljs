@@ -1,16 +1,23 @@
 (ns rragent.tools.work
-  "Where a tool works: the agent's `work/` folder, the `cwd` of the
+  "Where a tool works: the bot's `work/` folder, the `cwd` of the
    execution environment the harness built for the call
-   (`rragent.harness/open`), and `work/artifacts/` in it, where the
-   things for the person go (`rragent.artifacts`)."
+   (`rragent.harness/open`), `work/artifacts/` in it, where the
+   things for the person go (`rragent.artifacts`), and the bot's atom
+   of the page, found by the folder (`rragent.db/pane`)."
   (:require ["node:path" :as path]
+            [rragent.db :as db]
             [rragent.home :as home]))
 
 (defn dir
   "The working directory of the call."
   [api]
   (or (some-> (.-env api) .-cwd not-empty)
-      (home/work-dir (home/home))))
+      (throw (js/Error. "The call has no working directory."))))
+
+(defn pane
+  "The atom of the bot's page, by the folder the call works in."
+  [api]
+  (db/pane (dir api)))
 
 (defn artifacts-dir
   [api]

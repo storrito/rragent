@@ -98,9 +98,12 @@
     (let [hiccup (markdown/parse "[**b**](https://x.test/ \"T\")")]
       (is (= "T" (attribute hiccup :a :title)))
       (is (= [:strong "b"] (last (find-tag hiccup :a))))))
-  (testing "relative links stay as they are"
+  (testing "a link to a file of the bot points at the page's path for it, under the bot's page"
     (is (= "/uploads/x.mp4" (attribute (markdown/parse "[clip](/uploads/x.mp4)") :a :href)))
-    (is (= "uploads/x.mp4" (attribute (markdown/parse "[clip](uploads/x.mp4)") :a :href))))
+    (is (= "/uploads/x.mp4" (attribute (markdown/parse "[clip](uploads/x.mp4)") :a :href)))
+    (is (= "/bot/ab12cd34/uploads/x.mp4" (attribute (markdown/parse "[clip](uploads/x.mp4)" {:base "/bot/ab12cd34"}) :a :href)))
+    (is (= "/bot/ab12cd34/artifacts/card.html" (attribute (markdown/parse "[card](/artifacts/card.html)" {:base "/bot/ab12cd34"}) :a :href)))
+    (is (= "docs/x.md" (attribute (markdown/parse "[x](docs/x.md)" {:base "/bot/ab12cd34"}) :a :href)) "any other relative link as it is"))
   (testing "a bare URL is a link"
     (is (= [[:p "see " [:a {:href "https://x.test/y" :target "_blank" :rel "noopener noreferrer"} "https://x.test/y"]]]
            (markdown/parse "see https://x.test/y"))))
@@ -110,9 +113,12 @@
       (is (some #(str/includes? % "javascript:alert(1)") (strings hiccup))))))
 
 (deftest images-test
-  (testing "an upload the agent names is served from /uploads"
+  (testing "an upload the agent names is served from /uploads, under the bot's page"
     (is (= [[:p [:img {:src "/uploads/a.png" :alt "a dot"}]]] (markdown/parse "![a dot](uploads/a.png)")))
-    (is (= "/uploads/b.png" (attribute (markdown/parse "![b](/uploads/b.png)") :img :src))))
+    (is (= "/uploads/b.png" (attribute (markdown/parse "![b](/uploads/b.png)") :img :src)))
+    (is (= "/bot/ab12cd34/uploads/a.png" (attribute (markdown/parse "![a](uploads/a.png)" {:base "/bot/ab12cd34"}) :img :src)))
+    (is (= "/bot/ab12cd34/artifacts/a.png" (attribute (markdown/hiccup "![a](artifacts/a.png)" {:base "/bot/ab12cd34"}) :img :src)))
+    (is (= "/bot/ff00ff00/artifacts/a.png" (attribute (markdown/hiccup "![a](artifacts/a.png)" {:base "/bot/ff00ff00"}) :img :src)) "the cache keeps them apart by the base"))
   (testing "any other src stays, with the title"
     (is (= [[:p [:img {:src "https://x.test/a.png" :alt "" :title "T"}]]]
            (markdown/parse "![](https://x.test/a.png \"T\")"))))

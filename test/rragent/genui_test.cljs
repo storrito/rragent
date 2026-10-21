@@ -132,7 +132,18 @@
            (:on (second (genui/sanitize [:button {:open "artifacts/shorts"} "Show"])))
            (:on (second (genui/sanitize [:button {:open "/artifacts/shorts/"} "Show"])))))
     (is (= "card/a.mp4" (get-in (genui/sanitize [:button {:open "artifacts/card/a.mp4"} "x"])
-                                [1 :on :click 0 1 :command/data :path])))))
+                                [1 :on :click 0 1 :command/data :path]))))
+  (testing "under a bot's page its files are served there and its commands name it"
+    (let [opts {:base "/bot/ab12cd34" :bot "ab12cd34"}]
+      (is (= [:img {:src "/bot/ab12cd34/artifacts/card/a.png"}] (genui/sanitize [:img {:src "artifacts/card/a.png"}] opts)))
+      (is (= [:video {:src "/bot/ab12cd34/uploads/c.mp4" :controls true}] (genui/sanitize [:video {:src "/uploads/c.mp4" :controls true}] opts)))
+      (is (= {:bot "ab12cd34" :text "Do this"}
+             (get-in (genui/sanitize [:button {:send "Do this"} "x"] opts) [1 :on :click 0 1 :command/data])))
+      (is (= {:bot "ab12cd34" :path "shorts"}
+             (get-in (genui/sanitize [:button {:open "artifacts/shorts/"} "x"] opts) [1 :on :click 0 1 :command/data])
+             (get-in (genui/sanitize [:button {:open "/bot/ab12cd34/artifacts/shorts"} "x"] opts) [1 :on :click 0 1 :command/data])))
+      (is (= "ab12cd34" (get-in (genui/sanitize [:button {:send "On: {checked}"} "x"] opts) [1 :ui/bot])))
+      (is (= [:img {}] (genui/sanitize [:img {:src "/bot/other123/artifacts/a.png"}] opts)) "another bot's page is no file of this one"))))
 
 (deftest block-test
   (testing "a block that reads is a part of the page"

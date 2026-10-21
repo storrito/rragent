@@ -35,14 +35,16 @@
   (atom {}))
 
 (defn handle
-  "`{:db the db, :dir the artifacts folder, :shown? a function of no
-   arguments, whether someone looks at the page right now (yes, by
-   default)}`. `:procs`, the processes by name, is shared by every
-   handle of the process unless given, so that a tool reaches what
-   the pane started."
-  [{:keys [dir shown? procs] :as opts}]
+  "`{:db the db, :dir the artifacts folder, :base the path the pane
+   shows the projects under (`/artifacts`, or `/bot/<id>/artifacts`),
+   :shown? a function of no arguments, whether someone looks at the
+   page right now (yes, by default)}`. `:procs`, the processes by
+   name, is shared by every handle of the process unless given, so
+   that a tool reaches what the pane started."
+  [{:keys [dir shown? procs base] :as opts}]
   (assoc opts
          :dir (path/resolve dir)
+         :base (or base artifacts/url-prefix)
          :shown? (or shown? (constantly true))
          :procs (or procs rragent.projects/procs)))
 
@@ -144,13 +146,13 @@
       (< (- now (newest-change (project-dir handle name))) recent-ms)))
 
 (defn- environment
-  [name port needs]
+  [base name port needs]
   (js/Object.assign #js {}
                     (.-env js/process)
                     (clj->js (programs/environment needs))
                     #js {:PORT (str port)
                          ;; the path the page is shown under, for a link that needs it
-                         :RRAGENT_BASE (str artifacts/url-prefix "/" name)
+                         :RRAGENT_BASE (str base "/" name)
                          ;; the project exits by itself when rragent is gone
                          :RRAGENT_PID (str (.-pid js/process))}))
 
@@ -173,7 +175,7 @@
 
 (defn ^:async start!
   "The project's process started, its output to `.log`."
-  [{:keys [procs db] :as handle} name]
+  [{:keys [procs db base] :as handle} name]
   (let [project-dir (project-dir handle name)
         port (await (free-port))
         {:keys [cmd args needs] :as run} (try (command project-dir) (catch :default e {:error (.-message e)}))]
@@ -183,7 +185,7 @@
             process (child/spawn cmd
                                  (clj->js args)
                                  #js {:cwd project-dir
-                                      :env (environment name port needs)
+                                      :env (environment base name port needs)
                                       :stdio #js ["ignore" log log]
                                       ;; a process group of its own, stopped as one
                                       :detached true})
@@ -378,11 +380,16 @@
       :else
       (assoc w :ring/response (await (proxy/request port rest (:ring/request w)))))))
 
+(defn- quoted
+  "`s` as a regular expression that matches it."
+  [s]
+  (str/replace (str s) #"[.*+?^${}()|\[\]\\/]" (fn [m] (str "\\" m))))
+
 (defn referer-project
   "The running project whose page a request came from: the Referer
-   names `/artifacts/<name>/`, and the project is ready."
-  [{:keys [procs db]} request]
-  (when-let [[_ name] (re-find #"^https?://[^/]+/artifacts/([^/?#]+)/" (str (get-in request [:headers "referer"])))]
+   names `<base>/<name>/`, and the project is ready."
+  [{:keys [procs db base]} request]
+  (when-let [[_ name] (re-find (re-pattern (str "^https?://[^/]+" (quoted base) "/([^/?#]+)/")) (str (get-in request [:headers "referer"])))]
     (when (and (get @procs name)
                (get-in @db [:projects name :ready-at]))
       name)))

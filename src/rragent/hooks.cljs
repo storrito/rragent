@@ -1,8 +1,9 @@
 (ns rragent.hooks
   "The agent's hooks: addresses other systems call to start a turn.
    Each has a name, a purpose and a secret, kept in the document
-   `rragent.hooks`; its address is `/hook/<name>/<secret>` on the
-   agent's page. A call with the right secret submits the call's body
+   `rragent.hooks` of the bot's conversation; its address is
+   `/hook/<name>/<secret>` on the machine's page, which tries the
+   call on every bot: the secret says whose it is. A call with the right secret submits the call's body
    as an input, as if the person had typed it, with the headers that
    say who sent it, the definition read again first
    (`rragent.reload`)."
@@ -80,12 +81,12 @@
    the secret is the hook's, answering `{:ok true :submission id}`;
    `{:ok false}` otherwise, for a 403. `headers` is a map of lowercase
    names."
-  [{:keys [harness root]} name secret headers body context]
+  [{:keys [harness root work]} name secret headers body context]
   (let [hooks (await (.snapshot harness Hooks (.-id root) context))
         hook (some-> hooks (aget name))]
     (if (and hook (= secret (.-secret hook)))
       (let [kept (into {} (keep (fn [h] (when-let [v (get headers h)] [h v]))) kept-headers)
-            _ (await (reload/reload! root context))
+            _ (await (reload/reload! root work context))
             submission (await (.submit root #js {:type "input"
                                                   :content (message name (.-purpose hook) kept body)
                                                   :whenBusy "followUp"

@@ -8,7 +8,13 @@
    end at its next wake, when it finds it is no longer the current one.
    Five fields, or six with seconds first; the time zone an IANA name,
    UTC by default. A run reads the definition again before it submits
-   (`rragent.reload`), as the composer does."
+   (`rragent.reload`), as the composer does.
+
+   The machine's alarm (`rragent.wake`) is one for all the bots of
+   the process: every open bot registers how to read its earliest next
+   run (`watch!`, by `rragent.harness/open`), and `rearm!` sets the
+   alarm to the earliest across them, after every change of a schedule
+   and after every fire."
   (:require ["croner" :refer [Cron]]
             ["@earendil-works/pi-durable" :refer [defineDoc defineTask]]
             [clojure.string :as str]
@@ -59,12 +65,42 @@
     (when (seq runs)
       (apply min runs))))
 
-(defn rearm!
-  "The machine's alarm set to the earliest next run of `schedules`:
-   after every change of them and after every fire, so that a machine
-   asleep is woken for the next run, whichever schedule's it is."
-  [schedules now]
-  (wake/arm! (next-due schedules now) now))
+(defonce ^{:doc "By work folder: a function of no arguments that answers a promise
+                 of the bot's earliest next run in milliseconds, nil without one."}
+  sources
+  (atom {}))
+
+(defn watch!
+  "The bot of `work` has schedules to read with `due-fn`."
+  [work due-fn]
+  (swap! sources assoc work due-fn))
+
+(defn unwatch!
+  [work]
+  (swap! sources dissoc work))
+
+(defn- ^:async due-of
+  "What the source answers; nil when it fails (a bot closing)."
+  [due-fn]
+  (try
+    (await (due-fn))
+    (catch :default _
+      nil)))
+
+(defn ^:async next-due-of-all
+  "The earliest next run across the open bots, nil without any."
+  []
+  (let [dues (await (js/Promise.all (into-array (map due-of (vals @sources)))))]
+    (when-let [known (seq (remove nil? (array-seq dues)))]
+      (apply min known))))
+
+(defn ^:async rearm!
+  "The machine's alarm set to the earliest next run of every open
+   bot's schedules: after every change of them and after every fire,
+   so that a machine asleep is woken for the next run, whichever
+   bot's and whichever schedule's it is."
+  [now]
+  (wake/arm! (await (next-due-of-all)) now))
 
 (defn- message
   [name cron tz text at]
@@ -108,7 +144,7 @@
                                        context))
                        ;; the alarm moves on with the schedule: the machine may well
                        ;; sleep before the next run
-                       (rearm! schedules (.now runtime)))))))}
+                       (await (rearm! (.now runtime))))))))}
         :abort (fn [_task runtime context]
                  (.commit runtime (fn [] (terminal #js {:status "aborted"})) context))}))
 

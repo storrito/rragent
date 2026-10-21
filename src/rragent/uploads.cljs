@@ -16,7 +16,8 @@
    is in, so a lost connection costs one piece, not the clip; a clip in
    one request (no `id`) is named by its hash. `max-bytes` caps a clip
    at ten gigabytes. `GET /uploads/<name>` serves the files, with ranges
-   for the players."
+   for the players. Both are under the bot's page, `/bot/<id>`, the
+   `base` the handler is given, which the URLs it answers carry."
   (:require ["node:crypto" :as crypto]
             ["node:fs" :as fs]
             ["node:path" :as path]
@@ -126,10 +127,10 @@
   (fs/rmSync file #js {:force true}))
 
 (defn- stored
-  "The answer for a file that is complete."
-  [dir file-name]
+  "The answer for a file that is complete, its URL under `base`."
+  [dir base file-name]
   {:name file-name
-   :url (str url-prefix "/" file-name)
+   :url (str base url-prefix "/" file-name)
    :kind (kind file-name)
    :size (file-size (path/join dir file-name))})
 
@@ -172,7 +173,7 @@
 (defn- ^:async whole!
   "A file in one request, named by the hash of its bytes, at most
    `limit` bytes."
-  [dir w extension limit]
+  [dir base w extension limit]
   (let [digest (crypto/createHash "sha256")
         part (path/join dir (str "." (random-uuid) ".part"))
         length (await (copy-counted! (:body (:ring/request w)) part limit digest))]
@@ -191,7 +192,7 @@
         (if (http/regular-file? file)
           (remove! part)
           (fs/renameSync part file))
-        (respond w 200 (stored dir file-name))))))
+        (respond w 200 (stored dir base file-name))))))
 
 (defonce ^:private writing
   ;; the ids of the clips a piece is being written to
@@ -204,7 +205,7 @@
    lost, and the browser sends it again. A piece of a clip whose last
    piece the server still writes waits (503, the browser tries again):
    two writers of one part file would mix their bytes."
-  [dir w extension {:strs [id offset total]}]
+  [dir base w extension {:strs [id offset total]}]
   (let [offset (parse-long (str offset))
         total (parse-long (str total))
         part (path/join dir (str "." id "." extension ".part"))
@@ -223,7 +224,7 @@
       (and (pos? offset)
            (http/regular-file? (path/join dir file-name))
            (= total (file-size (path/join dir file-name))))
-      (respond w 200 (stored dir file-name))
+      (respond w 200 (stored dir base file-name))
 
       (not= offset (if (zero? offset) 0 received))
       (respond w 409 {:error :out-of-order
@@ -244,31 +245,31 @@
 
               (= length total)
               (do (fs/renameSync part (path/join dir file-name))
-                  (respond w 200 (stored dir file-name)))
+                  (respond w 200 (stored dir base file-name)))
 
               :else
               (respond w 200 {:received length})))))))
 
 (defn ^:async handler
   "`POST /upload` into `dir`: a picture content-addressed, a clip as it
-   comes, any other type a 415."
-  [dir w]
+   comes, any other type a 415; the URLs answered under `base`."
+  [dir base w]
   (let [request (:ring/request w)
         type (content-type request)
         params (query-params request)]
     (fs/mkdirSync dir #js {:recursive true})
     (cond
       (images type)
-      (await (whole! dir w (images type) image-max-bytes))
+      (await (whole! dir base w (images type) image-max-bytes))
 
       (not (media type))
       (respond w 415 {:error :not-media})
 
       (get params "id")
-      (await (piece! dir w (first (media type)) params))
+      (await (piece! dir base w (first (media type)) params))
 
       :else
-      (await (whole! dir w (first (media type)) max-bytes)))))
+      (await (whole! dir base w (first (media type)) max-bytes)))))
 
 (defn file-handler
   "`GET /uploads/<name>`: the file of `dir`, never a hidden one (a part
@@ -283,12 +284,12 @@
              http/not-found))))
 
 (defn routes
-  "The register entries of the uploads folder `dir`: the POST that takes
-   a file and the GET that serves one."
-  [dir]
-  [{:ring/route [:post upload-path]
-    :ring/handler (fn [w] (handler dir w))}
-   {:ring/route [:get (str url-prefix "/*")]
+  "The register entries of the uploads folder `dir` under `base`: the
+   POST that takes a file and the GET that serves one."
+  [dir base]
+  [{:ring/route [:post (str base upload-path)]
+    :ring/handler (fn [w] (handler dir base w))}
+   {:ring/route [:get (str base url-prefix "/*")]
     :ring/handler (fn [w] (file-handler dir w))}])
 
 (def line-pattern

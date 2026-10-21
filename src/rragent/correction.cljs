@@ -24,12 +24,11 @@
    far longer or shorter, late) leaves it as the speech model wrote it."
   (:require ["@earendil-works/pi-durable" :refer [ProviderDoc]]
             [clojure.string :as str]
-            [rragent.db :as db]
             [rragent.harness :as harness]
             [rragent.rframes.transit :as transit]))
 
 (def path
-  "Where the browser posts a piece to correct."
+  "Where the browser posts a piece to correct, under the bot's page."
   "/dictation/correct")
 
 (def model-id
@@ -219,11 +218,12 @@
     (js->clj (js/JSON.parse (.toString (js/Buffer.concat chunks) "utf8")) :keywordize-keys true)))
 
 (defn ^:async handler
-  "`POST /dictation/correct` with `{words, before}` as JSON: the
-   dictation corrected as `{:text}`, the words as they came when the
-   answer was refused or failed. `model` names another model than
-   `model-id`, for a comparison."
-  [w]
+  "`POST /bot/<id>/dictation/correct` with `{words, before}` as JSON:
+   the dictation corrected with the context of `agent`, the bot's, as
+   `{:text}`, the words as they came when the answer was refused or
+   failed. `model` names another model than `model-id`, for a
+   comparison."
+  [agent w]
   (let [{:keys [words before model]} (try (await (read-json (:body (:ring/request w))))
                                     (catch :default _ nil))
         words (filterv #(string? (:word %)) words)
@@ -231,7 +231,7 @@
     (if (empty? words)
       (respond w 400 {:error :no-words})
       (try
-        (let [{:keys [text usage ms id stop]} (await (correct! (:agent @db/db) words before model))]
+        (let [{:keys [text usage ms id stop]} (await (correct! agent words before model))]
           (println (str "[dictation] corrected " (count words) " words with " (or model model-id)
                         " in " ms " ms"
                         (cond
@@ -247,7 +247,3 @@
           (js/console.error "[dictation] no correction:" (.-message error))
           (respond w 200 {:text original
                           :corrected? false}))))))
-
-(def routes
-  [{:ring/route [:post path]
-    :ring/handler #'handler}])

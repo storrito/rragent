@@ -11,7 +11,6 @@
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
-            [rragent.db :as db]
             [rragent.projects :as projects]
             [rragent.templates :as templates]
             [rragent.tools.work :as work]))
@@ -116,7 +115,7 @@
                          "create" (do (when (empty? name)
                                         (throw (js/Error. "create needs the name")))
                                       (work/text (create! dir templates name (.-kind args))))
-                         "list" (work/text (let [s (listed dir @db/db)] (if (str/blank? s) "No projects" s)))
+                         "list" (work/text (let [s (listed dir @(work/pane api))] (if (str/blank? s) "No projects" s)))
                          "log" (do (when (empty? name)
                                      (throw (js/Error. "log needs the name")))
                                    (work/text (log dir name))))))})))

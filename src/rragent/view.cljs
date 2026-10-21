@@ -1,18 +1,23 @@
 (ns rragent.view
-  "The page as a function of the conversation and the artifacts: the
-   transcript of pi-durable's view (`rragent.page/conversation` turns
-   the view value into the data this namespace reads) as a feed of
-   items, the header, the composer, and the pane of the artifacts (the
-   keys of `rragent.artifacts`, `rragent.projects` and `rragent.render`
-   in the db). The texts are m1p reference tuples, `[:i18n :chat/you]`,
+  "The page as a function of the bots, the conversation of the one
+   shown and its artifacts: the sidebar with the bots (name, state, the
+   way to make, rename and delete one), the header, the transcript of
+   pi-durable's view (`rragent.page/conversation` turns the view value
+   into the data this namespace reads) as a feed of items, the
+   composer, and the pane of the artifacts (the keys of
+   `rragent.artifacts`, `rragent.projects` and `rragent.render` in the
+   bot's atom). The texts are m1p reference tuples, `[:i18n :chat/you]`,
    that `rragent.i18n/translate` turns into the language of the person.
    The files attached to a user message are the lines of its text that
    name them (`rragent.uploads`), shown as thumbnails and links. The
    answer of the model is markdown and goes through `rragent.markdown`
-   to the page; the person's own words stay plain text. The classes
-   follow rchat's stylesheet, which the page ships as app.css."
+   to the page; the person's own words stay plain text. Everything of a
+   bot is under its page, `/bot/<id>` (`base`): its artifacts, its
+   uploads, where the composer posts. The classes follow rchat's
+   stylesheet, which the page ships as app.css."
   (:require [clojure.string :as str]
             [rragent.artifacts :as artifacts]
+            [rragent.bots :as bots]
             [rragent.dictation :as dictation]
             [rragent.markdown :as markdown]
             [rragent.uploads :as uploads]))
@@ -57,6 +62,7 @@
     "voice" [:i18n :tool/voice]
     "music" [:i18n :tool/music]
     "subagent" [:i18n :tool/subagent]
+    "bot" [:i18n :tool/bot]
     [:i18n :tool/other {:name name}]))
 
 (defn- tool-detail
@@ -229,11 +235,11 @@
 
 (defn- media-view
   "The files attached to a message: a picture as a thumbnail, a clip as
-   its name, each a link to the file."
-  [media]
+   its name, each a link to the file under the bot's page."
+  [base media]
   [:div.looks
    (for [{:keys [kind name]} media
-         :let [url (str uploads/url-prefix "/" name)]]
+         :let [url (str base uploads/url-prefix "/" name)]]
      (if (= :image kind)
        [:a {:replicant/key name
             :href url
@@ -250,7 +256,7 @@
         name]))])
 
 (defn- item-view
-  [{:keys [kind id label text media pending? streaming? answered? error aborted?] :as item}]
+  [{:keys [kind id label text media pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
@@ -259,7 +265,7 @@
      (when (seq text)
        [:p.text text])
      (when (seq media)
-       (media-view media))
+       (media-view base media))
      (when pending?
        [:p.hint [:i18n :chat/queued]])]
 
@@ -267,7 +273,7 @@
     [:div.item.step {:replicant/key id
                      :class (when streaming? "streaming")}
      (when (seq text)
-       (into [:div.markdown] (markdown/hiccup text {:streaming? streaming? :answered? answered?})))
+       (into [:div.markdown] (markdown/hiccup text {:streaming? streaming? :answered? answered? :base base :bot bot})))
      (when aborted?
        [:p.hint [:i18n :chat/aborted]])
      (when error
@@ -282,7 +288,7 @@
      [:p.text text]]))
 
 (defn welcome
-  "A chat with nothing in it, opened by the agent's skill
+  "A chat with nothing in it, opened by the bot's skill
    (`rragent.onboarding`): its name and what to bring."
   [{:keys [title ask]}]
   [:div.item.step.welcome {:replicant/key "welcome"}
@@ -292,12 +298,13 @@
 
 (defn feed
   "The items of the conversation; with none shown yet, the skill's
-   welcome, or the plain empty chat for an agent without one."
-  [items status onboarding]
+   welcome, or the plain empty chat for a bot without one. `opts` has
+   the `:base` and `:bot` of the files and commands in the items."
+  [items status onboarding opts]
   [:section.feed {:data-stick-to-end "true"}
    (let [shown (filter shown? items)]
      (cond
-       (seq shown) (map item-view shown)
+       (seq shown) (map #(item-view % opts) shown)
        onboarding (welcome onboarding)
        :else [:p.hint.empty [:i18n :chat/empty]]))
    (when (= :working status)
@@ -306,12 +313,15 @@
       [:span [:i18n :chat/working]]])])
 
 (defn header
-  "The agent's name and model, the running version of rragent (a click
+  "The bot's name and model, the running version of rragent (a click
    on it looks for a newer release, `rragent.update`), whether a run
    goes, and the button that switches between the light and the dark
-   theme (`:ui/theme-toggle`, client state, see `rragent.client`)."
+   theme (`:ui/theme-toggle`, client state, see `rragent.client`). On
+   a phone the sidebar is a drawer; the label opens it (the checkbox
+   in `page`)."
   [{:keys [name model]} status version]
   [:header.bar
+   [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
    [:h1 name]
    [:span.model model]
    (when version
@@ -363,30 +373,42 @@
     (= :failed checked)
     [:div.banner.update.failed [:i18n :update/lookup-failed]]))
 
+(defn draft-key
+  "Where the browser keeps the draft for a bot; one per bot, so that a
+   switch of the bot keeps what was typed."
+  [id]
+  [:draft id])
+
+(defn attachments-key
+  [id]
+  [:attachments id])
+
 (defn send-actions
-  "Sends the draft and the attachments to the conversation, then clears
-   both."
-  []
+  "Sends the draft and the attachments to the bot's conversation, then
+   clears both."
+  [id]
   [[:data/command
     {:command/kind :chat/send
-     :command/data {:text [:store/deref :draft]
-                    :attachments [:store/deref :attachments]}}
-    {:on-success [[:store/dissoc :draft]
-                  [:store/dissoc :attachments]]}]])
+     :command/data {:bot id
+                    :text [:store/deref (draft-key id)]
+                    :attachments [:store/deref (attachments-key id)]}}
+    {:on-success [[:store/dissoc (draft-key id)]
+                  [:store/dissoc (attachments-key id)]]}]])
 
 (defn composer
   "The draft and the attachments are client state (`:ui/composer`, see
-   `rragent.client`): a new frame does not reset them. The alias has the
-   microphone button, whose recording goes into the draft as text
-   (`rragent.dictation`), the attach button and Send, which waits for
-   the uploads; Stop aborts the run while one goes. `placeholder` is
-   the skill's while the chat is empty, the page's own otherwise."
-  [status placeholder]
+   `rragent.client`), per bot: a new frame does not reset them. The
+   alias has the microphone button, whose recording goes into the draft
+   as text (`rragent.dictation`, under the bot's page), the attach
+   button and Send, which waits for the uploads; Stop aborts the run
+   while one goes. `placeholder` is the skill's while the chat is
+   empty, the page's own otherwise."
+  [id base status placeholder]
   [:div.composer
-   [:ui/composer {:ui/store-key :draft
-                  :ui/attachments-key :attachments
-                  :ui/upload-url uploads/upload-path
-                  :ui/send (send-actions)
+   [:ui/composer {:ui/store-key (draft-key id)
+                  :ui/attachments-key (attachments-key id)
+                  :ui/upload-url (str base uploads/upload-path)
+                  :ui/send (send-actions id)
                   :ui/send-label [:i18n :composer/send]
                   :ui/send-pending-label [:i18n :composer/send-pending]
                   :ui/send-cancel-title [:i18n :composer/send-cancel]
@@ -396,7 +418,7 @@
                   :ui/failed-label [:i18n :composer/upload-failed]
                   :ui/drop-title [:i18n :composer/drop-title]
                   :ui/drop-hint [:i18n :composer/drop-hint]
-                  :ui/dictation-url dictation/path
+                  :ui/dictation-url (str base dictation/path)
                   :ui/dictate-title [:i18n :composer/dictate]
                   :ui/dictate-stop-title [:i18n :composer/dictate-stop]
                   :ui/transcribing-title [:i18n :composer/transcribing]
@@ -405,16 +427,17 @@
                   :rows 3
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]
    (when (= :working status)
-     [:button.stop {:on {:click [[:data/command {:command/kind :chat/stop}]]}}
+     [:button.stop {:on {:click [[:data/command {:command/kind :chat/stop
+                                                 :command/data {:bot id}}]]}}
       [:i18n :composer/stop]])])
 
 (defn- artifact-url
-  [path]
-  (str artifacts/url-prefix "/" path))
+  [base path]
+  (str base artifacts/url-prefix "/" path))
 
 (defn- src
-  [{:keys [path mtime]}]
-  (str (artifact-url path) "?rev=" mtime))
+  [base {:keys [path mtime]}]
+  (str (artifact-url base path) "?rev=" mtime))
 
 (defn- rendering
   [render]
@@ -425,28 +448,28 @@
    process (`rragent.projects`), `render` the state of its render
    (`rragent.render`): the one of the project, or the one still writing
    a video."
-  [{:keys [path kind mtime title] :as artifact} {:keys [project render]}]
+  [base {:keys [path kind mtime title] :as artifact} {:keys [project render]}]
   (case kind
-    :page [:ui/canvas {:ui/src (artifact-url path)
+    :page [:ui/canvas {:ui/src (artifact-url base path)
                        :ui/rev mtime
                        :ui/title [:i18n :artifacts/creation]}]
     :image [:div.media
             [:img {:replicant/key path
-                   :src (src artifact)
+                   :src (src base artifact)
                    :alt title}]]
     ;; The element stays while a render writes the file (one key, one
     ;; src): a reload per frame would show nothing but a spinner.
     :video [:div.media
             [:video {:replicant/key path
                      :src (if render
-                            (str (artifact-url path) "?rev=" (:started render))
-                            (src artifact))
+                            (str (artifact-url base path) "?rev=" (:started render))
+                            (src base artifact))
                      :controls true}]
             (when render
               [:p.rendering (rendering render)])]
     :audio [:div.media
             [:audio {:replicant/key (str path mtime)
-                     :src (src artifact)
+                     :src (src base artifact)
                      :controls true}]]
     :project (let [{:keys [ready-at exit]} project]
                (cond
@@ -454,7 +477,7 @@
                  ready-at (list
                            (when (:error render)
                              [:p.error [:i18n :artifacts/render-failed {:error (:error render)}]])
-                           [:ui/canvas {:ui/src (str (artifact-url path) "/")
+                           [:ui/canvas {:ui/src (str (artifact-url base path) "/")
                                         :ui/rev ready-at
                                         :ui/title [:i18n :artifacts/creation]}])
                  :else [:div.placeholder [:i18n :artifacts/starting]]))
@@ -473,34 +496,34 @@
 (defn- render-controls
   "The video of the project, made here on a click; its progress and Stop
    while it is made."
-  [path render]
+  [bot path render]
   (if (and (:started render) (nil? (:exit render)))
     [:span.rendering
      (rendering render)
-     " Â· "
+     " · "
      [:button.link {:on {:click [[:data/command {:command/kind :artifacts/render-stop
-                                                 :command/data {:path path}}]]}}
+                                                 :command/data {:bot bot :path path}}]]}}
       [:i18n :artifacts/render-stop]]]
     [:button.link {:on {:click [[:data/command {:command/kind :artifacts/render
-                                                :command/data {:path path}}]]}}
+                                                :command/data {:bot bot :path path}}]]}}
      [:i18n :artifacts/render]]))
 
 (defn- actions
   "Open and download links for a file; Open and the render for a project."
-  [{:keys [path kind] :as artifact} render]
+  [base bot {:keys [path kind] :as artifact} render]
   (if (= :project kind)
     (list
-     [:a.link {:href (str (artifact-url path) "/")
+     [:a.link {:href (str (artifact-url base path) "/")
                :target "_blank"
                :rel "noopener"}
       [:i18n :artifacts/open]]
-     (render-controls path render))
+     (render-controls bot path render))
     (list
-     [:a.link {:href (src artifact)
+     [:a.link {:href (src base artifact)
                :target "_blank"
                :rel "noopener"}
       [:i18n :artifacts/open]]
-     [:a.link {:href (src artifact)
+     [:a.link {:href (src base artifact)
                :download (last (str/split path #"/"))}
       [:i18n :artifacts/download]])))
 
@@ -508,8 +531,9 @@
   "The right half of the page: a chooser over the artifacts, the links of
    the one on screen, and the one shown by its kind. `pane` holds the
    keys of `rragent.artifacts` (`:artifacts/list`, `:artifacts/current`),
-   `:projects` and `:renders`."
-  [{:keys [artifacts/list artifacts/current projects renders] :as pane}]
+   `:projects` and `:renders`, and the `:base` of the bot's page with
+   its id as `:bot`."
+  [{:keys [artifacts/list artifacts/current projects renders base bot] :as pane}]
   (let [artifact (some #(when (= current (:path %)) %) list)
         project? (= :project (:kind artifact))
         render (when artifact
@@ -522,31 +546,155 @@
       (when (seq list)
         [:select.chooser {:value (:path artifact)
                           :on {:change [[:data/command {:command/kind :artifacts/open
-                                                        :command/data {:path :event/target.value}}]]}}
+                                                        :command/data {:bot bot :path :event/target.value}}]]}}
          (for [file list]
            (option file (:path artifact)))])
       (when artifact
-        (actions artifact render))]
+        (actions base bot artifact render))]
      (if artifact
-       (content artifact {:project (get projects (:path artifact))
-                          :render render})
+       (content base artifact {:project (get projects (:path artifact))
+                               :render render})
        [:div.placeholder [:i18n :artifacts/empty]])]))
 
+(defn state-label
+  [state]
+  (case state
+    :running [:i18n :bot/running]
+    :asleep [:i18n :bot/asleep]
+    :failed [:i18n :bot/failed]
+    [:i18n :bot/idle]))
+
+(defn- delete-confirm
+  "The row of a bot whose deletion is armed (see `:bot/delete`): the
+   question, then delete for good or keep."
+  [id]
+  [:div.confirm
+   [:span [:i18n :bot/delete-sure]]
+   [:span.choices
+    [:button.link.danger {:on {:click [[:data/command {:command/kind :bot/delete
+                                                       :command/data {:id id}}]]}}
+     [:i18n :bot/delete-yes]]
+    [:button.link {:on {:click [[:data/command {:command/kind :bot/keep}]]}}
+     [:i18n :bot/keep]]]])
+
+(defn- rename-field
+  "The row of a bot being renamed (see `:bot/rename-start`): a field
+   with its name, whose change renames it, and the way to keep it."
+  [id name]
+  [:div.rename
+   [:input.name {:replicant/key (str "rename-" id)
+                 :value name
+                 :aria-label [:i18n :bot/name]
+                 :on {:change [[:data/command {:command/kind :bot/rename
+                                               :command/data {:id id
+                                                              :name :event/target.value}}]]}}]
+   [:button.link {:on {:click [[:data/command {:command/kind :bot/keep}]]}}
+    [:i18n :bot/keep]]])
+
+(defn- bot-actions
+  "The menu behind the three dots of a sidebar row: rename, and delete
+   unless it is the machine's last bot. A <details>, so the browser
+   opens and closes it; the runtime (`rragent.client`) closes it on a
+   click elsewhere. A delete arms the question in the row."
+  [id deletable?]
+  [:details.actions
+   [:summary {:aria-label [:i18n :bot/actions]
+              :title [:i18n :bot/actions]}
+    "⋮"]
+   [:div.items
+    [:button.item {:on {:click [[:data/command {:command/kind :bot/rename-start
+                                                :command/data {:id id}}]]}}
+     [:i18n :bot/rename]]
+    (when deletable?
+      [:button.item.danger {:on {:click [[:data/command {:command/kind :bot/delete
+                                                         :command/data {:id id}}]]}}
+       [:i18n :bot/delete]])]])
+
+(defn- new-bot
+  "The way to make a bot: a name and a sentence of purpose behind
+   \"New bot\", in a <details> the browser opens; keyed by the number of
+   bots, so that a new one closes and empties it. The new bot opens in
+   this tab (`:ui/tabid`, filled in by the runtime)."
+  [n]
+  [:details.new {:replicant/key (str "new-" n)}
+   [:summary [:i18n :bot/new]]
+   [:div.form
+    [:input {:placeholder [:i18n :bot/name]
+             :aria-label [:i18n :bot/name]
+             :on {:input [[:store/assoc :bot/new-name :event/target.value]]}}]
+    [:input {:placeholder [:i18n :bot/purpose]
+             :aria-label [:i18n :bot/purpose]
+             :on {:input [[:store/assoc :bot/new-purpose :event/target.value]]}}]
+    [:button.primary {:on {:click [[:data/command {:command/kind :bot/create
+                                                   :command/data {:name [:store/deref :bot/new-name]
+                                                                  :purpose [:store/deref :bot/new-purpose]
+                                                                  :tab :ui/tabid}}
+                                    {:on-success [[:store/dissoc :bot/new-name]
+                                                  [:store/dissoc :bot/new-purpose]]}]]}}
+     [:i18n :bot/create]]]])
+
+(defn sidebar
+  "The bots of the machine, each a link to its page with its name and
+   state, the one shown marked; the way to make one; a row being
+   deleted asks, a row being renamed is a field (`:deleting`,
+   `:renaming` in `opts`)."
+  [bots shown {:keys [deleting renaming]} version]
+  [:aside.sidebar
+   [:div.brand "rragent"
+    (when version
+      [:span.version {:title "rragent version"} version])]
+   (new-bot (count bots))
+   ;; keyed by its order: a list whose rows move makes a new list
+   ;; (Replicant 2026.07.1 keeps a stale vdom for a row moved to the front)
+   [:ul.bots {:replicant/key (str/join " " (map :id bots))}
+    (for [{:keys [id name state]} bots]
+      [:li {:replicant/key id
+            :class (cond-> [(clojure.core/name state)]
+                     (= id shown) (conj "current"))}
+       (cond
+         (= id deleting) (delete-confirm id)
+         (= id renaming) (rename-field id name)
+         :else (list
+                [:a.row {:href (bots/url id)
+                         :data-bot id}
+                 [:span.name name]
+                 [:span.state (state-label state)]]
+                (bot-actions id (< 1 (count bots)))))])]])
+
 (defn page
-  "`opts`: `:agent`, its `:name` and `:model`; `:conversation`, the
-   transcript `{:entries :live :inbox}`; `:artifacts`, the pane's keys of
-   the db; `:locale`; `:onboarding`, the skill's welcome
-   (`rragent.onboarding`) or nil; `:update`, the running version and
-   the newer release when one is known (`rragent.update`)."
-  [{:keys [agent conversation locale onboarding update] pane :artifacts}]
-  (let [items (items conversation)
+  "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :state}`;
+   `:bot`, the one shown, its `:id`, `:name` and `:model`;
+   `:conversation`, its transcript `{:entries :live :inbox}`;
+   `:artifacts`, its pane's keys; `:locale`; `:onboarding`, the skill's
+   welcome (`rragent.onboarding`) or nil; `:update`, the running
+   version and the newer release when one is known (`rragent.update`);
+   `:sidebar`, the delete or rename under way; `:note`, a line above
+   the chat when the bot is not the one the URL named; `:failed`, why
+   the bot did not open, when it did not."
+  [{:keys [bots bot conversation locale onboarding update note failed] pane :artifacts under-way :sidebar}]
+  (let [id (:id bot)
+        base (when id (bots/url id))
+        items (items conversation)
         status (status (:live conversation))
         fresh? (not-any? shown? items)]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
-     (header agent status (:current update))
-     [:div.body
-      [:div.chat
-       (update-banner update)
-       (feed items status onboarding)
-       (composer status (when fresh? (:placeholder onboarding)))]
-      (artifacts pane)]]))
+     [:ui/url {:ui/path base}]
+     ;; the drawer state on a phone, toggled by labels, never rendered
+     ;; with :checked so that the person's choice survives a frame
+     [:input#nav.toggle {:type "checkbox"}]
+     (sidebar bots id under-way (:current update))
+     [:label.backdrop {:for "nav"}]
+     ;; keyed by the bot: a switch builds the chat anew, the transcripts
+     ;; of two bots share no element
+     [:div.main {:replicant/key (str "bot-" id)}
+      (header bot status (:current update))
+      [:div.body
+       [:div.chat
+        (update-banner update)
+        (when note
+          [:div.banner.note note])
+        (when failed
+          [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
+        (feed items status onboarding {:base base :bot id})
+        (composer id base status (when fresh? (:placeholder onboarding)))]
+       (artifacts (assoc pane :base base :bot id))]]]))

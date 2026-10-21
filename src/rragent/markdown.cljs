@@ -11,9 +11,14 @@
    single newline is a line break, the way a chat reads it and the way
    the plain text showed before.
 
-   The hiccup of a text is kept, by the text, in a cache: the page is
-   rendered again for every frame, a parse takes about a millisecond
-   per answer, and the answers of the transcript do not change."
+   A link or a picture the agent names by its file, `artifacts/<path>`
+   or `uploads/<name>`, points at the path the page serves it on, under
+   the bot's page (`:base`, `/bot/<id>`).
+
+   The hiccup of a text is kept, by the text and the base, in a cache:
+   the page is rendered again for every frame, a parse takes about a
+   millisecond per answer, and the answers of the transcript do not
+   change."
   (:require ["markdown-it" :default MarkdownIt]
             [clojure.string :as str]
             [rragent.genui :as genui]))
@@ -49,23 +54,26 @@
   [tag attrs children]
   (into (if (seq attrs) [tag attrs] [tag]) children))
 
+(defn served
+  "A file of the bot the agent names, `artifacts/<path>` or
+   `uploads/<name>`, with or without a leading slash, as the path the
+   page serves it on, under `base`; any other URL as it is."
+  [base url]
+  (if-let [[_ file] (re-find #"^/?((?:artifacts|uploads)/.*)$" (str url))]
+    (str base "/" file)
+    url))
+
 (defn- open-attrs
   "The attributes of an opening token: a link opens in a new tab,
-   without a referrer; its href stays as the model wrote it, a relative
-   one included."
-  [^js token]
+   without a referrer; a link to a file of the bot points at the page's
+   path for it (`served`), any other href stays as the model wrote it."
+  [^js token base]
   (let [given (attrs token)]
     (if (= "link_open" (.-type token))
-      (assoc given :target "_blank" :rel "noopener noreferrer")
+      (-> given
+          (update :href #(served base %))
+          (assoc :target "_blank" :rel "noopener noreferrer"))
       given)))
-
-(defn- image-src
-  "A picture the agent names by its upload, `uploads/<name>`, from the
-   path the page serves it on."
-  [src]
-  (if (str/starts-with? (str src) "uploads/")
-    (str "/" src)
-    src))
 
 (declare plain-text)
 
@@ -83,9 +91,9 @@
   (apply str (map token-text (array-seq (or tokens #js [])))))
 
 (defn- image
-  [^js token]
+  [^js token base]
   (let [{:keys [src title]} (attrs token)]
-    [:img (cond-> {:src (image-src src)
+    [:img (cond-> {:src (served base src)
                    :alt (plain-text (.-children token))}
             (seq title) (assoc :title title))]))
 
@@ -97,15 +105,16 @@
 
 (defn- fence
   "The code block with its language as a class, `language-clojure`; a
-   closed ```hiccup block a part of the page (`rragent.genui`); one the
-   model is still writing a placeholder until its fence closes (its code
-   in an answer that has ended without the closing fence)."
-  [^js token]
+   closed ```hiccup block a part of the page (`rragent.genui`, with the
+   `base` and the `bot` of its files and commands); one the model is
+   still writing a placeholder until its fence closes (its code in an
+   answer that has ended without the closing fence)."
+  [^js token {:keys [base bot]}]
   (let [lang (language (.-info token))
         meta (.-meta token)]
     (cond
       (and (= "hiccup" lang) (some-> meta .-closed))
-      (genui/block (.-content token) {:answered? (boolean (.-answered meta))})
+      (genui/block (.-content token) {:answered? (boolean (.-answered meta)) :base base :bot bot})
 
       (and (= "hiccup" lang) (some-> meta .-streaming))
       ;; no text: the same in every language
@@ -123,12 +132,12 @@
    and attributes the closing token completes, and the children so far.
    A hidden token (the paragraph of a tight list item) opens a frame
    without a tag, whose children go to the parent."
-  [^js token]
+  [^js token base]
   (let [tag (str (.-tag token))]
     (if (or (.-hidden token) (str/blank? tag))
       {:children []}
       {:tag (keyword tag)
-       :attrs (open-attrs token)
+       :attrs (open-attrs token base)
        :children []})))
 
 (defn- push-child
@@ -172,55 +181,58 @@
 (defn- task-item
   "The text of a task item as a checkbox that cannot be changed from the
    page, and the text after the mark; the item gets the class `task`."
-  [stack tokens {:keys [done? text]}]
+  [stack tokens {:keys [done? text]} opts]
   (-> stack
       (update (- (count stack) 2) assoc-in [:attrs :class] "task")
       (push-child [:input (cond-> {:type "checkbox" :disabled true}
                             done? (assoc :checked true))])
       (push-text text)
-      (walk (.slice tokens 1))))
+      (walk (.slice tokens 1) opts)))
 
 (defn- inline
-  [stack ^js token]
+  [stack ^js token opts]
   (let [children (or (.-children token) #js [])]
     (if-let [found (when (in-item? stack) (task children))]
-      (task-item stack children found)
-      (walk stack children))))
+      (task-item stack children found opts)
+      (walk stack children opts))))
 
 (defn- leaf
   "A token that is no opening or closing one, as a child of the frame on
    top of the stack."
-  [stack ^js token]
+  [stack ^js token {:keys [base] :as opts}]
   (case (.-type token)
-    "inline" (inline stack token)
+    "inline" (inline stack token opts)
     ("text" "text_special") (push-text stack (.-content token))
     "code_inline" (push-child stack [:code (.-content token)])
-    "fence" (push-child stack (fence token))
+    "fence" (push-child stack (fence token opts))
     "code_block" (push-child stack [:pre [:code (.-content token)]])
     "hr" (push-child stack [:hr])
     ("softbreak" "hardbreak") (push-child stack [:br])
-    "image" (push-child stack (image token))
+    "image" (push-child stack (image token base))
     (push-text stack (str (.-content token)))))
 
 (defn- step
-  [stack ^js token]
+  [opts stack ^js token]
   (case (.-nesting token)
-    1 (conj stack (frame token))
+    1 (conj stack (frame token (:base opts)))
     -1 (close stack)
-    (leaf stack token)))
+    (leaf stack token opts)))
 
 (defn- walk
-  [stack tokens]
-  (reduce step stack (array-seq tokens)))
+  [stack tokens opts]
+  (reduce (partial step opts) stack (array-seq tokens)))
 
 (defn from-tokens
   "The hiccup of a token stream of markdown-it: a vector of the block
-   elements."
-  [tokens]
-  (loop [stack (walk [{:children []}] tokens)]
-    (if (= 1 (count stack))
-      (:children (peek stack))
-      (recur (close stack)))))
+   elements; `opts` the `:base` and the `:bot` of the files and
+   commands in it."
+  ([tokens]
+   (from-tokens tokens {}))
+  ([tokens opts]
+   (loop [stack (walk [{:children []}] tokens opts)]
+     (if (= 1 (count stack))
+       (:children (peek stack))
+       (recur (close stack))))))
 
 (defn- line-count
   "The lines of a fence's content, the last one without its newline too."
@@ -259,7 +271,7 @@
   ([text]
    (parse text {}))
   ([text opts]
-   (from-tokens (mark-closed! (.parse parser (str text) #js {}) opts (line-count text)))))
+   (from-tokens (mark-closed! (.parse parser (str text) #js {}) opts (line-count text)) opts)))
 
 (def ^:private cache-size
   "Entries the cache holds before it is emptied: every chunk of a
@@ -282,18 +294,21 @@
   "The hiccup of a markdown `text`, a vector of its block elements; the
    one of the last texts asked for again from the cache. `:streaming?`
    for an answer still being written, `:answered?` for one the person
-   has answered since (see `fence`)."
+   has answered since (see `fence`); `:base` the bot's page, under
+   which its files are served, `:bot` its id for the commands of a
+   block."
   ([text]
    (hiccup text {}))
-  ([text {:keys [streaming? answered?] :as opts}]
+  ([text {:keys [streaming? answered? base] :as opts}]
    (let [text (str text)
          ^js cache (cond
                      streaming? streaming-cache
                      answered? answered-cache
                      :else cache)
          ;; an answer still streaming may be answered meanwhile (a message
-         ;; waits in the inbox) with its text unchanged
-         k (if streaming? (str (boolean answered?) "\n" text) text)]
+         ;; waits in the inbox) with its text unchanged; another bot's page
+         ;; serves its files elsewhere
+         k (str base "\n" (if streaming? (str (boolean answered?) "\n" text) text))]
      (or (.get cache k)
          (let [result (parse text opts)]
            (when (<= cache-size (.-size cache))

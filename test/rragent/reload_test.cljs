@@ -11,7 +11,6 @@
             [rragent.db :as db]
             [rragent.harness :as harness]
             [rragent.hooks :as hooks]
-            [rragent.page :as page]
             [rragent.reload :as reload]
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
@@ -69,7 +68,8 @@
              (.setResponses faux #js [(recording seen "One.") (recording seen "Two.") (recording seen "Three.")])
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))
                    root (:root agent)
-                   stop-following (page/start! agent)
+                   work (:work agent)
+                   pane (db/pane work)
                    unsubscribe (.subscribeCommits (:harness agent) (fn [_ _] (swap! commits inc)))]
                (try
                  (is (= "One." (await (harness/ask agent "First?"))))
@@ -77,7 +77,7 @@
                  (testing "an unchanged file transacts nothing"
                    (let [entries-before (.-length (.-items (await (.entries root #js {} 100 js/undefined harness/context))))
                          commits-before @commits]
-                     (is (nil? (await (reload/reload! root harness/context))))
+                     (is (nil? (await (reload/reload! root work harness/context))))
                      (is (= commits-before @commits) "no commit")
                      (is (= entries-before (.-length (.-items (await (.entries root #js {} 100 js/undefined harness/context))))) "no entry")))
                  (testing "the file rewritten: the next run has the new instructions, model and name"
@@ -86,20 +86,19 @@
                    (is (str/includes? (:instructions (last @seen)) (str "You review code in " (path/resolve home) ".")) "the new instructions, the folder filled in")
                    (is (not (str/includes? (:instructions (last @seen)) "You watch a page.")) "the old ones gone")
                    (is (= "faux-2" (.. (await (.agent root harness/context)) -model -modelId)) "the model follows the file")
-                   (is (= "reviewer" (:name (reload/current (.-id root)))))
-                   (is (= "reviewer" (get-in @db/db [:agent :definition :name])) "the page's copy follows")
-                   (is (= "faux-2" (get-in @db/db [:agent :definition :model]))))
+                   (is (= "reviewer" (:name (reload/current work))))
+                   (is (= "reviewer" (get-in @pane [:agent :definition :name])) "the page's copy follows")
+                   (is (= "faux-2" (get-in @pane [:agent :definition :model]))))
                  (testing "a file that does not read leaves the agent as it was"
                    (rewrite! home "---\ndescription: nameless now\n---\n\nNobody.\n")
-                   (is (nil? (await (reload/reload! root harness/context))))
-                   (is (= "reviewer" (:name (reload/current (.-id root)))))
+                   (is (nil? (await (reload/reload! root work harness/context))))
+                   (is (= "reviewer" (:name (reload/current work))))
                    (is (= "Three." (await (harness/ask agent "Third?"))))
                    (is (str/includes? (:instructions (last @seen)) "You review code") "the run keeps the last definition that read"))
                  (finally
                    (unsubscribe)
-                   (stop-following)
                    (await (harness/close agent))
-                   (is (nil? (reload/current (.-id root))) "forgotten with the close")
+                   (is (nil? (reload/current work)) "forgotten with the close")
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

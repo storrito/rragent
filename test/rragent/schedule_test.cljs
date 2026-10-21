@@ -82,7 +82,7 @@
                  (try
                    (is (= "Set." (await (harness/ask agent "Every second."))))
                    (let [armed-at-set (count (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))]
-                     (is (= 1 armed-at-set) "the alarm set once by the tool")
+                     (is (<= 1 armed-at-set) "the alarm set by the tool (a first fire may have come already)")
                      (await (sleep 2500))
                      (is (< armed-at-set (count (filter #(str/starts-with? % "automation update rragent-wake") (fake/calls log)))) "and again after every fire")
                      (is (every? (fn [call] (some #(str/includes? call (str "--cron " % " --exec")) minutes))

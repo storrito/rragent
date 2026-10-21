@@ -18,7 +18,6 @@
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [rragent.codemode :as codemode]
             [rragent.codemode-worker :as codemode-worker]
-            [rragent.db :as db]
             [rragent.facts :as facts]
             [rragent.projects :as projects]
             [rragent.tools.work :as work]))
@@ -55,7 +54,7 @@
   "`code` evaluated by the project's process; its answer, or a throw
    with the error, or with the word that the template takes no eval."
   [api project code]
-  (let [handle (projects/handle {:db db/db :dir (work/artifacts-dir api)})
+  (let [handle (projects/handle {:db (work/pane api) :dir (work/artifacts-dir api)})
         {:keys [status text]} (await (projects/eval! handle project code))]
     (cond
       (= 200 status) (cut text)

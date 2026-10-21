@@ -12,9 +12,9 @@
   #js {:output #js [#js {:type "text" :text s}]})
 
 (defn- ^:async rearm!
-  "The machine's alarm set to the earliest next run."
-  [api call-context]
-  (schedule/rearm! (await (docs/read api schedule/Schedules call-context)) (js/Date.now)))
+  "The machine's alarm set to the earliest next run of every bot."
+  []
+  (await (schedule/rearm! (js/Date.now))))
 
 (def tool
   (defineTool
@@ -35,12 +35,12 @@
                        "set" (do (when (or (empty? name) (empty? (.-cron args)) (empty? (.-text args)))
                                    (throw (js/Error. "set needs name, cron and text")))
                                  (let [at (await (schedule/set! api name (.-cron args) (.-tz args) (.-text args) (js/Date.now) call-context))]
-                                   (await (rearm! api call-context))
+                                   (await (rearm!))
                                    (text (str "Schedule " name " set; next run " (.toISOString (js/Date. at))))))
                        "delete" (do (when (empty? name)
                                       (throw (js/Error. "delete needs the name")))
                                     (let [found (await (schedule/delete! api name call-context))]
-                                      (await (rearm! api call-context))
+                                      (await (rearm!))
                                       (text (if found (str "Schedule " name " deleted") (str "No schedule " name)))))
                        "list" (let [schedules (await (docs/read api schedule/Schedules call-context))
                                     listed (schedule/listed schedules)]

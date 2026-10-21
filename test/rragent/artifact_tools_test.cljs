@@ -71,12 +71,11 @@
                    (testing "the render wrote the video through the template's script and said so"
                      (is (= "video\n" (fs/readFileSync (path/join artifacts "card.mp4") "utf8")))
                      (is (some #(str/includes? % "artifacts/card.mp4 is ready.") texts))
-                     (is (= 0 (get-in @db/db [:renders "card" :exit])) "the pane's db knows the render"))
+                     (is (= 0 (get-in @(db/pane (path/join home "work")) [:renders "card" :exit])) "the bot's atom knows the render"))
                    (testing "the log of a project that never ran"
                      (is (some #(str/includes? % "No log yet for card") texts))))
                  (finally
                    (restore!)
-                   (swap! db/db dissoc :renders)
                    (await (harness/close agent))
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
