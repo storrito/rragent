@@ -2,7 +2,8 @@
   "pi-durable opened on the agent's folder: the SQLite storage, the
    models (OpenRouter through the gateway's connector when there is
    one, found at start or at a model call after the gateway came up,
-   else with the key from the environment, or what a test passes),
+   else with the key from the environment, as `rragent.openrouter`
+   routes every call to OpenRouter, or what a test passes),
    the registry with pi-durable's coding tools (read, write,
    edit, bash in `work/`) and rragent's own (remember and recall,
    fetch, the REPL `eval` with the connectors of the gateway as
@@ -25,6 +26,7 @@
             [rragent.definition :as definition]
             [rragent.gateway :as gateway]
             [rragent.home :as home]
+            [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
             [rragent.schedule :as schedule]
             [rragent.tools.eval :as eval-tool]
@@ -44,27 +46,14 @@
 (defn extension
   "rragent's own tools for the agent of `definition`: the project tool
    names the templates the definition allows, the eval tool runs its
-   programs in the `worker` of the REPL."
-  [definition worker]
+   programs in the `worker` of the REPL, the media tools reach
+   OpenRouter the way the REPL `codemode` knows it
+   (`rragent.openrouter`)."
+  [definition worker codemode]
   (defineExtension #js {:name "rragent"
                         :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool (eval-tool/tool worker) schedule-tool/tool hook-tool/tool
-                                    (project-tool/tool definition) render-tool/tool media-tool/image media-tool/voice media-tool/music]
+                                    (project-tool/tool definition) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)]
                         :tasks #js [schedule/Task]}))
-
-(defn gateway-base-url
-  "Where OpenRouter's API is behind the gateway's `connection`: its
-   base and `/v1`, as `openrouter.ai/api/v1` is behind OpenRouter's
-   host."
-  [discovery connection]
-  (str (gateway/connection-base discovery connection) "/v1"))
-
-(def probe-interval-ms
-  "How long the models' auth waits before it asks the gateway again
-   for an `openrouter` connection it has not found: the gateway of a
-   fresh sprite comes up seconds after the service, and the first
-   model call after that should go through it, without a request
-   before every call meanwhile."
-  10000)
 
 (defn gateway-auth
   "The resolved auth of a request through the gateway's `connection`:
@@ -73,7 +62,7 @@
    URL from the resolved auth, so it is here, not only on the
    provider."
   [discovery connection]
-  #js {:auth #js {:apiKey "sprite" :baseUrl (gateway-base-url discovery connection)}
+  #js {:auth #js {:apiKey "sprite" :baseUrl (openrouter/gateway-base-url discovery connection)}
        :source (str "the Sprites gateway, connection " (:id connection))})
 
 (defn- own-auth
@@ -85,24 +74,6 @@
     (.resolve api-key input)
     (js/Promise.resolve js/undefined)))
 
-(defn- known-connection
-  "The gateway's `openrouter` connection as the REPL `codemode` has
-   it; nil while it has none."
-  [codemode]
-  (gateway/connection (codemode/discovery codemode) "openrouter"))
-
-(defn- openrouter-connection
-  "The gateway's `openrouter` connection: the one the REPL `codemode`
-   knows, else the gateway asked again, one request, when the last
-   asking (`probed`, its time) is `interval-ms` ago; what it lists is
-   the REPL's from then on (`rragent.codemode/connectors`)."
-  [codemode probed interval-ms]
-  (or (known-connection codemode)
-      (let [now (js/Date.now)]
-        (when (<= interval-ms (- now @probed))
-          (reset! probed now)
-          (gateway/connection (codemode/connectors codemode) "openrouter")))))
-
 (defn gateway-provider
   "`provider` with its requests sent through the gateway's `openrouter`
    connection when the REPL `codemode` knows one. The discovery at
@@ -110,36 +81,24 @@
    gateway of a fresh sprite comes up after the service), so nothing
    is fixed: pi-ai resolves the auth before every request, and this
    one looks at the discovery as it is and asks the gateway again,
-   one blocking request (`rragent.sync-fetch`) at most every
-   `interval-ms` (`probe-interval-ms` without), until it lists the
-   connection; without one the provider's own auth, the key from the
-   environment. The provider's `baseUrl` follows the same."
+   one blocking request, at most every `interval-ms`
+   (`rragent.openrouter/connection`, ten seconds without), until it
+   lists the connection; without one the provider's own auth, the key
+   from the environment. The provider's `baseUrl` follows the same."
   [provider codemode & [interval-ms]]
-  (let [probed (atom 0)
-        interval-ms (or interval-ms probe-interval-ms)
-        wrapped (js/Object.assign #js {} provider
+  (let [wrapped (js/Object.assign #js {} provider
                                   #js {:auth #js {:apiKey #js {:name (str (.-name provider) " through the Sprites gateway, or its own key")
                                                                :resolve (fn [input]
-                                                                          (if-let [connection (openrouter-connection codemode probed interval-ms)]
+                                                                          (if-let [connection (openrouter/connection codemode interval-ms)]
                                                                             (js/Promise.resolve (gateway-auth (codemode/discovery codemode) connection))
                                                                             (own-auth provider input)))}}})]
     (js/Object.defineProperty wrapped "baseUrl"
                               #js {:enumerable true
                                    :get (fn []
-                                          (if-let [connection (known-connection codemode)]
-                                            (gateway-base-url (codemode/discovery codemode) connection)
+                                          (if-let [connection (openrouter/known-connection codemode)]
+                                            (openrouter/gateway-base-url (codemode/discovery codemode) connection)
                                             (.-baseUrl provider)))})
     wrapped))
-
-(defn model-route
-  "Where the models' requests go: the gateway's `openrouter`
-   connector when `discovery` has one, else OpenRouter itself with
-   `OPENROUTER_API_KEY`, the gateway asked again before a model call
-   (`gateway-provider`); one line for the console."
-  [discovery]
-  (if-let [connection (gateway/connection discovery "openrouter")]
-    (str "OpenRouter through the Sprites gateway (" (gateway-base-url discovery connection) ")")
-    "OpenRouter with OPENROUTER_API_KEY; the gateway is asked again for an openrouter connection before a model call"))
 
 (defn openrouter-models
   "The models through OpenRouter: through the gateway's connector when
@@ -151,12 +110,13 @@
 
 (defn registry
   "The registry: pi-durable's coding tools, rragent's own for the
-   `definition`, with the `worker` of the REPL, and the subagent tool in
-   an extension of its own, which a subagent's agent leaves out."
-  [definition worker]
+   `definition`, with the `worker` and the `codemode` of the REPL, and
+   the subagent tool in an extension of its own, which a subagent's
+   agent leaves out."
+  [definition worker codemode]
   (doto (createRegistry)
     (.install CodingTools)
-    (.install (extension definition worker))
+    (.install (extension definition worker codemode))
     (.install subagent-tool/extension)))
 
 (defn ^:async open
@@ -172,8 +132,9 @@
    them). The gateway's connectors are discovered here, tried again
    while the gateway comes up, for the REPL (`rragent.codemode`),
    whose programs run in a worker thread started at the first one
-   (`rragent.codemode-worker`), and for the models' route, which
-   asks the gateway again at a model call when nothing was found. The
+   (`rragent.codemode-worker`), and for the route to OpenRouter of the
+   models and the media tools (`rragent.openrouter`), which asks the
+   gateway again at a call when nothing was found. The
    definition read here names the templates of the project tool; the
    root conversation is configured from the file by `rragent.reload`,
    which reads it again before every submission."
@@ -190,7 +151,7 @@
         models (or models (openrouter-models codemode))
         harness (await (.open Harness storage
                               #js {:models models
-                                   :registry (registry definition worker)
+                                   :registry (registry definition worker codemode)
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) work)}))
                                    :settings #js {:compaction #js {:enabled true}}
                                    :now (or now js/undefined)

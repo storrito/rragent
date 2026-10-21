@@ -39,6 +39,7 @@
             [rragent.i18n :as i18n]
             [rragent.lifecycle :as lifecycle]
             [rragent.onboarding :as onboarding]
+            [rragent.openrouter :as openrouter]
             [rragent.programs :as programs]
             [rragent.projects :as projects]
             [rragent.render :as render]
@@ -234,9 +235,10 @@
        :ring/handler #'artifacts-post}]
      ;; the files attached to a message, posted and served
      (uploads/routes (:uploads @pane))
-     ;; a recording of the person, answered as text for the draft, and
-     ;; the dictation corrected with the agent's context
-     dictation/routes
+     ;; a recording of the person, answered as text for the draft by the
+     ;; OpenRouter the agent's REPL knows, and the dictation corrected
+     ;; with the agent's context
+     (dictation/routes (:codemode (:agent @db/db)))
      correction/routes
      [{:command/kind :artifacts/open
        :command/fn #'open-artifact-command}
@@ -349,7 +351,7 @@
       (println (update/report @updater))
       (println (programs/report (templates/all)))
       (println (codemode/report (:codemode agent)))
-      (println (harness/model-route (codemode/discovery (:codemode agent))))
+      (println (openrouter/report (codemode/discovery (:codemode agent))))
       (println (str "rragent on "
                     (token-line base from)
                     ", the agent " (definition/display-name (:definition agent))

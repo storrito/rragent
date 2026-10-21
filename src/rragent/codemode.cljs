@@ -112,8 +112,9 @@
    :display_name and :description (the person sets it up in the
    Sprites dashboard). An :error says why the lists are empty when
    the gateway did not answer. The storrito/ functions follow the
-   reading."
+   reading; the time of the reading is kept for `asked-at`."
   [handle]
+  (reset! (:asked handle) (js/Date.now))
   (let [discovery (gateway/discover (:gateway handle))]
     (reset! (:discovery handle) discovery)
     (install-storrito! handle (partial call handle))
@@ -286,15 +287,17 @@
 (defn handle-of
   "The REPL over what another thread found: `{:gateway :discovery
    :storrito}` as `snapshot` answers them, no request made. `{:gateway
-   :discovery :storrito :composio-session :facts :context}`, the last
-   five atoms; the context is made at the first program."
+   :discovery :storrito :composio-session :facts :context :asked}`, the
+   last six atoms; the context is made at the first program, `asked`
+   is when `connectors` last read the list again, 0 before it did."
   [{:keys [gateway discovery storrito]}]
   {:gateway gateway
    :discovery (atom discovery)
    :storrito (atom storrito)
    :composio-session (atom nil)
    :facts (atom {:known [] :pending []})
-   :context (atom nil)})
+   :context (atom nil)
+   :asked (atom 0)})
 
 (defn handle
   "The REPL of the agent over the gateway at `base`: its connectors
@@ -320,6 +323,14 @@
 (defn discovery
   [handle]
   @(:discovery handle))
+
+(defn asked-at
+  "When `connectors` last read the gateway's list again, in
+   milliseconds; 0 while only the reading at start was made. For
+   `rragent.openrouter`, which asks again at most every ten seconds
+   while no `openrouter` connection is known."
+  [handle]
+  @(:asked handle))
 
 (defn begin!
   "The facts a program sees: `known`, the conversation's as they are

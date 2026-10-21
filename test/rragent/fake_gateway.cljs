@@ -9,7 +9,10 @@
    (the gateway adds the credential, nothing else may), and behind
    `/v1/gateway/<provider>/<id>/` the connections of the list: `echo`
    answers every request as JSON (`?status=` sets the status, `?text=1`
-   answers plain text, `?delay=<ms>` answers that much later), the
+   answers plain text, `?delay=<ms>` answers that much later),
+   `openrouter` the endpoints of dictation and the media tools under
+   `/v1` with a stub each (a transcription, a picture, a voice, a
+   stream of music), anything else as an echo, the
    custom API `conn_composio` the four meta tools at `execute_meta`
    (a search, schemas, a run of GMAIL_SEND_EMAIL that completes and of
    any other tool that fails, the connection manager with a link; the
@@ -147,6 +150,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     return json(res, 404, { errorMessage: 'unknown procedure' });
+  }
+  if (provider === 'openrouter') {
+    if (rest === '/v1/audio/transcriptions') return json(res, 200, { text: ' Hallo Agent ', words: [{ word: 'Hallo', start: 0.1, end: 0.4, confidence: 0.98 }, { word: 'Agent', start: 0.5, end: 0.9, confidence: 0.61 }], usage: { seconds: 1, cost: 0.0001 } });
+    if (rest === '/v1/images') return json(res, 200, { data: [{ b64_json: Buffer.from('a png').toString('base64'), media_type: 'image/png' }], usage: { cost: 0.07 } });
+    if (rest === '/v1/audio/speech') { res.setHeader('content-type', 'audio/mpeg'); res.writeHead(200); return res.end('mp3 bytes'); }
+    if (rest === '/v1/chat/completions') {
+      const chunk = (bytes, usage) => 'data: ' + JSON.stringify({ choices: [{ delta: { audio: { data: Buffer.from(bytes).toString('base64') } } }], usage: usage }) + '\\n\\n';
+      res.setHeader('content-type', 'text/event-stream'); res.writeHead(200);
+      return res.end(chunk('mu') + chunk('sic', { cost: 0.04 }) + 'data: [DONE]\\n\\n');
+    }
+    return echo(200);
   }
   return echo(200);
 });

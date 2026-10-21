@@ -6,6 +6,7 @@
             [rragent.codemode-worker :as codemode-worker]
             [rragent.fake-gateway :as fake-gateway]
             [rragent.harness :as harness]
+            [rragent.openrouter :as openrouter]
             [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]))
@@ -83,7 +84,7 @@
                    (is (= base (.. auth -auth -baseUrl)) "the request's base, as pi-ai applies the resolved auth")
                    (is (= "sprite" (.. auth -auth -apiKey)))
                    (is (= "the Sprites gateway, connection conn_openrouter" (.-source auth)))
-                   (is (= (str "OpenRouter through the Sprites gateway (" base ")") (harness/model-route (codemode/discovery codemode))))
+                   (is (= (str "OpenRouter through the Sprites gateway (" base ")") (openrouter/report (codemode/discovery codemode))))
                    (is (seq (.getModels provider)) "OpenRouter's catalog as it is")))
                (testing "without one, OpenRouter itself with the key from the environment, as on a laptop"
                  (let [codemode (codemode/handle "http://127.0.0.1:1")
@@ -94,7 +95,7 @@
                    (is (= "sk-or-test" (.. auth -auth -apiKey)))
                    (is (nil? (.. auth -auth -baseUrl)) "OpenRouter's own base")
                    (is (= "OPENROUTER_API_KEY" (.-source auth)))
-                   (is (str/starts-with? (harness/model-route (codemode/discovery codemode)) key-line))))
+                   (is (str/starts-with? (openrouter/report (codemode/discovery codemode)) key-line))))
                (finally
                  (stop)
                  (sync-fetch/stop!))))))
@@ -146,7 +147,7 @@
                    (is (str/includes? (codemode/report (:codemode agent)) "ECONNREFUSED"))
                    (is (not (str/includes? (codemode/report (:codemode agent)) "tries")))
                    (is (= "https://openrouter.ai/api/v1" (.-baseUrl (.getProvider models "openrouter"))))
-                   (is (str/starts-with? (harness/model-route (codemode/discovery (:codemode agent))) key-line))))
+                   (is (str/starts-with? (openrouter/report (codemode/discovery (:codemode agent))) key-line))))
                (testing "the gateway comes up: the first model call after it goes through the gateway, and the REPL's worker has the connectors"
                  (reset! fake (await (fake-gateway/start! nil {:port port})))
                  (let [base (str url "/v1/gateway/openrouter/conn_openrouter/v1")
@@ -156,7 +157,7 @@
                    (is (= base (.-baseUrl (.getProvider models "openrouter"))))
                    (is (= 5 (count (:connections (codemode/discovery (:codemode agent))))) "the REPL has the list")
                    (is (= 3 (count (get-in (codemode/snapshot (:codemode agent)) [:storrito :catalog :procedures]))) "and the Storrito catalog")
-                   (is (= (str "OpenRouter through the Sprites gateway (" base ")") (harness/model-route (codemode/discovery (:codemode agent)))))
+                   (is (= (str "OpenRouter through the Sprites gateway (" base ")") (openrouter/report (codemode/discovery (:codemode agent)))))
                    (is (= {:text "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" :pending []}
                           (await (codemode-worker/evaluate! (:worker agent) {:code "(storrito/generate-uuid)" :facts [] :env {}})))
                        "a worker started now works from the late discovery")))
@@ -221,7 +222,7 @@
                      (is (string? error)))
                    (is (str/starts-with? (codemode/report (:codemode agent)) "no gateway at http://127.0.0.1:1"))
                    (is (= 1 (:tries (codemode/discovery (:codemode agent)))) "a port that refuses at once is tried once")
-                   (is (str/starts-with? (harness/model-route (codemode/discovery (:codemode agent))) key-line)))
+                   (is (str/starts-with? (openrouter/report (codemode/discovery (:codemode agent))) key-line)))
                  (finally
                    (await (harness/close agent))
                    (test-home/remove! home)
