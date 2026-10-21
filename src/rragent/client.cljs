@@ -710,7 +710,17 @@
          (when-let [^js link (some-> (.-target event) (.closest "a[data-bot]"))]
            (when (plain-click? event)
              (.preventDefault event)
-             (go! (.getAttribute link "data-bot"))))))
+             (go! (.getAttribute link "data-bot"))))
+         ;; a card in the chat (`a[data-artifact]`, rragent.view/artifact-card)
+         ;; opens the artifact in the pane, and the pane on a phone
+         (when-let [^js card (some-> (.-target event) (.closest "a[data-artifact]"))]
+           (when (plain-click? event)
+             (.preventDefault event)
+             (state/dispatch! [[:data/command {:command/kind :artifacts/open
+                                               :command/data {:bot (.getAttribute card "data-artifact-bot")
+                                                              :path (.getAttribute card "data-artifact")}}]])
+             (when-let [^js made (js/document.getElementById "view-made")]
+               (set! (.-checked made) true))))))
       (js/window.addEventListener
        "popstate"
        (fn [_]

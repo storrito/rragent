@@ -255,6 +255,46 @@
         (if (= :audio kind) "🎵 " "🎬 ")
         name]))])
 
+(defn- artifact-url
+  [base path]
+  (str base artifacts/url-prefix "/" path))
+
+(defn- src
+  [base {:keys [path mtime]}]
+  (str (artifact-url base path) "?rev=" mtime))
+
+(def kind-icons
+  "The icon of an artifact by its kind, in the pane's list and on a card."
+  {:page "🌐" :image "🖼️" :video "🎬" :audio "🎵" :project "🧩" :markdown "📝" :text "📝" :file "📎"})
+
+(defn- made-path
+  "The artifact a tool call made: `artifacts/<path>` in the path it
+   wrote, or in the first line of its result (a render, a picture, a
+   voice, music, a project); nil for none, or while the call runs, or
+   when it failed."
+  [{:keys [name args done? error? result]}]
+  (when (and done? (not error?))
+    (let [candidate (case name
+                      ("write" "edit") (or (:path args) (:file_path args))
+                      ("render" "image" "voice" "music" "project") (first (str/split-lines (str result)))
+                      nil)]
+      (when-let [[_ path] (re-find #"(?:^|[\s/])artifacts/([^\s:]+)" (str candidate))]
+        (not-empty (str/replace path #"/+$" ""))))))
+
+(defn- artifact-card
+  "What a tool call made, as a card in the chat: a tap opens it in the
+   pane (`a[data-artifact]`, `rragent.client`), on a phone the pane
+   itself; named and typed the way the pane's list does it."
+  [base bot path]
+  (let [kind (artifacts/kind path)]
+    [:a.artifact-card {:href (artifact-url base path)
+                       :class (clojure.core/name kind)
+                       :data-artifact path
+                       :data-artifact-bot bot}
+     [:span.icon (get kind-icons kind "📎")]
+     [:span.name (artifacts/title path)]
+     [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
+
 (defn- item-view
   [{:keys [kind id label text media pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
   (case kind
@@ -281,7 +321,9 @@
 
     :tool
     [:div.item.step {:replicant/key id}
-     (tool-view item)]
+     (tool-view item)
+     (when-let [path (made-path item)]
+       (artifact-card base bot path))]
 
     :note
     [:div.item.note {:replicant/key id}
@@ -433,24 +475,28 @@
                   :title [:i18n :composer/keys]
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]])
 
-(defn- artifact-url
-  [base path]
-  (str base artifacts/url-prefix "/" path))
-
-(defn- src
-  [base {:keys [path mtime]}]
-  (str (artifact-url base path) "?rev=" mtime))
-
 (defn- rendering
   [render]
   [:i18n :artifacts/rendering {:progress (or (:progress render) "")}])
+
+(defn- text-view
+  "A text file on screen: markdown rendered (`rragent.markdown`), the
+   rest as it is; a note when this is the start of it only
+   (`rragent.artifacts/text-of`)."
+  [kind {:keys [text truncated?]} base bot]
+  [:div.document
+   (if (= :markdown kind)
+     (into [:div.markdown] (markdown/hiccup text {:base base :bot bot}))
+     [:pre.plain text])
+   (when truncated?
+     [:p.hint [:i18n :artifacts/truncated]])])
 
 (defn- content
   "The artifact on screen by its kind. `project` is the state of its
    process (`rragent.projects`), `render` the state of its render
    (`rragent.render`): the one of the project, or the one still writing
-   a video."
-  [base {:keys [path kind mtime title] :as artifact} {:keys [project render]}]
+   a video; `text` the text of a text file, `bot` the bot's id."
+  [base {:keys [path kind mtime title] :as artifact} {:keys [project render text bot]}]
   (case kind
     :page [:ui/canvas {:ui/src (artifact-url base path)
                        :ui/rev mtime
@@ -483,17 +529,38 @@
                                         :ui/rev ready-at
                                         :ui/title [:i18n :artifacts/creation]}])
                  :else [:div.placeholder [:i18n :artifacts/starting]]))
+    (:markdown :text) (if text
+                        (text-view kind text base bot)
+                        [:div.placeholder [:i18n :artifacts/no-preview]])
     [:div.placeholder [:i18n :artifacts/no-preview]]))
 
-(defn- option
-  [{:keys [path title kind]} selected]
-  ;; The option carries the choice: a value on the select alone is set
-  ;; before the options exist on a fresh page.
-  [:option {:value path
-            :selected (= path selected)}
-   title
-   ;; The video of a design shares its name with the design.
-   (when (= :video kind) [:i18n :artifacts/video])])
+(defn- human-size
+  [bytes]
+  (cond
+    (nil? bytes) nil
+    (< bytes 1024) (str bytes " B")
+    (< bytes (* 1024 1024)) (str (js/Math.round (/ bytes 1024)) " KB")
+    :else (str (.toFixed (/ bytes 1024 1024) 1) " MB")))
+
+(defn- file-row
+  "A row of the list: the icon of the kind, the title, and what tells
+   two files of one title apart: the extension (a project as such),
+   the folder, the size. A click opens the file."
+  [bot {:keys [path kind title ext size]} current]
+  (let [project? (= :project kind)
+        folder (when (str/includes? path "/")
+                 (str (subs path 0 (str/last-index-of path "/")) "/"))
+        parts (remove nil? [(if project? [:i18n :artifacts/project] ext)
+                            folder
+                            (when-not project? (human-size size))])]
+    [:li {:replicant/key path
+          :class (cond-> [(clojure.core/name kind)]
+                   (= path current) (conj "current"))}
+     [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open
+                                                :command/data {:bot bot :path path}}]]}}
+      [:span.icon (get kind-icons kind "📎")]
+      [:span.name title]
+      (into [:span.meta] (interpose " · " parts))]]))
 
 (defn- render-controls
   "The video of the project, made here on a click; its progress and Stop
@@ -530,33 +597,46 @@
       [:i18n :artifacts/download]])))
 
 (defn artifacts
-  "The right half of the page: a chooser over the artifacts, the links of
-   the one on screen, and the one shown by its kind. `pane` holds the
-   keys of `rragent.artifacts` (`:artifacts/list`, `:artifacts/current`),
-   `:projects` and `:renders`, and the `:base` of the bot's page with
-   its id as `:bot`."
-  [{:keys [artifacts/list artifacts/current projects renders base bot] :as pane}]
+  "The right half of the page: the list of the artifacts, newest first,
+   beside the one on screen, with its Open and Download links in the
+   bar; on a phone the list alone, or the one on screen with the way
+   back (`.showing`, the stylesheet). `pane` holds the keys of
+   `rragent.artifacts` (`:artifacts/list`, `:artifacts/current`, the
+   `:artifacts/text` of a text file on screen), `:projects` and
+   `:renders`, and the `:base` of the bot's page with its id as `:bot`."
+  [{:keys [artifacts/list artifacts/current artifacts/text projects renders base bot] :as pane}]
   (let [artifact (some #(when (= current (:path %)) %) list)
         project? (= :project (:kind artifact))
         render (when artifact
                  (if project?
                    (get renders (:path artifact))
                    (artifacts/writing pane artifact)))]
-    [:section.artifacts {:class (when (empty? list) "empty")}
+    [:section.artifacts {:class (cond-> []
+                                  (empty? list) (conj "empty")
+                                  artifact (conj "showing"))}
      [:div.bar
+      (when artifact
+        [:button.link.back {:on {:click [[:data/command {:command/kind :artifacts/open
+                                                         :command/data {:bot bot :path nil}}]]}}
+         "‹ " [:i18n :artifacts/back]])
       [:span.label [:i18n :page/artifacts]]
-      (when (seq list)
-        [:select.chooser {:value (:path artifact)
-                          :on {:change [[:data/command {:command/kind :artifacts/open
-                                                        :command/data {:bot bot :path :event/target.value}}]]}}
-         (for [file list]
-           (option file (:path artifact)))])
+      (when artifact
+        [:span.title (:title artifact)])
       (when artifact
         (actions base bot artifact render))]
-     (if artifact
-       (content base artifact {:project (get projects (:path artifact))
-                               :render render})
-       [:div.placeholder [:i18n :artifacts/empty]])]))
+     [:div.split
+      (when (seq list)
+        [:ul.files
+         (for [file list]
+           (file-row bot file current))])
+      [:div.shown
+       (cond
+         artifact (content base artifact {:project (get projects (:path artifact))
+                                          :render render
+                                          :text text
+                                          :bot bot})
+         (seq list) [:div.placeholder [:i18n :artifacts/pick]]
+         :else [:div.placeholder [:i18n :artifacts/empty]])]]]))
 
 (defn- views
   "On a phone the chat and the artifacts take turns: two radios in
