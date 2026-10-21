@@ -46,49 +46,67 @@ design, a HyperFrames composition) and renders their videos.
 
 ## Bots
 
-`RRAGENT_HOME` (`./agent`) is the machine's folder, and the bots live in
-it (`rragent.bots`, `rragent.home`):
+`RRAGENT_HOME` (`./agent`) is the machine's folder. `agent.sqlite` in
+it is the one pi-durable storage of the machine, and a bot is a
+conversation of it: the root conversation is the first bot, every
+further bot an ownerless conversation (`createConversation`); a
+subagent's conversation is owned by a task and is no bot. Each
+conversation is configured from its own definition (`rragent.reload`:
+its instructions, its model and thinking level, and its folder's
+`work/` as its `cwd`, which pi-durable keeps per conversation and
+hands to the environment of every call with the conversation's id).
+The bots' folders are named by their conversations (`rragent.bots`,
+`rragent.home`):
 
+    agent.sqlite            the one storage: every bot's conversation and state
     bots/<id>/AGENT.md      the bot's definition, read again before every run
-    bots/<id>/bot.sqlite    its conversation and state (pi-durable)
     bots/<id>/work/         where its tools work: artifacts/ and uploads/ in it
-    bots.edn                the index: ids, names, when made, when last used
     shared/                 the folder every bot's bash reads and writes
     assistant.md            the generic definition a new bot starts from
     trash/<id>/             where a deleted bot's folder goes
 
-An id is eight random hex digits. Each bot is one pi-durable harness
-over its own SQLite, all in one process: one page server, one gateway
-discovery and one models catalog for all of them (`rragent.machine`),
-a REPL worker thread per bot (its SCI context is the bot's), and one
-sleep watch that stops the machine once every bot is idle and no page
-is open. One `rragent-wake` automation is armed for the earliest due
-schedule across all bots (`rragent.schedule/rearm!`), and a wake runs
-whichever bot's schedules are due. A hook's address is the machine's,
-`POST /hook/<name>/<secret>`: the call is tried on every bot, the
-secret says whose it is. Nothing of this reaches Storrito: the
-machine's page, token and environment stay what they were.
+There is no index file: the bots are the ownerless conversations of
+the storage, read through pi-durable at start (`rragent.machine`), in
+the order they were made (ascending by id), less the deleted ones,
+which the session document `rragent.bots` names. A bot's name is its
+definition's (`name:` of its `AGENT.md`); when it was made, the birth
+time of its folder; when it was last used, the time of the newest
+entry of its conversation. One harness, one page server, one gateway
+discovery and one models catalog serve every bot, a REPL worker
+thread per bot (its SCI context is the bot's, found by the
+conversation of the call), and one sleep watch stops the machine once
+every bot is idle and no page is open. One `rragent-wake` automation
+is armed for the earliest due schedule across all bots
+(`rragent.schedule/rearm!`), and a wake runs whichever bot's
+schedules are due; the schedules and hooks are documents of each
+conversation, the facts its entries. A hook's address is the
+machine's, `POST /hook/<name>/<secret>`: the call is tried on every
+bot, the secret says whose it is. Nothing of this reaches Storrito:
+the machine's page, token and environment stay what they were.
 
 A bot is made from the sidebar ("New bot": a name and a sentence of
 purpose) or by a bot through its `bot` tool (`create` with a name, the
 instructions, and the name of a skill from the clone when the job is
-one of them; `list`). A new bot starts from the generic assistant
-definition (`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`;
-the bundle carries a copy as `assistant.md`) with the instructions on
-top as its job, and the skill line when one was named, so it takes the
-skill or asks the person. The first bot of a new machine is that
-assistant. There is no message between bots in this version: the
+one of them; the tool makes the conversation in its own commit;
+`list`). A new bot starts from the generic assistant definition
+(`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the bundle
+carries a copy as `assistant.md`) with the instructions on top as its
+job, and the skill line when one was named, so it takes the skill or
+asks the person. The first bot of a new machine is that assistant. A
+deleted bot is hidden, not removed: its conversation stays in the
+storage, its folder goes to `trash/<id>/`, the sidebar leaves it out;
+the last visible bot stays. A rename sets the `name:` line of its
+definition. There is no message between bots in this version: the
 person talks to each on its page.
 
 A machine from before the bots ran one agent at the top of the home,
-`AGENT.md`, `agent.sqlite` and `work/`. At start the machine moves
-them into `bots/<id>/` as the first bot, one rename per file, nothing
-copied (the SQLite file with the side files of its write-ahead log),
-named by its definition, and writes `assistant.md` from that
-definition when it is the generic one. A home in the new layout is
-left alone. A failure undoes the renames made, leaves the old layout
-as it was, and the server refuses to start with the reason
-(`rragent.bots/migrate!`).
+`AGENT.md` and `work/` beside `agent.sqlite`. At start the two are
+moved into `bots/1/`, the folder of the root conversation, one rename
+each, nothing copied, the storage untouched, and `assistant.md` is
+written from that definition when it is the generic one. A home in
+the new layout is left alone. A failure undoes the renames made,
+leaves the old layout as it was, and the server refuses to start with
+the reason (`rragent.bots/migrate!`).
 
 ## The page
 
@@ -98,10 +116,11 @@ their name and state (running, idle, asleep until a scheduled run,
 failed to open), "New bot", and behind the three dots of a row a rename
 (a field in the row) and a delete, which asks once in the row before
 the bot's folder goes to the trash; the last bot of a machine stays.
-The bot is in the URL, `/bot/<id>`, the way pchat does it: a click in
-the sidebar changes the URL without a reload and tells the server which
-bot this tab shows, the root `/` redirects to the bot last used, and a
-tab whose bot is gone shows another with a note. The header shows the
+The bot is in the URL, `/bot/<id>`, the id of its conversation, the way
+pchat does it with its chats: a click in the sidebar changes the URL
+without a reload and tells the server which bot this tab shows, the
+root `/` redirects to the bot last used, and a tab whose bot is gone
+shows another with a note. The header shows the
 bot's name and model. The rest of the page is the bot's: its
 conversation as a chat, user messages, the
 agent's answers rendered from their markdown (`rragent.markdown`:
@@ -587,8 +606,8 @@ answers why there is no video there); no release publishes it.
 
 The image has the bundle in `/home/sprite/rragent/dist/`, `start.sh` beside
 it and the generic definition in `agent/` (`deploy/agent/AGENT.md`),
-which the first start moves into `agent/bots/<id>/` as the machine's
-first bot (see [Bots](#bots)): every new machine starts as an
+which the first start moves into `agent/bots/1/`, the first bot's
+folder (see [Bots](#bots)): every new machine starts as an
 assistant that offers the skills of `/home/sprite/skills` and becomes
 the one the person picks, by writing that skill's `SKILL.md` body into
 its own `AGENT.md`, or works from the job the person describes when no

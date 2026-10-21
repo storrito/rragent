@@ -175,17 +175,19 @@
 
 (defn ^:async correct!
   "The dictation of `words` corrected by the model `id` (`model-id`
-   unless given) with the agent's context, `{:text :usage :ms :id
-   :stop}`: `:text` nil when the answer was refused, `:ms` how long it
-   took, `:id` the generation's at OpenRouter, `:stop` why it ended
-   (`aborted` after `timeout-ms`)."
-  [{:keys [harness root models]} words before id]
-  (let [ref (.-model (await (.agent root harness/context)))
+   unless given) with the context of the bot's `conversation` (the
+   `root` without one), `{:text :usage :ms :id :stop}`: `:text` nil
+   when the answer was refused, `:ms` how long it took, `:id` the
+   generation's at OpenRouter, `:stop` why it ended (`aborted` after
+   `timeout-ms`)."
+  [{:keys [harness conversation root models]} words before id]
+  (let [conversation (or conversation root)
+        ref (.-model (await (.agent conversation harness/context)))
         model (when ref (.getModel models (.-provider ref) (or id model-id)))]
     (when-not model
       (throw (js/Error. (str "No model " (or id model-id) " at " (some-> ref .-provider) "."))))
-    (let [view (await (.context root harness/context))
-          provider (await (.snapshot harness ProviderDoc (.-id root) harness/context))
+    (let [view (await (.context conversation harness/context))
+          provider (await (.snapshot harness ProviderDoc (.-id conversation) harness/context))
           messages (request-messages (js->clj (.-messages view) :keywordize-keys true) words before)
           started (js/Date.now)
           message (await (.completeSimple models model #js {:messages (clj->js messages)}

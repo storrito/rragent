@@ -15,6 +15,7 @@
             [rragent.db :as db]
             [rragent.fake-gateway :as fake-gateway]
             [rragent.harness :as harness]
+            [rragent.home :as home]
             [rragent.machine :as machine]
             [rragent.page :as page]
             [rragent.rframes.http :as http]
@@ -115,11 +116,11 @@
    faux `models` and memory storage, its page served behind the token
    `s3cret`: `{:id :base :stop!}`, the id the first bot's."
   [home models & [opts]]
-  (let [[bot] (await (machine/open-all! (merge {:home home
-                                                :models models
-                                                :provider "faux"
-                                                :storage-fn (fn [_dir] (harness/memory-storage))}
-                                               opts)))
+  (let [[bot] (await (machine/open! (merge {:home home
+                                            :models models
+                                            :provider "faux"
+                                            :storage (harness/memory-storage)}
+                                           opts)))
         server (await (http/listen (page/handler "s3cret") 0))]
     (sse/watch! db/db)
     {:id (:id bot)
@@ -171,11 +172,12 @@
                        (is (mentions? first-frame "New bot"))
                        (is (= (str "/bot/" id) (url-of first-frame)))
                        (is (= [:draft id] (:ui/store-key (second (find-tag first-frame :ui/composer)))) "the draft is the bot's")
-                       (is (number? (:used (bots/entry home id))) "the bot counts as used")
+                       (is (= "1" id) "the root conversation")
                        (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Capital of France?"}))))
-                       (is (= {:success? false :result {:error :no-such-bot}} (await (command! base cookie :chat/send {:bot "00000000" :text "x"}))))
+                       (is (= {:success? false :result {:error :no-such-bot}} (await (command! base cookie :chat/send {:bot "99" :text "x"}))))
                        (let [answer (await (frame! #(mentions? % "Paris.")))]
                          (is (some? answer))
+                         (is (number? (:used (first (machine/listed)))) "the bot counts as used by its newest entry")
                          (is (mentions? answer "Capital of France?") "the question is on the page")
                          (is (mentions? answer "Noted a fact") "the tool call is on the page")
                          (is (mentions? answer "Noted: asked") "and the fact itself, as a note")
@@ -220,12 +222,12 @@
                          (is (= {:success? true} (await (command! base cookie :bot/create {:name "Counter" :purpose "Count things" :tab "t1"}))))
                          (let [id2 (:id (second (machine/listed)))
                                frame (await (frame! #(= (str "/bot/" id2) (url-of %))))]
-                           (is (bots/valid-id? id2))
+                           (is (and (bots/valid-id? id2) (not= id id2)) "a conversation of the storage of its own")
                            (is (mentions? frame "Counter") "in the sidebar")
                            (is (mentions? frame "Nothing here yet") "its chat is empty")
                            (is (not (mentions? frame "Paris.")) "the first bot's chat is not on it")
-                           (is (str/includes? (fs/readFileSync (path/join (bots/bot-dir home id2) "AGENT.md") "utf8") "## Your job\n\nCount things"))
-                           (fs/writeFileSync (path/join (bots/bot-dir home id2) "work" "artifacts" "card.html") "<h1>card</h1>")
+                           (is (str/includes? (fs/readFileSync (path/join (home/bot-dir home id2) "AGENT.md") "utf8") "## Your job\n\nCount things"))
+                           (fs/writeFileSync (path/join (home/bot-dir home id2) "work" "artifacts" "card.html") "<h1>card</h1>")
                            (let [frame (await (frame! #(find-tag % :ui/canvas)))]
                              (is (= (str "/bot/" id2 "/artifacts/card.html") (:ui/src (second (find-tag frame :ui/canvas))))))
                            (is (= 200 (.-status (await (js/fetch (str base "/bot/" id2 "/artifacts/card.html") #js {:headers #js {:cookie cookie}})))))
@@ -241,17 +243,19 @@
                                (is (= "Counter" (:value (second (find-tag frame :input.name))))))
                              (is (= {:success? true} (await (command! base cookie :bot/rename {:id id2 :name "Counting"}))))
                              (await (frame! #(mentions? % "Counting")))
-                             (is (= "Counting" (:name (bots/entry home id2)))))
+                             (is (= "Counting" (bots/name-of home id2)) "in its definition")
+                             (is (= "Counting" (:name (second (machine/listed))))))
                            (testing "delete asks once, then the folder goes to the trash"
                              (is (= {:success? true} (await (command! base cookie :bot/delete {:id id2}))))
                              (await (frame! #(mentions? % "Delete this bot?")))
-                             (is (fs/existsSync (bots/bot-dir home id2)) "not yet")
+                             (is (fs/existsSync (home/bot-dir home id2)) "not yet")
                              (is (= {:success? true} (await (command! base cookie :bot/delete {:id id2}))))
                              (await (frame! #(not (mentions? % "Counting"))))
                              (is (nil? (machine/bot id2)))
-                             (is (not (fs/existsSync (bots/bot-dir home id2))))
+                             (is (not (fs/existsSync (home/bot-dir home id2))))
                              (is (fs/existsSync (path/join (bots/trash-dir home) id2 "AGENT.md")))
-                             (is (= [id] (map :id (bots/read-index home)))))
+                             (is (= [id] (map :id (machine/listed))))
+                             (is (= #{id2} (await (machine/hidden (:harness (machine/agent))))) "hidden, its conversation kept"))
                            (testing "the last bot stays"
                              (is (= {:success? true} (await (command! base cookie :bot/delete {:id id}))) "the question")
                              (is (= {:success? false :result {:error :last}} (await (command! base cookie :bot/delete {:id id}))))
@@ -316,7 +320,7 @@
                    {:keys [reader decoder]} (await (stream bot-url cookie controller "t2"))
                    {buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
                    frame! (frames! reader decoder buffer)
-                   agent (machine/agent id)]
+                   agent (machine/agent)]
                (try
                  (testing "the main thread is free while a program blocks in a call: the page answers meanwhile"
                    (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Call slowly."}))))

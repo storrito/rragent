@@ -44,7 +44,8 @@
                  (testing "the conversation runs with the definition"
                    (let [resolved (await (.agent (:root agent) harness/context))]
                      (is (= "faux-1" (.. resolved -model -modelId)))
-                     (is (= (str home "/work") (.-cwd resolved)) "the tools work in work/")))
+                     (is (= (str home "/bots/1/work") (.-cwd resolved)) "the tools work in the first bot's work/, the conversation's own cwd")
+                     (is (= (str home "/bots/1/work") (:work agent)))))
                  (finally
                    (await (harness/close agent))
                    (test-home/remove! home)))))))
@@ -58,11 +59,11 @@
                  {:keys [models]} (tools-test/faux-models {:models [{:id "blind-1" :input ["text"]}]})
                  agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
              (try
-               (is (false? (await (harness/sees-images? agent))) "a model without image input")
+               (is (false? (await (harness/sees-images? (:models agent) (:root agent)))) "a model without image input")
                (await (.configure (:root agent) #js {:model #js {:provider "faux" :modelId "faux-1"}} harness/context))
-               (is (true? (await (harness/sees-images? agent))) "faux-1 takes images")
+               (is (true? (await (harness/sees-images? (:models agent) (:root agent)))) "faux-1 takes images")
                (await (.configure (:root agent) #js {:model #js {:provider "faux" :modelId "unknown-9"}} harness/context))
-               (is (true? (await (harness/sees-images? agent))) "a model the catalog does not know counts as one that does")
+               (is (true? (await (harness/sees-images? (:models agent) (:root agent)))) "a model the catalog does not know counts as one that does")
                (finally
                  (await (harness/close agent))
                  (test-home/remove! home))))))
@@ -159,8 +160,8 @@
                    (is (= 3 (count (get-in (codemode/snapshot (:codemode agent)) [:storrito :catalog :procedures]))) "and the Storrito catalog")
                    (is (= (str "OpenRouter through the Sprites gateway (" base ")") (openrouter/report (codemode/discovery (:codemode agent)))))
                    (is (= {:text "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" :pending []}
-                          (await (codemode-worker/evaluate! (:worker agent) {:code "(storrito/generate-uuid)" :facts [] :env {}})))
-                       "a worker started now works from the late discovery")))
+                          (await (codemode-worker/evaluate! (codemode-worker/of (:codemode agent) (.-id (:root agent))) {:code "(storrito/generate-uuid)" :facts [] :env {}})))
+                       "a worker of a bot started now works from the late discovery")))
                (finally
                  (await (harness/close agent))
                  (when-let [{:keys [stop]} @fake] (stop))

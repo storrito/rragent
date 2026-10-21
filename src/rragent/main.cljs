@@ -27,10 +27,10 @@
 
 (defn ^:async ask
   [text]
-  (await (machine/open-all! {}))
-  (let [agent (or (machine/agent (machine/default-id))
-                  (throw (js/Error. "No bot opened.")))
-        answer (await (harness/ask agent text))]
+  (await (machine/open! {}))
+  (let [conversation (or (:conversation (machine/bot (machine/default-id)))
+                         (throw (js/Error. "No bot opened.")))
+        answer (await (harness/ask-in conversation text))]
     (if (string? answer)
       (println answer)
       (println "unanswered:" (:unanswered answer)))

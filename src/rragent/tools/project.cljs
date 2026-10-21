@@ -1,17 +1,21 @@
 (ns rragent.tools.project
   "The `project` tool: an artifact with a page of its own made from a
    template (`rragent.templates`), the projects listed with their
-   state (`rragent.projects`), the log of one read. The tool is made
-   per agent: its description names the templates the agent may use,
-   the ones its definition allows (`rragent.definition`), with their
-   descriptions, so the model knows what it can make; `create` answers
-   with the template's notes. The counterpart of pchat's bin/new."
+   state (`rragent.projects`), the log of one read. The tool is one
+   for every bot of the machine: its description names the installed
+   templates with their descriptions, so the model knows what it can
+   make, and a call makes only what the bot's definition allows
+   (`rragent.definition`, as `rragent.reload` last read it), the
+   allowed ones in the error otherwise; `create` answers with the
+   template's notes. The counterpart of pchat's bin/new."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
             [rragent.projects :as projects]
+            [rragent.db :as db]
+            [rragent.reload :as reload]
             [rragent.templates :as templates]
             [rragent.tools.work :as work]))
 
@@ -99,23 +103,25 @@
        "`list` shows the projects and whether they run; `log` with the name shows the end of a project's output, for a page that shows nothing."))
 
 (defn tool
-  "The tool for an agent, its `definition` naming the templates."
-  [definition]
-  (let [templates (allowed definition)]
+  "The tool, its description naming the installed templates; a call
+   is held to the bot's definition."
+  []
+  (let [installed (templates/all)]
     (defineTool
      #js {:name "project"
-          :description (description templates)
+          :description (description installed)
           :parameters (.Object Type #js {:action (.Union Type #js [(.Literal Type "create") (.Literal Type "list") (.Literal Type "log")])
                                          :name (.Optional Type (.String Type #js {:description "The project's name: lowercase letters, digits, dashes"}))
-                                         :kind (.Optional Type (.String Type #js {:description (str "The template: " (str/join ", " (map :name templates)))}))})
-          :execute (^:async fn [args api _call-context]
+                                         :kind (.Optional Type (.String Type #js {:description (str "The template: " (str/join ", " (map :name installed)))}))})
+          :execute (^:async fn [args api call-context]
                      (let [dir (work/artifacts-dir api)
-                           name (.-name args)]
+                           name (.-name args)
+                           bot (await (work/bot-id api call-context))]
                        (case (.-action args)
                          "create" (do (when (empty? name)
                                         (throw (js/Error. "create needs the name")))
-                                      (work/text (create! dir templates name (.-kind args))))
-                         "list" (work/text (let [s (listed dir @(work/pane api))] (if (str/blank? s) "No projects" s)))
+                                      (work/text (create! dir (allowed (reload/current bot)) name (.-kind args))))
+                         "list" (work/text (let [s (listed dir @(db/pane bot))] (if (str/blank? s) "No projects" s)))
                          "log" (do (when (empty? name)
                                      (throw (js/Error. "log needs the name")))
                                    (work/text (log dir name))))))})))

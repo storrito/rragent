@@ -4,7 +4,8 @@
    blocks its thread until it is answered (`rragent.sync-fetch`),
    stalls nothing of the agent: the page renders, the hooks and the
    schedules fire, Stop reaches the agent. The worker holds the SCI
-   context, so a `def` of one program is there for the next. It is
+   context, so a `def` of one program is there for the next; one per
+   bot, by the id of its conversation (`of`). It is
    started at the first program over what the main thread discovered
    of the gateway (`rragent.codemode/snapshot`), and it runs this
    namespace's own module: the bundle in production, where
@@ -155,6 +156,31 @@
   (when-let [worker (:worker @state)]
     (ended! handle worker reason)
     (.terminate worker)))
+
+(defonce ^{:doc "The handles of the bots' workers by the id of their conversation,
+                 a string; one worker, one SCI context, per bot."}
+  workers
+  (atom {}))
+
+(defn of
+  "The worker handle of the bot whose conversation is `id`, made over
+   the REPL `codemode` on first use."
+  [codemode id]
+  (let [id (str id)]
+    (or (get @workers id)
+        (get (swap! workers (fn [m] (if (get m id) m (assoc m id (handle codemode))))) id))))
+
+(defn stop-of!
+  "The bot's worker stopped and forgotten; nothing without one."
+  [id reason]
+  (when-let [worker (get @workers (str id))]
+    (stop! worker reason)
+    (swap! workers dissoc (str id))))
+
+(defn stop-all!
+  [reason]
+  (doseq [id (keys @workers)]
+    (stop-of! id reason)))
 
 (defn- noted
   "`answer` with `note` in front, when there is one."

@@ -1,12 +1,13 @@
 (ns rragent.home
-  "The machine's folder, `RRAGENT_HOME` (`./agent` by default), and the
-   folder of one bot in it, `bots/<id>/` (`rragent.bots` lays them
-   out). In a bot's folder: `AGENT.md` (or a `SKILL.md` of agentitos),
-   the definition; `bot.sqlite`, the transcript and the state; `work/`,
-   where the tools read and write, with `work/artifacts/`, what the
-   pane shows, and `work/uploads/`, what the person attached to a
-   message. `home` is the machine's folder; the other functions take a
-   bot's."
+  "The machine's folder, `RRAGENT_HOME` (`./agent` by default): in it
+   `agent.sqlite`, the one storage of every bot's conversation
+   (pi-durable), and a folder per bot, `bots/<id>/`, named by the id
+   of its conversation (`rragent.bots` lays them out). In a bot's
+   folder: `AGENT.md` (or a `SKILL.md` of agentitos), the definition,
+   and `work/`, where the bot's tools read and write, with
+   `work/artifacts/`, what the pane shows, and `work/uploads/`, what
+   the person attached to a message. `home`, `database` and `bot-dir`
+   are the machine's; the other functions take a bot's folder."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]))
 
@@ -15,6 +16,16 @@
   []
   (path/resolve (or (not-empty (aget (.-env js/process) "RRAGENT_HOME")) "agent")))
 
+(defn database
+  "The SQLite file of the machine."
+  [home]
+  (path/join home "agent.sqlite"))
+
+(defn bot-dir
+  "The folder of the bot whose conversation is `id`."
+  [home id]
+  (path/join home "bots" (str id)))
+
 (defn definition-file
   "`AGENT.md` of the folder, or its `SKILL.md`; nil without either."
   [dir]
@@ -22,11 +33,6 @@
           (let [file (path/join dir name)]
             (when (fs/existsSync file) file)))
         ["AGENT.md" "SKILL.md"]))
-
-(defn database
-  "The SQLite file of the bot's folder."
-  [dir]
-  (path/join dir "bot.sqlite"))
 
 (defn work-dir
   "Where the bot's tools read and write; made on first use."

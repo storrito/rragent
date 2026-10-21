@@ -1,42 +1,37 @@
 (ns rragent.bots
-  "The bots of a machine on disk. `<home>/bots/<id>/` is a bot's folder
-   (`rragent.home` says what is in it), `<home>/bots.edn` the index of
-   them, `<home>/shared/` the folder every bot's bash reads and writes,
-   `<home>/assistant.md` the generic definition a new bot starts from
-   (`deploy/agent/AGENT.md`; the build keeps a copy beside the bundle
-   as `assistant.md`), `<home>/trash/<id>/` where a deleted bot's
-   folder goes. An id is eight random hex digits. The index is a
-   vector of `{:id :name :created :used}`, the bots in the order they
-   were made; `:name` is the one the person or the `bot` tool gave, nil
-   for a bot named by its definition; `:used` when a page last showed
-   it.
+  "The bots of a machine on disk. A bot is a conversation of the
+   machine's one storage (`rragent.machine` lists them through
+   pi-durable, there is no index file), and its folder is
+   `<home>/bots/<id>/`, named by the conversation's id
+   (`rragent.home` says what is in it). Beside them `<home>/shared/`,
+   the folder every bot's bash reads and writes, `<home>/assistant.md`,
+   the generic definition a new bot starts from (`deploy/agent/AGENT.md`;
+   the build keeps a copy beside the bundle as `assistant.md`), and
+   `<home>/trash/<id>/`, where a deleted bot's folder goes.
 
    A machine from before the bots ran one agent at the top of the
-   home, `AGENT.md`, `agent.sqlite` and `work/`: `migrate!` moves them
-   into `bots/<id>/` as the first bot, one rename per file, nothing
-   copied, and leaves a home in the new layout alone
-   (`rragent.machine` runs it at start). A failure undoes the renames
-   made and throws, the old layout as it was."
-  (:require ["node:crypto" :as crypto]
+   home, `AGENT.md` and `work/` beside `agent.sqlite`: `migrate!`
+   moves the two into `bots/1/`, the folder of the root conversation,
+   one rename each, nothing copied, the storage untouched, and leaves
+   a home in the new layout alone (`rragent.harness/open` runs it). A
+   failure undoes the renames made and throws, the old layout as it
+   was."
+  (:require ["@earendil-works/pi-durable" :refer [ROOT_CONVERSATION_ID]]
             ["node:fs" :as fs]
             ["node:path" :as path]
             ["node:url" :as node-url]
-            [cljs.reader :as reader]
             [clojure.string :as str]
             [rragent.definition :as definition]
             [rragent.home :as home]))
 
+(def root-id
+  "The id of the root conversation of a pi-durable storage, the first
+   bot's."
+  ROOT_CONVERSATION_ID)
+
 (defn bots-dir
   [home]
   (path/join home "bots"))
-
-(defn bot-dir
-  [home id]
-  (path/join (bots-dir home) (str id)))
-
-(defn index-file
-  [home]
-  (path/join home "bots.edn"))
 
 (defn shared-dir
   "The folder the bots share, made on first use."
@@ -54,16 +49,9 @@
   (path/join home "assistant.md"))
 
 (defn valid-id?
+  "A bot's id is its conversation's, a number."
   [id]
-  (boolean (re-matches #"[0-9a-f]{8}" (str id))))
-
-(defn new-id
-  "Eight hex digits no bot of `home` has."
-  [home]
-  (let [id (.toString (crypto/randomBytes 4) "hex")]
-    (if (fs/existsSync (bot-dir home id))
-      (recur home)
-      id)))
+  (boolean (re-matches #"[0-9]+" (str id))))
 
 (defn- directory?
   [p]
@@ -72,42 +60,12 @@
     (catch :default _
       false)))
 
-(defn read-index
-  "The index of `home`, `[]` without one; a file that does not read
-   throws, since the bots in it would be lost otherwise."
-  [home]
-  (let [file (index-file home)]
-    (if (fs/existsSync file)
-      (let [value (try
-                    (reader/read-string (fs/readFileSync file "utf8"))
-                    (catch :default e
-                      (throw (ex-info (str file " does not read: " (.-message e)) {:file file}))))]
-        (if (vector? value)
-          value
-          (throw (ex-info (str file " does not hold a vector of bots") {:file file}))))
-      [])))
-
-(defn write-index!
-  "The index written whole, through a temp file and a rename, so that
-   a crash leaves the old one or the new one."
-  [home bots]
-  (let [file (index-file home)
-        tmp (str file ".tmp")]
-    (fs/writeFileSync tmp (str (pr-str (vec bots)) "\n"))
-    (try
-      (fs/renameSync tmp file)
-      (catch :default e
-        (fs/rmSync tmp #js {:force true})
-        (throw e)))))
-
-(defn entry
-  "The index entry of the bot `id`, nil without one."
-  [home id]
-  (some #(when (= (str id) (:id %)) %) (read-index home)))
-
-(defn- update-entry!
-  [home id f]
-  (write-index! home (mapv #(if (= (str id) (:id %)) (f %) %) (read-index home))))
+(defn- regular-file?
+  [p]
+  (try
+    (.isFile (fs/statSync p))
+    (catch :default _
+      false)))
 
 (defn bundled-assistant-file
   "The generic definition as the bundle carries it: `assistant.md`
@@ -128,6 +86,14 @@
       (fs/copyFileSync (bundled-assistant-file) file))
     (fs/readFileSync file "utf8")))
 
+(defn- split-frontmatter
+  "`[head body]` of a definition text, the head with its fences;
+   throws without a frontmatter."
+  [text]
+  (let [[_ head body] (or (re-find #"(?s)^(---\r?\n.*?\r?\n---\r?\n)(.*)$" (str text))
+                          (throw (js/Error. "The definition has no frontmatter.")))]
+    [head body]))
+
 (defn- with-name
   "The frontmatter `head` with `name` as its name, the value quoted
    the JSON way, which `rragent.definition` reads."
@@ -147,8 +113,7 @@
    body as its job, and with a `skill` the line that has it take that
    skill. Without any of the three the assistant's text as it is."
   [assistant {:keys [name instructions skill]}]
-  (let [[_ head body] (or (re-find #"(?s)^(---\r?\n.*?\r?\n---\r?\n)(.*)$" (str assistant))
-                          (throw (js/Error. "The assistant's definition has no frontmatter.")))
+  (let [[head body] (split-frontmatter assistant)
         top (str/join "\n\n" (remove str/blank? [(when (seq (str/trim (str instructions)))
                                                    (str "## Your job\n\n" (str/trim instructions)))
                                                  (when (seq (str skill))
@@ -183,69 +148,70 @@
         (when-not (some #{(str skill)} names)
           (throw (js/Error. (str "No skill " skill " in " dir ": " (str/join ", " names) "."))))))))
 
-(defn create!
-  "A new bot: its folder with its definition (`definition-text` over
-   the assistant's) and its work folder, its entry at the end of the
-   index. `name` nil makes a bot named by its definition, the assistant
-   of a new machine. Answers the entry."
-  [home {:keys [name skill] :as given}]
-  (check-skill! skill)
-  (let [id (new-id home)
-        dir (bot-dir home id)
-        name (not-empty (str/trim (str name)))
-        entry {:id id :name name :created (js/Date.now) :used nil}]
+(defn write-definition!
+  "The folder of the bot `id` with `text` as its `AGENT.md` and its
+   work folder; answers the folder."
+  [home id text]
+  (let [dir (home/bot-dir home id)]
     (fs/mkdirSync dir #js {:recursive true})
-    (fs/writeFileSync (path/join dir "AGENT.md") (definition-text (assistant-text home) (assoc given :name name)))
+    (fs/writeFileSync (path/join dir "AGENT.md") text)
     (home/work-dir dir)
-    (write-index! home (conj (read-index home) entry))
-    entry))
+    dir))
+
+(defn name-of
+  "The name in the bot's definition file, nil without a file that
+   reads."
+  [home id]
+  (when-let [file (home/definition-file (home/bot-dir home id))]
+    (try
+      (:name (definition/definition file))
+      (catch :default _
+        nil))))
 
 (defn rename!
-  "The bot's name in the index; a blank one is refused."
+  "The `name:` of the bot's definition file set to `name`, which the
+   reload picks up (`rragent.reload`); a blank one is refused."
   [home id name]
-  (let [name (str/trim (str name))]
+  (let [name (str/trim (str name))
+        file (or (home/definition-file (home/bot-dir home id))
+                 (throw (js/Error. (str "The bot " id " has no definition file."))))]
     (when (str/blank? name)
       (throw (js/Error. "A bot needs a name.")))
-    (update-entry! home id #(assoc % :name name))
+    (let [[head body] (split-frontmatter (fs/readFileSync file "utf8"))]
+      (fs/writeFileSync file (str (with-name head name) body)))
     name))
 
-(defn touch!
-  "The bot was used `now`: for the order the root redirects by."
-  [home id now]
-  (update-entry! home id #(assoc % :used now)))
-
-(defn delete!
+(defn trash!
   "The bot's folder moved to `<home>/trash/<id>` (an earlier folder of
-   the id there is removed first) and its entry taken out of the index.
-   Answers whether there was a folder."
+   the id there is removed first). Answers whether there was one."
   [home id]
-  (let [dir (bot-dir home id)
-        trash (trash-dir home)
-        found? (and (valid-id? id) (directory? dir))]
-    (when found?
+  (let [dir (home/bot-dir home id)
+        trash (trash-dir home)]
+    (when (and (valid-id? id) (directory? dir))
       (fs/mkdirSync trash #js {:recursive true})
       (fs/rmSync (path/join trash (str id)) #js {:recursive true :force true})
-      (fs/renameSync dir (path/join trash (str id))))
-    (write-index! home (remove #(= (str id) (:id %)) (read-index home)))
-    found?))
+      (fs/renameSync dir (path/join trash (str id)))
+      true)))
+
+(defn created-at
+  "When the bot's folder was made, in milliseconds; nil without one."
+  [home id]
+  (try
+    (js/Math.round (.-birthtimeMs (fs/statSync (home/bot-dir home id))))
+    (catch :default _
+      nil)))
 
 (def old-files
-  "What the old layout had at the top of the home, and the name each
-   takes in the bot's folder: the definition, the SQLite file with the
-   side files of its write-ahead log, and the work folder."
-  [["AGENT.md" "AGENT.md"]
-   ["SKILL.md" "SKILL.md"]
-   ["agent.sqlite" "bot.sqlite"]
-   ["agent.sqlite-wal" "bot.sqlite-wal"]
-   ["agent.sqlite-shm" "bot.sqlite-shm"]
-   ["work" "work"]])
+  "What the old layout had at the top of the home besides the storage,
+   which stays where it is: the definition and the work folder."
+  ["AGENT.md" "SKILL.md" "work"])
 
 (defn old-layout?
   "Whether `home` has the one agent of before at its top and no
    `bots/` folder yet."
   [home]
   (and (not (directory? (bots-dir home)))
-       (boolean (some #(fs/existsSync (path/join home (first %))) old-files))))
+       (boolean (some #(fs/existsSync (path/join home %)) old-files))))
 
 (defn- generic?
   "Whether a definition text is the generic one, by its name."
@@ -269,32 +235,30 @@
         nil))))
 
 (defn migrate!
-  "The one agent of the old layout moved into `bots/<id>/` as the
-   first bot, named by its definition (`:name` nil), and
-   `<home>/assistant.md` written from its definition when that is the
+  "The one agent of the old layout moved into `bots/1/`, the folder of
+   the root conversation, which is the first bot: its definition and
+   its work folder, one rename each; `agent.sqlite` stays. And
+   `<home>/assistant.md` written from the definition when that is the
    generic one (the image filled the skills repository into it), else
-   from the bundle's copy at the first use. Answers the entry; nil for
-   a home in the new layout, which is left alone. A step that fails
-   undoes the renames made and throws with the reason."
+   from the bundle's copy at the first use. Answers the first bot's
+   id; nil for a home in the new layout, which is left alone. A step
+   that fails undoes the renames made and throws with the reason."
   [home]
   (when (old-layout? home)
-    (let [id (new-id home)
-          dir (bot-dir home id)
+    (let [dir (home/bot-dir home root-id)
           text (some-> (home/definition-file home) (fs/readFileSync "utf8"))
           moved (atom [])]
       (try
         (fs/mkdirSync dir #js {:recursive true})
-        (doseq [[from to] old-files
-                :let [from (path/join home from)
-                      to (path/join dir to)]
+        (doseq [name old-files
+                :let [from (path/join home name)
+                      to (path/join dir name)]
                 :when (fs/existsSync from)]
           (fs/renameSync from to)
           (swap! moved conj [from to]))
-        (when (and text (generic? text) (not (fs/existsSync (assistant-file home))))
+        (when (and text (generic? text) (not (regular-file? (assistant-file home))))
           (fs/writeFileSync (assistant-file home) text))
-        (let [entry {:id id :name nil :created (js/Date.now) :used nil}]
-          (write-index! home (conj (read-index home) entry))
-          entry)
+        root-id
         (catch :default e
           (undo! @moved dir home)
           (throw (ex-info (str "The agent in " home " could not be moved into bots/: " (.-message e)

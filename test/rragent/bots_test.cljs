@@ -1,8 +1,9 @@
 (ns rragent.bots-test
   "The bots on disk: a new bot's definition from the assistant's text,
-   the index with its order, rename, touch and delete to the trash, and
-   the migration of a home from before the bots: one rename per file,
-   idempotent, a failure undone."
+   a bot's folder (its definition written, named, renamed in the
+   file, trashed), and the migration of a home from before the bots:
+   the definition and the work folder into the first bot's folder, one
+   rename each, the storage untouched, idempotent, a failure undone."
   (:require ["node:fs" :as fs]
             ["node:os" :as os]
             ["node:path" :as path]
@@ -10,6 +11,7 @@
             [clojure.test :refer [deftest is testing]]
             [rragent.bots :as bots]
             [rragent.definition :as definition]
+            [rragent.home :as home]
             [rragent.test-home :as test-home]))
 
 (def assistant
@@ -50,59 +52,52 @@
   (testing "a text without a frontmatter is refused"
     (is (thrown? js/Error (bots/definition-text "No head." {:name "x"})))))
 
-(deftest index-test
+(deftest folder-test
   (let [home (temp-home)]
     (try
       (fs/writeFileSync (bots/assistant-file home) assistant)
-      (is (= [] (bots/read-index home)))
-      (let [a (bots/create! home {:name "Counter" :instructions "Count."})
-            b (bots/create! home {})]
-        (testing "a bot's folder with its definition and work, its entry in the index in the order made"
-          (is (bots/valid-id? (:id a)))
-          (is (= "Counter" (:name a)))
-          (is (nil? (:name b)) "a bot without a name is named by its definition")
-          (is (fs/existsSync (path/join (bots/bot-dir home (:id a)) "AGENT.md")))
-          (is (fs/existsSync (path/join (bots/bot-dir home (:id a)) "work")))
-          (is (= "Counter" (:name (definition/definition (path/join (bots/bot-dir home (:id a)) "AGENT.md")))))
-          (is (= "Assistant" (:name (definition/definition (path/join (bots/bot-dir home (:id b)) "AGENT.md")))))
-          (is (= [(:id a) (:id b)] (map :id (bots/read-index home))))
-          (is (= a (bots/entry home (:id a)))))
-        (testing "rename, touch"
-          (is (= "Counting" (bots/rename! home (:id a) "  Counting ")))
-          (is (= "Counting" (:name (bots/entry home (:id a)))))
-          (is (thrown? js/Error (bots/rename! home (:id a) " ")))
-          (bots/touch! home (:id b) 1234)
-          (is (= 1234 (:used (bots/entry home (:id b)))))
-          (is (nil? (:used (bots/entry home (:id a))))))
-        (testing "delete: the folder in the trash, the entry gone"
-          (fs/writeFileSync (path/join (bots/bot-dir home (:id a)) "work" "notes.txt") "kept")
-          (is (true? (bots/delete! home (:id a))))
-          (is (not (fs/existsSync (bots/bot-dir home (:id a)))))
-          (is (= "kept" (fs/readFileSync (path/join (bots/trash-dir home) (:id a) "work" "notes.txt") "utf8")))
-          (is (= [(:id b)] (map :id (bots/read-index home))))
-          (is (false? (bots/delete! home (:id a))) "gone already")
-          (is (false? (bots/delete! home "../etc")) "no folder for a bad id"))
-        (testing "a skill the machine does not have is refused, one it has taken"
-          (let [skills (temp-home)]
-            (fs/mkdirSync (path/join skills "reviews"))
-            (fs/writeFileSync (path/join skills "reviews" "SKILL.md") "---\nname: reviews\n---\n")
-            (with-env "RRAGENT_SKILLS" skills
-              (fn []
-                (is (thrown-with-msg? js/Error #"No skill nope in .*: reviews\." (bots/create! home {:name "x" :skill "nope"})))
-                (is (str/includes? (fs/readFileSync (path/join (bots/bot-dir home (:id (bots/create! home {:name "R" :skill "reviews"}))) "AGENT.md") "utf8")
-                                   (bots/skill-line "reviews")))))
-            (with-env "RRAGENT_SKILLS" (path/join skills "nowhere")
-              (fn []
-                (is (some? (bots/create! home {:name "y" :skill "anything"})) "without a clone the bot finds out itself")))
-            (fs/rmSync skills #js {:recursive true :force true}))))
-      (testing "an index that does not read throws rather than loses the bots"
-        (fs/writeFileSync (bots/index-file home) "{:not a vector")
-        (is (thrown? js/Error (bots/read-index home))))
+      (testing "a bot's folder with its definition and work, named by its conversation"
+        (let [dir (bots/write-definition! home 7 (bots/definition-text assistant {:name "Counter" :instructions "Count."}))]
+          (is (= (path/join home "bots" "7") dir))
+          (is (fs/existsSync (path/join dir "AGENT.md")))
+          (is (fs/existsSync (path/join dir "work")))
+          (is (= "Counter" (bots/name-of home 7)))
+          (is (= "Counter" (:name (definition/definition (home/definition-file dir)))))
+          (is (number? (bots/created-at home 7)))
+          (is (nil? (bots/created-at home 8)))
+          (is (nil? (bots/name-of home 8)))))
+      (testing "a rename edits the name line of the definition, the body stays"
+        (is (= "Counting" (bots/rename! home 7 "  Counting ")))
+        (let [text (fs/readFileSync (path/join (home/bot-dir home 7) "AGENT.md") "utf8")]
+          (is (= "Counting" (bots/name-of home 7)))
+          (is (str/includes? text "## Your job\n\nCount."))
+          (is (= 1 (count (re-seq #"(?m)^name:" text)))))
+        (is (thrown? js/Error (bots/rename! home 7 " ")))
+        (is (thrown? js/Error (bots/rename! home 9 "x")) "no definition to rename"))
+      (testing "the trash takes the folder"
+        (fs/writeFileSync (path/join (home/bot-dir home 7) "work" "notes.txt") "kept")
+        (is (true? (bots/trash! home 7)))
+        (is (not (fs/existsSync (home/bot-dir home 7))))
+        (is (= "kept" (fs/readFileSync (path/join (bots/trash-dir home) "7" "work" "notes.txt") "utf8")))
+        (is (nil? (bots/trash! home 7)) "gone already")
+        (is (nil? (bots/trash! home "../etc")) "no folder for a bad id"))
+      (testing "a skill the machine does not have is refused, one it has is checked"
+        (let [skills (temp-home)]
+          (fs/mkdirSync (path/join skills "reviews"))
+          (fs/writeFileSync (path/join skills "reviews" "SKILL.md") "---\nname: reviews\n---\n")
+          (with-env "RRAGENT_SKILLS" skills
+            (fn []
+              (is (thrown-with-msg? js/Error #"No skill nope in .*: reviews\." (bots/check-skill! "nope")))
+              (is (nil? (bots/check-skill! "reviews")))))
+          (with-env "RRAGENT_SKILLS" (path/join skills "nowhere")
+            (fn []
+              (is (nil? (bots/check-skill! "anything")) "without a clone the bot finds out itself")))
+          (fs/rmSync skills #js {:recursive true :force true})))
       (finally
         (fs/rmSync home #js {:recursive true :force true})))))
 
 (defn- old-home!
-  "A home of the old layout: the definition, a database with its WAL,
+  "A home of the old layout: the definition, a storage with its WAL,
    a work folder with an artifact."
   [text]
   (let [home (test-home/make "AGENT.md" text)]
@@ -120,22 +115,19 @@
   (let [home (old-home! test-home/definition-text)]
     (try
       (is (true? (bots/old-layout? home)))
-      (let [{:keys [id name]} (bots/migrate! home)
-            dir (bots/bot-dir home id)]
-        (testing "the files are the first bot's, renamed, nothing left at the top but the index"
-          (is (bots/valid-id? id))
-          (is (nil? name) "named by its definition")
-          (is (= ["bots" "bots.edn"] (top-level home)))
+      (let [id (bots/migrate! home)
+            dir (home/bot-dir home id)]
+        (testing "the definition and the work folder are the first bot's, renamed; the storage stays at the top"
+          (is (= 1 id))
+          (is (= ["agent.sqlite" "agent.sqlite-wal" "bots"] (top-level home)))
           (is (= test-home/definition-text (fs/readFileSync (path/join dir "AGENT.md") "utf8")))
-          (is (= "db" (fs/readFileSync (path/join dir "bot.sqlite") "utf8")))
-          (is (= "wal" (fs/readFileSync (path/join dir "bot.sqlite-wal") "utf8")) "the write-ahead log goes along")
           (is (= "<h1>" (fs/readFileSync (path/join dir "work" "artifacts" "card.html") "utf8")))
-          (is (= [id] (map :id (bots/read-index home))))
+          (is (= "db" (fs/readFileSync (path/join home "agent.sqlite") "utf8")))
           (is (not (fs/existsSync (bots/assistant-file home))) "a definition that is not the generic one is no assistant"))
         (testing "a home in the new layout is left alone"
           (is (false? (bots/old-layout? home)))
           (is (nil? (bots/migrate! home)))
-          (is (= [id] (map :id (bots/read-index home))))))
+          (is (= ["agent.sqlite" "agent.sqlite-wal" "bots"] (top-level home)))))
       (finally
         (fs/rmSync home #js {:recursive true :force true}))))
   (testing "the generic definition of the machine becomes the assistant every new bot starts from"
@@ -163,13 +155,13 @@
         (finally
           (fs/rmSync home #js {:recursive true :force true})))))
   (testing "a failure after the renames: undone, the old layout as it was"
-    (let [home (old-home! test-home/definition-text)]
+    (let [home (old-home! assistant)]
       (try
-        ;; the index cannot be written: a folder with something in it has its name
-        (fs/mkdirSync (bots/index-file home))
-        (fs/writeFileSync (path/join (bots/index-file home) "x") "")
+        ;; the assistant cannot be written: a folder with something in it has its name
+        (fs/mkdirSync (bots/assistant-file home))
+        (fs/writeFileSync (path/join (bots/assistant-file home) "x") "")
         (is (thrown-with-msg? js/Error #"could not be moved into bots/" (bots/migrate! home)))
-        (is (= ["AGENT.md" "agent.sqlite" "agent.sqlite-wal" "bots.edn" "work"] (top-level home)) "the files back at the top, no bots/ folder left")
+        (is (= ["AGENT.md" "agent.sqlite" "agent.sqlite-wal" "assistant.md" "work"] (top-level home)) "the files back at the top, no bots/ folder left")
         (is (= "<h1>" (fs/readFileSync (path/join home "work" "artifacts" "card.html") "utf8")))
         (is (true? (bots/old-layout? home)))
         (finally

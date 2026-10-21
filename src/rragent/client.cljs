@@ -635,7 +635,7 @@
 (defn bot-id-of
   "The bot id of a page path, `/bot/<id>`; nil for any other path."
   [path]
-  (second (re-matches #"/bot/([0-9a-f]{8})/?" (str path))))
+  (second (re-matches #"/bot/([0-9]+)/?" (str path))))
 
 (defn- show!
   "Tells the server which bot this tab shows now: `id`, or nil for

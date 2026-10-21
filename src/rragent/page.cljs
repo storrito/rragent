@@ -9,10 +9,10 @@
    `viewState`, see `rragent.machine`) and its artifacts; every change
    pushes a new frame.
 
-   Which bot a tab shows is the tab's: its URL, `/bot/<id>`, until a
-   click in the sidebar names another (`:bot/show`, with the tab's
-   id); the root redirects to the bot last used. A tab whose bot is
-   gone shows another with a note. The pane beside the chat follows
+   Which bot a tab shows is the tab's: its URL, `/bot/<id>`, the id of
+   the bot's conversation, until a click in the sidebar names another
+   (`:bot/show`, with the tab's id); the root redirects to the bot
+   last used. A tab whose bot is gone shows another with a note. The pane beside the chat follows
    `work/artifacts/` of the bot's folder (`rragent.artifacts`), runs
    the projects in it (`rragent.projects`) and shows the renders
    (`rragent.render`).
@@ -112,7 +112,7 @@
         locale (i18n/locale (:ring/request w))]
     (-> (view/page {:bots (machine/listed)
                     :bot {:id id
-                          :name (machine/name-of (bots/entry (machine/home) id))
+                          :name (machine/name-of id)
                           :model (:model definition)}
                     :conversation (conversation (:value value))
                     :artifacts (select-keys value [:artifacts/list :artifacts/current :projects :renders])
@@ -137,32 +137,32 @@
 
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as
-   an input of the bot (`rragent.uploads/content`: a line per file, the
-   pictures as image blocks when the model takes them); the answer
-   arrives as frames."
+   an input of the bot's conversation (`rragent.uploads/content`: a
+   line per file, the pictures as image blocks when the model takes
+   them); the answer arrives as frames."
   [w]
   (let [{:keys [text attachments]} (command/command-data w)
         text (str/trim (str text))
-        {:keys [agent uploads]} (bot-of-command w)
-        attachments (when agent (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
+        {:keys [conversation uploads]} (bot-of-command w)
+        attachments (when conversation (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
     (cond
-      (nil? agent)
+      (nil? conversation)
       (command/rejected w :no-such-bot)
 
       (and (str/blank? text) (empty? attachments))
       (command/rejected w :empty-message)
 
       :else
-      (let [content (uploads/content uploads text attachments (await (harness/sees-images? agent)))]
-        (await (harness/submit agent #js {:type "input" :content (clj->js content)}))
+      (let [content (uploads/content uploads text attachments (await (harness/sees-images? (:models (machine/agent)) conversation)))]
+        (await (harness/submit conversation #js {:type "input" :content (clj->js content)}))
         (command/accepted w)))))
 
 (defn- stop-command
   "The run aborted; the abort resolves once the conversation is idle,
    which the frames show, so the command does not wait for it."
   [w]
-  (if-let [{:keys [agent]} (bot-of-command w)]
-    (do (-> (.abort (:root agent) harness/context)
+  (if-let [{:keys [conversation]} (bot-of-command w)]
+    (do (-> (.abort conversation harness/context)
             (.catch (fn [error]
                       (js/console.error "[stop]" (str error)))))
         (command/accepted w))
@@ -224,15 +224,14 @@
 
 (defn- show-command
   "The tab `tab` shows the bot `id` from now on, nil whatever its URL
-   names; the bot counts as used."
+   names."
   [w]
   (let [{:keys [id tab]} (command/command-data w)]
     (cond
       (nil? tab) (command/rejected w :no-tab)
       (nil? id) (do (swap! db/db update :tabs dissoc tab)
                     (command/accepted w))
-      (machine/bot id) (do (swap! db/db assoc-in [:tabs tab] id)
-                           (machine/touch! id)
+      (machine/bot id) (do (swap! db/db assoc-in [:tabs tab] (str id))
                            (command/accepted w))
       :else (command/rejected w :no-such-bot))))
 
@@ -260,20 +259,21 @@
           (command/accepted w))
       (command/rejected w :no-such-bot))))
 
-(defn- rename-command
-  "The bot's name as the field says; a blank one keeps the old."
+(defn- ^:async rename-command
+  "The bot's name as the field says, into its definition; a blank one
+   keeps the old."
   [w]
   (let [{:keys [id name]} (command/command-data w)]
     (swap! db/db dissoc :renaming)
     (cond
       (nil? (machine/bot id)) (command/rejected w :no-such-bot)
       (str/blank? (str name)) (command/accepted w)
-      :else (do (machine/rename! id name)
+      :else (do (await (machine/rename! id name))
                 (command/accepted w)))))
 
 (defn- ^:async delete-command
   "The first click arms the question in the bot's row, the second
-   deletes: the bot closed, its folder in the trash
+   deletes: the bot closed and hidden, its folder in the trash
    (`rragent.machine/delete!`), the tabs that showed it on another."
   [w]
   (let [{:keys [id]} (command/command-data w)]
@@ -359,8 +359,8 @@
       (assoc w :ring/response http/not-found))))
 
 (defn- ^:async bot-post
-  "POST /bot/<id>: the view stream, the bot counts as used;
-   /bot/<id>/upload: a file into the bot's folder;
+  "POST /bot/<id>: the view stream; /bot/<id>/upload: a file into
+   the bot's folder;
    /bot/<id>/artifacts/<name>/...: to the project's process;
    /bot/<id>/dictation and /bot/<id>/dictation/correct: a recording
    written down by the OpenRouter the machine knows, and the dictation
@@ -370,8 +370,7 @@
         bot (machine/bot id)]
     (cond
       (str/blank? rest)
-      (do (machine/touch! id)
-          (await (stream w)))
+      (await (stream w))
 
       (nil? bot)
       (assoc w :ring/response http/not-found)
@@ -386,8 +385,8 @@
       (await (dictation/handler (machine/codemode) w))
 
       (= rest (subs correction/path 1))
-      (if (:agent bot)
-        (await (correction/handler (:agent bot) w))
+      (if (:conversation bot)
+        (await (correction/handler {:harness (:harness (machine/agent)) :conversation (:conversation bot) :models (:models (machine/agent))} w))
         (assoc w :ring/response http/not-found))
 
       :else
@@ -426,8 +425,8 @@
   (let [[name secret] (str/split (str (get-in w [:ring/route-params :*])) #"/" 2)
         request (:ring/request w)
         body (await (transit/read-body (:body request)))
-        {:keys [ok submission]} (await (machine/hook! (fn [agent name secret headers body]
-                                                        (hooks/receive! agent name secret headers body harness/context))
+        {:keys [ok submission]} (await (machine/hook! (fn [bot name secret headers body]
+                                                        (hooks/receive! bot name secret headers body harness/context))
                                                       name secret (:headers request) body))]
     (assoc w
            :ring/response
@@ -537,7 +536,7 @@
     ;; a home that does not open ends the process, as before: the server
     ;; would keep it alive, answering "starting" for ever
     (try
-      (await (machine/open-all! {}))
+      (await (machine/open! {}))
       (let [page-handler (handler token)]
         (reset! handler* page-handler)
         (@opened! page-handler))

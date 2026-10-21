@@ -2,8 +2,11 @@
   "Where a tool works: the bot's `work/` folder, the `cwd` of the
    execution environment the harness built for the call
    (`rragent.harness/open`), `work/artifacts/` in it, where the
-   things for the person go (`rragent.artifacts`), and the bot's atom
-   of the page, found by the folder (`rragent.db/pane`)."
+   things for the person go (`rragent.artifacts`), and the bot of the
+   call: the conversation of the call, or, for a call of a subagent,
+   whose conversation a task of the bot's owns, the bot's conversation
+   up the chain of owners, so that the bot's atom of the page
+   (`rragent.db/pane`) and its REPL worker are the call's too."
   (:require ["node:path" :as path]
             [rragent.db :as db]
             [rragent.home :as home]))
@@ -14,10 +17,24 @@
   (or (some-> (.-env api) .-cwd not-empty)
       (throw (js/Error. "The call has no working directory."))))
 
-(defn pane
-  "The atom of the bot's page, by the folder the call works in."
-  [api]
-  (db/pane (dir api)))
+(defn ^:async bot-id
+  "The id of the bot's conversation: the call's, or the one that owns
+   it through its tasks; read through a commit that changes nothing."
+  [api call-context]
+  (await (.commit api
+                  (^:async fn [tx]
+                    (loop [id (.-conversationId api)]
+                      (let [record (await (.conversation tx id))
+                            owner (some-> record .-owner)]
+                        (if owner
+                          (recur (.-conversationId owner))
+                          id))))
+                  call-context)))
+
+(defn ^:async pane
+  "The atom of the bot's page."
+  [api call-context]
+  (db/pane (await (bot-id api call-context))))
 
 (defn artifacts-dir
   [api]

@@ -12,7 +12,7 @@
 
    The machine's alarm (`rragent.wake`) is one for all the bots of
    the process: every open bot registers how to read its earliest next
-   run (`watch!`, by `rragent.harness/open`), and `rearm!` sets the
+   run (`watch!`, by `rragent.harness`), and `rearm!` sets the
    alarm to the earliest across them, after every change of a schedule
    and after every fire."
   (:require ["croner" :refer [Cron]]
@@ -65,19 +65,23 @@
     (when (seq runs)
       (apply min runs))))
 
-(defonce ^{:doc "By work folder: a function of no arguments that answers a promise
+(defonce ^{:doc "By conversation id: a function of no arguments that answers a promise
                  of the bot's earliest next run in milliseconds, nil without one."}
   sources
   (atom {}))
 
 (defn watch!
-  "The bot of `work` has schedules to read with `due-fn`."
-  [work due-fn]
-  (swap! sources assoc work due-fn))
+  "The bot of the conversation `id` has schedules to read with `due-fn`."
+  [id due-fn]
+  (swap! sources assoc id due-fn))
 
 (defn unwatch!
-  [work]
-  (swap! sources dissoc work))
+  [id]
+  (swap! sources dissoc id))
+
+(defn unwatch-all!
+  []
+  (reset! sources {}))
 
 (defn- ^:async due-of
   "What the source answers; nil when it fails (a bot closing)."
