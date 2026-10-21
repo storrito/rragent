@@ -91,6 +91,7 @@
   "What the tool says about itself, the templates named."
   [templates]
   (str "An artifact with a page of its own, for anything that moves or that the person should play with. "
+       "Everything made for the person goes under artifacts/, which they see beside the chat; working notes (checks, progress, validation) go under artifacts/notes/, which the page keeps apart. "
        "`create` with a name and a kind starts one from a template in artifacts/<name>/ and answers with the template's notes on how to work with it"
        (if (seq templates)
          (str ". The templates: "

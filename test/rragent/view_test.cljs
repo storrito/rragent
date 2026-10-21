@@ -219,8 +219,10 @@
       (is (= "card/pool.png" (:data-artifact (second (card (made "image" {:file "card/pool.png"} "artifacts/card/pool.png: 12345 bytes, model x"))))))
       (is (= "clip" (:data-artifact (second (card (made "project" {:name "clip"} "artifacts/clip/ is ready, made from the template motion"))))))
       (is (= [:i18n :artifacts/project] (last (find-tag (card (made "project" {:name "clip"} "artifacts/clip/ is ready")) :span.meta)))))
-    (testing "no card for a file elsewhere, a failed call, or a call still running"
+    (testing "no card for a file elsewhere, a working note, a failed call, or a call still running"
       (is (nil? (card (made "write" {:path "notes/todo.md"} "ok"))))
+      (is (nil? (card (made "write" {:path "artifacts/notes/checks.md"} "ok"))) "a note under artifacts/notes/ is no creation")
+      (is (nil? (card (made "edit" {:path "/home/sprite/rragent/agent/bots/1/work/artifacts/notes/progress.md"} "ok"))))
       (is (nil? (card {:entries [(assistant 1 [{:type "toolCall" :id "c1" :name "write" :arguments {:path "artifacts/x.md"}}] "toolUse")
                                  (tool-result 2 "c1" "boom" true)]})))
       (is (nil? (card {:entries [(assistant 1 [{:type "toolCall" :id "c1" :name "write" :arguments {:path "artifacts/x.md"}}] "toolUse")]}))))))

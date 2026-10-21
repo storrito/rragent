@@ -270,8 +270,9 @@
 (defn- made-path
   "The artifact a tool call made: `artifacts/<path>` in the path it
    wrote, or in the first line of its result (a render, a picture, a
-   voice, music, a project); nil for none, or while the call runs, or
-   when it failed."
+   voice, music, a project); nil for none, for a working note
+   (`rragent.artifacts/note?`), or while the call runs, or when it
+   failed."
   [{:keys [name args done? error? result]}]
   (when (and done? (not error?))
     (let [candidate (case name
@@ -279,7 +280,9 @@
                       ("render" "image" "voice" "music" "project") (first (str/split-lines (str result)))
                       nil)]
       (when-let [[_ path] (re-find #"(?:^|[\s/])artifacts/([^\s:]+)" (str candidate))]
-        (not-empty (str/replace path #"/+$" ""))))))
+        (let [path (not-empty (str/replace path #"/+$" ""))]
+          (when-not (artifacts/note? path)
+            path))))))
 
 (defn- artifact-card
   "What a tool call made, as a card in the chat: a tap opens it in the
@@ -542,25 +545,117 @@
     (< bytes (* 1024 1024)) (str (js/Math.round (/ bytes 1024)) " KB")
     :else (str (.toFixed (/ bytes 1024 1024) 1) " MB")))
 
+(defn- file-actions
+  "The menu behind the three dots of a row, as the sidebar's
+   `bot-actions`: rename, and delete, which arms the question in the
+   row."
+  [bot path]
+  [:details.actions
+   [:summary {:aria-label [:i18n :artifacts/actions]
+              :title [:i18n :artifacts/actions]}
+    "⋮"]
+   [:div.items
+    [:button.item {:on {:click [[:data/command {:command/kind :artifacts/rename-start
+                                                :command/data {:bot bot :path path}}]]}}
+     [:i18n :artifacts/rename]]
+    [:button.item.danger {:on {:click [[:data/command {:command/kind :artifacts/delete
+                                                       :command/data {:bot bot :path path}}]]}}
+     [:i18n :artifacts/delete]]]])
+
+(defn- file-confirm
+  "The row of an artifact whose deletion is armed (see
+   `:artifacts/delete`): the question, then into the trash or keep."
+  [bot {:keys [path title]}]
+  [:div.confirm
+   [:span [:i18n :artifacts/delete-sure {:title title}]]
+   [:span.choices
+    [:button.link.danger {:on {:click [[:data/command {:command/kind :artifacts/delete
+                                                       :command/data {:bot bot :path path}}]]}}
+     [:i18n :artifacts/delete-yes]]
+    [:button.link {:on {:click [[:data/command {:command/kind :artifacts/keep
+                                                :command/data {:bot bot}}]]}}
+     [:i18n :artifacts/keep]]]])
+
+(defn- file-rename
+  "The row of an artifact being renamed (see `:artifacts/rename-start`):
+   a field with its name less the extension, whose change renames it,
+   and the way to keep it."
+  [bot {:keys [path] :as artifact}]
+  [:div.rename
+   [:input.name {:replicant/key (str "rename-" path)
+                 :value (artifacts/base-name artifact)
+                 :aria-label [:i18n :artifacts/name]
+                 :on {:change [[:data/command {:command/kind :artifacts/rename
+                                               :command/data {:bot bot
+                                                              :path path
+                                                              :name :event/target.value}}]]}}]
+   [:button.link {:on {:click [[:data/command {:command/kind :artifacts/keep
+                                               :command/data {:bot bot}}]]}}
+    [:i18n :artifacts/keep]]])
+
 (defn- file-row
   "A row of the list: the icon of the kind, the title, and what tells
    two files of one title apart: the extension (a project as such),
-   the folder, the size. A click opens the file."
-  [bot {:keys [path kind title ext size]} current]
+   the folder (less `notes/` for a note), the size; the three dots
+   with rename and delete. A click opens the file. The row carries its
+   title and path as `data-name` for the filter above the list
+   (`:ui/files-filter`, `rragent.client`). A row whose delete is armed
+   asks, one being renamed is a field (`deleting`, `renaming`)."
+  [bot {:keys [path kind title ext size] :as artifact} {:keys [current renaming deleting]}]
   (let [project? (= :project kind)
         folder (when (str/includes? path "/")
                  (str (subs path 0 (str/last-index-of path "/")) "/"))
+        folder (when folder
+                 (not-empty (str/replace folder (re-pattern (str "^" artifacts/notes-folder "/")) "")))
         parts (remove nil? [(if project? [:i18n :artifacts/project] ext)
                             folder
                             (when-not project? (human-size size))])]
     [:li {:replicant/key path
           :class (cond-> [(clojure.core/name kind)]
-                   (= path current) (conj "current"))}
-     [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open
-                                                :command/data {:bot bot :path path}}]]}}
-      [:span.icon (get kind-icons kind "📎")]
-      [:span.name title]
-      (into [:span.meta] (interpose " · " parts))]]))
+                   (= path current) (conj "current"))
+          :data-name (str/lower-case (str title " " path))}
+     (cond
+       (= path deleting) (file-confirm bot artifact)
+       (= path renaming) (file-rename bot artifact)
+       :else (list
+              [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open
+                                                         :command/data {:bot bot :path path}}]]}}
+               [:span.icon (get kind-icons kind "📎")]
+               [:span.name title]
+               (into [:span.meta] (interpose " · " parts))]
+              (file-actions bot path)))]))
+
+(defn- notes-group
+  "The working notes at the end of the list (`rragent.artifacts/note?`),
+   folded: a <details> the browser opens and closes, its summary the
+   count. Its `data-name` is its rows' together, so that the filter
+   hides it with them."
+  [bot notes opts]
+  [:li.group {:replicant/key "notes"
+              :data-name (str/join "\n" (map #(str/lower-case (str (:title %) " " (:path %))) notes))}
+   [:details.notes
+    [:summary [:i18n :artifacts/notes {:n (count notes)}]]
+    [:ul
+     (for [file notes]
+       (file-row bot file opts))]]])
+
+(def filter-from
+  "How many rows the list needs for the filter above it."
+  8)
+
+(defn- file-list
+  "The rows of the list, the creations newest first and the notes
+   folded at the end, in the filter alias (`:ui/files-filter`,
+   `rragent.client`), whose field shows once the list is long."
+  [bot list opts]
+  (let [notes (filter #(artifacts/note? (:path %)) list)]
+    [:ui/files-filter {:ui/store-key [:artifacts-filter bot]
+                       :ui/field? (< filter-from (count list))
+                       :ui/placeholder [:i18n :artifacts/filter]}
+     (for [file (remove #(artifacts/note? (:path %)) list)]
+       (file-row bot file opts))
+     (when (seq notes)
+       (notes-group bot notes opts))]))
 
 (defn- render-controls
   "The video of the project, made here on a click; its progress and Stop
@@ -602,9 +697,11 @@
    bar; on a phone the list alone, or the one on screen with the way
    back (`.showing`, the stylesheet). `pane` holds the keys of
    `rragent.artifacts` (`:artifacts/list`, `:artifacts/current`, the
-   `:artifacts/text` of a text file on screen), `:projects` and
-   `:renders`, and the `:base` of the bot's page with its id as `:bot`."
-  [{:keys [artifacts/list artifacts/current artifacts/text projects renders base bot] :as pane}]
+   `:artifacts/text` of a text file on screen, the path of a row being
+   renamed or asked about, `:artifacts/renaming` and
+   `:artifacts/deleting`), `:projects` and `:renders`, and the `:base`
+   of the bot's page with its id as `:bot`."
+  [{:keys [artifacts/list artifacts/current artifacts/text artifacts/renaming artifacts/deleting projects renders base bot] :as pane}]
   (let [artifact (some #(when (= current (:path %)) %) list)
         project? (= :project (:kind artifact))
         render (when artifact
@@ -626,9 +723,7 @@
         (actions base bot artifact render))]
      [:div.split
       (when (seq list)
-        [:ul.files
-         (for [file list]
-           (file-row bot file current))])
+        (file-list bot list {:current current :renaming renaming :deleting deleting}))
       [:div.shown
        (cond
          artifact (content base artifact {:project (get projects (:path artifact))

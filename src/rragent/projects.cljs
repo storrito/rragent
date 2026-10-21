@@ -236,6 +236,13 @@
   (doseq [name (keys @procs)]
     (stop! handle name)))
 
+(defn running?
+  "Whether the project's process runs: started on a port and not
+   exited; a static project has none."
+  [handle name]
+  (let [{:keys [port exit]} (get-in (state handle) [:projects name])]
+    (boolean (and port (nil? exit)))))
+
 (defn ^:async answers?
   "Whether something accepts a connection on the port."
   [port]
