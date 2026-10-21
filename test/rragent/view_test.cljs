@@ -116,6 +116,10 @@
                (.indexOf (vec (nodes page)) (find-tag page :section.feed)))
             "the banner stands above the feed")
         (is (= page (transit/read-str (transit/write-str page))))))
+    (testing "the header's button switches the theme, its titles translated"
+      (let [page (i18n/translate (view/page {:agent {} :conversation nil :locale :de}) :de)]
+        (is (= {:ui/light-title "Helles Design" :ui/dark-title "Dunkles Design"}
+               (second (find-tag page :ui/theme-toggle))))))
     (testing "without the version nothing of it is on the page"
       (let [page (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en)]
         (is (nil? (find-tag page :button.version)))

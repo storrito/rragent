@@ -10,6 +10,7 @@
    before, and goes to the page's handler once it is there; after
    `wait-ms` it gets a 503 with Retry-After."
   (:require [clojure.string :as str]
+            [rragent.assets :as assets]
             [rragent.i18n :as i18n]))
 
 (def poll-ms
@@ -32,9 +33,12 @@
        "<html lang=\"" (name locale) "\"><head><meta charset=\"utf-8\">"
        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
        "<title>" (text :starting/title locale) "</title>"
+       assets/theme-script
        "<style>"
-       ":root{color-scheme:light dark;--bg:#faf9f7;--text:#1f2328;--muted:#6b7079;--accent:#e0394b}"
-       "@media (prefers-color-scheme:dark){:root{--bg:#111315;--text:#e8eaed;--muted:#8d949e;--accent:#ff4d5e}}"
+       ":root{color-scheme:light;--bg:#faf9f7;--text:#1f2328;--muted:#6b7079;--accent:#e0394b}"
+       ;; the theme the person chose with the page's button, else the system's
+       "@media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;--bg:#111315;--text:#e8eaed;--muted:#8d949e;--accent:#ff4d5e}}"
+       ":root[data-theme=dark]{color-scheme:dark;--bg:#111315;--text:#e8eaed;--muted:#8d949e;--accent:#ff4d5e}"
        "html,body{height:100%;margin:0}"
        "body{display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg);color:var(--text);"
        "font:16px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;text-align:center}"

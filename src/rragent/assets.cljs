@@ -59,12 +59,19 @@
        :css (str origin "/app.css")})
     (assoc (built (public-dir) entry) :css "/app.css")))
 
+(def theme-script
+  "Puts the theme the person chose (`rragent.client/theme-toggle`) on
+   the page before it paints, so that a dark system does not flash
+   before a light choice, or the other way round."
+  "<script>try{var t=localStorage.getItem(\"rragent.theme\");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>")
+
 (defn head
-  "The head of the shim: the title, the stylesheet, the preloads and the
-   scripts of the page."
+  "The head of the shim: the title, the theme chosen, the stylesheet,
+   the preloads and the scripts of the page."
   [{:keys [scripts preload css]}]
   (str "<title>rragent</title>"
        "<link rel=\"icon\" href=\"data:,\">"
+       theme-script
        "<link rel=\"stylesheet\" href=\"" css "\">"
        (apply str (for [href preload]
                     (str "<link rel=\"modulepreload\" href=\"" href "\">")))

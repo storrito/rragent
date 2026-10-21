@@ -287,8 +287,9 @@
 
 (defn header
   "The agent's name and model, the running version of rragent (a click
-   on it looks for a newer release, `rragent.update`), and whether a
-   run goes."
+   on it looks for a newer release, `rragent.update`), whether a run
+   goes, and the button that switches between the light and the dark
+   theme (`:ui/theme-toggle`, client state, see `rragent.client`)."
   [{:keys [name model]} status version]
   [:header.bar
    [:h1 name]
@@ -300,7 +301,9 @@
    [:span.status {:class (clojure.core/name status)}
     (case status
       :working [:i18n :chat/working]
-      [:i18n :chat/ready])]])
+      [:i18n :chat/ready])]
+   [:ui/theme-toggle {:ui/light-title [:i18n :theme/light]
+                      :ui/dark-title [:i18n :theme/dark]}]])
 
 (defn- update-button
   [label]
