@@ -446,13 +446,17 @@
    Ctrl+Enter or Send end it and send once its text is in
    (`:ui/send-after-dictation-label`). A paste with
    files on the clipboard uploads them, a paste of text pastes; files dragged over the page
-   bring up the veil (`drop-veil`), a drop on it uploads them. The labels
-   are the server's, translated; the other attributes pass through to
-   the textarea."
+   bring up the veil (`drop-veil`), a drop on it uploads them. With
+   `:ui/stop`, actions, a Stop button beside Send runs them (a run
+   goes). Send and Stop carry their word and an icon; the stylesheet
+   shows the word on a wide screen and the icon on a phone, where the
+   row is a card like the Claude app's. The labels are the server's,
+   translated; the other attributes pass through to the textarea."
   [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label ui/send-pending-label
            ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
            ui/drop-title ui/drop-hint ui/dictation-url ui/dictate-title ui/dictate-stop-title
-           ui/transcribing-title ui/dictation-failed-title ui/send-after-dictation-label ui/state]
+           ui/transcribing-title ui/dictation-failed-title ui/send-after-dictation-label ui/state
+           ui/stop ui/stop-label]
     :as attrs}
    _children]
   (let [store state/store
@@ -503,7 +507,7 @@
                    :ui/send-label :ui/send-pending-label :ui/send-cancel-title :ui/attach-title :ui/remove-title :ui/uploading-label
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
                    :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
-                   :ui/send-after-dictation-label :ui/state)
+                   :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label)
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -541,16 +545,25 @@
                                (upload-all! store attachments-key upload-url
                                             (array-seq (.. event -target -files)))
                                (set! (.. event -target -value) ""))}}]]
-      [:button.primary {:disabled (not (or ready? pending? dictating))
-                        :title (when pending? send-cancel-title)
-                        :on {:click (fn [_event]
-                                      (if pending?
-                                        (swap! store dissoc :ui/send-pending)
-                                        (send!)))}}
-       (cond
-         (and pending? (dictation/active? state)) (or send-after-dictation-label "Sends once the text is in")
-         pending? (or send-pending-label "Sends after the upload")
-         :else (or send-label "Send"))]]]))
+      (when stop
+        [:button.stop {:type "button"
+                       :title stop-label
+                       :on {:click (fn [_event] (state/dispatch! stop))}}
+         [:span.word (or stop-label "Stop")]
+         [:span.icon {:aria-hidden "true"} "■"]])
+      [:button.primary.send {:disabled (not (or ready? pending? dictating))
+                             :class (when pending? "pending")
+                             :title (if pending? send-cancel-title (or send-label "Send"))
+                             :on {:click (fn [_event]
+                                           (if pending?
+                                             (swap! store dissoc :ui/send-pending)
+                                             (send!)))}}
+       [:span.word
+        (cond
+          (and pending? (dictation/active? state)) (or send-after-dictation-label "Sends once the text is in")
+          pending? (or send-pending-label "Sends after the upload")
+          :else (or send-label "Send"))]
+       [:span.icon {:aria-hidden "true"} "↑"]]]]))
 
 (defonce ^:private canvas-node*
   (atom nil))

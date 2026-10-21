@@ -86,12 +86,14 @@
       (is (contains? text "Hook deploy"))
       (is (contains? text "What the agent makes for you appears here."))
       (is (contains? text "Stop") "a run goes")
+      (is (= {:bot nil} (get-in (second (find-tag page :ui/composer)) [:ui/stop 0 1 :command/data])) "Stop is the composer's, with its actions")
       (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated"))
     (testing "an idle conversation with nothing in it"
       (let [empty (i18n/translate (view/page {:agent {} :conversation nil :locale :de}) :de)
             text (set (strings empty))]
         (is (contains? text "Noch nichts hier. Schreib die erste Nachricht."))
-        (is (not (contains? text "Stopp")))))
+        (is (not (contains? text "Stopp")))
+        (is (nil? (:ui/stop (second (find-tag empty :ui/composer)))) "no Stop while nothing runs")))
     (testing "an empty conversation of a skill opens with its welcome and placeholder"
       (let [onboarding {:title "Kinetic Shorts" :ask "Füge den Link ein." :placeholder "YouTube-Link einfügen"}
             page (i18n/translate (view/page {:agent {} :conversation nil :locale :de :onboarding onboarding}) :de)

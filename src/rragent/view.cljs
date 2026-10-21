@@ -400,12 +400,17 @@
    `rragent.client`), per bot: a new frame does not reset them. The
    alias has the microphone button, whose recording goes into the draft
    as text (`rragent.dictation`, under the bot's page), the attach
-   button and Send, which waits for the uploads; Stop aborts the run
-   while one goes. `placeholder` is the skill's while the chat is
-   empty, the page's own otherwise."
+   button and Send, which waits for the uploads; while a run goes, a
+   Stop button beside it aborts the run (`:ui/stop`). `placeholder` is
+   the skill's while the chat is empty, the page's own otherwise."
   [id base status placeholder]
   [:div.composer
    [:ui/composer {:ui/store-key (draft-key id)
+                  :ui/stop (when (= :working status)
+                             [[:data/command {:command/kind :chat/stop
+                                              :command/data {:bot id}}]])
+                  :ui/stop-label (when (= :working status)
+                                   [:i18n :composer/stop])
                   :ui/attachments-key (attachments-key id)
                   :ui/upload-url (str base uploads/upload-path)
                   :ui/send (send-actions id)
@@ -426,11 +431,7 @@
                   :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
                   :rows 3
                   :title [:i18n :composer/keys]
-                  :placeholder (or placeholder [:i18n :composer/placeholder])}]
-   (when (= :working status)
-     [:button.stop {:on {:click [[:data/command {:command/kind :chat/stop
-                                                 :command/data {:bot id}}]]}}
-      [:i18n :composer/stop]])])
+                  :placeholder (or placeholder [:i18n :composer/placeholder])}]])
 
 (defn- artifact-url
   [base path]
