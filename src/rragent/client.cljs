@@ -435,14 +435,15 @@
   "The textarea of the page with its attachments. The text lives in the
    store under `:ui/store-key`, the attachments under
    `:ui/attachments-key`, so that a frame from the server resets
-   neither; files go to `:ui/upload-url`. Enter and the Send button run
-   `:ui/send`, the actions of the server, with a text, files or both;
-   while files go up they run once the last is in (`pending-step`), the
-   button says so (`:ui/send-pending-label`) and a click on it takes the
-   send back. Shift+Enter breaks the line. The microphone button, or
+   neither; files go to `:ui/upload-url`. Ctrl+Enter (Cmd+Enter on a
+   Mac) and the Send button run `:ui/send`, the actions of the server,
+   with a text, files or both; while files go up they run once the last
+   is in (`pending-step`), the button says so (`:ui/send-pending-label`)
+   and a click on it takes the send back. Enter breaks the line, on a
+   phone too, where there is no Shift. The microphone button, or
    Space held in the text, dictates into the draft, its pieces go to
    `:ui/dictation-url`; while it runs the draft is the dictation's, and
-   Enter or Send end it and send once its text is in
+   Ctrl+Enter or Send end it and send once its text is in
    (`:ui/send-after-dictation-label`). A paste with
    files on the clipboard uploads them, a paste of text pastes; files dragged over the page
    bring up the veil (`drop-veil`), a drop on it uploads them. The labels
@@ -513,8 +514,11 @@
                                     (upload-all! store attachments-key upload-url files))))
                        :keydown (fn [^js event]
                                   (dictation/key-down! store store-key dictation-url event)
+                                  ;; Ctrl+Enter sends, Cmd+Enter on a Mac;
+                                  ;; Enter alone breaks the line, as in a
+                                  ;; text field anywhere, on a phone too
                                   (when (and (= "Enter" (.-key event))
-                                             (not (.-shiftKey event))
+                                             (or (.-ctrlKey event) (.-metaKey event))
                                              (not (.-isComposing event)))
                                     (.preventDefault event)
                                     (send!)))
