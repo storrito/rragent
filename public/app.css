@@ -515,6 +515,29 @@ button.primary {
   overflow: hidden !important;
 }
 
+/* A block's button is an action and stands out from the text around it:
+   a tint of the accent, bold; `primary`, the one that moves on, filled.
+   A swatch keeps its own background, the model's inline style wins. */
+.genui button {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  font-weight: 600;
+}
+
+.genui button:hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+
+.genui button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.genui button.primary:hover {
+  background: color-mix(in srgb, var(--accent) 85%, #000);
+}
+
 .genui label {
   display: flex;
   align-items: center;

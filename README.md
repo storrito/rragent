@@ -69,7 +69,9 @@ files point at `artifacts/…`, `uploads/…` or https; `:send "text"` on a
 button sends the text as the person's next message, `{checked}` in it
 the values of the checkboxes and radio buttons ticked in the same block
 (the client's `:ui/send-checked` fills them in); `:open
-"artifacts/<name>"` shows an artifact. A block that does not read shows
+"artifacts/<name>"` shows an artifact. A button shows as an action, a
+tint of the accent; `:class "primary"` fills it, for the one that moves
+on. A block that does not read shows
 as code with the reason. It is pchat's contract, which the agentitos
 skills write against, with the inputs added:
 
@@ -77,7 +79,7 @@ skills write against, with the inputs added:
     [:div [:p "Where should the shorts go?"]
      [:label [:input {:type "checkbox" :value "Reel @anna" :checked true}] " Reel · @anna"]
      [:label [:input {:type "checkbox" :value "Story @anna"}] " Story · @anna"]
-     [:button {:send "Post the shorts on: {checked}"} "Take these accounts"]]
+     [:button {:class "primary" :send "Post the shorts on: {checked}"} "Take these accounts"]]
     ```
 
 A message can carry files, the way pchat's can: the attach button
