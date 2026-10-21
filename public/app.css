@@ -961,3 +961,53 @@ pre {
 .item.streaming .markdown > .genui-pending:last-child::after {
   content: none;
 }
+
+/* A newer rragent (rragent.update): the banner above the chat with the
+   version, the first line of its notes and the button, and the running
+   version in the header, which looks for one on a click. */
+.banner.update {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.banner.update.failed {
+  color: var(--warn);
+}
+
+.banner.update .notes,
+.banner.update .auto {
+  color: var(--muted);
+}
+
+.banner.update button.link {
+  margin: 0 4px 0 8px;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.banner.update button.link:hover {
+  border-color: var(--muted);
+}
+
+.bar button.version {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.bar button.version:hover {
+  color: var(--text);
+  text-decoration: underline;
+}

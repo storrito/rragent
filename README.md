@@ -452,32 +452,62 @@ a program may run.
 
 ## Releases
 
-`npm version <x.y.z>` and `git push --tags`: the tag `v<x.y.z>` builds the
-bundle, publishes a GitHub release with `rragent.tar.gz` (the `dist/`
-folder: `rragent.js`, `public/` and `templates/`) and its checksum, and
-builds the Sprite images from that same `dist/` (below). A machine image
-built elsewhere downloads `releases/latest/download/rragent.tar.gz`
-instead of building the app.
+A pushed tag is the release: `git tag v0.1.3 <commit> && git push origin
+v0.1.3`, nothing else. The workflow takes the version from the tag and
+sets it into `package.json` for that build alone (`npm version
+--no-git-tag-version`, nothing committed: `main` keeps `0.0.0`), so that
+the bundle says the tag's version (`scripts/version.mjs` writes
+`src/rragent/version.cljs` from `package.json` before a build); it
+builds the bundle, publishes a GitHub release with `rragent.tar.gz` (the
+`dist/` folder: `rragent.js`, `public/` and `templates/`) and its
+checksum, and builds the Sprite image from that same `dist/` (below). A
+machine image built elsewhere downloads
+`releases/latest/download/rragent.tar.gz` instead of building the app,
+and a running agent takes the release by itself (Updates, below).
+
+## Updates
+
+A running rragent looks the newest release up at start, every hour and
+when the person clicks the version in the header (`rragent.update`:
+`releases/latest` of GitHub's API, no token; a lookup that fails is one
+line on stderr). A newer one shows as a banner above the chat: the
+version, the first line of its notes and an Update button. The click
+downloads `rragent.tar.gz` and its `.sha256` from the release into a
+temp folder next to `dist/`, verifies the checksum, unpacks into
+`dist.new`, swaps it for `dist/` and ends the process with exit code
+75; `deploy/start.sh` starts it again on that code, from the new
+`dist/`, and the page reconnects as it does after any restart. A
+download or a checksum that fails leaves `dist/` as it was and the
+banner says why. Nothing is applied while a run goes. With
+`RRAGENT_UPDATE=auto`, which `start.sh` sets, a known update goes in by
+itself once the agent is idle the way the sleep watch sees it (no run,
+no render, no page connected), so an agent nobody opens profits too;
+the banner says so. `RRAGENT_UPDATE=off` switches the lookup off.
+
+The `dist/` replaced is the one the running bundle lies in, the parent
+of its own folder (`/home/sprite/rragent/dist`), never the working
+directory. This is for machines. A checkout on a laptop sees the banner
+too (its build says `0.0.0`), and `npm start` replaces its own `dist/`
+on a click and ends with 75, to be started again by hand; `git pull`
+and a build is the way there, and under the dev server nothing is
+applied.
 
 ## Deploy
 
 An agent runs on a [Sprite](https://sprites.dev) made from an image of
 rragent. `deploy/` has what the Sprite needs around the bundle, and the
-release builds two images of it (`.github/actions/sprite-image`, run by
+release builds the image of it (`.github/actions/sprite-image`, run by
 the release workflow after the tarball is published) into the private
-package `ghcr.io/storrito/rragent-sprite`:
+package `ghcr.io/storrito/rragent-sprite`: `rragent-sprite:<x.y.z>`
+from `deploy/Dockerfile.full`, the bundle on the Sprites base image
+(`s2-default`, which brings Node through mise) with what the templates
+need, ffmpeg with the fonts, Google Chrome and the HyperFrames CLI.
+`latest` is the newest release of it, for a try by hand; a provisioner
+pins the version (below). `deploy/Dockerfile` is the same without the
+templates' programs, 1.3 GB smaller, for a build on a laptop (a render
+answers why there is no video there); no release publishes it.
 
-- `ghcr.io/storrito/rragent-sprite:<x.y.z>` from `deploy/Dockerfile.full`:
-  the bundle on the Sprites base image (`s2-default`, which brings Node
-  through mise) with what the templates need, ffmpeg with the fonts,
-  Google Chrome and the HyperFrames CLI. The image of an agent that
-  renders videos. `latest` is the newest release of it, for a try by
-  hand; a provisioner pins the version (below).
-- `ghcr.io/storrito/rragent-sprite:<x.y.z>-plain` from `deploy/Dockerfile`:
-  the bundle alone, 1.3 GB smaller. The image of an agent that renders
-  no video: a render answers why there is none, everything else works.
-
-Both have the bundle in `/home/sprite/rragent/dist/`, `start.sh` beside
+The image has the bundle in `/home/sprite/rragent/dist/`, `start.sh` beside
 it and the generic definition in `agent/` (`deploy/agent/AGENT.md`):
 every new machine starts as an assistant that offers the skills of
 `/home/sprite/skills` and becomes the one the person picks, by writing
@@ -490,7 +520,9 @@ arguments `SKILLS_REPO` (`storrito/agentitos`) and `SKILLS_BRANCH`
 `skills-branch` of the action. `start.sh` pulls the clone before it
 starts rragent (20 seconds at most, a failure said on stderr and the
 clone from the image stands), so a machine that wakes offers the
-current skills. Neither image carries a secret. The secret of the
+current skills, and starts rragent again when it ended with 75 after
+taking a release (Updates, above), without the pull. The image carries
+no secret. The secret of the
 page's link is a label of the sprite, `token:<hex>`, set with the
 sprite's other labels when it is made and read by rragent at start
 (`sprite-env discover`); `RRAGENT_TOKEN` is the laptop's way and the
@@ -535,10 +567,10 @@ own, which the version guarantees, and the workflows refuse a tag that
 exists instead of pushing over it. A branch gets to a sprite without a
 release through the Image workflow: "Run workflow" on the branch with a
 tag that names it and the commit, `codemode-96b18a8`, pushes
-`rragent-sprite:<tag>` and `<tag>-plain` from that checkout. Locally,
-`npm run build && docker build -f deploy/Dockerfile.full -t
-rragent-sprite:dev .` builds the full image, `-f deploy/Dockerfile` the
-plain one, `--build-arg SKILLS_REPO=<owner/name>` with another skills
+`rragent-sprite:<tag>` from that checkout. Locally, `npm run build &&
+docker build -f deploy/Dockerfile.full -t rragent-sprite:dev .` builds
+the image, `-f deploy/Dockerfile` the one without the templates'
+programs, `--build-arg SKILLS_REPO=<owner/name>` with another skills
 repository.
 
 ## License

@@ -286,15 +286,59 @@
       [:span [:i18n :chat/working]]])])
 
 (defn header
-  "The agent's name and model, and whether a run goes."
-  [{:keys [name model]} status]
+  "The agent's name and model, the running version of rragent (a click
+   on it looks for a newer release, `rragent.update`), and whether a
+   run goes."
+  [{:keys [name model]} status version]
   [:header.bar
    [:h1 name]
    [:span.model model]
+   (when version
+     [:button.version {:title [:i18n :update/check-title]
+                       :on {:click [[:data/command {:command/kind :update/check}]]}}
+      (str "v" version)])
    [:span.status {:class (clojure.core/name status)}
     (case status
       :working [:i18n :chat/working]
       [:i18n :chat/ready])]])
+
+(defn- update-button
+  [label]
+  [:button.link {:on {:click [[:data/command {:command/kind :update/apply}]]}}
+   label])
+
+(defn update-banner
+  "Above the chat when a newer rragent is known (`rragent.update`, the
+   `:update` of the db): the version, the first line of its notes and
+   the button, then what the update is doing, or why it did not work.
+   After a lookup the person asked for, that there is nothing newer,
+   or that the lookup failed. Nothing otherwise."
+  [{:keys [current version notes state error auto? checked]}]
+  (cond
+    (= :applying state)
+    [:div.banner.update [:i18n :update/applying {:version version}]]
+
+    (= :failed state)
+    [:div.banner.update.failed
+     [:i18n :update/failed {:version version :error (str error)}]
+     " "
+     (update-button [:i18n :update/retry])]
+
+    version
+    [:div.banner.update
+     [:i18n :update/available {:version version}]
+     (when (seq notes)
+       [:span.notes " " notes])
+     " "
+     (update-button [:i18n :update/button])
+     (when auto?
+       [:span.auto " " [:i18n :update/auto]])]
+
+    (= :newest checked)
+    [:div.banner.update [:i18n :update/newest {:version current}]]
+
+    (= :failed checked)
+    [:div.banner.update.failed [:i18n :update/lookup-failed]]))
 
 (defn send-actions
   "Sends the draft and the attachments to the conversation, then clears
@@ -469,15 +513,17 @@
   "`opts`: `:agent`, its `:name` and `:model`; `:conversation`, the
    transcript `{:entries :live :inbox}`; `:artifacts`, the pane's keys of
    the db; `:locale`; `:onboarding`, the skill's welcome
-   (`rragent.onboarding`) or nil."
-  [{:keys [agent conversation locale onboarding] pane :artifacts}]
+   (`rragent.onboarding`) or nil; `:update`, the running version and
+   the newer release when one is known (`rragent.update`)."
+  [{:keys [agent conversation locale onboarding update] pane :artifacts}]
   (let [items (items conversation)
         status (status (:live conversation))
         fresh? (not-any? shown? items)]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
-     (header agent status)
+     (header agent status (:current update))
      [:div.body
       [:div.chat
+       (update-banner update)
        (feed items status onboarding)
        (composer status (when fresh? (:placeholder onboarding)))]
       (artifacts pane)]]))

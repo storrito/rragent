@@ -1,15 +1,19 @@
 name: Release
 
-# Pushing a tag v<version> builds the bundle and publishes a GitHub
-# release with rragent.tar.gz (dist/: rragent.js and public/) and its
-# checksum, so that a machine image downloads a release instead of
-# building the app: releases/download/v<version>/rragent.tar.gz, or the
-# newest from releases/latest/download/rragent.tar.gz. The version in
-# the bundle comes from package.json, kept equal to the tag by
-# `npm version`. Then the same dist/ goes into the Sprite images,
-# ghcr.io/storrito/rragent-sprite:<version> (deploy/Dockerfile.full, and
-# latest), <version>-plain (deploy/Dockerfile), see
-# .github/actions/sprite-image and the README's Deploy section.
+# A pushed tag v<x.y.z> on any commit is the release. The version is
+# the tag's: set into package.json for this build alone (npm version
+# --no-git-tag-version, nothing committed, main keeps 0.0.0), so that
+# the bundle says it (scripts/version.mjs writes src/rragent/version.cljs
+# from package.json before the build). Then the bundle is built and a
+# GitHub release published with rragent.tar.gz (dist/: rragent.js,
+# public/ and templates/) and its checksum, so that a machine image
+# downloads a release instead of building the app:
+# releases/download/v<version>/rragent.tar.gz, or the newest from
+# releases/latest/download/rragent.tar.gz, which a running agent takes
+# by itself (rragent.update). Then the same dist/ goes into the Sprite
+# image, ghcr.io/storrito/rragent-sprite:<version> and latest
+# (deploy/Dockerfile.full), see .github/actions/sprite-image and the
+# README's Deploy section.
 on:
   push:
     tags: ["v*"]
@@ -32,18 +36,27 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - run: npm ci
-      - name: The tag and the package agree
+      - name: The version, from the tag
+        id: version
         run: |
-          test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}" \
-            || { echo "::error::package.json says $(node -p "require('./package.json').version"), the tag is ${GITHUB_REF_NAME}: bump with npm version"; exit 1; }
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::${GITHUB_REF_NAME} is no release tag: push v<x.y.z>"; exit 1;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - name: The package says the tag's version, for this build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: npm version --no-git-tag-version --allow-same-version "$VERSION"
       - run: npm test
       - run: npm run release
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         # A rerun of the job finds the release already there: the assets are
-        # replaced instead, so the image steps after it can run again.
+        # replaced instead, so the image step after it can run again.
         run: |
           if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 --clobber
@@ -52,10 +65,7 @@ jobs:
               --title "rragent ${GITHUB_REF_NAME}" \
               --generate-notes
           fi
-      - name: The version, from the tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      - name: The Sprite images
+      - name: The Sprite image
         uses: ./.github/actions/sprite-image
         with:
           tag: ${{ steps.version.outputs.version }}

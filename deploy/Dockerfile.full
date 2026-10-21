@@ -7,8 +7,8 @@
 # SKILLS_BRANCH). Build from the repository's root after `npm run build`:
 #   docker build -f deploy/Dockerfile.full -t rragent-full .
 # The release workflow pushes it as ghcr.io/storrito/rragent-sprite:<version>
-# and :latest (.github/actions/sprite-image); the README's Deploy section
-# says which of the two images an agent gets.
+# and :latest (.github/actions/sprite-image), see the README's Deploy
+# section.
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
 ARG HYPERFRAMES_VERSION=0.8.172

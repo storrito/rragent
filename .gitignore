@@ -12,3 +12,6 @@ target
 .DS_Store
 .clj-kondo/.cache
 rragent.tar.gz*
+dist.new
+dist.old
+.update-*

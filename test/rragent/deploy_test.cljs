@@ -1,9 +1,10 @@
 (ns rragent.deploy-test
-  "What the Sprite images are built with: the skills repository as a
+  "What the Sprite image is built with: the skills repository as a
    build argument of both Dockerfiles, passed through by the composite
    action, the placeholder of the generic definition filled by the
-   Dockerfile's sed, and start.sh's pull of the clone, run against a
-   bare repository in a temporary folder."
+   Dockerfile's sed, start.sh's pull of the clone, run against a bare
+   repository in a temporary folder, and start.sh's loop that starts
+   rragent again after an update, run with a fake program."
   (:require ["node:child_process" :as child]
             ["node:fs" :as fs]
             ["node:os" :as os]
@@ -37,7 +38,8 @@
       (is (re-find #"skills-branch:\n(.*\n){1,3}?\s+default: main\n" action))
       (is (str/includes? action "SKILLS_REPO: ${{ inputs.skills-repo }}"))
       (is (str/includes? action "SKILLS_BRANCH: ${{ inputs.skills-branch }}"))
-      (is (= 2 (count (re-seq #"--build-arg \"SKILLS_REPO=\$SKILLS_REPO\" --build-arg \"SKILLS_BRANCH=\$SKILLS_BRANCH\"" action))) "both images"))))
+      (is (= 1 (count (re-seq #"--build-arg \"SKILLS_REPO=\$SKILLS_REPO\" --build-arg \"SKILLS_BRANCH=\$SKILLS_BRANCH\"" action))) "the one image, deploy/Dockerfile.full")
+      (is (not (str/includes? action "-plain")) "no plain image is published"))))
 
 (deftest the-definition-names-the-repository-test
   (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-deploy-"))
@@ -60,6 +62,59 @@
   []
   (let [[_ function] (re-find #"(?s)(pull_skills\(\) \{.*?\n\})" (text "deploy/start.sh"))]
     function))
+
+(defn- run-until-updated
+  "start.sh's `run_until_updated` function, as it stands in the file."
+  []
+  (let [[_ function] (re-find #"(?s)(run_until_updated\(\) \{.*?\n\})" (text "deploy/start.sh"))]
+    function))
+
+(defn- fake-program!
+  "A program that notes each run in `runs` of `dir` and ends with
+   `first-code` on its first run, 0 after."
+  [dir first-code]
+  (let [program (path/join dir "rragent")]
+    (fs/writeFileSync program (str "#!/bin/sh\n"
+                                   "echo run >> \"" dir "/runs\"\n"
+                                   "[ \"$(wc -l < \"" dir "/runs\")\" -eq 1 ] && exit " first-code "\n"
+                                   "exit 0\n"))
+    (fs/chmodSync program 448)
+    program))
+
+(defn- runs
+  [dir]
+  (if (fs/existsSync (path/join dir "runs"))
+    (count (str/split-lines (str/trim (text (path/join dir "runs")))))
+    0))
+
+(deftest start-sh-starts-again-after-an-update-test
+  (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-start-"))]
+    (try
+      (is (string? (run-until-updated)) "the function is in start.sh")
+      (testing "75 starts the program again; its next exit ends the loop with that code"
+        (let [program (fake-program! dir 75)
+              {:keys [status out err]} (sh dir (str (run-until-updated) "\nrun_until_updated " program " && echo ended"))]
+          (is (= 0 status))
+          (is (= 2 (runs dir)) "run twice")
+          (is (= "ended" (str/trim out)))
+          (is (= 1 (count (str/split-lines (str/trim err)))) err)
+          (is (str/includes? err "starting it again"))))
+      (testing "any other code ends the loop with it, at once and quietly"
+        (fs/rmSync (path/join dir "runs") #js {:force true})
+        (let [program (fake-program! dir 3)
+              {:keys [status err]} (sh dir (str (run-until-updated) "\nrun_until_updated " program))]
+          (is (= 3 status))
+          (is (= 1 (runs dir)))
+          (is (= "" err))))
+      (testing "the script runs the serve in the loop, after the one pull, the idle update told"
+        (let [script (text "deploy/start.sh")]
+          (is (str/ends-with? (str/trim script) "run_until_updated node dist/rragent.js serve"))
+          (is (< (str/index-of script "pull_skills /home/sprite/skills") (str/index-of script "run_until_updated node")))
+          (is (= 1 (count (re-seq #"pull_skills /home/sprite/skills" script))) "the pull once, not again after an update")
+          (is (str/includes? script "export RRAGENT_UPDATE=\"${RRAGENT_UPDATE:-auto}\""))
+          (is (not (str/includes? script "exec node")))))
+      (finally
+        (fs/rmSync dir #js {:recursive true :force true})))))
 
 (deftest start-sh-pulls-the-skills-test
   (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-skills-"))

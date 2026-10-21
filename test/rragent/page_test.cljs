@@ -132,6 +132,34 @@
                                (is (= 403 (.-status (await (js/fetch (str base url)))))))))))))
                  (testing "a hook with a wrong secret is refused without the cookie"
                    (is (= 403 (.-status (await (js/fetch (str base "/hook/deploy/wrong") #js {:method "POST" :body "x"}))))))
+                 (testing "the Update button's command runs the apply of the updater, the version's click the lookup"
+                   (let [applied (atom [])
+                         login (await (js/fetch (str base "/?token=s3cret") #js {:redirect "manual"}))
+                         cookie (first (str/split (str (.get (.-headers login) "set-cookie")) #";"))
+                         post! (^:async fn [kind]
+                                 (let [sent (await (js/fetch (str base "/command") #js {:method "POST"
+                                                                                        :headers #js {:cookie cookie
+                                                                                                      :content-type "application/transit+json"}
+                                                                                        :body (transit/write-str {:command/kind kind})}))]
+                                   (transit/read-str (await (.text sent)))))]
+                     (is (= {:success? false :result {:error :no-updater}} (await (post! :update/apply))) "no updater, no apply")
+                     (reset! page/updater {:db db/db
+                                           :current "0.1.2"
+                                           :latest-url "http://127.0.0.1:1/repos/storrito/rragent/releases/latest"
+                                           :apply! (fn [handle] (swap! applied conj (:current handle)) nil)})
+                     (try
+                       (is (= {:success? true} (await (post! :update/apply))))
+                       (is (= ["0.1.2"] @applied))
+                       (is (= {:success? true} (await (post! :update/check))))
+                       (await (within 5000 (js/Promise. (fn [resolve]
+                                                          ((fn poll []
+                                                             (if (get-in @db/db [:update :checked])
+                                                               (resolve true)
+                                                               (js/setTimeout poll 20))))))))
+                       (is (= :failed (get-in @db/db [:update :checked])) "the lookup at a port that refuses fails, said in the banner")
+                       (finally
+                         (reset! page/updater nil)
+                         (swap! db/db dissoc :update)))))
                  (finally
                    (.abort controller)
                    (stop-following)

@@ -2,7 +2,7 @@ name: Image
 
 # By hand, for a branch to try on a sprite without a release: "Run
 # workflow" on the branch with a tag, and the branch's checkout is built
-# and pushed as ghcr.io/storrito/rragent-sprite:<tag> and <tag>-plain
+# and pushed as ghcr.io/storrito/rragent-sprite:<tag>
 # (.github/actions/sprite-image). A tag that exists is refused, a
 # version number is the release workflow's: name the branch and the
 # commit, codemode-96b18a8.
@@ -30,7 +30,7 @@ jobs:
           case "$TAG" in
             *[!A-Za-z0-9_.-]* | "" | .* | -*)
               echo "::error::'$TAG' is no image tag: letters, digits, '_', '.' and '-', starting with a letter or a digit"; exit 1;;
-            [0-9]*.[0-9]*.[0-9]* | v[0-9]* | latest | *-plain)
+            [0-9]*.[0-9]*.[0-9]* | v[0-9]* | latest)
               echo "::error::'$TAG' is a release's: push a tag v<x.y.z> for a release, name a trial by its branch and commit"; exit 1;;
           esac
       - uses: actions/checkout@v7

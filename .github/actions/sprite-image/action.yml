@@ -1,25 +1,25 @@
-name: Sprite images
+name: Sprite image
 description: >-
-  Builds the two Sprite images from the dist/ of the checkout and pushes
-  them to the private package ghcr.io/storrito/rragent-sprite: the full one
-  (deploy/Dockerfile.full, with what the templates need) as <tag>, the
-  plain one (deploy/Dockerfile) as <tag>-plain, both with a clone of the
-  skills repository the generic agent offers (the SKILLS_REPO and
-  SKILLS_BRANCH build arguments of the Dockerfiles). Sprites imports an
+  Builds the Sprite image from the dist/ of the checkout and pushes it to
+  the private package ghcr.io/storrito/rragent-sprite as <tag>
+  (deploy/Dockerfile.full, with what the templates need), with a clone of
+  the skills repository the generic agent offers (the SKILLS_REPO and
+  SKILLS_BRANCH build arguments of the Dockerfile). Sprites imports an
   image tag once per organization and never pulls it again, so a tag that
   exists is refused instead of pushed over. The release workflow runs it
-  with the version as the tag, the image workflow with a tag of its own.
+  with the version as the tag, and latest; the image workflow with a tag
+  of its own.
 
 inputs:
   tag:
-    description: The tag of the full image; the plain one is <tag>-plain.
+    description: The image's tag.
     required: true
   latest:
-    description: Tag the full image as latest too ("true" for a release).
+    description: Tag the image as latest too ("true" for a release).
     required: false
     default: "false"
   skills-repo:
-    description: The GitHub repository of the skills, owner/name, cloned into the images.
+    description: The GitHub repository of the skills, owner/name, cloned into the image.
     required: false
     default: storrito/agentitos
   skills-branch:
@@ -55,7 +55,7 @@ runs:
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         df -h / | tail -1
 
-    - name: Build the images
+    - name: Build the image
       shell: bash
       env:
         IMAGE: ghcr.io/storrito/rragent-sprite:${{ inputs.tag }}
@@ -64,16 +64,14 @@ runs:
       run: |
         test -f dist/rragent.js || { echo "::error::no dist/rragent.js: build the bundle first"; exit 1; }
         docker build -f deploy/Dockerfile.full --build-arg "SKILLS_REPO=$SKILLS_REPO" --build-arg "SKILLS_BRANCH=$SKILLS_BRANCH" -t "$IMAGE" .
-        docker build -f deploy/Dockerfile --build-arg "SKILLS_REPO=$SKILLS_REPO" --build-arg "SKILLS_BRANCH=$SKILLS_BRANCH" -t "$IMAGE-plain" .
 
-    - name: Push the images
+    - name: Push the image
       shell: bash
       env:
         IMAGE: ghcr.io/storrito/rragent-sprite:${{ inputs.tag }}
         LATEST: ${{ inputs.latest }}
       run: |
         docker push "$IMAGE"
-        docker push "$IMAGE-plain"
         if [ "$LATEST" = "true" ]; then
           docker tag "$IMAGE" ghcr.io/storrito/rragent-sprite:latest
           docker push ghcr.io/storrito/rragent-sprite:latest

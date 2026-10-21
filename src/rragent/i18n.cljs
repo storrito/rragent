@@ -84,7 +84,17 @@
    :composer/dictation-failed "The dictation did not come through; click to try again"
    :composer/send-after-dictation "Sends once the text is in"
    :starting/title "The agent is starting …"
-   :starting/hint "This takes a few seconds; the page comes by itself."})
+   :starting/hint "This takes a few seconds; the page comes by itself."
+
+   :update/check-title "Look for a newer rragent"
+   :update/available [:fn/str "rragent {{:version}} is available."]
+   :update/button "Update"
+   :update/retry "Try again"
+   :update/auto "It installs itself once the agent is idle; the page comes back by itself."
+   :update/applying [:fn/str "Updating to rragent {{:version}} … the page comes back by itself."]
+   :update/failed [:fn/str "The update to {{:version}} did not work: {{:error}}"]
+   :update/newest [:fn/str "rragent {{:version}} is the newest."]
+   :update/lookup-failed "The newest release could not be looked up."})
 
 (def de
   {:page/title "rragent"
@@ -156,7 +166,17 @@
    :composer/dictation-failed "Das Diktat ist nicht angekommen; klicken, um es noch einmal zu versuchen"
    :composer/send-after-dictation "Sendet, sobald der Text da ist"
    :starting/title "Der Agent startet …"
-   :starting/hint "Das dauert ein paar Sekunden; die Seite kommt von selbst."})
+   :starting/hint "Das dauert ein paar Sekunden; die Seite kommt von selbst."
+
+   :update/check-title "Nach einer neueren rragent-Version sehen"
+   :update/available [:fn/str "rragent {{:version}} ist da."]
+   :update/button "Aktualisieren"
+   :update/retry "Noch einmal versuchen"
+   :update/auto "Es installiert sich von selbst, sobald der Agent nichts zu tun hat; die Seite kommt von selbst zurück."
+   :update/applying [:fn/str "Aktualisiert auf rragent {{:version}} … die Seite kommt von selbst zurück."]
+   :update/failed [:fn/str "Die Aktualisierung auf {{:version}} hat nicht geklappt: {{:error}}"]
+   :update/newest [:fn/str "rragent {{:version}} ist die neueste Version."]
+   :update/lookup-failed "Die neueste Version ließ sich nicht nachsehen."})
 
 (def locales
   [:en :de])
