@@ -646,6 +646,14 @@
     (catch :default _ nil))
   (swap! state/store assoc :ui/theme theme))
 
+(defonce ^:private system-theme-listener
+  ;; the system's theme changes while none is chosen (night falls): the
+  ;; stylesheet follows at once, the button's symbol with a change of the
+  ;; store
+  (.addEventListener (js/matchMedia "(prefers-color-scheme: dark)") "change"
+                     (fn [^js event]
+                       (swap! state/store assoc :ui/system-dark? (.-matches event)))))
+
 (defn theme-toggle
   "The header's button that switches between the light and the dark
    theme, showing the one it switches to. The head's script
@@ -657,7 +665,8 @@
                        (assoc :title (if dark light-title dark-title)
                               :aria-label (if dark light-title dark-title)
                               :on {:click (fn [_] (choose-theme! (if dark "light" "dark")))}))
-     (if dark "☀" "☾")]))
+     ;; U+FE0E: the text symbol, not a colored emoji on a phone
+     (if dark "\u2600\uFE0E" "\u263E\uFE0E")]))
 
 (def register
   [{:ui.alias/kind :ui/composer
