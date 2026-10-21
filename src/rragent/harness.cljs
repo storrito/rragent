@@ -1,19 +1,25 @@
 (ns rragent.harness
-  "pi-durable opened on the agent's folder: the SQLite storage, the
-   models (OpenRouter through the gateway's connector when there is
-   one, found at start or at a model call after the gateway came up,
-   else with the key from the environment, as `rragent.openrouter`
-   routes every call to OpenRouter, or what a test passes),
-   the registry with pi-durable's coding tools (read, write,
-   edit, bash in `work/`) and rragent's own (remember and recall,
-   fetch, the REPL `eval` with the connectors of the gateway as
-   functions, schedule, hook, and the tools of the artifacts: project,
-   render, image, voice, music; the pane shows what they make; and
-   subagent, which hands a task to a conversation of its own), the
-   root conversation configured from the definition when it opens and
-   again before every submission when the file changed
-   (`rragent.reload`), and the runs the last process left unfinished
-   resumed. One process owns the storage at a time."
+  "pi-durable opened on the machine's folder: the one SQLite storage
+   of every bot's conversation, the models (OpenRouter through the
+   gateway's connector when there is one, found at start or at a
+   model call after the gateway came up, else with the key from the
+   environment, as `rragent.openrouter` routes every call to
+   OpenRouter, or what a test passes), the registry with pi-durable's
+   coding tools (read, write, edit, bash in the bot's `work/`) and
+   rragent's own (remember and recall, fetch, the REPL `eval` with
+   the connectors of the gateway as functions, schedule, hook, and
+   the tools of the artifacts: project, render, image, voice, music;
+   the pane shows what they make; subagent, which hands a task to a
+   conversation of its own; and what the caller brings, the `bot`
+   tool of `rragent.machine`), one registry for every bot. A bot is a
+   conversation of the storage: the root one is the first bot, the
+   others ownerless conversations the machine makes; each is
+   configured from its own `AGENT.md` when it opens and again before
+   every submission when the file changed (`rragent.reload`), its
+   instructions, its model and its folder's `work/` as its `cwd`,
+   which pi-durable keeps per conversation and hands to the
+   environment of every call. The runs the last process left
+   unfinished are resumed. One process owns the storage at a time."
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai/models" :refer [createModels]]
             ["@earendil-works/pi-ai/providers/openrouter" :refer [openrouterProvider]]
@@ -21,9 +27,11 @@
             ["@earendil-works/pi-durable/env/node" :refer [NodeExecutionEnv]]
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
             ["@earendil-works/pi-durable/tools" :refer [CodingTools]]
+            ["node:fs" :as fs]
+            [rragent.bots :as bots]
             [rragent.codemode :as codemode]
             [rragent.codemode-worker :as codemode-worker]
-            [rragent.definition :as definition]
+            [rragent.db :as db]
             [rragent.gateway :as gateway]
             [rragent.home :as home]
             [rragent.openrouter :as openrouter]
@@ -44,15 +52,14 @@
   BACKGROUND_CONTEXT)
 
 (defn extension
-  "rragent's own tools for the agent of `definition`: the project tool
-   names the templates the definition allows, the eval tool runs its
-   programs in the `worker` of the REPL, the media tools reach
-   OpenRouter the way the REPL `codemode` knows it
-   (`rragent.openrouter`)."
-  [definition worker codemode]
+  "rragent's own tools: the eval tool runs a program in the worker of
+   the bot of the call, over the REPL `codemode`, the media tools
+   reach OpenRouter the way it knows it (`rragent.openrouter`), the
+   project tool holds a call to the bot's definition."
+  [codemode]
   (defineExtension #js {:name "rragent"
-                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool (eval-tool/tool worker) schedule-tool/tool hook-tool/tool
-                                    (project-tool/tool definition) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)]
+                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
+                                    (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)]
                         :tasks #js [schedule/Task]}))
 
 (defn gateway-auth
@@ -109,67 +116,112 @@
     (.setProvider (gateway-provider (openrouterProvider) codemode))))
 
 (defn registry
-  "The registry: pi-durable's coding tools, rragent's own for the
-   `definition`, with the `worker` and the `codemode` of the REPL, and
-   the subagent tool in an extension of its own, which a subagent's
-   agent leaves out."
-  [definition worker codemode]
-  (doto (createRegistry)
-    (.install CodingTools)
-    (.install (extension definition worker codemode))
-    (.install subagent-tool/extension)))
+  "The registry: pi-durable's coding tools, rragent's own over the
+   REPL `codemode`, the subagent tool in an extension of its own,
+   which a subagent's agent leaves out, and `extensions` the caller
+   brings."
+  [codemode extensions]
+  (let [registry (doto (createRegistry)
+                   (.install CodingTools)
+                   (.install (extension codemode))
+                   (.install subagent-tool/extension))]
+    (doseq [e extensions]
+      (.install registry e))
+    registry))
+
+(defn- work-of
+  "The `work/` of the bot whose conversation is `id`: what a call of a
+   conversation not configured yet works in."
+  [home id]
+  (home/work-dir (home/bot-dir home id)))
+
+(defn ^:async register-conversation!
+  "The `conversation` of a bot known to the process: its folder,
+   `bots/<id>/` of the machine's `home`, registered with the reload,
+   which configures the conversation from the folder's definition
+   now (its instructions, model and `cwd`) and again before every
+   submission; its schedules registered with the machine's alarm
+   (`rragent.schedule/watch!`), their next run noted in the bot's map
+   as `:schedules/next` for the page. Answers the definition."
+  [{:keys [harness home provider]} conversation]
+  (let [id (.-id conversation)]
+    (reload/register! id {:home (home/bot-dir home id) :provider provider})
+    (await (reload/reload! conversation context))
+    (schedule/watch! id (fn []
+                          (-> (.snapshot harness schedule/Schedules id context)
+                              (.then (fn [schedules]
+                                       (let [due (schedule/next-due schedules (js/Date.now))]
+                                         (swap! db/db assoc-in (conj (db/bot-path id) :schedules/next) due)
+                                         due))))))
+    (reload/current id)))
+
+(defn forget-conversation!
+  "The bot of the conversation `id` forgotten by the process: its
+   worker ended, its map taken out of the one atom (`rragent.db`),
+   with its definition, its alarm source and its pane."
+  [id]
+  (codemode-worker/stop-of! id "The bot closed.")
+  (swap! db/db update :bots dissoc (str id)))
 
 (defn ^:async open
-  "The harness of the agent in `home`: `{:harness :root :view :definition
-   :home :models :codemode :worker}`. `models` and `storage` are the production
-   ones unless given (a test passes the faux provider and memory
-   storage); `provider` names the models' provider, `openrouter` by
-   default; `now` a clock for tests; `gateway` the Sprites gateway's
-   base URL, `RRAGENT_GATEWAY` or `http://sprite.internal` unless
-   given (a test passes its fake); `retry` how the gateway's list is
-   tried again at start, `{:delays-ms :timeout-ms}` as
-   `rragent.gateway/discover-at-start` takes it (a test shortens
-   them). The gateway's connectors are discovered here, tried again
-   while the gateway comes up, for the REPL (`rragent.codemode`),
-   whose programs run in a worker thread started at the first one
+  "The harness of the machine in `home`, with the root conversation,
+   the first bot, opened: `{:harness :root :view :definition :home
+   :work :models :codemode :provider :migrated}`. `models` and `storage`
+   are the production ones unless given (a test passes the faux
+   provider and memory storage); `provider` names the models'
+   provider, `openrouter` by default; `now` a clock for tests;
+   `gateway` the Sprites gateway's base URL, `RRAGENT_GATEWAY` or
+   `http://sprite.internal` unless given (a test passes its fake);
+   `retry` how the gateway's list is tried again at start,
+   `{:delays-ms :timeout-ms}` as `rragent.gateway/discover-at-start`
+   takes it (a test shortens them); `extensions` more extensions for
+   the registry. A home from before the bots is moved into the layout
+   first (`rragent.bots/migrate!`, `:migrated` says so) and a home
+   without a definition for the first bot gets the assistant's. The
+   gateway's connectors are discovered here, tried again while the
+   gateway comes up, for the REPL (`rragent.codemode`), whose programs
+   run in a worker thread per bot started at the first one
    (`rragent.codemode-worker`), and for the route to OpenRouter of the
    models and the media tools (`rragent.openrouter`), which asks the
-   gateway again at a call when nothing was found. The
-   definition read here names the templates of the project tool; the
-   root conversation is configured from the file by `rragent.reload`,
-   which reads it again before every submission."
-  [{:keys [home models storage provider now gateway retry]}]
+   gateway again at a call when nothing was found. The other bots'
+   conversations are opened by `rragent.machine` with
+   `register-conversation!`."
+  [{:keys [home models storage provider now gateway retry extensions]}]
   (let [home (or home (home/home))
-        file (or (home/definition-file home)
-                 (throw (ex-info (str "No AGENT.md or SKILL.md in " home) {:home home})))
-        definition (definition/definition file)
-        work (home/work-dir home)
+        _ (fs/mkdirSync home #js {:recursive true})
+        migrated (bots/migrate! home)
+        _ (when-not (home/definition-file (home/bot-dir home bots/root-id))
+            (bots/write-definition! home bots/root-id (bots/assistant-text home)))
         storage (or storage (await (openNodeSqliteStorage (home/database home))))
         base (gateway/base gateway)
         codemode (codemode/handle base (await (gateway/discover-at-start base retry)))
-        worker (codemode-worker/handle codemode)
         models (or models (openrouter-models codemode))
         harness (await (.open Harness storage
                               #js {:models models
-                                   :registry (registry definition worker codemode)
-                                   :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) work)}))
+                                   :registry (registry codemode extensions)
+                                   ;; the conversation's own cwd, the bot's work/ once it is
+                                   ;; configured; the folder of its id before
+                                   :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) (work-of home (.-conversationId target)))}))
                                    :settings #js {:compaction #js {:enabled true}}
                                    :now (or now js/undefined)
                                    ;; a failing hook, listener or task: said, not swallowed
                                    :onReport (fn [error] (js/console.error "[harness]" error))}
                               context))
         root (await (.root harness context))
-        view (await (.viewState root context))]
-    ;; the definition may have changed since the last run: applied on every
-    ;; open, and again before every submission when the file changed
-    (reload/register! (.-id root) {:home home :work work :provider (or provider "openrouter")})
-    (await (reload/reload! root context))
+        view (await (.viewState root context))
+        agent {:harness harness :home home :models models :codemode codemode :provider (or provider "openrouter")}
+        definition (await (register-conversation! agent root))]
     (.resume harness)
-    {:harness harness :root root :view view :definition definition :home home :models models :codemode codemode :worker worker}))
+    (assoc agent
+           :root root
+           :view view
+           :definition definition
+           :work (work-of home (.-id root))
+           :migrated migrated)))
 
 (defn busy?
-  "Whether a run is going in the conversation: `pi.live` of the view
-   holds one then."
+  "Whether a run is going in the conversation of `view`: `pi.live` of
+   it holds one then."
   [{:keys [view]}]
   (some? (.-run (or (aget (.-docs (.-value view)) "pi.live") #js {}))))
 
@@ -178,43 +230,48 @@
    catalog of `models`; a model the catalog does not know counts as one
    that does, as pi-durable's `read` tool counts it (and pi-ai puts a
    placeholder where an image was when the model takes none)."
-  [{:keys [root models]}]
-  (let [ref (.-model (await (.agent root context)))
+  [models conversation]
+  (let [ref (.-model (await (.agent conversation context)))
         model (when ref (.getModel models (.-provider ref) (.-modelId ref)))]
     (if model
       (boolean (some #{"image"} (array-seq (.-input model))))
       true)))
 
 (defn ^:async schedules
-  "The schedules document, for the alarm."
-  [{:keys [harness root]}]
-  (await (.snapshot harness schedule/Schedules (.-id root) context)))
+  "The schedules document of the conversation `id`."
+  [harness id]
+  (await (.snapshot harness schedule/Schedules id context)))
 
 (defn ^:async submit
-  "`draft` submitted to the root conversation, the definition read
+  "`draft` submitted to the bot's `conversation`, the definition read
    again first (`rragent.reload`), so that the run has the file as it
    is now. Answers the submission."
-  [{:keys [root]} draft]
-  (await (reload/reload! root context))
-  (await (.submit root draft context)))
+  [conversation draft]
+  (await (reload/reload! conversation context))
+  (await (.submit conversation draft context)))
 
-(defn ^:async ask
-  "`text` submitted to the conversation and answered: the answer's
+(defn ^:async ask-in
+  "`text` submitted to the `conversation` and answered: the answer's
    text, or `{:unanswered reason}`."
-  [{:keys [root] :as agent} text]
-  (let [submission (await (submit agent #js {:type "input" :content text}))
+  [conversation text]
+  (let [submission (await (submit conversation #js {:type "input" :content text}))
         settled (await (.wait submission context))]
     (if (and (= "done" (.-status settled)) (= "input" (.-type settled)))
-      (subagent-tool/answer-text (await (.commit root (fn [tx] (.entry tx AssistantEntry (.-answer settled))) context)))
+      (subagent-tool/answer-text (await (.commit conversation (fn [tx] (.entry tx AssistantEntry (.-answer settled))) context)))
       {:unanswered (.-reason settled)})))
+
+(defn ^:async ask
+  "`text` asked of the first bot, the root conversation of `agent`."
+  [{:keys [root]} text]
+  (await (ask-in root text)))
 
 (defn ^:async close
   "The harness closed, which aborts a running program with its call,
-   and the REPL's worker ended with it."
-  [{:keys [harness root worker]}]
+   every REPL worker ended and every bot taken out of the one atom."
+  [{:keys [harness]}]
   (await (.close harness context))
-  (reload/forget! (.-id root))
-  (codemode-worker/stop! worker "The agent closed."))
+  (codemode-worker/stop-all! "The agent closed.")
+  (swap! db/db assoc :bots {}))
 
 (def memory-storage
   "A storage that keeps nothing, for tests."

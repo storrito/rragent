@@ -1,7 +1,7 @@
 (ns rragent.tools.eval
   "The `eval` tool: the agent's REPL, a Clojure program run by SCI
    with the connectors of the gateway as functions
-   (`rragent.codemode`), in a worker thread of the agent's process
+   (`rragent.codemode`), in a worker thread of the bot's own
    (`rragent.codemode-worker`), so that a call that blocks stalls
    nothing else. One context for the life of the worker, so a `def` of
    one call is there for the next: the REPL half of the name. The
@@ -54,8 +54,8 @@
 (defn ^:async evaluate-in-project
   "`code` evaluated by the project's process; its answer, or a throw
    with the error, or with the word that the template takes no eval."
-  [api project code]
-  (let [handle (projects/handle {:db db/db :dir (work/artifacts-dir api)})
+  [api call-context project code]
+  (let [handle (projects/handle {:db db/db :path (await (work/bot-path api call-context)) :dir (work/artifacts-dir api)})
         {:keys [status text]} (await (projects/eval! handle project code))]
     (cond
       (= 200 status) (cut text)
@@ -74,8 +74,9 @@
        "(a motion design: in the namespace of design.cljs, a redefined function shows on the page at once, until the file is saved)."))
 
 (defn tool
-  "The tool over the `worker` of the REPL."
-  [worker]
+  "The tool over the REPL `codemode`: a program runs in the worker of
+   the bot of the call (`rragent.codemode-worker/of`)."
+  [codemode]
   (defineTool
    #js {:name "eval"
         :description description
@@ -84,5 +85,6 @@
         :execute (^:async fn [args api call-context]
                    (let [project (not-empty (.-project args))]
                      (work/text (if project
-                                  (await (evaluate-in-project api project (.-code args)))
-                                  (await (evaluate worker api call-context (.-code args)))))))}))
+                                  (await (evaluate-in-project api call-context project (.-code args)))
+                                  (await (evaluate (codemode-worker/of codemode (await (work/bot-id api call-context)))
+                                                   api call-context (.-code args)))))))}))

@@ -1,8 +1,9 @@
 (ns rragent.hooks
   "The agent's hooks: addresses other systems call to start a turn.
    Each has a name, a purpose and a secret, kept in the document
-   `rragent.hooks`; its address is `/hook/<name>/<secret>` on the
-   agent's page. A call with the right secret submits the call's body
+   `rragent.hooks` of the bot's conversation; its address is
+   `/hook/<name>/<secret>` on the machine's page, which tries the
+   call on every bot: the secret says whose it is. A call with the right secret submits the call's body
    as an input, as if the person had typed it, with the headers that
    say who sent it, the definition read again first
    (`rragent.reload`)."
@@ -76,17 +77,18 @@
   ["content-type" "user-agent" "x-github-event" "x-hook-source"])
 
 (defn ^:async receive!
-  "A call of the hook `name` with `secret`: the input submitted when
-   the secret is the hook's, answering `{:ok true :submission id}`;
-   `{:ok false}` otherwise, for a 403. `headers` is a map of lowercase
-   names."
-  [{:keys [harness root]} name secret headers body context]
-  (let [hooks (await (.snapshot harness Hooks (.-id root) context))
+  "A call of the hook `name` with `secret` on the bot's `conversation`
+   (the `root` without one): the input submitted when the secret is
+   the hook's, answering `{:ok true :submission id}`; `{:ok false}`
+   otherwise, for a 403. `headers` is a map of lowercase names."
+  [{:keys [harness conversation root]} name secret headers body context]
+  (let [conversation (or conversation root)
+        hooks (await (.snapshot harness Hooks (.-id conversation) context))
         hook (some-> hooks (aget name))]
     (if (and hook (= secret (.-secret hook)))
       (let [kept (into {} (keep (fn [h] (when-let [v (get headers h)] [h v]))) kept-headers)
-            _ (await (reload/reload! root context))
-            submission (await (.submit root #js {:type "input"
+            _ (await (reload/reload! conversation context))
+            submission (await (.submit conversation #js {:type "input"
                                                   :content (message name (.-purpose hook) kept body)
                                                   :whenBusy "followUp"
                                                   :entry #js {:kind "rragent.hook" :data #js {:name name}}}

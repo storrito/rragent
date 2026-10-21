@@ -11,7 +11,9 @@
    A directory with a package.json is a project, an artifact with a
    process of its own whose page is shown through `rragent.projects`.
 
-   The keys this namespace owns in the db (`rragent.db`):
+   The keys this namespace owns in the bot's map of the db
+   (`rragent.db`, under the bot's `path`; the map itself for a test's
+   plain atom):
 
        :artifacts/list       [{:path :kind :title :mtime :size} ...], newest first
        :artifacts/rev        the newest modification time
@@ -24,6 +26,7 @@
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
+            [rragent.db :as db]
             [rragent.rframes.http :as http]))
 
 (def url-prefix
@@ -175,28 +178,35 @@
       :else (:path current))))
 
 (defn refresh!
-  "Puts the facts of the folder into the db when they changed, and moves
-   the screen to the newest change."
-  [db dir]
-  (let [new-facts (facts dir)]
-    (when (not= (:artifacts/list new-facts) (:artifacts/list @db))
-      (swap! db (fn [value]
-                  (let [value (merge value new-facts)]
-                    (assoc value :artifacts/current (follow value new-facts))))))
-    new-facts))
+  "Puts the facts of the folder into the bot's map at `path` of the db
+   when they changed, and moves the screen to the newest change."
+  ([db dir]
+   (refresh! db [] dir))
+  ([db path dir]
+   (let [new-facts (facts dir)]
+     (when (not= (:artifacts/list new-facts) (:artifacts/list (db/at @db path)))
+       (swap! db db/update-at path
+              (fn [value]
+                (let [value (merge value new-facts)]
+                  (assoc value :artifacts/current (follow value new-facts))))))
+     new-facts)))
 
 (defn refollow!
   "Moves the screen as after a change of the folder, for news that is no
    change of a file: a render that is done makes its video the newest
    finished file."
-  [db]
-  (swap! db (fn [value] (assoc value :artifacts/current (follow value value)))))
+  ([db]
+   (refollow! db []))
+  ([db path]
+   (swap! db db/update-at path (fn [value] (assoc value :artifacts/current (follow value value))))))
 
 (defn pick!
-  [db p]
-  (swap! db assoc
-         :artifacts/current p
-         :artifacts/picked-at (js/Date.now)))
+  ([db p]
+   (pick! db [] p))
+  ([db path p]
+   (swap! db db/update-at path assoc
+          :artifacts/current p
+          :artifacts/picked-at (js/Date.now))))
 
 (defn file-handler
   "GET /artifacts/<path>: the file, never a hidden one."
@@ -219,17 +229,20 @@
   2000)
 
 (defn watch!
-  "The db follows the folder: a recursive watch reports every change,
-   the folder is read again after a short pause, and every two seconds
-   besides. Answers a function that ends the watch."
-  [db dir]
+  "The bot's map at `path` of the db follows the folder: a recursive
+   watch reports every change, the folder is read again after a short
+   pause, and every two seconds besides. Answers a function that ends
+   the watch."
+  ([db dir]
+   (watch! db [] dir))
+  ([db path dir]
   (fs/mkdirSync dir #js {:recursive true})
-  (refresh! db dir)
+  (refresh! db path dir)
   (let [pending (atom nil)
         refresh (fn []
                   (reset! pending nil)
                   (try
-                    (refresh! db dir)
+                    (refresh! db path dir)
                     (catch :default e
                       (js/console.error "[artifacts]" (str e)))))
         soon (fn []
@@ -245,4 +258,4 @@
     (fn []
       (some-> watcher .close)
       (js/clearInterval timer)
-      (some-> @pending js/clearTimeout))))
+      (some-> @pending js/clearTimeout)))))

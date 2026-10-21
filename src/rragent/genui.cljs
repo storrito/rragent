@@ -14,7 +14,8 @@
    and `block` turns it into a part of the page (`rragent.markdown` calls
    it for a closed fence). The agent writes data, never markup: only the
    tags and attributes of the allow-lists get through, a link or a file
-   points at this host's artifacts or uploads or at https, an input is a
+   points at the bot's artifacts or uploads (`artifacts/…`, served under
+   the bot's page, the `:base` of `block`) or at https, an input is a
    checkbox or a radio button. `:send` on a button sends its text as the
    person's next message; `{checked}` in it becomes the values ticked in
    the same block, which only the browser knows, so such a button is the
@@ -88,21 +89,22 @@
   32)
 
 (def urls
-  "Where a link, a file or a picture may point: this host's artifacts and
-   uploads, the web over https, an e-mail."
-  ["/artifacts/" "/uploads/" "https://" "mailto:"])
+  "Where a link, a file or a picture may point besides the bot's own
+   files: the web over https, an e-mail."
+  ["https://" "mailto:"])
 
 (def checked-mark
   "The place in a button's `:send` for the values ticked in its block."
   "{checked}")
 
 (defn- url
-  "The URL when it is allowed, a relative `artifacts/…` or `uploads/…`
-   made absolute; nil otherwise."
-  [value]
+  "The URL when it is allowed: a file of the bot, `artifacts/…` or
+   `uploads/…` with or without the slash, as the path the page serves
+   it on under `base`; the web and mail as they are; nil otherwise."
+  [base value]
   (when (string? value)
-    (let [value (cond-> value
-                  (re-find #"^(artifacts|uploads)/" value) (->> (str "/")))]
+    (if-let [[_ file] (re-find #"^/?((?:artifacts|uploads)/.*)$" value)]
+      (str base "/" file)
       (when (some #(str/starts-with? value %) urls)
         value))))
 
@@ -146,36 +148,40 @@
                    lost-background? (dissoc :color))))))
 
 (defn- send-actions
-  [text]
+  [text bot]
   {:click [[:data/command {:command/kind :chat/send
-                           :command/data {:text (str text)}}]]})
+                           :command/data (cond-> {:text (str text)}
+                                           bot (assoc :bot bot))}]]})
 
 (defn- open-actions
   "The artifact of `artifacts/<path>`, a project's folder with or
-   without its slash."
-  [path]
+   without its slash, under the bot's page or not."
+  [path base bot]
   {:click [[:data/command {:command/kind :artifacts/open
-                           :command/data {:path (-> (str path)
-                                                    (str/replace #"^/?artifacts/" "")
-                                                    (str/replace #"/+$" ""))}}]]})
+                           :command/data (cond-> {:path (-> (str path)
+                                                            (str/replace #"^/+" "/")
+                                                            (as-> p (if (and (seq base) (str/starts-with? p (str base "/"))) (subs p (count base)) p))
+                                                            (str/replace #"^/?artifacts/" "")
+                                                            (str/replace #"/+$" ""))}
+                                           bot (assoc :bot bot))}]]})
 
 (defn- attrs
   "The attributes that are allowed, the ones with a URL checked; on a
    button `:send` and `:open` turned into the commands behind a click,
-   the text it sends its title (a title of the model's own could hide
-   it); on an input the
-   `:name` in the block's `scope`, so that radio buttons of two answers
-   are two groups."
-  [tag m scope]
+   for the `bot` of the block, the text it sends its title (a title of
+   the model's own could hide it); on an input the `:name` in the
+   block's `scope`, so that radio buttons of two answers are two
+   groups."
+  [tag m {:keys [scope base bot]}]
   (reduce (fn [acc [k v]]
             (cond
               (and (= :name k) (= :input tag) (string? v)) (assoc acc :name (str scope v))
-              (and (= :send k) (= :button tag) (string? v)) (assoc acc :on (send-actions v) :title v)
-              (and (= :open k) (= :button tag) (string? v)) (assoc acc :on (open-actions v))
+              (and (= :send k) (= :button tag) (string? v)) (assoc acc :on (send-actions v bot) :title v)
+              (and (= :open k) (= :button tag) (string? v)) (assoc acc :on (open-actions v base bot))
               (= :title k) (cond-> acc (and (string? v) (not (and (= :button tag) (contains? m :send))))
                              (assoc k v))
               (not (contains? attributes k)) acc
-              (#{:href :src :poster} k) (if-let [v (url v)]
+              (#{:href :src :poster} k) (if-let [v (url base v)]
                                           (cond-> (assoc acc k v)
                                             (and (= :href k) (= :a tag)) (assoc :target "_blank" :rel "noopener noreferrer"))
                                           acc)
@@ -208,11 +214,13 @@
    than `max-depth`. A button in a label is a span: clicking anywhere on
    the label would click it, a label as big as the screen a button too.
    `scope` prefixes the names of the inputs; with `answered?` a button
-   that sends and an input are disabled."
+   that sends and an input are disabled; `base` is the bot's page,
+   under which its files are served, `bot` its id for the commands."
   ([hiccup]
    (sanitize hiccup {}))
-  ([hiccup {:keys [scope depth in-label? answered?] :or {scope "" depth 0} :as opts}]
-   (let [deeper (assoc opts :depth (inc depth))]
+  ([hiccup {:keys [depth in-label? answered?] :or {depth 0} :as opts}]
+   (let [opts (merge {:scope "" :base ""} opts)
+         deeper (assoc opts :depth (inc depth))]
      (cond
        (< max-depth depth)
        nil
@@ -230,22 +238,23 @@
            nil
 
            (and allowed? answered? (or (= :input base) (and (= :button base) (string? (:send m)))))
-           (into [(without-id tag) (-> (attrs base m scope)
+           (into [(without-id tag) (-> (attrs base m opts)
                                        (dissoc :on)
                                        (assoc :disabled true))]
                  children)
 
            (and allowed? (send-checked? base m))
-           (into [:ui/send-checked (-> (attrs base (dissoc m :send :open :title) scope)
-                                       (assoc :ui/send (:send m) :title (:send m)))]
+           (into [:ui/send-checked (cond-> (-> (attrs base (dissoc m :send :open :title) opts)
+                                               (assoc :ui/send (:send m) :title (:send m)))
+                                     (:bot opts) (assoc :ui/bot (:bot opts)))]
                  children)
 
            allowed?
-           (into [(without-id tag) (attrs base m scope)] children)
+           (into [(without-id tag) (attrs base m opts)] children)
 
            ;; a tag that is not allowed is a span of its children
            :else
-           (into [:span (attrs :span m scope)] children)))
+           (into [:span (attrs :span m opts)] children)))
 
        ;; eager: what is lazy would run after `block`'s try, in the page's walk
        (sequential? hiccup) (doall (map #(sanitize % deeper) hiccup))
@@ -267,16 +276,17 @@
 (defn block
   "One block as a part of the page, or as code with what went wrong. The
    names of its inputs get the block's own prefix, from its text;
-   `:answered?` for a block of a message the person has answered since."
+   `:answered?` for a block of a message the person has answered since;
+   `:base` the bot's page, `:bot` its id."
   ([text]
    (block text {}))
-  ([text {:keys [answered?]}]
+  ([text {:keys [answered? base bot]}]
    (let [{:keys [hiccup error]} (parse text)
          [part error] (if error
                         [nil error]
                         ;; whatever the model wrote, the page goes on: a block that fails is code
                         (try
-                          [(sanitize hiccup {:scope (str "b" (abs (hash text)) "-") :answered? answered?}) nil]
+                          [(sanitize hiccup {:scope (str "b" (abs (hash text)) "-") :answered? answered? :base base :bot bot}) nil]
                           (catch :default e
                             [nil (or (ex-message e) (str e))])))]
      (if error

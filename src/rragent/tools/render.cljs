@@ -16,9 +16,9 @@
         :description (str "Renders an artifact project with its template's render script into artifacts/<name>.<ext> (an mp4 for a video), which the person sees beside the chat. "
                           "It takes a while; the preview beside the chat plays the project live, so render when the file itself is needed, not after every change.")
         :parameters (.Object Type #js {:name (.String Type #js {:description "The project's name, its folder under artifacts/"})})
-        :execute (^:async fn [args api _call-context]
+        :execute (^:async fn [args api call-context]
                    (let [name (.-name args)
-                         handle (render/handle {:db db/db :dir (work/artifacts-dir api)})
+                         handle (render/handle {:db db/db :path (await (work/bot-path api call-context)) :dir (work/artifacts-dir api)})
                          render (await (render/start! handle name (fn [line] (.output api (str line "\n")))))]
                      (cond
                        (nil? render)

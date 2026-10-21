@@ -63,6 +63,7 @@
    :tool/voice "Made a voice"
    :tool/music "Made music"
    :tool/subagent "Handed a task to a subagent"
+   :tool/bot "Made or listed bots"
    :tool/other [:fn/str "Used {{:name}}"]
    :tool/running " …"
    :tool/failed " · did not work"
@@ -96,7 +97,25 @@
    :update/applying [:fn/str "Updating to rragent {{:version}} … the page comes back by itself."]
    :update/failed [:fn/str "The update to {{:version}} did not work: {{:error}}"]
    :update/newest [:fn/str "rragent {{:version}} is the newest."]
-   :update/lookup-failed "The newest release could not be looked up."})
+   :update/lookup-failed "The newest release could not be looked up."
+
+   :bots/title "Bots"
+   :bots/menu "The bots"
+   :bot/new "New bot"
+   :bot/new-at [:fn/str "New bot · {{:time}}"]
+   :bot/name "Name"
+   :bot/actions "More"
+   :bot/rename "Rename"
+   :bot/delete "Delete"
+   :bot/delete-sure "Delete this bot? Its folder goes to the trash."
+   :bot/delete-yes "Delete"
+   :bot/keep "Keep"
+   :bot/running "running"
+   :bot/idle "idle"
+   :bot/asleep "asleep"
+   :bot/failed "failed"
+   :bot/missing "That bot is not here any more; this is another one."
+   :bot/not-open [:fn/str "This bot did not open: {{:error}}"]})
 
 (def de
   {:page/title "rragent"
@@ -147,6 +166,7 @@
    :tool/voice "Stimme erstellt"
    :tool/music "Musik erstellt"
    :tool/subagent "Aufgabe an einen Subagenten gegeben"
+   :tool/bot "Bots angelegt oder aufgelistet"
    :tool/other [:fn/str "{{:name}} benutzt"]
    :tool/running " …"
    :tool/failed " · hat nicht geklappt"
@@ -180,7 +200,25 @@
    :update/applying [:fn/str "Aktualisiert auf rragent {{:version}} … die Seite kommt von selbst zurück."]
    :update/failed [:fn/str "Die Aktualisierung auf {{:version}} hat nicht geklappt: {{:error}}"]
    :update/newest [:fn/str "rragent {{:version}} ist die neueste Version."]
-   :update/lookup-failed "Die neueste Version ließ sich nicht nachsehen."})
+   :update/lookup-failed "Die neueste Version ließ sich nicht nachsehen."
+
+   :bots/title "Bots"
+   :bots/menu "Die Bots"
+   :bot/new "Neuer Bot"
+   :bot/new-at [:fn/str "Neuer Bot · {{:time}}"]
+   :bot/name "Name"
+   :bot/actions "Mehr"
+   :bot/rename "Umbenennen"
+   :bot/delete "Löschen"
+   :bot/delete-sure "Diesen Bot löschen? Sein Ordner kommt in den Papierkorb."
+   :bot/delete-yes "Löschen"
+   :bot/keep "Behalten"
+   :bot/running "arbeitet"
+   :bot/idle "wartet"
+   :bot/asleep "schläft"
+   :bot/failed "gescheitert"
+   :bot/missing "Diesen Bot gibt es nicht mehr; das hier ist ein anderer."
+   :bot/not-open [:fn/str "Dieser Bot hat sich nicht öffnen lassen: {{:error}}"]})
 
 (def locales
   [:en :de])

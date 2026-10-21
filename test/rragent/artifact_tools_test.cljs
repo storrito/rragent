@@ -52,7 +52,7 @@
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
                (try
                  (is (= "The card is ready." (await (harness/ask agent "Make a card and render it."))))
-                 (let [artifacts (path/join home "work" "artifacts")
+                 (let [artifacts (path/join home "bots" "1" "work" "artifacts")
                        texts (await (results agent))]
                    (testing "the templates' projects are in the work folder, each package naming its template, the notes answered"
                      (is (fs/existsSync (path/join artifacts "card" "composition" "index.html")))
@@ -71,12 +71,11 @@
                    (testing "the render wrote the video through the template's script and said so"
                      (is (= "video\n" (fs/readFileSync (path/join artifacts "card.mp4") "utf8")))
                      (is (some #(str/includes? % "artifacts/card.mp4 is ready.") texts))
-                     (is (= 0 (get-in @db/db [:renders "card" :exit])) "the pane's db knows the render"))
+                     (is (= 0 (get-in @db/db [:bots "1" :renders "card" :exit])) "the bot's map in the atom knows the render"))
                    (testing "the log of a project that never ran"
                      (is (some #(str/includes? % "No log yet for card") texts))))
                  (finally
                    (restore!)
-                   (swap! db/db dissoc :renders)
                    (await (harness/close agent))
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
@@ -94,7 +93,7 @@
                (try
                  (is (= ["hyperframes"] (get-in agent [:definition :templates])))
                  (is (= "Done." (await (harness/ask agent "Make a clip."))))
-                 (let [artifacts (path/join home "work" "artifacts")
+                 (let [artifacts (path/join home "bots" "1" "work" "artifacts")
                        texts (await (results agent))]
                    (testing "a template the definition does not allow is refused, with the allowed ones"
                      (is (some #(str/includes? % "The template motion is not allowed for this agent, these are: hyperframes.") texts))

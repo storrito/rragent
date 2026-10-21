@@ -4,7 +4,8 @@
    blocks its thread until it is answered (`rragent.sync-fetch`),
    stalls nothing of the agent: the page renders, the hooks and the
    schedules fire, Stop reaches the agent. The worker holds the SCI
-   context, so a `def` of one program is there for the next. It is
+   context, so a `def` of one program is there for the next; one per
+   bot, by the id of its conversation (`of`). It is
    started at the first program over what the main thread discovered
    of the gateway (`rragent.codemode/snapshot`), and it runs this
    namespace's own module: the bundle in production, where
@@ -22,6 +23,7 @@
             ["node:worker_threads" :refer [Worker isMainThread parentPort workerData]]
             [rragent.codemode :as codemode]
             [rragent.composio :as composio]
+            [rragent.db :as db]
             [rragent.rframes.transit :as transit]))
 
 (def mark
@@ -155,6 +157,32 @@
   (when-let [worker (:worker @state)]
     (ended! handle worker reason)
     (.terminate worker)))
+
+(defn of
+  "The worker handle of the bot whose conversation is `id`, its
+   `:worker` in the one atom (`rragent.db`), made over the REPL
+   `codemode` on first use; one worker, one SCI context, per bot."
+  [codemode id]
+  (let [path (conj (db/bot-path id) :worker)]
+    (or (get-in @db/db path)
+        (get-in (swap! db/db (fn [value]
+                               (if (get-in value path)
+                                 value
+                                 (assoc-in value path (handle codemode)))))
+                path))))
+
+(defn stop-of!
+  "The bot's worker stopped and forgotten; nothing without one."
+  [id reason]
+  (let [path (conj (db/bot-path id) :worker)]
+    (when-let [worker (get-in @db/db path)]
+      (stop! worker reason)
+      (swap! db/db update-in (db/bot-path id) dissoc :worker))))
+
+(defn stop-all!
+  [reason]
+  (doseq [id (keys (:bots @db/db))]
+    (stop-of! id reason)))
 
 (defn- noted
   "`answer` with `note` in front, when there is one."

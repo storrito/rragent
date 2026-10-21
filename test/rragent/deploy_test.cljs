@@ -41,6 +41,12 @@
       (is (= 1 (count (re-seq #"--build-arg \"SKILLS_REPO=\$SKILLS_REPO\" --build-arg \"SKILLS_BRANCH=\$SKILLS_BRANCH\"" action))) "the one image, deploy/Dockerfile.full")
       (is (not (str/includes? action "-plain")) "no plain image is published"))))
 
+(deftest the-definition-tells-the-bot-to-name-itself-test
+  (let [text (fs/readFileSync "deploy/agent/AGENT.md" "utf8")]
+    (is (str/includes? text "Name yourself:"))
+    (is (str/includes? text "`name:` line"))
+    (is (str/includes? text "`renamed: true`") "the person's rename, which the bot leaves alone")))
+
 (deftest the-definition-names-the-repository-test
   (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-deploy-"))
         copy (path/join dir "AGENT.md")

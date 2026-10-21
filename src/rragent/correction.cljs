@@ -24,12 +24,11 @@
    far longer or shorter, late) leaves it as the speech model wrote it."
   (:require ["@earendil-works/pi-durable" :refer [ProviderDoc]]
             [clojure.string :as str]
-            [rragent.db :as db]
             [rragent.harness :as harness]
             [rragent.rframes.transit :as transit]))
 
 (def path
-  "Where the browser posts a piece to correct."
+  "Where the browser posts a piece to correct, under the bot's page."
   "/dictation/correct")
 
 (def model-id
@@ -176,17 +175,19 @@
 
 (defn ^:async correct!
   "The dictation of `words` corrected by the model `id` (`model-id`
-   unless given) with the agent's context, `{:text :usage :ms :id
-   :stop}`: `:text` nil when the answer was refused, `:ms` how long it
-   took, `:id` the generation's at OpenRouter, `:stop` why it ended
-   (`aborted` after `timeout-ms`)."
-  [{:keys [harness root models]} words before id]
-  (let [ref (.-model (await (.agent root harness/context)))
+   unless given) with the context of the bot's `conversation` (the
+   `root` without one), `{:text :usage :ms :id :stop}`: `:text` nil
+   when the answer was refused, `:ms` how long it took, `:id` the
+   generation's at OpenRouter, `:stop` why it ended (`aborted` after
+   `timeout-ms`)."
+  [{:keys [harness conversation root models]} words before id]
+  (let [conversation (or conversation root)
+        ref (.-model (await (.agent conversation harness/context)))
         model (when ref (.getModel models (.-provider ref) (or id model-id)))]
     (when-not model
       (throw (js/Error. (str "No model " (or id model-id) " at " (some-> ref .-provider) "."))))
-    (let [view (await (.context root harness/context))
-          provider (await (.snapshot harness ProviderDoc (.-id root) harness/context))
+    (let [view (await (.context conversation harness/context))
+          provider (await (.snapshot harness ProviderDoc (.-id conversation) harness/context))
           messages (request-messages (js->clj (.-messages view) :keywordize-keys true) words before)
           started (js/Date.now)
           message (await (.completeSimple models model #js {:messages (clj->js messages)}
@@ -219,11 +220,12 @@
     (js->clj (js/JSON.parse (.toString (js/Buffer.concat chunks) "utf8")) :keywordize-keys true)))
 
 (defn ^:async handler
-  "`POST /dictation/correct` with `{words, before}` as JSON: the
-   dictation corrected as `{:text}`, the words as they came when the
-   answer was refused or failed. `model` names another model than
-   `model-id`, for a comparison."
-  [w]
+  "`POST /bot/<id>/dictation/correct` with `{words, before}` as JSON:
+   the dictation corrected with the context of `agent`, the bot's, as
+   `{:text}`, the words as they came when the answer was refused or
+   failed. `model` names another model than `model-id`, for a
+   comparison."
+  [agent w]
   (let [{:keys [words before model]} (try (await (read-json (:body (:ring/request w))))
                                     (catch :default _ nil))
         words (filterv #(string? (:word %)) words)
@@ -231,7 +233,7 @@
     (if (empty? words)
       (respond w 400 {:error :no-words})
       (try
-        (let [{:keys [text usage ms id stop]} (await (correct! (:agent @db/db) words before model))]
+        (let [{:keys [text usage ms id stop]} (await (correct! agent words before model))]
           (println (str "[dictation] corrected " (count words) " words with " (or model model-id)
                         " in " ms " ms"
                         (cond
@@ -247,7 +249,3 @@
           (js/console.error "[dictation] no correction:" (.-message error))
           (respond w 200 {:text original
                           :corrected? false}))))))
-
-(def routes
-  [{:ring/route [:post path]
-    :ring/handler #'handler}])

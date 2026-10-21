@@ -1,27 +1,30 @@
 # rragent
 
-One durable agent on one machine. A Replicant chat on the left, the live
-artifacts on the right, pi-durable underneath, written in ClojureScript and
-compiled by Clojurific for Node.js. "rr" is Replicant and REPL.
+Durable agents, called bots, on one machine. A sidebar with the bots, a
+Replicant chat of the one picked, the live artifacts on the right,
+pi-durable underneath, written in ClojureScript and compiled by
+Clojurific for Node.js. "rr" is Replicant and REPL.
 
 ## The idea
 
-Agents should be plenty, and each should have one job. An rragent is one
-conversation that never ends: what the agent did is its memory, a job and a
-chat are the same thing, and the machine it runs on belongs to it alone. No
-list of chats, no second agent on the same machine, nothing an earlier
-conversation left behind for a later one to stumble over.
+Agents should be plenty, and each should have one job. A bot is one
+conversation that never ends: what the bot did is its memory, a job and a
+chat are the same thing. No list of chats, nothing an earlier
+conversation left behind for a later one to stumble over. Several bots
+share one machine, each a mind of its own (see [Bots](#bots)): its own
+conversation, definition, schedules, hooks, facts and work folder; the
+machine, its connectors and the templates are what they share.
 
 The runtime is [pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable):
 every turn, tool call and piece of state is committed to SQLite before it is
 shown, and a restarted process picks up where it stopped. That fits a machine
 that sleeps when nothing happens and restarts its processes when it wakes.
 
-The agent's definition is a folder with an `AGENT.md` (`SKILL.md` works too):
+A bot's definition is a folder with an `AGENT.md` (`SKILL.md` works too):
 its instructions, its tools, its schedule. The file is read again before
-every run (`rragent.reload`): an edit of it, or the agent's own rewrite
+every run (`rragent.reload`): an edit of it, or the bot's own rewrite
 of it when it takes a skill, is the definition of the next turn, the
-model and the name on the page with it, without a restart. The agent runs on
+model and the name on the page with it, without a restart. The bot runs on
 [OpenRouter](https://openrouter.ai), through the connector of its Sprite or
 with a key of its own. It reaches the outside world through typed tools, a
 REPL whose functions are the organization's connectors, a schedule it writes
@@ -41,17 +44,105 @@ is the REPL with the connectors of the Sprite's gateway as functions
 shows what the agent makes, runs the projects of the templates (a motion
 design, a HyperFrames composition) and renders their videos.
 
+## Bots
+
+`RRAGENT_HOME` (`./agent`) is the machine's folder. `agent.sqlite` in
+it is the one pi-durable storage of the machine, and a bot is a
+conversation of it: the root conversation is the first bot, every
+further bot an ownerless conversation (`createConversation`); a
+subagent's conversation is owned by a task and is no bot. Each
+conversation is configured from its own definition (`rragent.reload`:
+its instructions, its model and thinking level, and its folder's
+`work/` as its `cwd`, which pi-durable keeps per conversation and
+hands to the environment of every call with the conversation's id).
+The bots' folders are named by their conversations (`rragent.bots`,
+`rragent.home`):
+
+    agent.sqlite            the one storage: every bot's conversation and state
+    bots/<id>/AGENT.md      the bot's definition, read again before every run
+    bots/<id>/work/         where its tools work: artifacts/ and uploads/ in it
+    shared/                 the folder every bot's bash reads and writes
+    assistant.md            the generic definition a new bot starts from
+    trash/<id>/             where a deleted bot's folder goes
+
+There is no index file: the bots are the ownerless conversations of
+the storage, read through pi-durable at start (`rragent.machine`), in
+the order they were made (ascending by id), less the deleted ones,
+which the session document `rragent.bots` names. A bot's name is its
+definition's (`name:` of its `AGENT.md`); when it was made, the birth
+time of its folder; when it was last used, the time of the newest
+entry of its conversation. One harness, one page server, one gateway
+discovery and one models catalog serve every bot, a REPL worker
+thread per bot (its SCI context is the bot's, found by the
+conversation of the call), and one sleep watch stops the machine once
+every bot is idle and no page is open. One `rragent-wake` automation
+is armed for the earliest due schedule across all bots
+(`rragent.schedule/rearm!`), and a wake runs whichever bot's
+schedules are due; the schedules and hooks are documents of each
+conversation, the facts its entries. A hook's address is the
+machine's, `POST /hook/<name>/<secret>`: the call is tried on every
+bot, the secret says whose it is. Nothing of this reaches Storrito:
+the machine's page, token and environment stay what they were.
+
+A bot is made by one click on "New bot" in the sidebar, which asks
+for nothing: the bot starts from the generic assistant definition as
+it is (`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the
+bundle carries a copy as `assistant.md`), its page opens, and it
+names itself: the generic definition tells it to write a short
+fitting name into the `name:` line of its own `AGENT.md` once it knows
+what the person wants, after its first answer at the latest, which the
+reload shows. Until then the sidebar and the header call it "New bot"
+with the time it was made. A rename by the person wins: it sets the
+`name:` line and the line `renamed: true` in the frontmatter, which
+the bot is told to leave alone, also when it writes the file anew; the
+line is in the file, so it survives a restart. A bot makes a bot
+through its `bot` tool, which knows both: `create` with a name, the
+instructions, and the name of a skill from the clone when the job is
+one of them (the instructions go on top of the assistant's text as
+the job, the skill line when one was named, so it takes the skill or
+asks the person; the tool makes the conversation in its own commit),
+and `list`. The first bot of a new machine is the assistant too. A
+deleted bot is hidden, not removed: its conversation stays in the
+storage, its folder goes to `trash/<id>/`, the sidebar leaves it out;
+the last visible bot stays. There is no message between bots in this
+version: the person talks to each on its page.
+
+A machine from before the bots ran one agent at the top of the home,
+`AGENT.md` and `work/` beside `agent.sqlite`. At start the two are
+moved into `bots/1/`, the folder of the root conversation, one rename
+each, nothing copied, the storage untouched, and `assistant.md` is
+written from that definition when it is the generic one. A home in
+the new layout is left alone. A failure undoes the renames made,
+leaves the old layout as it was, and the server refuses to start with
+the reason (`rragent.bots/migrate!`).
+
 ## The page
 
-`rragent serve` opens the agent of `RRAGENT_HOME` (`./agent`) and serves its
-page on `PORT` (8080): the conversation as a chat, user messages, the
+`rragent serve` opens the bots of `RRAGENT_HOME` (`./agent`) and serves
+their page on `PORT` (8080). The sidebar on the left lists the bots with
+their name (or "New bot" and the time it was made, while a bot has
+none of its own yet) and state (running, idle, asleep until a scheduled
+run, failed to open), "New bot", one click, and behind the three dots
+of a row a rename (a field in the row) and a delete, which asks once
+in the row before the bot's folder goes to the trash; the last bot of a
+machine stays.
+The bot is in the URL, `/bot/<id>`, the id of its conversation, the way
+pchat does it with its chats: a click in the sidebar changes the URL
+without a reload and tells the server which bot this tab shows, the
+root `/` redirects to the bot last used, and a tab whose bot is gone
+shows another with a note. The header shows the
+bot's name and model. The rest of the page is the bot's: its
+conversation as a chat, user messages, the
 agent's answers rendered from their markdown (`rragent.markdown`:
 markdown-it's tokens walked into hiccup, so a tag the model writes is
 text, never HTML of the page), its tool calls folded with their output,
 the answer streaming while a run goes, a composer at the bottom and a
 Stop that aborts the run, a program of the REPL in it ended with its
-worker thread. The texts are English or German, by the browser's
-language or `?lang=de`.
+worker thread. Everything of a bot is served under its page,
+`/bot/<id>/artifacts/…`, `/bot/<id>/uploads/…`, where the composer
+posts too, so a link or a picture in an answer that names
+`artifacts/<path>` or `uploads/<name>` points at that bot's file. The
+texts are English or German, by the browser's language or `?lang=de`.
 
 A chat with nothing in it opens with the skill's welcome
 (`rragent.onboarding`), from the `metadata` of its SKILL.md or AGENT.md:
@@ -93,15 +184,16 @@ appended to a part file and renamed when the last piece is in, ten
 gigabytes at most), with its progress on its chip. A message can be
 files alone, without a text; sent while clips go up, it goes once the
 last is in, and the button says so (a click on it, a failed upload or a
-clip taken off keeps the message instead). The files land in `work/uploads/` of the agent's
+clip taken off keeps the message instead). The files land in `work/uploads/` of the bot's
 folder (`rragent.uploads`) and the message names each one on a line of
 its own, `video: uploads/ab12.mp4`, `audio: …` or `image: …`, so the
 agent reaches the file from its working directory with its tools; a
 picture goes to the model as an image block besides, when the model
 takes images (pi-ai puts a placeholder where one was when it does not,
 so a picture then goes as its line and a note). The transcript shows a
-picture as a thumbnail and a clip as its name, linked to `/uploads/<name>`,
-which serves the files with ranges, behind the token.
+picture as a thumbnail and a clip as its name, linked to
+`/bot/<id>/uploads/<name>`, which serves the files with ranges, behind
+the token.
 
 A message can be dictated: the microphone button beside the attach
 button records while it is held, or from a click to the next; Space
@@ -132,9 +224,20 @@ connection it holds open per tab, Replicant diffs the frame into the DOM,
 and the browser posts commands back. `rragent.rframes.*` is rframes' server
 half ported to Node (`node:http`, `node:zlib`, transit-cljs), with the same
 protocol as the Clojure original, so the unchanged rframes client runs in the
-browser (`rragent.client`). The page is a function of the conversation's
-view (pi-durable's `viewState`): every commit of the conversation pushes a
-new frame.
+browser (`rragent.client`). The page is a function of the one atom of
+`rragent.db`, the one place of mutable state: the machine's harness
+map, the updater, the version and the banner, the bot each tab picked,
+and every open bot under `[:bots <conversation id>]` with the value
+keys the page reads (its conversation's view, pi-durable's
+`viewState`, its definition, its state, its pane) beside the handles
+of its runtime (the conversation, the worker, the reload's text, the
+schedule source, the pane's handles). The watch on it compares old and
+new per bot over the value keys (`rragent.page/bot-value-keys`): a
+change of a bot's conversation or pane pushes a frame to the tabs
+showing that bot; a change of what the sidebar shows of it (its name,
+its state, a run starting or ending, a rename or delete under way), a
+bot coming or going, or a key of the page's own pushes to every tab; a
+handle pushes nothing.
 
 The login is a secret link, as pchat's. On a Sprite the secret is the
 sprite's own label `token:<secret>`, read with `sprite-env discover` when
@@ -142,15 +245,17 @@ the server starts (`rragent.sprite/discover`, `rragent.auth/token`);
 elsewhere it is `RRAGENT_TOKEN`, and one is generated and printed in the
 link when neither is there. `rragent serve` says where the token came
 from, never what it is. `?token=<t>` on any path sets a cookie and
-redirects, everything else behind the cookie answers 403. The hooks of
-the agent, `POST /hook/<name>/<secret>`, are outside the token; their
-secrets are their keys.
+redirects, everything else behind the cookie answers 403; one token
+for the machine, every bot behind it. The hooks of the bots,
+`POST /hook/<name>/<secret>`, are outside the token; their secrets are
+their keys.
 
 ## The artifacts
 
 The right half of the page is the pane of the artifacts, the way pchat has
-it: the files under `work/artifacts/` of the agent's folder, where the
-agent's tools write, shown by kind (`rragent.artifacts`). A page in an
+it: the files under `work/artifacts/` of the bot's folder, where the
+bot's tools write, shown by kind (`rragent.artifacts`); the pane shows
+the bot picked in the sidebar, nothing of the others. A page in an
 iframe that reloads in place when its file changes, an image, a video or
 an audio file as themselves, anything else as a download, a chooser over
 all of them. The newest thing the agent wrote takes the pane; a pick of
@@ -168,7 +273,7 @@ started as `<entry> <project-dir>` with `PORT` in its environment and
 the programs the template needs, while the project is on screen in a
 connected page or was changed in the last ten minutes, stopped after
 fifteen idle minutes, restarted when it dies, its output in `.log` in
-the directory, its page proxied under `/artifacts/<name>/` into the
+the directory, its page proxied under `/bot/<id>/artifacts/<name>/` into the
 iframe (`rragent.proxy`, node:http, the upstream response streamed
 through); or a page of the project (`index.html`), served as it is, no
 process. A project without a template runs with Node on the `main` of
@@ -279,7 +384,8 @@ The two templates that come with rragent:
 ### A template's page and the eval into it
 
 A template's page lives in the iframe of the pane under
-`/artifacts/<name>/` of rragent's origin, so it reaches its own
+`/bot/<id>/artifacts/<name>/` of rragent's origin (`RRAGENT_BASE` in
+the process's environment), so it reaches its own
 process through that path: a relative `assets/app.js` on the page is
 proxied to `/assets/app.js` of the process, a stream the process holds
 open comes through as it comes (the motion page is an rframes page: it
@@ -437,7 +543,7 @@ await, and the request runs in a helper thread instead while the
 program's thread waits on a shared flag (`rragent.sync-fetch`:
 `Atomics.wait` and `receiveMessageOnPort`); a call has two minutes.
 That is why the programs run in a worker thread of their own
-(`rragent.codemode-worker`, `node:worker_threads`), one per agent,
+(`rragent.codemode-worker`, `node:worker_threads`), one per bot,
 started at the first program from what the main thread discovered of
 the gateway: the main thread stays free meanwhile, the page renders,
 the hooks and the schedules fire, Stop reaches the agent. The worker
@@ -518,11 +624,13 @@ templates' programs, 1.3 GB smaller, for a build on a laptop (a render
 answers why there is no video there); no release publishes it.
 
 The image has the bundle in `/home/sprite/rragent/dist/`, `start.sh` beside
-it and the generic definition in `agent/` (`deploy/agent/AGENT.md`):
-every new machine starts as an assistant that offers the skills of
-`/home/sprite/skills` and becomes the one the person picks, by writing
-that skill's `SKILL.md` body into its own `AGENT.md`, or works from the
-job the person describes when no skill fits. The skills folder is a
+it and the generic definition in `agent/` (`deploy/agent/AGENT.md`),
+which the first start moves into `agent/bots/1/`, the first bot's
+folder (see [Bots](#bots)): every new machine starts as an
+assistant that offers the skills of `/home/sprite/skills` and becomes
+the one the person picks, by writing that skill's `SKILL.md` body into
+its own `AGENT.md`, or works from the job the person describes when no
+skill fits; every further bot starts the same way. The skills folder is a
 clone of a GitHub repository in the Agent Skills format, one folder per
 skill with a `SKILL.md`, made when the image is built: the build
 arguments `SKILLS_REPO` (`storrito/agentitos`) and `SKILLS_BRANCH`
@@ -542,9 +650,11 @@ fallback of a sprite without the label. The rest is
 writes into it is the contract between the two:
 
 - `RRAGENT_URL`, the sprite's public URL, the base of the hooks' addresses.
-- `RRAGENT_NAME`, optional: the name the page shows while the
-  definition is still the generic one (`name: Assistant`); once the
-  agent has taken a skill or a job, the name in its `AGENT.md` wins.
+- `RRAGENT_NAME`, optional: the name the page shows for a bot while its
+  definition is still the generic one (`name: Assistant`) and nobody
+  named it; once the bot has taken a skill or a job, the name in its
+  `AGENT.md` wins, and a name given in the sidebar or by the `bot` tool
+  wins over both.
 - `COMPOSIO_SESSION_ID`, when the agent has a Composio session.
 - `OPENROUTER_API_KEY`, only when no OpenRouter connector of the
   organization covers the sprite: the models, dictation and the media

@@ -72,7 +72,7 @@
   (async done
     (-> ((^:async fn []
            (let [dir (path/join (fs/mkdtempSync (path/join (os/tmpdir) "rragent-uploads-")) "uploads")
-                 server (await (http/listen (http/ring-handler (constantly (uploads/routes dir))) 0))
+                 server (await (http/listen (http/ring-handler (constantly (uploads/routes dir ""))) 0))
                  base (str "http://127.0.0.1:" (.-port (.address server)))
                  post (^:async fn [type body & [query]]
                         (let [response (await (js/fetch (str base "/upload" (when query (str "?" query)))

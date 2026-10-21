@@ -131,6 +131,63 @@
         (is (not (contains? text "Paste the link.")))
         (is (not= "Paste a YouTube link" (:placeholder (second (find-tag page :ui/composer)))))))))
 
+(deftest sidebar-test
+  (let [bots [{:id "aa11bb22" :name "Assistant" :label [:i18n :bot/new-at {:time "14:16"}] :state :idle}
+              {:id "cc33dd44" :name "Counter" :state :running}
+              {:id "ee55ff66" :name "Watcher" :state :asleep}]
+        page (fn [opts]
+               (i18n/translate (view/page (merge {:bots bots
+                                                  :bot {:id "cc33dd44" :name "Counter" :model "faux-1"}
+                                                  :conversation conversation
+                                                  :locale :en}
+                                                 opts))
+                               :en))
+        rows (fn [page] (filter #(and (vector? %) (= :li (first %))) (nodes page)))]
+    (testing "the bots in the sidebar, each a link to its page with its state, the one shown marked"
+      (let [p (page {})
+            text (set (strings p))]
+        (is (= ["/bot/aa11bb22" "/bot/cc33dd44" "/bot/ee55ff66"]
+               (map #(:href (second (find-tag % :a.row))) (rows p))))
+        (is (= ["aa11bb22" "cc33dd44" "ee55ff66"] (map #(:data-bot (second (find-tag % :a.row))) (rows p))))
+        (is (= [["idle"] ["running" "current"] ["asleep"]] (map #(:class (second %)) (rows p))))
+        (is (contains? text "New bot · 14:16") "a bot without a name of its own, by its label")
+        (is (not (contains? text "Assistant")))
+        (is (contains? text "running"))
+        (is (contains? text "asleep"))
+        (is (= {:command/kind :bot/create :command/data {:tab :ui/tabid}}
+               (get-in (second (find-tag p :button.new)) [:on :click 0 1]))
+            "New bot asks for nothing: one click")
+        (is (= "/bot/cc33dd44" (:ui/path (second (find-tag p :ui/url)))))
+        (is (= "Counter" (last (find-tag p :h1))) "the header names the bot shown")
+        (is (= 3 (count (filter #(and (vector? %) (= :details.actions (first %))) (nodes p)))) "every row has its menu")
+        (is (= 3 (count (filter #{"Delete"} (strings p)))) "delete in every row's menu, one per bot")))
+    (testing "the bot's files and commands are under its page"
+      (let [p (page {:artifacts {:artifacts/list [{:path "card.html" :kind :page :title "Card" :mtime 3}]
+                                 :artifacts/current "card.html"}})
+            composer (second (find-tag p :ui/composer))]
+        (is (= "/bot/cc33dd44/artifacts/card.html" (:ui/src (second (find-tag p :ui/canvas)))))
+        (is (= "/bot/cc33dd44/upload" (:ui/upload-url composer)))
+        (is (= "/bot/cc33dd44/dictation" (:ui/dictation-url composer)))
+        (is (= [:draft "cc33dd44"] (:ui/store-key composer)) "the draft is the bot's")
+        (is (= {:bot "cc33dd44" :path :event/target.value}
+               (get-in (second (find-tag p :select.chooser)) [:on :change 0 1 :command/data])))))
+    (testing "a delete armed asks in the row, a rename is a field, a note says the bot of the URL is gone"
+      (let [p (page {:bots [(assoc (nth bots 0) :deleting? true) (nth bots 1) (assoc (nth bots 2) :renaming? true)]
+                     :note [:i18n :bot/missing]})
+            text (set (strings p))]
+        (is (contains? text "Delete this bot? Its folder goes to the trash."))
+        (is (= "Watcher" (:value (second (find-tag p :input.name)))) "the field holds the definition's name")
+        (is (= {:id "ee55ff66" :name :event/target.value}
+               (get-in (second (find-tag p :input.name)) [:on :change 0 1 :command/data])))
+        (is (contains? text "That bot is not here any more; this is another one."))))
+    (testing "the last bot of the machine cannot be deleted from its row"
+      (let [p (page {:bots [(first bots)] :bot {:id "aa11bb22" :name "Assistant"}})]
+        (is (not-any? #{"Delete"} (strings p)))
+        (is (some #{"Rename"} (strings p)))))
+    (testing "the page stays data a frame can carry"
+      (let [p (page {})]
+        (is (= p (transit/read-str (transit/write-str p))))))))
+
 (deftest update-banner-test
   (testing "nothing while nothing newer is known"
     (is (nil? (view/update-banner nil)))

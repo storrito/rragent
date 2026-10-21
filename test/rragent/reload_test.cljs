@@ -11,7 +11,6 @@
             [rragent.db :as db]
             [rragent.harness :as harness]
             [rragent.hooks :as hooks]
-            [rragent.page :as page]
             [rragent.reload :as reload]
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
@@ -51,8 +50,9 @@
   (last (filter (fn [{:keys [inputs]}] (some #(str/starts-with? % prefix) inputs)) seen)))
 
 (defn- rewrite!
+  "The first bot's definition, in its folder since the open moved it there."
   [home text]
-  (fs/writeFileSync (path/join home "AGENT.md") text))
+  (fs/writeFileSync (path/join home "bots" "1" "AGENT.md") text))
 
 (defn- sleep
   [ms]
@@ -69,7 +69,8 @@
              (.setResponses faux #js [(recording seen "One.") (recording seen "Two.") (recording seen "Three.")])
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))
                    root (:root agent)
-                   stop-following (page/start! agent)
+                   id (.-id root)
+                   bot (fn [] (get-in @db/db (db/bot-path id)))
                    unsubscribe (.subscribeCommits (:harness agent) (fn [_ _] (swap! commits inc)))]
                (try
                  (is (= "One." (await (harness/ask agent "First?"))))
@@ -83,23 +84,22 @@
                  (testing "the file rewritten: the next run has the new instructions, model and name"
                    (rewrite! home "---\nname: reviewer\ndescription: Reviews code.\nmetadata:\n  model: faux-2\n---\n\nYou review code in <agent>.\n")
                    (is (= "Two." (await (harness/ask agent "Second?"))))
-                   (is (str/includes? (:instructions (last @seen)) (str "You review code in " (path/resolve home) ".")) "the new instructions, the folder filled in")
+                   (is (str/includes? (:instructions (last @seen)) (str "You review code in " (path/join (path/resolve home) "bots" "1") ".")) "the new instructions, the bot's folder filled in")
                    (is (not (str/includes? (:instructions (last @seen)) "You watch a page.")) "the old ones gone")
                    (is (= "faux-2" (.. (await (.agent root harness/context)) -model -modelId)) "the model follows the file")
-                   (is (= "reviewer" (:name (reload/current (.-id root)))))
-                   (is (= "reviewer" (get-in @db/db [:agent :definition :name])) "the page's copy follows")
-                   (is (= "faux-2" (get-in @db/db [:agent :definition :model]))))
+                   (is (= "reviewer" (:name (reload/current id))))
+                   (is (= "reviewer" (get-in (bot) [:definition :name])) "the bot's map follows")
+                   (is (= "faux-2" (get-in (bot) [:definition :model]))))
                  (testing "a file that does not read leaves the agent as it was"
                    (rewrite! home "---\ndescription: nameless now\n---\n\nNobody.\n")
                    (is (nil? (await (reload/reload! root harness/context))))
-                   (is (= "reviewer" (:name (reload/current (.-id root)))))
+                   (is (= "reviewer" (:name (reload/current id))))
                    (is (= "Three." (await (harness/ask agent "Third?"))))
                    (is (str/includes? (:instructions (last @seen)) "You review code") "the run keeps the last definition that read"))
                  (finally
                    (unsubscribe)
-                   (stop-following)
                    (await (harness/close agent))
-                   (is (nil? (reload/current (.-id root))) "forgotten with the close")
+                   (is (nil? (reload/current id)) "forgotten with the close")
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

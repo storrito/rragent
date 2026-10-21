@@ -1,17 +1,19 @@
 (ns rragent.main
-  "The entry of rragent, the program that runs one agent on one machine:
-   `main` is what the bundle exports and runs. `rragent ask <text>` opens
-   the agent of RRAGENT_HOME, asks it one thing and prints the answer;
-   `rragent serve` serves its page. Under the dev server (which runs
-   the entry without a command) the page is served. The templates'
-   processes are programs of their own (`rragent.templates`). The
-   bundle is also what the REPL's worker thread runs
-   (`rragent.codemode-worker`): there the worker's loop runs and `main`
-   does not."
+  "The entry of rragent, the program that runs the bots of one
+   machine: `main` is what the bundle exports and runs. `rragent ask
+   <text>` opens the bots of RRAGENT_HOME, asks the one the page
+   would open first (`rragent.machine/default-id`) one thing and
+   prints the answer; `rragent serve` serves the page. Under the dev
+   server (which runs the entry without a command) the page is
+   served. The templates' processes are programs of their own
+   (`rragent.templates`). The bundle is also what the REPL's worker
+   threads run (`rragent.codemode-worker`): there the worker's loop
+   runs and `main` does not."
   (:require [clojure.string :as str]
             [rragent.assets :as assets]
             [rragent.codemode-worker :as codemode-worker]
             [rragent.harness :as harness]
+            [rragent.machine :as machine]
             [rragent.page :as page]
             [rragent.version :as version]))
 
@@ -20,17 +22,19 @@
 (defn- usage
   []
   (println (str "rragent " version/version))
-  (println "  rragent ask <text>   asks the agent of RRAGENT_HOME (./agent) and prints the answer")
-  (println "  rragent serve        serves the agent's page on PORT (8080), behind the sprite's token label or RRAGENT_TOKEN"))
+  (println "  rragent ask <text>   asks the last used bot of RRAGENT_HOME (./agent) and prints the answer")
+  (println "  rragent serve        serves the bots' page on PORT (8080), behind the sprite's token label or RRAGENT_TOKEN"))
 
 (defn ^:async ask
   [text]
-  (let [agent (await (harness/open {}))
-        answer (await (harness/ask agent text))]
+  (await (machine/open! {}))
+  (let [conversation (or (:conversation (machine/bot (machine/default-id)))
+                         (throw (js/Error. "No bot opened.")))
+        answer (await (harness/ask-in conversation text))]
     (if (string? answer)
       (println answer)
       (println "unanswered:" (:unanswered answer)))
-    (await (harness/close agent))))
+    (await (machine/close-all!))))
 
 (defn ^:async main
   []
