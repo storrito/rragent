@@ -167,8 +167,28 @@
                  :pending? true}
                 content)))
 
+(defn- person-answer?
+  "A message of the person's, sent or waiting; a hook's or a schedule's
+   carries a label and answers nothing."
+  [{:keys [kind label]}]
+  (and (= :user kind) (nil? label)))
+
+(defn- answered
+  "The answers before the person's last message marked `:answered?`:
+   the choices in them are made (`rragent.genui`)."
+  [items]
+  (let [items (vec items)
+        last-answer (last (keep-indexed (fn [i item] (when (person-answer? item) i)) items))]
+    (if last-answer
+      (into [] (map-indexed (fn [i item]
+                              (cond-> item
+                                (and (< i last-answer) (= :assistant (:kind item))) (assoc :answered? true))))
+            items)
+      items)))
+
 (defn items
-  "The feed of a conversation `{:entries :live :inbox}`."
+  "The feed of a conversation `{:entries :live :inbox}`, the answers the
+   person has answered since marked (`answered`)."
   [{:keys [entries live inbox]}]
   (let [results (into {}
                       (for [{:keys [kind model]} entries
@@ -176,10 +196,10 @@
                             :let [message (first model)]]
                         [(:toolCallId message) message]))
         slots (into {} (map (juxt :callId identity)) (:tools live))]
-    (concat (mapcat #(entry-items % results slots) entries)
-            (partial-items live entries results slots)
-            (retry-items live)
-            (queued-items inbox))))
+    (answered (concat (mapcat #(entry-items % results slots) entries)
+                      (partial-items live entries results slots)
+                      (retry-items live)
+                      (queued-items inbox)))))
 
 (defn status
   "`:working` while a run goes, else `:ready`."
@@ -230,7 +250,7 @@
         name]))])
 
 (defn- item-view
-  [{:keys [kind id label text media pending? streaming? error aborted?] :as item}]
+  [{:keys [kind id label text media pending? streaming? answered? error aborted?] :as item}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
@@ -247,7 +267,7 @@
     [:div.item.step {:replicant/key id
                      :class (when streaming? "streaming")}
      (when (seq text)
-       (into [:div.markdown] (markdown/hiccup text {:streaming? streaming?})))
+       (into [:div.markdown] (markdown/hiccup text {:streaming? streaming? :answered? answered?})))
      (when aborted?
        [:p.hint [:i18n :chat/aborted]])
      (when error
