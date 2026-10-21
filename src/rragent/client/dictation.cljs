@@ -456,8 +456,8 @@
 
 (defn- keep-focus!
   "The press does not take the focus from the text, which gets it with
-   its caret where it was: Enter there sends once the dictation is in,
-   on the button it would start another."
+   its caret where it was: Ctrl+Enter there sends once the dictation is
+   in, on the button Enter would start another."
   [^js event]
   (.preventDefault event)
   (some-> (textarea-of (.-currentTarget event)) (.focus)))

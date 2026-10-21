@@ -400,12 +400,17 @@
    `rragent.client`), per bot: a new frame does not reset them. The
    alias has the microphone button, whose recording goes into the draft
    as text (`rragent.dictation`, under the bot's page), the attach
-   button and Send, which waits for the uploads; Stop aborts the run
-   while one goes. `placeholder` is the skill's while the chat is
-   empty, the page's own otherwise."
+   button and Send, which waits for the uploads; while a run goes, a
+   Stop button beside it aborts the run (`:ui/stop`). `placeholder` is
+   the skill's while the chat is empty, the page's own otherwise."
   [id base status placeholder]
   [:div.composer
    [:ui/composer {:ui/store-key (draft-key id)
+                  :ui/stop (when (= :working status)
+                             [[:data/command {:command/kind :chat/stop
+                                              :command/data {:bot id}}]])
+                  :ui/stop-label (when (= :working status)
+                                   [:i18n :composer/stop])
                   :ui/attachments-key (attachments-key id)
                   :ui/upload-url (str base uploads/upload-path)
                   :ui/send (send-actions id)
@@ -425,11 +430,8 @@
                   :ui/dictation-failed-title [:i18n :composer/dictation-failed]
                   :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
                   :rows 3
-                  :placeholder (or placeholder [:i18n :composer/placeholder])}]
-   (when (= :working status)
-     [:button.stop {:on {:click [[:data/command {:command/kind :chat/stop
-                                                 :command/data {:bot id}}]]}}
-      [:i18n :composer/stop]])])
+                  :title [:i18n :composer/keys]
+                  :placeholder (or placeholder [:i18n :composer/placeholder])}]])
 
 (defn- artifact-url
   [base path]
@@ -540,7 +542,7 @@
                  (if project?
                    (get renders (:path artifact))
                    (artifacts/writing pane artifact)))]
-    [:section.artifacts
+    [:section.artifacts {:class (when (empty? list) "empty")}
      [:div.bar
       [:span.label [:i18n :page/artifacts]]
       (when (seq list)
@@ -555,6 +557,16 @@
        (content base artifact {:project (get projects (:path artifact))
                                :render render})
        [:div.placeholder [:i18n :artifacts/empty]])]))
+
+(defn- views
+  "On a phone the chat and the artifacts take turns: two radios in
+   `page`, these labels are the tabs, the stylesheet shows one of the
+   two; nothing of it on a wide screen, where the pane is beside the
+   chat."
+  []
+  [:nav.views
+   [:label {:for "view-chat"} [:i18n :page/view-chat]]
+   [:label {:for "view-made"} [:i18n :page/artifacts]]])
 
 (defn state-label
   [state]
@@ -665,7 +677,8 @@
         base (when id (bots/url id))
         items (items conversation)
         status (status (:live conversation))
-        fresh? (not-any? shown? items)]
+        fresh? (not-any? shown? items)
+        artifacts? (seq (:artifacts/list pane))]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
      [:ui/url {:ui/path base}]
      ;; the drawer state on a phone, toggled by labels, never rendered
@@ -676,7 +689,15 @@
      ;; keyed by the bot: a switch builds the chat anew, the transcripts
      ;; of two bots share no element
      [:div.main {:replicant/key (str "bot-" id)}
+      ;; the view on a phone once there are artifacts, chat or artifacts;
+      ;; never rendered with :checked either, see `views`
+      (when artifacts?
+        (list
+         [:input#view-chat.toggle {:type "radio" :name "view"}]
+         [:input#view-made.toggle {:type "radio" :name "view"}]))
       (header bot status (:current update))
+      (when artifacts?
+        (views))
       [:div.body
        [:div.chat
         (update-banner update)

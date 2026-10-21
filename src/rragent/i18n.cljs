@@ -17,6 +17,7 @@
 (def en
   {:page/title "rragent"
    :page/artifacts "Artifacts"
+   :page/view-chat "Chat"
 
    :artifacts/open "Open"
    :artifacts/download "Download"
@@ -70,7 +71,8 @@
    :theme/light "Light theme"
    :theme/dark "Dark theme"
 
-   :composer/placeholder "What should the agent do? Enter sends, Shift+Enter breaks the line, a picture can be pasted."
+   :composer/placeholder "What should the agent do?"
+   :composer/keys "Ctrl+Enter sends (⌘+Enter on a Mac), Enter breaks the line; a picture can be pasted."
    :composer/send "Send"
    :composer/send-pending "Sends after the upload"
    :composer/send-cancel "Click to keep the message instead; a failed upload keeps it too"
@@ -120,6 +122,7 @@
 (def de
   {:page/title "rragent"
    :page/artifacts "Artefakte"
+   :page/view-chat "Chat"
 
    :artifacts/open "Öffnen"
    :artifacts/download "Herunterladen"
@@ -173,7 +176,8 @@
    :theme/light "Helles Design"
    :theme/dark "Dunkles Design"
 
-   :composer/placeholder "Was soll der Agent tun? Enter sendet, Shift+Enter bricht die Zeile um, ein Bild kann eingefügt werden."
+   :composer/placeholder "Was soll der Agent tun?"
+   :composer/keys "Strg+Enter sendet (⌘+Enter auf dem Mac), Enter bricht die Zeile um; ein Bild kann eingefügt werden."
    :composer/send "Senden"
    :composer/send-pending "Sendet nach dem Upload"
    :composer/send-cancel "Klicken, um die Nachricht doch nicht zu senden; schlägt ein Upload fehl, bleibt sie auch stehen"

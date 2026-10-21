@@ -85,7 +85,8 @@ body {
 
 .rragent .toggle,
 .rragent .menu,
-.rragent .backdrop {
+.rragent .backdrop,
+.rragent .views {
   display: none;
 }
 
@@ -935,15 +936,33 @@ pre {
   overflow-y: auto;
 }
 
-/* On a phone the sidebar is a drawer over the page, opened by the
-   label in the header and closed by a tap beside it; the pane stacks
-   over the chat. */
+/* On a phone (a tablet held upright too) the sidebar is a drawer over
+   the page, opened by the label in the header and closed by a tap
+   beside it, by a tap on a bot (`rragent.client`) or on New bot. The
+   header keeps the name, the state and the theme; the model and the
+   version are in the sidebar and in the bot's definition. The chat and
+   the artifacts take turns: the tabs under the header (`.views`, two
+   radios in `rragent.view/page`, rendered once there are artifacts)
+   show one of the two, the chat until the person picks the artifacts;
+   under the artifacts the composer stays, one line, so that a wish
+   can be typed while looking at the creation, the way pchat does it.
+   Without artifacts there is no pane and no tabs. */
 @media (max-width: 900px) {
   .rragent .menu {
-    display: inline-block;
-    padding: 2px 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin-left: -6px;
+    border-radius: 8px;
+    font-size: 20px;
     cursor: pointer;
     user-select: none;
+  }
+
+  .rragent .menu:active {
+    background: var(--panel);
   }
 
   .sidebar {
@@ -952,17 +971,27 @@ pre {
     bottom: 0;
     left: 0;
     z-index: 30;
-    width: 260px;
+    width: min(80vw, 300px);
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
     transform: translateX(-100%);
     transition: transform 0.2s ease;
-    box-shadow: 0 0 24px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
+  }
+
+  .sidebar button.new,
+  .sidebar ul.bots li .row {
+    min-height: 44px;
   }
 
   .rragent .backdrop {
+    display: block;
     position: fixed;
     inset: 0;
     z-index: 25;
     background: rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
   }
 
   .rragent #nav:checked ~ .sidebar {
@@ -970,7 +999,59 @@ pre {
   }
 
   .rragent #nav:checked ~ .backdrop {
-    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .bar {
+    gap: 10px;
+    padding: 6px 12px;
+  }
+
+  .bar h1 {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .bar .model,
+  .bar button.version {
+    display: none;
+  }
+
+  .bar .status {
+    margin-left: 0;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .rragent .views {
+    display: flex;
+    flex: none;
+    margin: 8px 12px 0;
+    padding: 3px;
+    gap: 3px;
+    border-radius: 10px;
+    background: var(--panel);
+  }
+
+  .rragent .views label {
+    flex: 1;
+    padding: 7px;
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .rragent #view-made:not(:checked) ~ .views label[for="view-chat"],
+  .rragent #view-made:checked ~ .views label[for="view-made"] {
+    background: var(--line);
+    color: var(--text);
   }
 
   .body {
@@ -978,28 +1059,67 @@ pre {
   }
 
   .artifacts {
+    display: none;
+    flex: 1;
     width: 100%;
-    height: 30vh;
-    flex-shrink: 0;
+    min-height: 0;
     padding: 8px 12px;
-    border-left: 0;
-    border-bottom: 1px solid var(--line);
+    border: 0;
+  }
+
+  .artifacts .bar .label {
+    display: none;
+  }
+
+  .artifacts .bar select.chooser {
+    max-width: none;
+  }
+
+  .rragent #view-made:checked ~ .body .artifacts {
+    display: flex;
+  }
+
+  .rragent #view-made:checked ~ .body .chat {
+    flex: none;
+  }
+
+  .rragent #view-made:checked ~ .body .chat .feed {
+    display: none;
+  }
+
+  .rragent #view-made:checked ~ .body .chat .composer textarea {
+    height: 42px !important;
+    min-height: 42px !important;
+    overflow: hidden;
+    resize: none;
+  }
+
+  .banner.update .notes {
+    display: none;
   }
 }
 
 @media (max-width: 640px) {
-  .bar {
-    gap: 10px;
-    padding: 8px 12px;
-    font-size: 14px;
-  }
-
   .feed {
     padding: 12px;
   }
 
   .composer {
+    gap: 6px;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .composer-input .row {
+    gap: 6px;
+  }
+
+  .composer button,
+  .composer .attach {
+    padding: 8px 10px;
+  }
+
+  .item .looks img {
+    height: 110px;
   }
 }
 
@@ -1037,6 +1157,100 @@ pre {
 
 .composer .attach:hover {
   border-color: var(--muted);
+}
+
+/* Send and Stop carry their word and an icon (rragent.client/composer):
+   the word on a wide screen, the icon on a phone (below). */
+.composer button .icon {
+  display: none;
+}
+
+/* The composer on a phone: a card like the Claude app's, the text on
+   top across the width, under it the attach button on the left, the
+   microphone, Stop while a run goes, and the round send button on the
+   right, each an icon in a circle. While a send waits for an upload the
+   button says so in words, as a pill. The card takes the focus ring,
+   not the text. */
+@media (max-width: 640px) {
+  .composer-input .row {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 2px 8px 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--panel);
+  }
+
+  .composer-input .row:focus-within {
+    border-color: var(--accent);
+  }
+
+  .composer-input textarea {
+    flex: 1 1 100%;
+    padding: 8px 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    resize: none;
+  }
+
+  .composer textarea:focus {
+    outline: none;
+  }
+
+  .composer .attach,
+  .composer button.stop,
+  .composer button.send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .composer label.attach {
+    order: 1;
+    margin-right: auto;
+  }
+
+  .composer button.dictate {
+    order: 2;
+  }
+
+  .composer button.stop {
+    order: 3;
+  }
+
+  .composer button.send {
+    order: 4;
+  }
+
+  .composer button .word {
+    display: none;
+  }
+
+  .composer button .icon {
+    display: inline;
+  }
+
+  .composer button.send.pending {
+    width: auto;
+    padding: 0 14px;
+    border-radius: 20px;
+    font-size: 14px;
+  }
+
+  .composer button.send.pending .word {
+    display: inline;
+  }
+
+  .composer button.send.pending .icon {
+    display: none;
+  }
 }
 
 /* The microphone button while it records, and the strip above the

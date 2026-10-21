@@ -86,12 +86,14 @@
       (is (contains? text "Hook deploy"))
       (is (contains? text "What the agent makes for you appears here."))
       (is (contains? text "Stop") "a run goes")
+      (is (= {:bot nil} (get-in (second (find-tag page :ui/composer)) [:ui/stop 0 1 :command/data])) "Stop is the composer's, with its actions")
       (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated"))
     (testing "an idle conversation with nothing in it"
       (let [empty (i18n/translate (view/page {:agent {} :conversation nil :locale :de}) :de)
             text (set (strings empty))]
         (is (contains? text "Noch nichts hier. Schreib die erste Nachricht."))
-        (is (not (contains? text "Stopp")))))
+        (is (not (contains? text "Stopp")))
+        (is (nil? (:ui/stop (second (find-tag empty :ui/composer)))) "no Stop while nothing runs")))
     (testing "an empty conversation of a skill opens with its welcome and placeholder"
       (let [onboarding {:title "Kinetic Shorts" :ask "Füge den Link ein." :placeholder "YouTube-Link einfügen"}
             page (i18n/translate (view/page {:agent {} :conversation nil :locale :de :onboarding onboarding}) :de)
@@ -171,6 +173,16 @@
         (is (= [:draft "cc33dd44"] (:ui/store-key composer)) "the draft is the bot's")
         (is (= {:bot "cc33dd44" :path :event/target.value}
                (get-in (second (find-tag p :select.chooser)) [:on :change 0 1 :command/data])))))
+    (testing "on a phone the chat and the artifacts are tabs, once there are artifacts"
+      (let [with (page {:artifacts {:artifacts/list [{:path "card.html" :kind :page :title "Card" :mtime 3}]
+                                    :artifacts/current "card.html"}})
+            without (page {})]
+        (is (= ["Chat" "Artifacts"] (map last (filter #(and (vector? %) (= :label (first %))) (nodes (find-tag with :nav.views))))))
+        (is (= [:input#view-chat.toggle :input#view-made.toggle]
+               (map first (filter #(and (vector? %) (#{:input#view-chat.toggle :input#view-made.toggle} (first %))) (nodes with)))))
+        (is (nil? (:class (second (find-tag with :section.artifacts)))))
+        (is (nil? (find-tag without :nav.views)) "no tabs without artifacts")
+        (is (= "empty" (:class (second (find-tag without :section.artifacts)))) "the pane says it is empty, a phone hides it")))
     (testing "a delete armed asks in the row, a rename is a field, a note says the bot of the URL is gone"
       (let [p (page {:bots [(assoc (nth bots 0) :deleting? true) (nth bots 1) (assoc (nth bots 2) :renaming? true)]
                      :note [:i18n :bot/missing]})

@@ -435,23 +435,28 @@
   "The textarea of the page with its attachments. The text lives in the
    store under `:ui/store-key`, the attachments under
    `:ui/attachments-key`, so that a frame from the server resets
-   neither; files go to `:ui/upload-url`. Enter and the Send button run
-   `:ui/send`, the actions of the server, with a text, files or both;
-   while files go up they run once the last is in (`pending-step`), the
-   button says so (`:ui/send-pending-label`) and a click on it takes the
-   send back. Shift+Enter breaks the line. The microphone button, or
+   neither; files go to `:ui/upload-url`. Ctrl+Enter (Cmd+Enter on a
+   Mac) and the Send button run `:ui/send`, the actions of the server,
+   with a text, files or both; while files go up they run once the last
+   is in (`pending-step`), the button says so (`:ui/send-pending-label`)
+   and a click on it takes the send back. Enter breaks the line, on a
+   phone too, where there is no Shift. The microphone button, or
    Space held in the text, dictates into the draft, its pieces go to
    `:ui/dictation-url`; while it runs the draft is the dictation's, and
-   Enter or Send end it and send once its text is in
+   Ctrl+Enter or Send end it and send once its text is in
    (`:ui/send-after-dictation-label`). A paste with
    files on the clipboard uploads them, a paste of text pastes; files dragged over the page
-   bring up the veil (`drop-veil`), a drop on it uploads them. The labels
-   are the server's, translated; the other attributes pass through to
-   the textarea."
+   bring up the veil (`drop-veil`), a drop on it uploads them. With
+   `:ui/stop`, actions, a Stop button beside Send runs them (a run
+   goes). Send and Stop carry their word and an icon; the stylesheet
+   shows the word on a wide screen and the icon on a phone, where the
+   row is a card like the Claude app's. The labels are the server's,
+   translated; the other attributes pass through to the textarea."
   [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label ui/send-pending-label
            ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
            ui/drop-title ui/drop-hint ui/dictation-url ui/dictate-title ui/dictate-stop-title
-           ui/transcribing-title ui/dictation-failed-title ui/send-after-dictation-label ui/state]
+           ui/transcribing-title ui/dictation-failed-title ui/send-after-dictation-label ui/state
+           ui/stop ui/stop-label]
     :as attrs}
    _children]
   (let [store state/store
@@ -502,7 +507,7 @@
                    :ui/send-label :ui/send-pending-label :ui/send-cancel-title :ui/attach-title :ui/remove-title :ui/uploading-label
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
                    :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
-                   :ui/send-after-dictation-label :ui/state)
+                   :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label)
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -513,8 +518,11 @@
                                     (upload-all! store attachments-key upload-url files))))
                        :keydown (fn [^js event]
                                   (dictation/key-down! store store-key dictation-url event)
+                                  ;; Ctrl+Enter sends, Cmd+Enter on a Mac;
+                                  ;; Enter alone breaks the line, as in a
+                                  ;; text field anywhere, on a phone too
                                   (when (and (= "Enter" (.-key event))
-                                             (not (.-shiftKey event))
+                                             (or (.-ctrlKey event) (.-metaKey event))
                                              (not (.-isComposing event)))
                                     (.preventDefault event)
                                     (send!)))
@@ -537,16 +545,25 @@
                                (upload-all! store attachments-key upload-url
                                             (array-seq (.. event -target -files)))
                                (set! (.. event -target -value) ""))}}]]
-      [:button.primary {:disabled (not (or ready? pending? dictating))
-                        :title (when pending? send-cancel-title)
-                        :on {:click (fn [_event]
-                                      (if pending?
-                                        (swap! store dissoc :ui/send-pending)
-                                        (send!)))}}
-       (cond
-         (and pending? (dictation/active? state)) (or send-after-dictation-label "Sends once the text is in")
-         pending? (or send-pending-label "Sends after the upload")
-         :else (or send-label "Send"))]]]))
+      (when stop
+        [:button.stop {:type "button"
+                       :title stop-label
+                       :on {:click (fn [_event] (state/dispatch! stop))}}
+         [:span.word (or stop-label "Stop")]
+         [:span.icon {:aria-hidden "true"} "■"]])
+      [:button.primary.send {:disabled (not (or ready? pending? dictating))
+                             :class (when pending? "pending")
+                             :title (if pending? send-cancel-title (or send-label "Send"))
+                             :on {:click (fn [_event]
+                                           (if pending?
+                                             (swap! store dissoc :ui/send-pending)
+                                             (send!)))}}
+       [:span.word
+        (cond
+          (and pending? (dictation/active? state)) (or send-after-dictation-label "Sends once the text is in")
+          pending? (or send-pending-label "Sends after the upload")
+          :else (or send-label "Send"))]
+       [:span.icon {:aria-hidden "true"} "↑"]]]]))
 
 (defonce ^:private canvas-node*
   (atom nil))
@@ -687,6 +704,9 @@
        "click"
        (fn [^js event]
          (close-menus! (.-target event))
+         ;; the new bot opens in this tab with the next frame
+         (when (some-> (.-target event) (.closest ".sidebar button.new"))
+           (close-drawer!))
          (when-let [^js link (some-> (.-target event) (.closest "a[data-bot]"))]
            (when (plain-click? event)
              (.preventDefault event)
