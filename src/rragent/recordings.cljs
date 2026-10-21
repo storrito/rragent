@@ -7,15 +7,17 @@
    `webcam.webm`, and `recording.json` with the devices and when each
    recorder started.
 
-   `POST /bot/<id>/record/<stamp>/<screen|webcam>?offset=<n>` appends
-   a piece of a file as it is recorded, to a hidden part file (the
-   pane lists no hidden file); the piece must start where the part
-   file ends, as the pieces of an upload do (`rragent.uploads`).
+   `POST /bot/<id>/record/<stamp>/<screen|webcam|phone>?offset=<n>&ext=<webm|mp4>`
+   appends a piece of a file as it is recorded, to a hidden part file
+   (the pane lists no hidden file); the piece must start where the
+   part file ends, as the pieces of an upload do (`rragent.uploads`).
    `POST /bot/<id>/record/<stamp>/finish`, with the facts of the
-   recording as transit, ends it: the part files become the files,
-   remuxed by ffmpeg when there is one, so that they carry their
-   duration and seek (a recorder's file has neither), and the facts
-   are written beside them."
+   recording as transit (`:files`, name to extension, the laptop's two
+   without a word), ends it: the part files become the files, remuxed
+   by ffmpeg when there is one, so that they carry their duration and
+   seek (a recorder's file has neither), and the facts are written
+   beside them. The phone's file comes from the phone itself
+   (`rragent.phone`)."
   (:require ["node:child_process" :as child-process]
             ["node:fs" :as fs]
             ["node:path" :as path]
@@ -34,7 +36,16 @@
   #"\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}")
 
 (def names
-  #{"screen" "webcam"})
+  "The files of a recording: the screen and the webcam from the laptop,
+   the phone's camera from the phone (`rragent.phone`)."
+  #{"screen" "webcam" "phone"})
+
+(def extensions
+  "What a recorder writes: webm in Chrome, mp4 on an iPhone."
+  #{"webm" "mp4"})
+
+(def default-files
+  {"screen" "webm" "webcam" "webm"})
 
 (def max-bytes
   "The largest file, ten gigabytes: hours of a screen."
@@ -46,12 +57,12 @@
   (path/join dir "recordings" stamp))
 
 (defn- part-file
-  [dir stamp name]
-  (path/join (folder dir stamp) (str "." name ".webm.part")))
+  [dir stamp name ext]
+  (path/join (folder dir stamp) (str "." name "." ext ".part")))
 
 (defn- file
-  [dir stamp name]
-  (path/join (folder dir stamp) (str name ".webm")))
+  [dir stamp name ext]
+  (path/join (folder dir stamp) (str name "." ext)))
 
 (defonce ^:private writing
   ;; the files a piece is being written to
@@ -62,12 +73,13 @@
    that does not is answered with how much the file holds (409), one
    while another piece is still being written waits (503, the browser
    tries again)."
-  [dir w stamp name {:strs [offset]}]
+  [dir w stamp name {:strs [offset ext]}]
   (let [offset (parse-long (str offset))
-        part (part-file dir stamp name)
+        ext (or ext "webm")
+        part (part-file dir stamp name ext)
         received (uploads/file-size part)]
     (cond
-      (not offset)
+      (not (and offset (extensions ext)))
       (uploads/respond w 400 {:error :bad-piece})
 
       (contains? @writing [stamp name])
@@ -107,9 +119,9 @@
 (defn- ^:async finalize!
   "The part file as the file: through ffmpeg when it is there and
    takes it, renamed otherwise."
-  [dir stamp name]
-  (let [part (part-file dir stamp name)
-        out (file dir stamp name)]
+  [dir stamp name ext]
+  (let [part (part-file dir stamp name ext)
+        out (file dir stamp name ext)]
     (try
       (await (remux (programs/locate "ffmpeg") part out))
       (fs/rmSync part #js {:force true})
@@ -118,42 +130,65 @@
         (fs/rmSync out #js {:force true})
         (fs/renameSync part out)))))
 
+(defn- files-of
+  "The files the facts name, name to extension, the laptop's two
+   without a word; nil when a name or an extension is not one of ours."
+  [facts]
+  (let [files (or (:files facts) default-files)]
+    (when (and (map? files)
+               (seq files)
+               (contains? files "screen")
+               (every? names (keys files))
+               (every? extensions (vals files)))
+      files)))
+
 (defn- ^:async finish!
-  "The recording is over: both files finalized, the facts beside them,
-   the folder answered as the agent names it."
-  [dir w stamp]
+  "The recording is over: every file finalized, the facts beside them,
+   the folder answered as the agent names it. A recording with the
+   phone's file waits for the phone to say its file is up
+   (`phone-done?`, 409 until then, the laptop asks again)."
+  [dir {:keys [phone-done?]} w stamp]
   (let [facts (try
                 (await (transit/read-stream (:body (:ring/request w))))
                 (catch :default _
                   nil))
-        missing (sort (remove #(http/regular-file? (part-file dir stamp %)) names))]
+        files (when (map? facts) (files-of facts))
+        missing (sort (remove (fn [[name ext]] (http/regular-file? (part-file dir stamp name ext))) files))]
     (cond
       (not (map? facts))
       (uploads/respond w 400 {:error :bad-facts})
 
+      (nil? files)
+      (uploads/respond w 400 {:error :bad-files})
+
       (seq missing)
       (uploads/respond w 409 {:error :not-recorded
-                              :missing (vec missing)})
+                              :missing (mapv first missing)})
+
+      (and (contains? files "phone") phone-done? (not (phone-done? stamp)))
+      (uploads/respond w 409 {:error :phone-uploading})
 
       :else
-      (do (doseq [name names]
-            (await (finalize! dir stamp name)))
-          (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
-                            (js/JSON.stringify (clj->js (assoc facts :files ["screen.webm" "webcam.webm"])) nil 2))
-          (uploads/respond w 200 {:folder (str "recordings/" stamp)
-                                  :files ["screen.webm" "webcam.webm"]})))))
+      (let [made (mapv (fn [[name ext]] (str name "." ext)) (sort-by first files))]
+        (doseq [[name ext] files]
+          (await (finalize! dir stamp name ext)))
+        (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
+                          (js/JSON.stringify (clj->js (assoc facts :files made)) nil 2))
+        (uploads/respond w 200 {:folder (str "recordings/" stamp)
+                                :files made})))))
 
 (defn ^:async handler
   "`POST /record/<stamp>/<name>` into the artifacts `dir`: a piece of
-   the file, or `finish` for the recording's end."
-  [dir w]
+   the file, or `finish` for the recording's end. `opts` has
+   `:phone-done?`, whether the phone's file of a stamp is up."
+  [dir opts w]
   (let [[stamp name & more] (str/split (str (get-in w [:ring/route-params :*])) #"/")]
     (cond
       (or (not (re-matches stamp-pattern (str stamp))) (seq more))
       (uploads/respond w 400 {:error :bad-recording})
 
       (= "finish" name)
-      (await (finish! dir w stamp))
+      (await (finish! dir opts w stamp))
 
       (names name)
       (await (piece! dir w stamp name (uploads/query-params (:ring/request w))))

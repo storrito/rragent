@@ -33,6 +33,7 @@
             [rframes.client.state :as state]
             [rframes.client.ui :as ui]
             [rragent.client.dictation :as dictation]
+            [rragent.client.phone :as phone]
             [rragent.client.recorder :as recorder]))
 
 (def max-side
@@ -459,7 +460,7 @@
            ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
            ui/drop-title ui/drop-hint ui/dictation-url ui/dictate-title ui/dictate-stop-title
            ui/transcribing-title ui/dictation-failed-title ui/send-after-dictation-label ui/state
-           ui/stop ui/stop-label ui/record-url ui/recorder]
+           ui/stop ui/stop-label ui/record-url ui/recorder ui/phone]
     :as attrs}
    _children]
   (let [store state/store
@@ -499,7 +500,7 @@
                                                     :hint drop-hint}))
      (dictation/indicator state)
      (when record-url
-       (recorder/panel store state recorder))
+       (recorder/panel store state recorder phone))
      (attachments-view store attachments-key attachments {:remove-title remove-title
                                                           :uploading-label uploading-label
                                                           :failed-label failed-label})
@@ -513,7 +514,7 @@
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
                    :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
                    :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label
-                   :ui/record-url :ui/recorder)
+                   :ui/record-url :ui/recorder :ui/phone)
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -806,7 +807,11 @@
                                state/tabid))}])
 
 (defn init!
+  "The page's runtime; on the phone's page (`#phone`, see
+   `rragent.phone`) the phone's app instead."
   []
-  (rframes/init! {:register register}))
+  (if-let [node (js/document.getElementById "phone")]
+    (phone/mount! node)
+    (rframes/init! {:register register})))
 
 (init!)

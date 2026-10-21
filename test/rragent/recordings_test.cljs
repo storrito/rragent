@@ -20,7 +20,7 @@
     (-> ((^:async fn []
            (let [dir (path/join (fs/mkdtempSync (path/join (os/tmpdir) "rragent-recordings-")) "artifacts")
                  server (await (http/listen (http/ring-handler (constantly [{:ring/route [:post "/record/*"]
-                                                                              :ring/handler (fn [w] (recordings/handler dir w))}]))
+                                                                              :ring/handler (fn [w] (recordings/handler dir {} w))}]))
                                             0))
                  base (str "http://127.0.0.1:" (.-port (.address server)))
                  post (^:async fn [subpath body & [type]]
