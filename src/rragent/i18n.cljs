@@ -102,9 +102,8 @@
    :bots/title "Bots"
    :bots/menu "The bots"
    :bot/new "New bot"
+   :bot/new-at [:fn/str "New bot · {{:time}}"]
    :bot/name "Name"
-   :bot/purpose "What it is for, in a sentence"
-   :bot/create "Create"
    :bot/actions "More"
    :bot/rename "Rename"
    :bot/delete "Delete"
@@ -206,9 +205,8 @@
    :bots/title "Bots"
    :bots/menu "Die Bots"
    :bot/new "Neuer Bot"
+   :bot/new-at [:fn/str "Neuer Bot · {{:time}}"]
    :bot/name "Name"
-   :bot/purpose "Wofür er da ist, in einem Satz"
-   :bot/create "Anlegen"
    :bot/actions "Mehr"
    :bot/rename "Umbenennen"
    :bot/delete "Löschen"

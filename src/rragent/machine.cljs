@@ -212,6 +212,30 @@
       (bots/name-of (home) id)
       (str id)))
 
+(defn- time-of
+  "`14:16`, with the day before it when it is not today; the server's
+   clock."
+  [ms]
+  (let [at (js/Date. ms)
+        two (fn [n] (.padStart (str n) 2 "0"))
+        today (js/Date.)]
+    (str (when-not (= (.toDateString at) (.toDateString today))
+           (str (.getFullYear at) "-" (two (inc (.getMonth at))) "-" (two (.getDate at)) " "))
+         (two (.getHours at)) ":" (two (.getMinutes at)))))
+
+(defn label-of
+  "What the page calls the bot: its name, or, while it still has the
+   generic one and is not the machine's first bot, \"New bot\" with the
+   time it was made (an i18n tuple), since it names itself after its
+   first answer."
+  [id]
+  (let [{:keys [definition]} (bot id)]
+    (if (and definition
+             (definition/generic? definition)
+             (not= (str id) (str bots/root-id)))
+      [:i18n :bot/new-at {:time (time-of (or (bots/created-at (home) id) (js/Date.now)))}]
+      (name-of id))))
+
 (defn state-of
   "`:failed` for a bot that did not open, `:running` while a run
    goes, `:asleep` when it idles until a scheduled run, `:idle`
@@ -235,14 +259,16 @@
          (last))))
 
 (defn listed
-  "The bots in the order they were made, each `{:id :name :state
-   :created :used :deleting? :renaming?}`, the last two the sidebar's."
+  "The bots in the order they were made, each `{:id :name :label
+   :state :created :used :deleting? :renaming?}`: the name of the
+   definition, the label the page shows, the last two the sidebar's."
   []
   (->> (vals (bots))
        (sort-by #(js/Number (:id %)))
        (mapv (fn [{:keys [id deleting? renaming?]}]
                {:id id
                 :name (name-of id)
+                :label (label-of id)
                 :state (state-of id)
                 :created (bots/created-at (home) id)
                 :used (used-at id)
@@ -261,21 +287,19 @@
   "The conversation `id`, made ownerless by `create!` or by the `bot`
    tool, given its folder and definition (`rragent.bots/definition-text`
    over the assistant's text with `:name`, `:instructions` and
-   `:skill`), opened and followed. Answers `{:id :name}`."
-  [id {:keys [name skill] :as given}]
-  (when (str/blank? (str name))
-    (throw (js/Error. "A bot needs a name.")))
+   `:skill`; with none of them the assistant's text as it is, and the
+   bot names itself after its first answer), opened and followed.
+   Answers `{:id :name}`, the name the definition's."
+  [id {:keys [skill] :as given}]
   (bots/check-skill! skill)
   (bots/write-definition! (home) id (bots/definition-text (bots/assistant-text (home)) given))
   (await (open-bot! id))
-  {:id (str id) :name (str/trim (str name))})
+  {:id (str id) :name (name-of id)})
 
 (defn ^:async create!
   "A new bot: an ownerless conversation of the storage, then
-   `adopt!`."
-  [{:keys [name skill] :as given}]
-  (when (str/blank? (str name))
-    (throw (js/Error. "A bot needs a name.")))
+   `adopt!`; `{}` for one from the assistant's definition as it is."
+  [{:keys [skill] :as given}]
   (bots/check-skill! skill)
   (let [conversation (await (.createConversation (:harness (agent)) #js {:ownership #js {:kind "ownerless"}} harness/context))]
     (await (adopt! (.-id conversation) given))))

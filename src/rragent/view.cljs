@@ -611,43 +611,31 @@
        [:i18n :bot/delete]])]])
 
 (defn- new-bot
-  "The way to make a bot: a name and a sentence of purpose behind
-   \"New bot\", in a <details> the browser opens; keyed by the number of
-   bots, so that a new one closes and empties it. The new bot opens in
-   this tab (`:ui/tabid`, filled in by the runtime)."
-  [n]
-  [:details.new {:replicant/key (str "new-" n)}
-   [:summary [:i18n :bot/new]]
-   [:div.form
-    [:input {:placeholder [:i18n :bot/name]
-             :aria-label [:i18n :bot/name]
-             :on {:input [[:store/assoc :bot/new-name :event/target.value]]}}]
-    [:input {:placeholder [:i18n :bot/purpose]
-             :aria-label [:i18n :bot/purpose]
-             :on {:input [[:store/assoc :bot/new-purpose :event/target.value]]}}]
-    [:button.primary {:on {:click [[:data/command {:command/kind :bot/create
-                                                   :command/data {:name [:store/deref :bot/new-name]
-                                                                  :purpose [:store/deref :bot/new-purpose]
-                                                                  :tab :ui/tabid}}
-                                    {:on-success [[:store/dissoc :bot/new-name]
-                                                  [:store/dissoc :bot/new-purpose]]}]]}}
-     [:i18n :bot/create]]]])
+  "The way to make a bot: one click, nothing asked. The bot starts
+   from the assistant's definition as it is and names itself after its
+   first answer; it opens in this tab (`:ui/tabid`, filled in by the
+   runtime)."
+  []
+  [:button.new {:on {:click [[:data/command {:command/kind :bot/create
+                                             :command/data {:tab :ui/tabid}}]]}}
+   [:i18n :bot/new]])
 
 (defn sidebar
-  "The bots of the machine, each a link to its page with its name and
-   state, the one shown marked; the way to make one; a row being
-   deleted asks, a row being renamed is a field (`:deleting?`,
-   `:renaming?` of the bot)."
+  "The bots of the machine, each a link to its page with its name
+   (its `:label` when it has none of its own yet: \"New bot\" and when
+   it was made) and state, the one shown marked; the way to make one;
+   a row being deleted asks, a row being renamed is a field
+   (`:deleting?`, `:renaming?` of the bot)."
   [bots shown version]
   [:aside.sidebar
    [:div.brand "rragent"
     (when version
       [:span.version {:title "rragent version"} version])]
-   (new-bot (count bots))
+   (new-bot)
    ;; keyed by its order: a list whose rows move makes a new list
    ;; (Replicant 2026.07.1 keeps a stale vdom for a row moved to the front)
    [:ul.bots {:replicant/key (str/join " " (map :id bots))}
-    (for [{:keys [id name state deleting? renaming?]} bots]
+    (for [{:keys [id name label state deleting? renaming?]} bots]
       [:li {:replicant/key id
             :class (cond-> [(clojure.core/name state)]
                      (= id shown) (conj "current"))}
@@ -657,14 +645,15 @@
          :else (list
                 [:a.row {:href (bots/url id)
                          :data-bot id}
-                 [:span.name name]
+                 [:span.name (or label name)]
                  [:span.state (state-label state)]]
                 (bot-actions id (< 1 (count bots)))))])]])
 
 (defn page
-  "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :state
-   :deleting? :renaming?}`; `:bot`, the one shown, its `:id`, `:name`
-   and `:model`; `:conversation`, its transcript `{:entries :live
+  "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :label
+   :state :deleting? :renaming?}`; `:bot`, the one shown, its `:id`,
+   `:name` (what the header shows, the label of the sidebar) and
+   `:model`; `:conversation`, its transcript `{:entries :live
    :inbox}`; `:artifacts`, its pane's keys; `:locale`; `:onboarding`,
    the skill's welcome (`rragent.onboarding`) or nil; `:update`, the
    running version and the newer release when one is known

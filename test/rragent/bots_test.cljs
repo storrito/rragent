@@ -66,12 +66,17 @@
           (is (number? (bots/created-at home 7)))
           (is (nil? (bots/created-at home 8)))
           (is (nil? (bots/name-of home 8)))))
-      (testing "a rename edits the name line of the definition, the body stays"
+      (testing "a rename edits the name line of the definition and marks it as the person's, the body stays"
         (is (= "Counting" (bots/rename! home 7 "  Counting ")))
-        (let [text (fs/readFileSync (path/join (home/bot-dir home 7) "AGENT.md") "utf8")]
+        (let [text (fs/readFileSync (path/join (home/bot-dir home 7) "AGENT.md") "utf8")
+              definition (definition/definition (home/definition-file (home/bot-dir home 7)))]
           (is (= "Counting" (bots/name-of home 7)))
           (is (str/includes? text "## Your job\n\nCount."))
-          (is (= 1 (count (re-seq #"(?m)^name:" text)))))
+          (is (= 1 (count (re-seq #"(?m)^name:" text))))
+          (is (str/includes? text "name: \"Counting\"\nrenamed: true\n") "the marker after the name")
+          (is (true? (:renamed? definition)))
+          (is (= "Counts" (bots/rename! home 7 "Counts")))
+          (is (= 1 (count (re-seq #"(?m)^renamed:" (fs/readFileSync (path/join (home/bot-dir home 7) "AGENT.md") "utf8")))) "once"))
         (is (thrown? js/Error (bots/rename! home 7 " ")))
         (is (thrown? js/Error (bots/rename! home 9 "x")) "no definition to rename"))
       (testing "the trash takes the folder"

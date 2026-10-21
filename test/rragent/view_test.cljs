@@ -132,7 +132,7 @@
         (is (not= "Paste a YouTube link" (:placeholder (second (find-tag page :ui/composer)))))))))
 
 (deftest sidebar-test
-  (let [bots [{:id "aa11bb22" :name "Assistant" :state :idle}
+  (let [bots [{:id "aa11bb22" :name "Assistant" :label [:i18n :bot/new-at {:time "14:16"}] :state :idle}
               {:id "cc33dd44" :name "Counter" :state :running}
               {:id "ee55ff66" :name "Watcher" :state :asleep}]
         page (fn [opts]
@@ -150,10 +150,13 @@
                (map #(:href (second (find-tag % :a.row))) (rows p))))
         (is (= ["aa11bb22" "cc33dd44" "ee55ff66"] (map #(:data-bot (second (find-tag % :a.row))) (rows p))))
         (is (= [["idle"] ["running" "current"] ["asleep"]] (map #(:class (second %)) (rows p))))
-        (is (contains? text "Assistant"))
+        (is (contains? text "New bot · 14:16") "a bot without a name of its own, by its label")
+        (is (not (contains? text "Assistant")))
         (is (contains? text "running"))
         (is (contains? text "asleep"))
-        (is (contains? text "New bot"))
+        (is (= {:command/kind :bot/create :command/data {:tab :ui/tabid}}
+               (get-in (second (find-tag p :button.new)) [:on :click 0 1]))
+            "New bot asks for nothing: one click")
         (is (= "/bot/cc33dd44" (:ui/path (second (find-tag p :ui/url)))))
         (is (= "Counter" (last (find-tag p :h1))) "the header names the bot shown")
         (is (= 3 (count (filter #(and (vector? %) (= :details.actions (first %))) (nodes p)))) "every row has its menu")
@@ -173,7 +176,7 @@
                      :note [:i18n :bot/missing]})
             text (set (strings p))]
         (is (contains? text "Delete this bot? Its folder goes to the trash."))
-        (is (= "Watcher" (:value (second (find-tag p :input.name)))))
+        (is (= "Watcher" (:value (second (find-tag p :input.name)))) "the field holds the definition's name")
         (is (= {:id "ee55ff66" :name :event/target.value}
                (get-in (second (find-tag p :input.name)) [:on :change 0 1 :command/data])))
         (is (contains? text "That bot is not here any more; this is another one."))))

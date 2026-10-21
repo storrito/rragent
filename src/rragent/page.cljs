@@ -131,7 +131,7 @@
         locale (i18n/locale (:ring/request w))]
     (-> (view/page {:bots (machine/listed)
                     :bot {:id id
-                          :name (machine/name-of id)
+                          :name (machine/label-of id)
                           :model (:model definition)}
                     :conversation (conversation (:value bot))
                     :artifacts (select-keys bot [:artifacts/list :artifacts/current :projects :renders])
@@ -295,20 +295,19 @@
       :else (command/rejected w :no-such-bot))))
 
 (defn- ^:async create-command
-  "A bot made from the sidebar's name and purpose
-   (`rragent.machine/create!`), shown in the tab that made it."
+  "A bot made by one click in the sidebar, from the assistant's
+   definition as it is (`rragent.machine/create!`), shown in the tab
+   that made it; it names itself after its first answer."
   [w]
-  (let [{:keys [name purpose tab]} (command/command-data w)]
-    (if (str/blank? (str name))
-      (command/rejected w :no-name)
-      (try
-        (let [{:keys [id]} (await (machine/create! {:name name :instructions purpose}))]
-          (when tab
-            (swap! db/db assoc-in [:tabs tab] id))
-          (command/accepted w))
-        (catch :default e
-          (js/console.error "[bots]" (str e))
-          (command/rejected w :not-created))))))
+  (let [{:keys [tab]} (command/command-data w)]
+    (try
+      (let [{:keys [id]} (await (machine/create! {}))]
+        (when tab
+          (swap! db/db assoc-in [:tabs tab] id))
+        (command/accepted w))
+      (catch :default e
+        (js/console.error "[bots]" (str e))
+        (command/rejected w :not-created)))))
 
 (defn- clear-flags
   "The atom's value without a delete or a rename under way in any

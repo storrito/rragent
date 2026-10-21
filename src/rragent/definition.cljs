@@ -6,8 +6,10 @@
    under `metadata` what the harness reads: `model` (an OpenRouter
    model id), `thinking` (a level), `templates` (the templates the
    agent may make projects from, `[motion, hyperframes]`; every
-   installed one without). The same reading of the frontmatter as
-   Storrito's `app.agent.skills` and pchat's `pchat.skills`."
+   installed one without); and `renamed: true` when the person named
+   the bot from the page (`rragent.bots/rename!`), which the bot is
+   told to respect. The same reading of the frontmatter as Storrito's
+   `app.agent.skills` and pchat's `pchat.skills`."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]))
@@ -82,11 +84,12 @@
    no name."
   [text file]
   (let [folder (path/dirname (path/resolve file))
-        {:keys [name description metadata body] :as read} (frontmatter text)]
+        {:keys [name description metadata body renamed] :as read} (frontmatter text)]
     (when-not (and read name)
       (throw (ex-info (str "The definition " file " needs a frontmatter with a name.") {:file file})))
     {:name name
      :description description
+     :renamed? (= "true" (str renamed))
      :metadata metadata
      :model (or (not-empty (get metadata "model")) default-model)
      :thinking (not-empty (get metadata "thinking"))
@@ -107,12 +110,18 @@
    job yet."
   "Assistant")
 
+(defn generic?
+  "Whether the definition still has the generic name: a bot that has
+   not named itself, taken a skill or been named by the person yet."
+  [{:keys [name]}]
+  (= generic-name name))
+
 (defn display-name
   "The name the page shows for the definition: its own, unless it is
    the generic one and `RRAGENT_NAME` is set, the name the provisioner
    gave the machine. Once the agent has taken a skill or a job, its
    file's name wins."
-  [{:keys [name]}]
-  (if (= generic-name name)
+  [{:keys [name] :as definition}]
+  (if (generic? definition)
     (or (not-empty (aget (.-env js/process) "RRAGENT_NAME")) name)
     name))

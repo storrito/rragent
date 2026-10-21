@@ -235,16 +235,15 @@
                              (is (= "image/png" (:mimeType (second message))))
                              (is (= 200 (.-status (await (js/fetch (str base url) #js {:headers #js {:cookie cookie}})))) "the file is served behind the token")
                              (is (= 403 (.-status (await (js/fetch (str base url)))))))))
-                       (testing "a second bot from the sidebar: made, shown in this tab, its chat and its files its own"
-                         (is (= {:success? false :result {:error :no-name}} (await (command! base cookie :bot/create {:name " " :purpose "x" :tab "t1"}))))
-                         (is (= {:success? true} (await (command! base cookie :bot/create {:name "Counter" :purpose "Count things" :tab "t1"}))))
+                       (testing "a second bot by one click: made from the assistant's text, shown in this tab as New bot, its chat and its files its own"
+                         (is (= {:success? true} (await (command! base cookie :bot/create {:tab "t1"}))))
                          (let [id2 (:id (second (machine/listed)))
                                frame (await (frame! #(= (str "/bot/" id2) (url-of %))))]
                            (is (and (bots/valid-id? id2) (not= id id2)) "a conversation of the storage of its own")
-                           (is (mentions? frame "Counter") "in the sidebar")
+                           (is (some #(and (string? %) (re-matches #"New bot · \d\d:\d\d" %)) (tree-seq coll? seq frame)) "in the sidebar, by its time")
                            (is (mentions? frame "Nothing here yet") "its chat is empty")
                            (is (not (mentions? frame "Paris.")) "the first bot's chat is not on it")
-                           (is (str/includes? (fs/readFileSync (path/join (home/bot-dir home id2) "AGENT.md") "utf8") "## Your job\n\nCount things"))
+                           (is (= (fs/readFileSync "deploy/agent/AGENT.md" "utf8") (fs/readFileSync (path/join (home/bot-dir home id2) "AGENT.md") "utf8")) "the assistant's definition as it is")
                            (fs/writeFileSync (path/join (home/bot-dir home id2) "work" "artifacts" "card.html") "<h1>card</h1>")
                            (let [frame (await (frame! #(find-tag % :ui/canvas)))]
                              (is (= (str "/bot/" id2 "/artifacts/card.html") (:ui/src (second (find-tag frame :ui/canvas))))))
@@ -255,14 +254,15 @@
                              (let [frame (await (frame! #(= (str "/bot/" id) (url-of %))))]
                                (is (mentions? frame "Paris."))
                                (is (nil? (find-tag frame :ui/canvas)))))
-                           (testing "renamed from the sidebar"
+                           (testing "renamed from the sidebar: the person's name, marked in the definition"
                              (is (= {:success? true} (await (command! base cookie :bot/rename-start {:id id2}))))
                              (let [frame (await (frame! #(find-tag % :input.name)))]
-                               (is (= "Counter" (:value (second (find-tag frame :input.name))))))
+                               (is (= "Assistant" (:value (second (find-tag frame :input.name))))))
                              (is (= {:success? true} (await (command! base cookie :bot/rename {:id id2 :name "Counting"}))))
                              (await (frame! #(mentions? % "Counting")))
                              (is (= "Counting" (bots/name-of home id2)) "in its definition")
-                             (is (= "Counting" (:name (second (machine/listed))))))
+                             (is (= "Counting" (:name (second (machine/listed))) (:label (second (machine/listed)))))
+                             (is (str/includes? (fs/readFileSync (path/join (home/bot-dir home id2) "AGENT.md") "utf8") "\nrenamed: true\n")))
                            (testing "delete asks once, then the folder goes to the trash"
                              (is (= {:success? true} (await (command! base cookie :bot/delete {:id id2}))))
                              (await (frame! #(mentions? % "Delete this bot?")))
@@ -286,14 +286,14 @@
                                (is (mentions? frame "That bot is not here any more"))
                                (.abort gone)))))
                        (testing "a change of a bot's pane goes to the tabs showing it, to none other; a handle changes nothing; the sidebar's keys go to every tab"
-                         (is (= {:success? true} (await (command! base cookie :bot/create {:name "Third" :purpose "Count more" :tab "t3"}))))
+                         (is (= {:success? true} (await (command! base cookie :bot/create {:tab "t3"}))))
                          (let [id3 (:id (last (machine/listed)))
                                other (js/AbortController.)
                                {:keys [reader decoder]} (await (stream (str base "/bot/" id3) cookie other "t3"))
                                {buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
                                {other-frame! :frame! other-none-within :none-within} (frames! reader decoder buffer)]
                            (try
-                             (await (frame! #(mentions? % "Third")))
+                             (await (frame! #(mentions? % (str "/bot/" id3))))
                              ;; the create's own refresh of every tab, coalesced, may still come
                              (await (other-none-within 500))
                              (await (none-within 300))

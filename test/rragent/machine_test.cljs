@@ -153,12 +153,29 @@
              (binding [sprite/*sprite-env* script]
                (try
                  (let [[a] (await (open! home models :sqlite))
-                       b (await (machine/create! {:name "Second" :instructions "Count."}))
+                       b (await (machine/create! {}))
                        id-b (:id b)
                        conversation-a (:conversation a)
                        conversation-b (:conversation (machine/bot id-b))]
                    (is (bots/valid-id? id-b))
                    (is (not= "1" id-b))
+                   (testing "one click: the assistant's definition as it is, no name of its own, the label New bot with its time"
+                     (is (= "Assistant" (:name b)))
+                     (is (= bots-test/assistant (fs/readFileSync (path/join (home/bot-dir home id-b) "AGENT.md") "utf8")))
+                     (let [{:keys [name label]} (second (machine/listed))]
+                       (is (= "Assistant" name))
+                       (is (= :bot/new-at (second label)))
+                       (is (re-matches #"\d\d:\d\d" (:time (nth label 2)))))
+                     (is (= "watcher" (:label (first (machine/listed)))) "the first bot keeps its definition's name"))
+                   (testing "the bot names itself in its own file: the reload shows it; the person's rename wins and is marked"
+                     (let [file (path/join (home/bot-dir home id-b) "AGENT.md")]
+                       (fs/writeFileSync file (str/replace (fs/readFileSync file "utf8") "name: Assistant" "name: Fruit counter"))
+                       (.setResponses faux #js [(tools-test/answer "Hi.")])
+                       (is (= "Hi." (await (harness/ask-in conversation-b "Hello."))))
+                       (is (= "Fruit counter" (:label (second (machine/listed)))) "after a run, which reads the file")
+                       (is (= "Second" (await (machine/rename! id-b "Second"))))
+                       (is (= "Second" (:label (second (machine/listed)))))
+                       (is (true? (:renamed? (:definition (machine/bot id-b)))) "the marker the bot is told to respect")))
                    (testing "a fact of one bot is not another's"
                      (.setResponses faux #js [(tools-test/tool-call "remember" {:event "seen" :data {:n 1}} "r1")
                                               (tools-test/answer "Noted.")])

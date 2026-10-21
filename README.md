@@ -84,20 +84,28 @@ machine's, `POST /hook/<name>/<secret>`: the call is tried on every
 bot, the secret says whose it is. Nothing of this reaches Storrito:
 the machine's page, token and environment stay what they were.
 
-A bot is made from the sidebar ("New bot": a name and a sentence of
-purpose) or by a bot through its `bot` tool (`create` with a name, the
+A bot is made by one click on "New bot" in the sidebar, which asks
+for nothing: the bot starts from the generic assistant definition as
+it is (`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the
+bundle carries a copy as `assistant.md`), its page opens, and it
+names itself: the generic definition tells it to write a short
+fitting name into the `name:` line of its own `AGENT.md` once it knows
+what the person wants, after its first answer at the latest, which the
+reload shows. Until then the sidebar and the header call it "New bot"
+with the time it was made. A rename by the person wins: it sets the
+`name:` line and the line `renamed: true` in the frontmatter, which
+the bot is told to leave alone, also when it writes the file anew; the
+line is in the file, so it survives a restart. A bot makes a bot
+through its `bot` tool, which knows both: `create` with a name, the
 instructions, and the name of a skill from the clone when the job is
-one of them; the tool makes the conversation in its own commit;
-`list`). A new bot starts from the generic assistant definition
-(`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the bundle
-carries a copy as `assistant.md`) with the instructions on top as its
-job, and the skill line when one was named, so it takes the skill or
-asks the person. The first bot of a new machine is that assistant. A
+one of them (the instructions go on top of the assistant's text as
+the job, the skill line when one was named, so it takes the skill or
+asks the person; the tool makes the conversation in its own commit),
+and `list`. The first bot of a new machine is the assistant too. A
 deleted bot is hidden, not removed: its conversation stays in the
 storage, its folder goes to `trash/<id>/`, the sidebar leaves it out;
-the last visible bot stays. A rename sets the `name:` line of its
-definition. There is no message between bots in this version: the
-person talks to each on its page.
+the last visible bot stays. There is no message between bots in this
+version: the person talks to each on its page.
 
 A machine from before the bots ran one agent at the top of the home,
 `AGENT.md` and `work/` beside `agent.sqlite`. At start the two are
@@ -112,10 +120,12 @@ the reason (`rragent.bots/migrate!`).
 
 `rragent serve` opens the bots of `RRAGENT_HOME` (`./agent`) and serves
 their page on `PORT` (8080). The sidebar on the left lists the bots with
-their name and state (running, idle, asleep until a scheduled run,
-failed to open), "New bot", and behind the three dots of a row a rename
-(a field in the row) and a delete, which asks once in the row before
-the bot's folder goes to the trash; the last bot of a machine stays.
+their name (or "New bot" and the time it was made, while a bot has
+none of its own yet) and state (running, idle, asleep until a scheduled
+run, failed to open), "New bot", one click, and behind the three dots
+of a row a rename (a field in the row) and a delete, which asks once
+in the row before the bot's folder goes to the trash; the last bot of a
+machine stays.
 The bot is in the URL, `/bot/<id>`, the id of its conversation, the way
 pchat does it with its chats: a click in the sidebar changes the URL
 without a reload and tells the server which bot this tab shows, the

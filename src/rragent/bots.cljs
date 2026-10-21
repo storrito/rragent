@@ -168,9 +168,25 @@
       (catch :default _
         nil))))
 
+(def renamed-line
+  "The line of the frontmatter that says the person named the bot
+   from the page: the generic definition tells the bot to leave the
+   name then. In the file, so it survives a restart."
+  "renamed: true")
+
+(defn- with-renamed
+  "The frontmatter `head` with the `renamed: true` line, after the
+   name's line when it is not there yet."
+  [head]
+  (if (re-find #"(?m)^renamed:" head)
+    (str/replace head #"(?m)^renamed:.*$" renamed-line)
+    (str/replace head #"(?m)^(name:.*)$" (str "$1\n" renamed-line))))
+
 (defn rename!
-  "The `name:` of the bot's definition file set to `name`, which the
-   reload picks up (`rragent.reload`); a blank one is refused."
+  "The `name:` of the bot's definition file set to `name`, with the
+   `renamed: true` line that says the person did it, which the reload
+   picks up (`rragent.reload`) and the bot respects; a blank name is
+   refused."
   [home id name]
   (let [name (str/trim (str name))
         file (or (home/definition-file (home/bot-dir home id))
@@ -178,7 +194,7 @@
     (when (str/blank? name)
       (throw (js/Error. "A bot needs a name.")))
     (let [[head body] (split-frontmatter (fs/readFileSync file "utf8"))]
-      (fs/writeFileSync file (str (with-name head name) body)))
+      (fs/writeFileSync file (str (with-renamed (with-name head name)) body)))
     name))
 
 (defn trash!

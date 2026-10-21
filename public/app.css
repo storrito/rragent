@@ -118,31 +118,19 @@ body {
   opacity: 0.6;
 }
 
-.sidebar details.new > summary {
+.sidebar button.new {
   padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
+  text-align: left;
   cursor: pointer;
-  list-style: none;
 }
 
-.sidebar details.new > summary::-webkit-details-marker {
-  display: none;
-}
-
-.sidebar details.new > summary:hover {
+.sidebar button.new:hover {
   background: color-mix(in srgb, var(--panel) 70%, var(--line));
 }
 
-.sidebar details.new .form {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 0 0;
-}
-
-.sidebar details.new input,
 .sidebar .rename input {
   width: 100%;
   min-width: 0;
@@ -155,7 +143,6 @@ body {
   font-size: 14px;
 }
 
-.sidebar details.new input:focus,
 .sidebar .rename input:focus {
   outline: 1px solid var(--accent);
 }
