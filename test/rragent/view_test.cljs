@@ -100,12 +100,61 @@
         (is (contains? text "Füge den Link ein."))
         (is (not (contains? text "Noch nichts hier. Schreib die erste Nachricht.")))
         (is (= "YouTube-Link einfügen" (:placeholder (second (find-tag page :ui/composer)))))))
+    (testing "the running version in the header, a newer release as a banner above the chat"
+      (let [page (i18n/translate (view/page {:agent {} :conversation nil :locale :en
+                                             :update {:current "0.1.2" :version "0.1.3" :notes "Subagents" :state :known :auto? true}})
+                                 :en)
+            text (set (strings page))]
+        (is (= "v0.1.2" (last (find-tag page :button.version))))
+        (is (= [[:data/command {:command/kind :update/check}]] (get-in (second (find-tag page :button.version)) [:on :click])))
+        (is (= "Look for a newer rragent" (:title (second (find-tag page :button.version)))))
+        (is (contains? text "rragent 0.1.3 is available."))
+        (is (contains? text "Subagents"))
+        (is (contains? text "Update"))
+        (is (contains? text "It installs itself once the agent is idle; the page comes back by itself."))
+        (is (< (.indexOf (vec (nodes page)) (find-tag page :div.banner.update))
+               (.indexOf (vec (nodes page)) (find-tag page :section.feed)))
+            "the banner stands above the feed")
+        (is (= page (transit/read-str (transit/write-str page))))))
+    (testing "without the version nothing of it is on the page"
+      (let [page (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en)]
+        (is (nil? (find-tag page :button.version)))
+        (is (nil? (find-tag page :div.banner.update)))))
     (testing "once the conversation has started, the welcome and the skill's placeholder go"
       (let [onboarding {:title "Kinetic Shorts" :ask "Paste the link." :placeholder "Paste a YouTube link"}
             page (i18n/translate (view/page {:agent {} :conversation conversation :locale :en :onboarding onboarding}) :en)
             text (set (strings page))]
         (is (not (contains? text "Paste the link.")))
         (is (not= "Paste a YouTube link" (:placeholder (second (find-tag page :ui/composer)))))))))
+
+(deftest update-banner-test
+  (testing "nothing while nothing newer is known"
+    (is (nil? (view/update-banner nil)))
+    (is (nil? (view/update-banner {:current "0.1.2" :auto? true}))))
+  (testing "a newer release: the version, the first line of its notes, the button"
+    (let [banner (i18n/translate (view/update-banner {:current "0.1.2" :version "0.1.3" :notes "Subagents" :state :known}) :en)
+          text (set (strings banner))]
+      (is (= :div.banner.update (first banner)))
+      (is (contains? text "rragent 0.1.3 is available."))
+      (is (contains? text "Subagents"))
+      (is (= [:button.link {:on {:click [[:data/command {:command/kind :update/apply}]]}} "Update"]
+             (find-tag banner :button.link)))
+      (is (not (contains? text "It installs itself once the agent is idle; the page comes back by itself.")))))
+  (testing "with the idle apply the banner says that it goes in by itself"
+    (let [banner (i18n/translate (view/update-banner {:current "0.1.2" :version "0.1.3" :state :known :auto? true}) :en)]
+      (is (some #{"It installs itself once the agent is idle; the page comes back by itself."} (strings banner)))))
+  (testing "what the update is doing, and why it did not work"
+    (is (= [:div.banner.update "Updating to rragent 0.1.3 … the page comes back by itself."]
+           (i18n/translate (view/update-banner {:version "0.1.3" :state :applying}) :en)))
+    (let [banner (i18n/translate (view/update-banner {:version "0.1.3" :state :failed :error "HTTP 404 from x"}) :de)]
+      (is (= :div.banner.update.failed (first banner)))
+      (is (some #{"Die Aktualisierung auf 0.1.3 hat nicht geklappt: HTTP 404 from x"} (strings banner)))
+      (is (= "Noch einmal versuchen" (last (find-tag banner :button.link))))))
+  (testing "the answers of a lookup the person asked for"
+    (is (= [:div.banner.update "rragent 0.1.2 is the newest."]
+           (i18n/translate (view/update-banner {:current "0.1.2" :checked :newest}) :en)))
+    (is (= [:div.banner.update.failed "The newest release could not be looked up."]
+           (i18n/translate (view/update-banner {:current "0.1.2" :checked :failed}) :en)))))
 
 (deftest attachments-test
   (let [text "What is in it?\nimage: uploads/0a0b.png\nvideo: uploads/ab12.mp4\naudio: uploads/ff00.wav"

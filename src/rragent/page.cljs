@@ -20,7 +20,9 @@
    (`rragent.uploads`), a dictated message, `POST /dictation`
    (`rragent.dictation`) and `POST /dictation/correct`
    (`rragent.correction`), all behind the token (`rragent.auth`); `POST /hook/<name>/<secret>`
-   outside it, the hooks' own secrets are their keys (`rragent.hooks`)."
+   outside it, the hooks' own secrets are their keys (`rragent.hooks`).
+   The commands `:update/apply` and `:update/check` are the banner's
+   and the header's (`rragent.update`)."
   (:require ["node:path" :as path]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
@@ -47,6 +49,7 @@
             [rragent.rframes.transit :as transit]
             [rragent.starting :as starting]
             [rragent.templates :as templates]
+            [rragent.update :as update]
             [rragent.uploads :as uploads]
             [rragent.view :as view]))
 
@@ -54,6 +57,12 @@
                  the artifacts folder, the handles of `rragent.projects` and
                  `rragent.render`, and the uploads folder (`rragent.uploads`)."}
   pane
+  (atom nil))
+
+(defonce ^{:doc "The handle of `rragent.update` while the page runs, set by `serve`;
+                 its `:apply!` is what the Update button runs, a test gives
+                 another."}
+  updater
   (atom nil))
 
 (defn conversation
@@ -81,7 +90,8 @@
                     :conversation (conversation value)
                     :artifacts (select-keys @db/db [:artifacts/list :artifacts/current :projects :renders])
                     :locale locale
-                    :onboarding (onboarding/onboarding (get-in agent [:definition :metadata]) locale)})
+                    :onboarding (onboarding/onboarding (get-in agent [:definition :metadata]) locale)
+                    :update (:update @db/db)})
         (i18n/translate locale))))
 
 (defn- ^:async send-command
@@ -136,6 +146,29 @@
   [w]
   (render/stop! (:render @pane) (:path (command/command-data w)))
   (command/accepted w))
+
+(defn- update-apply-command
+  "The Update button: the known release taken (`rragent.update/apply!`
+   as the updater's `:apply!`); the frames show the banner's state, the
+   page comes back after the restart."
+  [w]
+  (if-let [handle @updater]
+    (do (-> (js/Promise.resolve ((:apply! handle) handle))
+            (.catch (fn [error]
+                      (js/console.error "[update]" (str error)))))
+        (command/accepted w))
+    (command/rejected w :no-updater)))
+
+(defn- update-check-command
+  "The version in the header: the newest release looked up now, its
+   answer in the banner."
+  [w]
+  (if-let [handle @updater]
+    (do (-> (update/check-now! handle)
+            (.catch (fn [error]
+                      (js/console.error "[update]" (str error)))))
+        (command/accepted w))
+    (command/rejected w :no-updater)))
 
 (defn- ^:async artifacts-get
   "GET /artifacts/<path>: a running project's page through the proxy,
@@ -210,7 +243,11 @@
       {:command/kind :artifacts/render
        :command/fn #'render-command}
       {:command/kind :artifacts/render-stop
-       :command/fn #'render-stop-command}])))
+       :command/fn #'render-stop-command}
+      {:command/kind :update/apply
+       :command/fn #'update-apply-command}
+      {:command/kind :update/check
+       :command/fn #'update-check-command}])))
 
 (defn get-register
   []
@@ -277,7 +314,7 @@
   "`rragent serve`: the agent of RRAGENT_HOME opened, its page served on
    PORT (8080) behind the token of `rragent.auth/token` (the sprite's
    label, else RRAGENT_TOKEN, else one generated and printed in the
-   link); the machine's alarm and sleep watch started
+   link); the machine's alarm, sleep watch and update watch started
    (`rragent.lifecycle`), a connected page keeping it awake. The port is
    taken before the agent opens, `rragent.starting` answers until then."
   []
@@ -289,6 +326,8 @@
         server (await (http/listen (fn [request] (@handler* request)) port))
         base (str "http://localhost:" (.-port (.address server)))]
     (println (str "rragent on " base ", the agent opens"))
+    ;; the running version is on the page from the first frame on
+    (reset! updater (update/handle {:db db/db}))
     ;; an agent that does not open ends the process, as before: the server
     ;; would keep it alive, answering "starting" for ever
     (let [agent (try
@@ -301,9 +340,13 @@
                   (catch :default error
                     (.close server)
                     (throw error)))]
-      ;; a connected page and a render on its way keep the machine awake
-      (await (lifecycle/start! agent [(fn [] (pos? (sse/connections)))
-                                      (fn [] (render/any-running? (:render @pane)))]))
+      ;; a connected page and a render on its way keep the machine awake,
+      ;; and hold a known update back
+      (await (lifecycle/start! agent
+                               [(fn [] (pos? (sse/connections)))
+                                (fn [] (render/any-running? (:render @pane)))]
+                               @updater))
+      (println (update/report @updater))
       (println (programs/report (templates/all)))
       (println (codemode/report (:codemode agent)))
       (println (harness/model-route (codemode/discovery (:codemode agent))))

@@ -462,7 +462,35 @@ builds the bundle, publishes a GitHub release with `rragent.tar.gz` (the
 `dist/` folder: `rragent.js`, `public/` and `templates/`) and its
 checksum, and builds the Sprite image from that same `dist/` (below). A
 machine image built elsewhere downloads
-`releases/latest/download/rragent.tar.gz` instead of building the app.
+`releases/latest/download/rragent.tar.gz` instead of building the app,
+and a running agent takes the release by itself (Updates, below).
+
+## Updates
+
+A running rragent looks the newest release up at start, every hour and
+when the person clicks the version in the header (`rragent.update`:
+`releases/latest` of GitHub's API, no token; a lookup that fails is one
+line on stderr). A newer one shows as a banner above the chat: the
+version, the first line of its notes and an Update button. The click
+downloads `rragent.tar.gz` and its `.sha256` from the release into a
+temp folder next to `dist/`, verifies the checksum, unpacks into
+`dist.new`, swaps it for `dist/` and ends the process with exit code
+75; `deploy/start.sh` starts it again on that code, from the new
+`dist/`, and the page reconnects as it does after any restart. A
+download or a checksum that fails leaves `dist/` as it was and the
+banner says why. Nothing is applied while a run goes. With
+`RRAGENT_UPDATE=auto`, which `start.sh` sets, a known update goes in by
+itself once the agent is idle the way the sleep watch sees it (no run,
+no render, no page connected), so an agent nobody opens profits too;
+the banner says so. `RRAGENT_UPDATE=off` switches the lookup off.
+
+The `dist/` replaced is the one the running bundle lies in, the parent
+of its own folder (`/home/sprite/rragent/dist`), never the working
+directory. This is for machines. A checkout on a laptop sees the banner
+too (its build says `0.0.0`), and `npm start` replaces its own `dist/`
+on a click and ends with 75, to be started again by hand; `git pull`
+and a build is the way there, and under the dev server nothing is
+applied.
 
 ## Deploy
 
@@ -492,7 +520,9 @@ arguments `SKILLS_REPO` (`storrito/agentitos`) and `SKILLS_BRANCH`
 `skills-branch` of the action. `start.sh` pulls the clone before it
 starts rragent (20 seconds at most, a failure said on stderr and the
 clone from the image stands), so a machine that wakes offers the
-current skills. The image carries no secret. The secret of the
+current skills, and starts rragent again when it ended with 75 after
+taking a release (Updates, above), without the pull. The image carries
+no secret. The secret of the
 page's link is a label of the sprite, `token:<hex>`, set with the
 sprite's other labels when it is made and read by rragent at start
 (`sprite-env discover`); `RRAGENT_TOKEN` is the laptop's way and the
