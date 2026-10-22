@@ -49,6 +49,7 @@
             [rragent.machine :as machine]
             [rragent.onboarding :as onboarding]
             [rragent.openrouter :as openrouter]
+            [rragent.phone :as phone]
             [rragent.programs :as programs]
             [rragent.projects :as projects]
             [rragent.recordings :as recordings]
@@ -75,7 +76,7 @@
   #{:value :definition :schedules/next :failed
     :artifacts/list :artifacts/rev :artifacts/current :artifacts/picked-at :projects :renders
     :artifacts/renaming :artifacts/deleting
-    :deleting? :renaming?})
+    :deleting? :renaming? :phone})
 
 (def sidebar-keys
   "The value keys of a bot every tab shows, in the sidebar: its name
@@ -146,6 +147,7 @@
                           :model (:model definition)}
                     :conversation (conversation (:value bot))
                     :artifacts (artifacts-pane bot)
+                    :phone (phone/status (:phone bot))
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
                     :update update
@@ -520,6 +522,19 @@
       (str/starts-with? rest (str (subs uploads/url-prefix 1) "/"))
       (uploads/file-handler (:uploads bot) (with-subpath w rest (subs uploads/url-prefix 1)))
 
+      (= rest (subs phone/path-prefix 1))
+      (let [locale (i18n/locale (:ring/request w))]
+        (assoc w :ring/response {:status 200
+                                 :headers {"Content-Type" "text/html; charset=utf-8"
+                                           "Cache-Control" "no-cache"}
+                                 :body (phone/page-shell {:bot id
+                                                          :name (i18n/translate (machine/label-of id) locale)
+                                                          :words (i18n/translate (view/phone-words) locale)
+                                                          :head (assets/head (assets/client))})}))
+
+      (= rest (str (subs phone/path-prefix 1) "/events"))
+      (phone/events-handler id w)
+
       :else
       (assoc w :ring/response http/not-found))))
 
@@ -548,7 +563,14 @@
       (await (artifacts-post bot (with-subpath w rest (subs artifacts/url-prefix 1))))
 
       (str/starts-with? rest (str (subs recordings/path-prefix 1) "/"))
-      (await (recordings/handler (:dir bot) (with-subpath w rest (subs recordings/path-prefix 1))))
+      (await (recordings/handler (:dir bot)
+                                 {:phone-done? (fn [stamp] (phone/done? db/db (db/bot-path id) stamp))}
+                                 (with-subpath w rest (subs recordings/path-prefix 1))))
+
+      (str/starts-with? rest (str (subs phone/path-prefix 1) "/"))
+      (await (phone/post! {:db db/db :path (db/bot-path id) :bot id}
+                          (subs rest (inc (count (subs phone/path-prefix 1))))
+                          w))
 
       (= rest (subs dictation/path 1))
       (await (dictation/handler (machine/codemode) w))
@@ -660,19 +682,24 @@
   []
   (concat (register) command/register))
 
-(def open-register
-  "The routes outside the token."
+(defn open-register
+  "The routes outside the token: the hooks, and the pairing of a phone
+   (`rragent.phone`), which lets the phone in with the token's cookie."
+  [token]
   [{:ring/route [:post "/hook/*"]
-    :ring/handler #'hook-handler}])
+    :ring/handler #'hook-handler}
+   {:ring/route [:get (str phone/pair-prefix "/*")]
+    :ring/handler (fn [w] (phone/pair-handler token w))}])
 
 (defn handler
   "The ring handler: the open routes as they are, everything else behind
    the token."
   [token]
-  (let [open (http/ring-handler (fn [] open-register))
+  (let [open-routes (open-register token)
+        open (http/ring-handler (fn [] open-routes))
         secured (auth/wrap (http/ring-handler get-register) {:token token})]
     (fn [request]
-      (if (some (fn [{:keys [ring/route]}] (http/match route request)) open-register)
+      (if (some (fn [{:keys [ring/route]}] (http/match route request)) open-routes)
         (open request)
         (secured request)))))
 

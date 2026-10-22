@@ -452,6 +452,18 @@ draft names the files; the person tells the agent how the two go
 together, and the agent aligns them by their waveforms and composes the
 video. Chrome on a desktop only.
 
+A phone can be a camera too, instead of the webcam or besides it: *Pair
+a phone* in the panel shows a QR code, the phone opens its link (it is
+let in like a browser with the token) and lands on its page, which shows
+its camera and waits. Start and Stop on the laptop reach the phone
+through the machine (`rragent.phone`, server-sent events); the phone
+records its own file at full quality, with its own microphone, and sends
+it up itself, as `phone.webm` (`phone.mp4` from an iPhone) of the same
+recording. The end waits for the phone's file. Nothing streams between
+the two browsers. What is recorded is ticked: the screen, the webcam, the
+phone, any of them; the phone alone is a vertical video for the agent to
+cut, nothing is recorded on the laptop then.
+
 ## Development
 
 Node 26 (`mise install`), Java 17 or later for the compiler.

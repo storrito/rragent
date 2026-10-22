@@ -1753,6 +1753,146 @@ pre {
   color: var(--muted);
 }
 
+/* The phone as a camera inside the panel: which camera records, the
+   phone connected or the pairing, the QR code. */
+.recorder .phone-camera {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.recorder .modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+
+.recorder .modes .label {
+  margin: 0;
+}
+
+.recorder .modes label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.recorder .modes input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.recorder .connected {
+  margin: 0;
+  color: var(--ok);
+  font-size: 13px;
+}
+
+.recorder .pairing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.recorder .pairing img {
+  border-radius: 8px;
+  background: #fff;
+}
+
+.recorder .pairing code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* The phone's page (rragent.client.phone): the camera as large as the
+   phone, the state under it. */
+.phone {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100dvh;
+  padding: 16px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.phone header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.phone header .bot {
+  color: var(--muted);
+}
+
+.phone .camera {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--code-bg);
+}
+
+.phone .camera video {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  object-fit: cover;
+}
+
+.phone .badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.phone .badge .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.phone .state {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.phone .state.recording {
+  border-color: var(--accent);
+}
+
+.phone .state.done {
+  border-color: var(--ok);
+}
+
+.phone .state.failed {
+  color: var(--accent);
+}
+
+.phone .hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .composer .record.recording {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 25%, var(--panel));

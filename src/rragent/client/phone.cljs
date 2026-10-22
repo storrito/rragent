@@ -1,0 +1,238 @@
+(ns rragent.client.phone
+  "The phone's page (`rragent.phone`, `/bot/<id>/phone`): the phone
+   is a camera of a screencast. It shows its camera, says hello to the
+   machine every few seconds, and listens for the laptop's start and
+   stop: on start it records its camera and microphone at full
+   quality into `phone.<webm|mp4>` of the recording, the pieces up as
+   they come, the uploaders of `rragent.client.recorder`; on stop it
+   sends the last pieces and tells the machine its file is up. The
+   screen stays on while it records. Rendered by Replicant from the
+   atom `state*`, nothing of the frames."
+  (:require [clojure.string :as str]
+            [cognitect.transit :as t]
+            [replicant.dom :as d]
+            [rragent.client.recorder :as recorder]))
+
+(defonce ^:private state*
+  (atom {:status :connecting}))
+
+(defonce ^:private session*
+  (atom nil))
+
+(def hello-ms
+  10000)
+
+(defn- words
+  [k]
+  (get-in @state* [:words k] (name k)))
+
+(defn- device-name
+  "What the laptop shows: the phone's model when the browser says it,
+   else the browser."
+  []
+  (let [ua (str js/navigator.userAgent)]
+    (or (some-> (re-find #"Android [^;]+; ([^;)]+)\)" ua) second str/trim)
+        (when (re-find #"iPhone" ua) "iPhone")
+        (when (re-find #"iPad" ua) "iPad")
+        "Phone")))
+
+(defn- post!
+  [action data]
+  (js/fetch (str (:phone-url @state*) "/" action)
+            #js {:method "POST"
+                 :headers #js {"Content-Type" "application/transit+json"}
+                 :body (t/write (t/writer :json) data)}))
+
+(defn- hello!
+  []
+  (-> (post! "hello" {:device (device-name)
+                      :facing (:facing @state*)})
+      (.catch (fn [_] nil))))
+
+(defn- mime-type
+  []
+  (some #(when (js/MediaRecorder.isTypeSupported %) %)
+        ["video/webm;codecs=vp9,opus" "video/webm;codecs=vp8,opus" "video/webm" "video/mp4"]))
+
+(defn- extension-of
+  [mime]
+  (if (str/includes? (str mime) "mp4") "mp4" "webm"))
+
+(defn- stop-tracks!
+  [^js stream]
+  (when stream
+    (doseq [^js track (array-seq (.getTracks stream))]
+      (.stop track))))
+
+(defn- ^:async camera!
+  "The camera facing `facing`, with the microphone, live on the page."
+  [facing]
+  (stop-tracks! (:stream @session*))
+  (let [stream (await (js/navigator.mediaDevices.getUserMedia
+                       (clj->js {:audio true
+                                 :video {:facingMode facing
+                                         :width {:ideal 1920}
+                                         :height {:ideal 1080}
+                                         :frameRate {:ideal 30}}})))]
+    (swap! session* assoc :stream stream)
+    (when-let [^js node (:video @session*)]
+      (set! (.-srcObject node) stream)
+      (some-> (.play node) (.catch (fn [_] nil))))
+    (swap! state* assoc :facing facing)
+    stream))
+
+(defn- ^:async wake!
+  []
+  (try
+    (when-let [lock (some-> js/navigator .-wakeLock)]
+      (swap! session* assoc :wake (await (.request lock "screen"))))
+    (catch :default _
+      nil)))
+
+(defn- tick!
+  []
+  (when-let [since (:since @session*)]
+    (let [seconds (js/Math.floor (/ (- (js/performance.now) since) 1000))]
+      (when (not= seconds (:seconds @state*))
+        (swap! state* assoc :seconds seconds)))))
+
+(defn- ^:async finish!
+  "The last pieces up, the machine told."
+  [stamp]
+  (try
+    (await (:chain @(:uploader @session*)))
+    (await (post! "done" {:stamp stamp}))
+    (swap! state* assoc :status :done :stamp stamp)
+    (catch :default error
+      (js/console.error "[phone]" error)
+      (swap! state* assoc :status :failed :error (str (.-message error))))
+    (finally
+      (some-> (:wake @session*) (.release))
+      (some-> (:timer @session*) js/clearInterval)
+      (swap! session* dissoc :recorder :uploader :since :wake :timer))))
+
+(defn- start!
+  "The laptop started the recording `stamp`: this camera records into
+   its file of it."
+  [stamp]
+  (when-not (= :recording (:status @state*))
+    (let [^js stream (:stream @session*)
+          mime (mime-type)
+          ext (extension-of mime)
+          recorder (js/MediaRecorder. stream #js {:mimeType mime
+                                                  :videoBitsPerSecond recorder/webcam-bits
+                                                  :audioBitsPerSecond recorder/audio-bits})
+          up (recorder/uploader (str (:record-url @state*) "/" stamp "/phone?ext=" ext))]
+      (set! (.-ondataavailable recorder)
+            (fn [^js event]
+              (when (pos? (.. event -data -size))
+                (recorder/push! up (.-data event)))))
+      (set! (.-onstop recorder)
+            (fn [_]
+              (swap! state* assoc :status :uploading)
+              (finish! stamp)))
+      (swap! session* assoc
+             :recorder recorder
+             :uploader up
+             :since (js/performance.now)
+             :timer (js/setInterval tick! 250))
+      (wake!)
+      (.start recorder recorder/piece-ms)
+      (swap! state* assoc :status :recording :stamp stamp :seconds 0 :error nil))))
+
+(defn- stop!
+  []
+  (when-let [^js recorder (:recorder @session*)]
+    (when (= "recording" (.-state recorder))
+      (.stop recorder))))
+
+(defn- listen!
+  "The laptop's start and stop, server-sent events."
+  []
+  (let [source (js/EventSource. (str (:phone-url @state*) "/events"))]
+    (.addEventListener source "start"
+                       (fn [^js event]
+                         (let [data (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true)]
+                           (start! (:stamp data)))))
+    (.addEventListener source "stop" (fn [_] (stop!)))
+    (set! (.-onerror source) (fn [_] (swap! state* assoc :listening? false)))
+    (set! (.-onopen source) (fn [_] (swap! state* assoc :listening? true)))
+    (swap! session* assoc :source source)))
+
+(defn- flip!
+  []
+  (let [facing (if (= "user" (:facing @state*)) "environment" "user")]
+    (-> (camera! facing)
+        (.then (fn [_] (hello!)))
+        (.catch (fn [error]
+                  (swap! state* assoc :error (str (.-message error))))))))
+
+(defn- clock
+  [seconds]
+  (str (quot (or seconds 0) 60) ":" (.padStart (str (rem (or seconds 0) 60)) 2 "0")))
+
+(defn- view
+  [{:keys [status seconds error listening? stamp] bot-name :name}]
+  [:div.phone
+   [:header
+    [:strong (words :title)]
+    [:span.bot bot-name]]
+   [:div.camera
+    [:video {:autoplay true
+             :playsinline true
+             :replicant/on-mount (fn [{:keys [replicant/node]}]
+                                   (set! (.-muted ^js node) true)
+                                   (swap! session* assoc :video node)
+                                   (when-let [stream (:stream @session*)]
+                                     (set! (.-srcObject ^js node) stream)
+                                     (some-> (.play ^js node) (.catch (fn [_] nil)))))}]
+    (when (= :recording status)
+      [:div.badge [:span.dot] (clock seconds)])]
+   [:div.state {:class (name status)}
+    (case status
+      :connecting (words :connecting)
+      :ready (if listening? (words :waiting) (words :reconnecting))
+      :recording (words :recording)
+      :uploading (words :uploading)
+      :done (str/replace (words :done) "{stamp}" (str stamp))
+      :failed (str/replace (words :failed) "{error}" (str error))
+      "")]
+   (when error
+     (when-not (= :failed status)
+       [:p.error error]))
+   [:div.actions
+    [:button {:type "button"
+              :disabled (= :recording status)
+              :on {:click (fn [_] (flip!))}}
+     (words :flip)]]
+   [:p.hint (words :keep-open)]])
+
+(defn- render!
+  []
+  (when-let [^js node (:node @session*)]
+    (d/render node (view @state*))))
+
+(defn mount!
+  "The page on `node` (`#phone`): the camera, the hello, the events."
+  [^js node]
+  (let [bot (.getAttribute node "data-bot")
+        base (str "/bot/" bot)
+        words (js->clj (js/JSON.parse (or (.getAttribute node "data-words") "{}")) :keywordize-keys true)]
+    (reset! session* {:node node})
+    (reset! state* {:status :connecting
+                    :name (.getAttribute node "data-name")
+                    :words words
+                    :facing "environment"
+                    :phone-url (str base "/phone")
+                    :record-url (str base "/record")})
+    (add-watch state* ::render (fn [_ _ _ _] (render!)))
+    (render!)
+    (-> (camera! "environment")
+        (.then (fn [_]
+                 (swap! state* assoc :status :ready)
+                 (hello!)
+                 (js/setInterval hello! hello-ms)
+                 (listen!)))
+        (.catch (fn [error]
+                  (js/console.error "[phone]" error)
+                  (swap! state* assoc :status :failed :error (str (.-message error))))))))

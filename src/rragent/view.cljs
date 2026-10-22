@@ -419,6 +419,21 @@
     (= :failed checked)
     [:div.banner.update.failed [:i18n :update/lookup-failed]]))
 
+(defn phone-words
+  "The words of the phone's page (`rragent.client.phone`), translated
+   by the server into its shell."
+  []
+  {:title [:i18n :phone/title]
+   :connecting [:i18n :phone/connecting]
+   :waiting [:i18n :phone/waiting]
+   :reconnecting [:i18n :phone/reconnecting]
+   :recording [:i18n :phone/recording]
+   :uploading [:i18n :phone/uploading]
+   :done [:i18n :phone/done]
+   :failed [:i18n :phone/failed]
+   :flip [:i18n :phone/flip]
+   :keep-open [:i18n :phone/keep-open]})
+
 (defn draft-key
   "Where the browser keeps the draft for a bot; one per bot, so that a
    switch of the bot keeps what was typed."
@@ -452,9 +467,10 @@
    (`rragent.recordings`, the words of its panel in `:ui/recorder`).
    `placeholder` is the skill's while the chat is empty, the page's own
    otherwise."
-  [id base status placeholder]
+  [id base status placeholder phone]
   [:div.composer
    [:ui/composer {:ui/store-key (draft-key id)
+                  :ui/phone phone
                   :ui/stop (when (= :working status)
                              [[:data/command {:command/kind :chat/stop
                                               :command/data {:bot id}}]])
@@ -488,7 +504,24 @@
                                 :stop [:i18n :record/stop]
                                 :saving [:i18n :record/saving]
                                 :failed [:i18n :record/failed]
-                                :draft [:i18n :record/draft]}
+                                :draft [:i18n :record/draft]
+                                :file-screen [:i18n :record/file-screen]
+                                :file-webcam [:i18n :record/file-webcam]
+                                :file-phone [:i18n :record/file-phone]
+                                :camera-choice [:i18n :record/camera-choice]
+                                :source-screen [:i18n :record/source-screen]
+                                :source-webcam [:i18n :record/source-webcam]
+                                :source-phone [:i18n :record/source-phone]
+                                :recording-local [:i18n :record/recording-local]
+                                :no-screen-hint [:i18n :record/no-screen-hint]
+                                :none [:i18n :record/none]
+                                :blocked [:i18n :record/blocked]
+                                :no-devices [:i18n :record/no-devices]
+                                :pair [:i18n :record/pair]
+                                :pair-hint [:i18n :record/pair-hint]
+                                :phone-connected [:i18n :record/phone-connected]
+                                :phone-none [:i18n :record/phone-none]
+                                :phone-waiting [:i18n :record/phone-waiting]}
                   :ui/dictate-title [:i18n :composer/dictate]
                   :ui/dictate-stop-title [:i18n :composer/dictate-stop]
                   :ui/transcribing-title [:i18n :composer/transcribing]
@@ -866,8 +899,9 @@
    running version and the newer release when one is known
    (`rragent.update`); `:note`, a line above the chat when the bot is
    not the one the URL named; `:failed`, why the bot did not open,
-   when it did not."
-  [{:keys [bots bot conversation locale onboarding update note failed] pane :artifacts}]
+   when it did not; `:phone`, the phone paired as a camera while its
+   hello is fresh (`rragent.phone/status`), or nil."
+  [{:keys [bots bot conversation locale onboarding update note failed phone] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -901,7 +935,7 @@
         (when failed
           [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
         (feed items status onboarding {:base base :bot id})
-        (composer id base status (when fresh? (:placeholder onboarding)))]
+        (composer id base status (when fresh? (:placeholder onboarding)) phone)]
        ;; the handle between the chat and the pane, dragged to give one
        ;; more room (`rragent.client/splitter`); a phone has none
        [:ui/splitter]

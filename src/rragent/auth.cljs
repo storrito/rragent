@@ -75,7 +75,8 @@
   (or (= :https (:scheme request))
       (= "https" (get-in request [:headers "x-forwarded-proto"]))))
 
-(defn- set-cookie
+(defn set-cookie
+  "The header that lets this browser in, for the token."
   [token request]
   (str cookie-name "=" (cookie-value token)
        "; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000"
