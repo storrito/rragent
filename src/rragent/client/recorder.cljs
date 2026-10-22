@@ -18,7 +18,10 @@
    ends it too.
 
    What is recorded is a set of sources (`:sources`): the screen, the
-   webcam, a phone, any of them ticked. A phone paired by a QR code
+   webcam, a phone, the microphone alone, any of them ticked. The
+   microphone alone is a voice memo: `audio.webm` of its stream, which
+   the server makes an MP3 of (`rragent.recordings`), for the agent to
+   cut, clean and write down. A phone paired by a QR code
    (`rragent.phone`, its page `rragent.client.phone`) is a camera the
    laptop tells the machine to start and stop with the recording; it
    records its own file at full quality and sends it up itself, and
@@ -93,6 +96,17 @@
   (some #(when (js/MediaRecorder.isTypeSupported %) %)
         ["video/webm;codecs=vp9,opus" "video/webm;codecs=vp8,opus" "video/webm"]))
 
+(defn audio-mime-type
+  "The container of the microphone alone."
+  []
+  (some #(when (js/MediaRecorder.isTypeSupported %) %)
+        ["audio/webm;codecs=opus" "audio/webm"]))
+
+(defn- audio-only
+  "A stream of a copy of the microphone's track of `stream`."
+  [^js stream]
+  (js/MediaStream. #js [(.clone ^js (first (array-seq (.getAudioTracks stream))))]))
+
 (defn- remembered
   [kind]
   (try
@@ -121,7 +135,7 @@
 (defn- remembered-sources
   []
   (if-let [kept (remembered :sources)]
-    (let [found (set (keep #(#{:screen :webcam :phone :phone-screen} (keyword %)) (str/split kept #",")))]
+    (let [found (set (keep #(#{:screen :webcam :phone :phone-screen :mic} (keyword %)) (str/split kept #",")))]
       (cond-> found
         (every? found [:phone :phone-screen]) (disj :phone-screen)))
     default-sources))
@@ -278,12 +292,12 @@
 (defn- release!
   "Lets the devices go and forgets the session."
   []
-  (let [{:keys [timer preview display clone usb-clone usb audio-context]} @session*]
+  (let [{:keys [timer preview display clones usb audio-context]} @session*]
     (some-> timer js/clearInterval)
     (stop-tracks! preview)
     (stop-tracks! display)
-    (some-> ^js clone .stop)
-    (some-> ^js usb-clone .stop)
+    (doseq [^js clone clones]
+      (stop-tracks! clone))
     (some-> (:close usb) (apply []))
     (some-> ^js audio-context .close)
     (reset! session* nil)))
@@ -445,14 +459,21 @@
     (update! store assoc :error (or (get-in @session* [:ctx :labels :usb-none]) "Connect the phone over USB first."))
     true))
 
+(defn- recorder-options
+  "The recorder's options: the container, the bitrates; no video
+   bitrate for the microphone alone (`bits` nil)."
+  [mime bits]
+  (cond-> #js {:mimeType mime
+               :audioBitsPerSecond audio-bits}
+    bits (doto (aset "videoBitsPerSecond" bits))))
+
 (defn- clip
-  "A promise of an object URL: `stream` recorded for `test-ms`."
+  "A promise of an object URL: `stream` recorded for `test-ms`, the
+   microphone alone without `bits`."
   [^js stream bits]
   (js/Promise.
    (fn [resolve reject]
-     (let [recorder (js/MediaRecorder. stream #js {:mimeType (mime-type)
-                                                   :videoBitsPerSecond bits
-                                                   :audioBitsPerSecond audio-bits})
+     (let [recorder (js/MediaRecorder. stream (recorder-options (if bits (mime-type) (audio-mime-type)) bits))
            chunks #js []]
        (set! (.-ondataavailable recorder)
              (fn [^js event]
@@ -517,6 +538,7 @@
                                                                                 (.clone ^js (first (array-seq (.getAudioTracks preview))))])
                                                           screen-bits)))
                        (contains? wanted :webcam) (conj (took :webcam (clip preview webcam-bits)))
+                       (contains? wanted :mic) (conj (took :mic (clip (audio-only preview) nil)))
                        (contains? wanted :phone-screen) (conj (took :phone-screen (clip (js/MediaStream. #js [(usb-track)
                                                                                                              (.clone ^js (first (array-seq (.getAudioTracks preview))))])
                                                                                           screen-bits)))
@@ -653,18 +675,22 @@
     {:mic (some #(when (= mic (:id %)) (:label %)) (:mics devices))
      :camera (some #(when (= camera (:id %)) (:label %)) (:cameras devices))}))
 
-(defn- draft-line
+(defn draft-line
   "What the draft says of the recording: its folder and every file
-   with what it is."
+   with what it is; the microphone alone in its own words."
   [labels folder files]
   (let [what {"screen" (or (:file-screen labels) "the screen")
               "webcam" (or (:file-webcam labels) "the webcam")
               "phone" (or (:file-phone labels) "the phone's camera")
-              "phone-screen" (or (:file-phone-screen labels) "the phone's screen")}
+              "phone-screen" (or (:file-phone-screen labels) "the phone's screen")
+              "audio" (or (:file-audio labels) "the microphone")}
         named (str/join ", " (map (fn [file]
                                     (str file " (" (get what (first (str/split file #"\.")) file) ")"))
-                                  files))]
-    (-> (or (:draft labels) "New recording in {folder}: {files}; every file carries a microphone. ")
+                                  files))
+        audio-only? (every? #(str/starts-with? % "audio.") files)]
+    (-> (if audio-only?
+          (or (:draft-audio labels) "New recording in {folder}: {files}. ")
+          (or (:draft labels) "New recording in {folder}: {files}; every file carries a microphone. "))
         (str/replace "{folder}" folder)
         (str/replace "{files}" named))))
 
@@ -753,11 +779,9 @@
 
 (defn- recorder-of
   "A recorder of `stream` into the file `name`, its pieces up as they
-   come."
+   come; the microphone alone without `bits`."
   [store base mime ^js stream name bits]
-  (let [recorder (js/MediaRecorder. stream #js {:mimeType mime
-                                                :videoBitsPerSecond bits
-                                                :audioBitsPerSecond audio-bits})
+  (let [recorder (js/MediaRecorder. stream (recorder-options mime bits))
         up (uploader (str base "/" name))]
     (set! (.-ondataavailable recorder)
           (fn [^js event]
@@ -787,18 +811,20 @@
       (update! store assoc :error (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected."))
       (let [^js preview (:preview @session*)
             ^js screen-track (when display (first (array-seq (.getVideoTracks display))))
-            ^js clone (when display (.clone ^js (first (array-seq (.getAudioTracks preview)))))
+            ^js with-screen (when display (js/MediaStream. #js [screen-track (.clone ^js (first (array-seq (.getAudioTracks preview))))]))
+            ^js alone (when (contains? wanted :mic) (audio-only preview))
             phone-track (when (contains? wanted :phone-screen) (usb-track))
-            ^js usb-clone (when phone-track (.clone ^js (first (array-seq (.getAudioTracks preview)))))
+            ^js with-phone (when phone-track (js/MediaStream. #js [phone-track (.clone ^js (first (array-seq (.getAudioTracks preview))))]))
             base (str (get-in @session* [:ctx :url]) "/" the-stamp)
             mime (mime-type)
             recorders (cond-> {}
-                        display (assoc "screen" (recorder-of store base mime (js/MediaStream. #js [screen-track clone]) "screen" screen-bits))
+                        display (assoc "screen" (recorder-of store base mime with-screen "screen" screen-bits))
                         (contains? wanted :webcam) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits))
-                        phone-track (assoc "phone-screen" (recorder-of store base mime (js/MediaStream. #js [phone-track usb-clone]) "phone-screen" screen-bits)))]
+                        alone (assoc "audio" (recorder-of store base (audio-mime-type) alone "audio" nil))
+                        with-phone (assoc "phone-screen" (recorder-of store base mime with-phone "phone-screen" screen-bits)))]
         (swap! session* assoc
-               :clone clone
-               :usb-clone usb-clone
+               :display display
+               :clones (remove nil? [with-screen alone with-phone])
                :recorders recorders
                :phone? phone?
                :stamp the-stamp
@@ -1036,7 +1062,8 @@
       (for [[source word] [[:screen (:source-screen labels)]
                            [:webcam (:source-webcam labels)]
                            [:phone (:source-phone labels)]
-                           [:phone-screen (:source-phone-screen labels)]]]
+                           [:phone-screen (:source-phone-screen labels)]
+                           [:mic (:source-mic labels)]]]
         [:label {:replicant/key source}
          [:input {:type "checkbox"
                   :checked (contains? ticked source)
@@ -1090,6 +1117,7 @@
                          phone-waiting? (:phone-waiting labels)
                          (= :finishing status) (:saving labels)
                          (contains? ticked :screen) (:recording labels)
+                         (= #{:mic} ticked) (:recording-audio labels)
                          :else (:recording-local labels))]
            [:button.link {:type "button"
                           :on {:click (fn [_] (toggle-minimized! store))}}
@@ -1124,13 +1152,16 @@
              (previews store labels recorder phone (= :ready status))
              (when (seq tests)
                [:div.tests
-                (for [source [:screen :webcam :phone :phone-screen]
+                (for [source [:screen :webcam :phone :phone-screen :mic]
                       :let [url (get tests source ::none)]
                       :when (not= ::none url)]
                   [:figure {:replicant/key source}
                    (cond
                      (nil? url) [:div.pending [:span.dots [:span] [:span] [:span]]]
                      (map? url) [:p.error (:error url)]
+                     (= :mic source) [:audio.test {:replicant/key url
+                                                   :src url
+                                                   :controls true}]
                      :else [:video.test {:replicant/key url
                                          :src url
                                          :controls true}])
@@ -1150,6 +1181,7 @@
              [:p.hint (cond
                         (empty? ticked) (:none labels)
                         (contains? ticked :screen) (:screen-hint labels)
+                        (= #{:mic} ticked) (:mic-hint labels)
                         :else (:no-screen-hint labels))]))
           (when error
             [:p.error (str/replace (or (:failed labels) "The recording did not work: {error}") "{error}" (str error))])))])))

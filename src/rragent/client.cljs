@@ -839,6 +839,76 @@
                        :on {:input [[:store/assoc store-key :event/target.value]]}}])
      (into [:ul.files] (map #(narrow query %) children))]))
 
+(defn- tokens
+  "A count of tokens as the Claude app writes it: 775.2k, 1M."
+  [n]
+  (let [n (or n 0)]
+    (cond
+      (>= n 1000000) (let [m (/ n 1000000)]
+                       (str (if (= m (js/Math.floor m)) (js/Math.round m) (.toFixed m 1)) "M"))
+      (>= n 1000) (str (.toFixed (/ n 1000) 1) "k")
+      :else (str n))))
+
+(defn- fill-in
+  "`{name}` in a label replaced by the values."
+  [label values]
+  (reduce (fn [text [k v]] (str/replace text (str "{" (name k) "}") (str v)))
+          (str label)
+          values))
+
+(defn- ring
+  "A ring, `fraction` of it drawn, as the Claude app's: an SVG circle
+   whose dash is the fraction of its circumference."
+  [fraction]
+  (let [r 7
+        c (* 2 js/Math.PI r)]
+    [:svg.ring {:viewBox "0 0 20 20" :width 20 :height 20 :aria-hidden "true"}
+     [:circle.track {:cx 10 :cy 10 :r r}]
+     [:circle.fill {:cx 10 :cy 10 :r r
+                    :style {:stroke-dasharray (str (* c (js/Math.min 1 (js/Math.max 0 fraction))) " " c)}}]]))
+
+(defn context-alias
+  "`[:ui/context {:ui/used :ui/window :ui/cost :ui/labels}]` in the
+   header: how full the model's context is, a ring; a click opens the
+   usage card below it (`:ui/context-open?`, client state): the
+   percent and a bar, the tokens of the window, the cost of the
+   conversation so far, and a word of advice when it gets full."
+  [{:keys [ui/used ui/window ui/cost ui/labels ui/state]} _children]
+  (let [fraction (when (and window (pos? window)) (/ used window))
+        percent (when fraction (js/Math.round (* 100 fraction)))
+        level (cond
+                (nil? fraction) nil
+                (>= fraction 0.85) "full"
+                (>= fraction 0.6) "warn"
+                :else nil)
+        open? (:ui/context-open? state)]
+    [:div.context {:class level}
+     [:button.ring-button {:type "button"
+                           :title (if percent
+                                    (fill-in (:ring labels) {:percent percent})
+                                    (fill-in (:unknown labels) {:used (tokens used)}))
+                           :aria-expanded (str (boolean open?))
+                           :on {:click (fn [_] (swap! state/store update :ui/context-open? not))}}
+      (ring (or fraction 0))]
+     (when open?
+       [:div.usage {:replicant/key "usage"}
+        [:div.head
+         [:strong (:title labels)]
+         [:button.link {:type "button"
+                        :on {:click (fn [_] (swap! state/store dissoc :ui/context-open?))}}
+          (:close labels)]]
+        (if percent
+          (list
+           [:div.row
+            [:span (fill-in (:used labels) {:percent percent})]]
+           [:div.bar [:div.filled {:style {:width (str (js/Math.min 100 percent) "%")}}]]
+           [:p.muted (fill-in (:of labels) {:used (tokens used) :window (tokens window)})])
+          [:p.muted (fill-in (:unknown labels) {:used (tokens used)})])
+        (when cost
+          [:p.muted (fill-in (:cost labels) {:cost (str "$" (.toFixed cost 2))})])
+        (when (and fraction (>= fraction 0.7))
+          [:p.hint (:hint labels)])])]))
+
 (def pane-width-key
   "Where the browser keeps the width of the pane the person dragged."
   "rragent.pane-width")
@@ -911,6 +981,8 @@
     :ui.alias/fn composer}
    {:ui.alias/kind :ui/splitter
     :ui.alias/fn splitter}
+   {:ui.alias/kind :ui/context
+    :ui.alias/fn context-alias}
    {:ui.alias/kind :ui/files-filter
     :ui.alias/fn files-filter}
    {:ui.alias/kind :ui/canvas

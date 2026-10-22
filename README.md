@@ -108,10 +108,16 @@ the last visible bot stays. There is no message between bots in this
 version: the person talks to each on its page.
 
 A machine from before the bots ran one agent at the top of the home,
-`AGENT.md` and `work/` beside `agent.sqlite`. At start the two are
-moved into `bots/1/`, the folder of the root conversation, one rename
-each, nothing copied, the storage untouched, and `assistant.md` is
-written from that definition when it is the generic one. A home in
+`AGENT.md` (or a skill's `SKILL.md`) and `work/` beside
+`agent.sqlite`, the home being the agent's folder. At start everything
+at the top but the storage (`agent.sqlite` with its WAL, shared memory
+and journal) is moved into `bots/1/`, the folder of the root
+conversation: the definition, `work/`, and a skill's `tools/`,
+`README.md` … with it, which its instructions name by `<skill>`. One
+rename each, nothing copied, and `assistant.md` is written from that
+definition when it is the generic one. A relative symlink keeps its
+target text and so points elsewhere one folder deeper; a `shared/` or
+`trash/` the old agent made stays at the top as the machine's. A home in
 the new layout is left alone. A failure undoes the renames made,
 leaves the old layout as it was, and the server refuses to start with
 the reason (`rragent.bots/migrate!`).
@@ -290,6 +296,19 @@ the gateway's connector or the key, as the models reach it
 (`RRAGENT_IMAGE_MODEL`), `voice`, text to speech into the project's
 folder (`RRAGENT_VOICE_MODEL`, `RRAGENT_VOICE`), and `music`, a clip or
 a whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`). The
+`transcribe` tool (`rragent.tools.transcribe`) goes the other way: the
+words spoken in an audio or a video file, one the person attached
+(`uploads/<name>`) or recorded (`artifacts/recordings/<stamp>/audio.mp3`,
+see [Screencasts](#screencasts)) or any other under `artifacts/`, written down by
+the dictation's speech-to-text model (`RRAGENT_DICTATION_MODEL`, the
+language detected) into `artifacts/transcripts/<name>.md`, or where
+`out` says, in paragraphs cut at the pauses of the speech, each with
+its time when `timestamps` is asked, and answered to the model as
+text. OpenRouter takes 25 MB of audio inline, so ffmpeg cuts a file of
+any length into pieces of ten minutes (mono, 16 kHz, 48 kbit/s MP3,
+the audio alone of a video), each written down on its own, the times
+shifted; without ffmpeg a small file in a format the model reads goes
+whole. The
 `eval` tool with `project` evaluates in a project's process, for a
 template that takes an eval (below); without `project` it is the
 agent's REPL (`rragent.codemode`, see [Connectors and the REPL](#connectors-and-the-repl)).
@@ -439,7 +458,8 @@ Two Vite builds, one dev server:
 
 The 🎥 button of the composer records a screencast the way
 [rawcast](https://github.com/maxweber/rawcast) does: the screen and the
-webcam as two files, both with the microphone, no layout up front. The
+webcam as two files, both with the microphone, no layout up front; or
+the microphone alone, a voice memo (below). The
 panel picks the microphone and the camera (remembered in the browser),
 shows the level of the microphone beside it and the camera live, and makes a test
 recording of five seconds to play back. *Choose the screen* opens
@@ -474,6 +494,16 @@ model when the browser tells it (Chrome's client hints), else by its
 system and browser, with the camera it uses. What is recorded is ticked: the screen, the webcam, the
 phone, any of them; the phone alone is a vertical video for the agent to
 cut, nothing is recorded on the laptop then.
+
+The microphone alone is a source like the others, ticked in the
+panel and remembered: Start records its stream to `audio.webm` in the
+recording's folder, the pieces going up as they are recorded, and the
+end has ffmpeg make `audio.mp3` of it (`rragent.recordings`; without
+ffmpeg the WebM stays), which the draft names: a voice memo for the
+agent to cut, clean and convert with ffmpeg in bash and write down
+with the `transcribe` tool. The test plays it back as audio. The
+words are not written into the draft, the way the dictation does it:
+the recording itself is what the person sends.
 
 An Android phone's screen comes over a USB cable (*Phone screen (USB)*,
 `rragent.client.usb-screen`): no page on the phone can record its

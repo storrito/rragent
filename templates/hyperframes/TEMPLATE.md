@@ -34,8 +34,10 @@ whenever a file of it changes.
   Images go into `composition/` as well.
 - The video: the `render` tool with the name of this artifact makes
   `artifacts/<name>.mp4` with `hyperframes render`, with the values of
-  `variables.json`. The preview plays the design live, so render only
-  when the file itself is needed, not after every change.
+  `variables.json`; the file appears when the render is done (it is
+  made in a hidden folder beside it). The preview plays the design
+  live, so render only when the file itself is needed, not after every
+  change.
 - Several compositions, side by side: without `composition/index.html`,
   every folder `composition/<name>/` with its own `index.html` (a whole
   HyperFrames project: its `compositions/`, `assets/`) is shown in a

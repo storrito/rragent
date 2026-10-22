@@ -213,6 +213,24 @@
   [live]
   (if (:run live) :working :ready))
 
+(defn context-usage
+  "How full the model's context is, from the usage pi notes on every
+   assistant message: the tokens of the newest request, prompt (cached
+   or not) and answer, which is what the next request carries; and
+   the cost of the whole conversation so far, when the service prices
+   it. Nil for a conversation without an answer yet."
+  [{:keys [entries]}]
+  (let [usages (for [{:keys [kind model]} entries
+                     :when (= "pi.assistant" kind)
+                     :let [usage (:usage (first model))]
+                     :when (map? usage)]
+                 usage)]
+    (when-let [{:keys [input output cacheRead cacheWrite]} (last usages)]
+      {:used (reduce + 0 (map #(or % 0) [input output cacheRead cacheWrite]))
+       :cost (let [costs (keep #(get-in % [:cost :total]) usages)]
+               (when (seq costs)
+                 (reduce + 0 costs)))})))
+
 (defn- shown?
   "An assistant message that only carried tool calls has no text and is
    not an item on the page."
@@ -360,12 +378,13 @@
 
 (defn header
   "The bot's name and model, the running version of rragent (a click
-   on it looks for a newer release, `rragent.update`), whether a run
-   goes, and the button that switches between the light and the dark
-   theme (`:ui/theme-toggle`, client state, see `rragent.client`). On
-   a phone the sidebar is a drawer; the label opens it (the checkbox
-   in `page`)."
-  [{:keys [name model]} status version]
+   on it looks for a newer release, `rragent.update`), how full the
+   model's context is (`:ui/context`, a ring that opens the usage,
+   `rragent.client`), whether a run goes, and the button that switches
+   between the light and the dark theme (`:ui/theme-toggle`, client
+   state, see `rragent.client`). On a phone the sidebar is a drawer;
+   the label opens it (the checkbox in `page`)."
+  [{:keys [name model context-window]} status version usage]
   [:header.bar
    [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
    [:h1 name]
@@ -374,6 +393,18 @@
      [:button.version {:title [:i18n :update/check-title]
                        :on {:click [[:data/command {:command/kind :update/check}]]}}
       (str "v" version)])
+   (when usage
+     [:ui/context {:ui/used (:used usage)
+                   :ui/window context-window
+                   :ui/cost (:cost usage)
+                   :ui/labels {:title [:i18n :context/title]
+                               :used [:i18n :context/used]
+                               :of [:i18n :context/of]
+                               :unknown [:i18n :context/unknown]
+                               :cost [:i18n :context/cost]
+                               :hint [:i18n :context/hint]
+                               :ring [:i18n :context/ring]
+                               :close [:i18n :context/close]}}])
    [:span.status {:class (clojure.core/name status)}
     (case status
       :working [:i18n :chat/working]
@@ -528,6 +559,11 @@
                                 :show-live [:i18n :record/show-live]
                                 :usb-denied [:i18n :record/usb-denied]
                                 :usb-unsupported [:i18n :record/usb-unsupported]
+                                :source-mic [:i18n :record/source-mic]
+                                :file-audio [:i18n :record/file-audio]
+                                :draft-audio [:i18n :record/draft-audio]
+                                :mic-hint [:i18n :record/mic-hint]
+                                :recording-audio [:i18n :record/recording-audio]
                                 :recording-local [:i18n :record/recording-local]
                                 :no-screen-hint [:i18n :record/no-screen-hint]
                                 :none [:i18n :record/none]
@@ -912,8 +948,9 @@
 (defn page
   "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :label
    :state :deleting? :renaming?}`; `:bot`, the one shown, its `:id`,
-   `:name` (what the header shows, the label of the sidebar) and
-   `:model`; `:conversation`, its transcript `{:entries :live
+   `:name` (what the header shows, the label of the sidebar), its
+   `:model` and the model's `:context-window` in tokens, when known;
+   `:conversation`, its transcript `{:entries :live
    :inbox}`; `:artifacts`, its pane's keys; `:locale`; `:onboarding`,
    the skill's welcome (`rragent.onboarding`) or nil; `:update`, the
    running version and the newer release when one is known
@@ -944,7 +981,7 @@
         (list
          [:input#view-chat.toggle {:type "radio" :name "view"}]
          [:input#view-made.toggle {:type "radio" :name "view"}]))
-      (header bot status (:current update))
+      (header bot status (:current update) (context-usage conversation))
       (when artifacts?
         (views))
       [:div.body

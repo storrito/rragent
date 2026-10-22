@@ -21,6 +21,7 @@
             [rragent.composio :as composio]
             [rragent.facts :as facts]
             [rragent.gateway :as gateway]
+            [rragent.sprite :as sprite]
             [rragent.storrito :as storrito]
             [sci.core :as sci]))
 
@@ -199,6 +200,16 @@
       :else (throw (js/Error. (str "No Storrito among the connections: no custom_api connection of the gateway "
                                    "has a catalog at its base. (connectors) lists what there is."))))))
 
+(defn agent-uuid
+  "The uuid of this agent at Storrito, the `agentUuid` the
+   storrito/ integration procedures take
+   (storrito/add-integration-trigger, storrito/list-integration-triggers,
+   ...): the `agent:` label of the machine. Throws on a machine
+   without one."
+  [_handle]
+  (or (sprite/label (:labels (sprite/discover)) "agent")
+      (throw (js/Error. "No agent uuid: this machine has no `agent:` label, it is no Sprite that Storrito made for an agent."))))
+
 (def help-lines
   "The bindings, one form and one line each."
   [["(help)" "this text"]
@@ -211,6 +222,8 @@
    ["(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})" "runs one tool with its arguments"]
    ["(composio/connections [\"gmail\"])" "the connections of services, a missing one started: a link for the person to sign in"]
    ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each"]
+   ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid of the storrito/ integration procedures"]
+   ["(storrito/add-integration-trigger {:agentUuid (storrito/agent-uuid) :toolkit \"googledrive\" :trigger \"GOOGLEDRIVE_GOOGLE_DRIVE_CHANGES\" :config {} :targetUrl \"https://…/hook/<name>/<secret>\"})" "every event of that kind at the connected service posted to one of your hooks (the hook tool makes one) from now on; (storrito/list-integration-trigger-types {:toolkit \"googledrive\"}) lists the events of a service and their config"]
    ["(remember \"review-posted\" {:id 4711})" "a fact for later runs, kept through every summary"]
    ["(recall {:event \"review-posted\"})" "your facts, oldest first; :since narrows them"]])
 
@@ -273,7 +286,7 @@
                        :namespaces {'clojure.core denied-core
                                     'agent (vars agent-ns handle [#'connectors #'connector #'call #'remember #'recall #'help])
                                     'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections])
-                                    'storrito (cond-> (vars storrito-ns handle [#'procedures])
+                                    'storrito (cond-> (vars storrito-ns handle [#'procedures #'agent-uuid])
                                                 catalog (merge (storrito-vars (partial call handle) connection catalog)))}})]
     (sci/eval-string* ctx preamble)
     ctx))

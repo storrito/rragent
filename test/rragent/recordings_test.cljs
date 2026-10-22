@@ -1,5 +1,6 @@
 (ns rragent.recordings-test
-  (:require ["node:fs" :as fs]
+  (:require ["node:child_process" :as child]
+            ["node:fs" :as fs]
             ["node:os" :as os]
             ["node:path" :as path]
             [clojure.test :refer [async deftest is testing]]
@@ -14,6 +15,56 @@
 (defn- files-of
   [dir]
   (sort (array-seq (fs/readdirSync dir))))
+
+(defn- opus-webm
+  "A second of a tone in WebM with Opus, as the browser records the
+   microphone; false without ffmpeg."
+  [file]
+  (try
+    (zero? (.-status (child/spawnSync "ffmpeg" #js ["-y" "-v" "error" "-f" "lavfi" "-i" "sine=frequency=440:duration=1" "-c:a" "libopus" file] #js {:stdio "ignore"})))
+    (catch :default _
+      false)))
+
+(deftest audio-test
+  (async done
+    (-> ((^:async fn []
+           (let [root (fs/mkdtempSync (path/join (os/tmpdir) "rragent-recordings-"))
+                 dir (path/join root "artifacts")
+                 server (await (http/listen (http/ring-handler (constantly [{:ring/route [:post "/record/*"]
+                                                                              :ring/handler (fn [w] (recordings/handler dir {} w))}
+                                                                             {:ring/route [:get "/record/*"]
+                                                                              :ring/handler (fn [w] (recordings/get-handler dir w))}]))
+                                            0))
+                 base (str "http://127.0.0.1:" (.-port (.address server)))
+                 post (^:async fn [subpath body & [type]]
+                        (let [response (await (js/fetch (str base "/record/" subpath)
+                                                        #js {:method "POST"
+                                                             :headers #js {"Content-Type" (or type "video/webm")}
+                                                             :body body}))]
+                          [(.-status response) (transit/read-str (await (.text response)))]))
+                 stamp "2026-10-22T12-00-00"
+                 source (path/join root "tone.webm")
+                 real? (opus-webm source)
+                 content (if real? (fs/readFileSync source) (bytes-of 30))]
+             (try
+               (testing "the microphone alone: its file, an MP3 of it when ffmpeg is there"
+                 (is (= [200 {:received (.-length content)}] (await (post (str stamp "/audio?offset=0") content))))
+                 (let [[status value] (await (post (str stamp "/finish")
+                                                   (transit/write-str {:started {"audio" 1} :devices {:mic "Shure MV7"} :mime "audio/webm" :files {"audio" "webm"}})
+                                                   "application/transit+json"))
+                       made (if real? "audio.mp3" "audio.webm")]
+                   (is (= 200 status))
+                   (is (= {:folder (str "recordings/" stamp) :files [made]} value))
+                   (is (= [made "recording.json"] (files-of (recordings/folder dir stamp))) "no part file, no WebM beside the MP3")
+                   (is (= [made] (get (js->clj (js/JSON.parse (fs/readFileSync (path/join (recordings/folder dir stamp) "recording.json") "utf8"))) "files")))
+                   (testing ", served"
+                     (is (= 200 (.-status (await (js/fetch (str base "/record/" stamp "/" made)))))))))
+               (finally
+                 (.close server)
+                 (fs/rmSync root #js {:recursive true :force true}))))))
+        (.catch (fn [error]
+                  (is (nil? error))))
+        (.finally done))))
 
 (deftest server-test
   (async done

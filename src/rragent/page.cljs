@@ -144,7 +144,8 @@
     (-> (view/page {:bots (machine/listed)
                     :bot {:id id
                           :name (machine/label-of id)
-                          :model (:model definition)}
+                          :model (:model definition)
+                          :context-window (machine/context-window (:model definition))}
                     :conversation (conversation (:value bot))
                     :artifacts (artifacts-pane bot)
                     :phone (phone/status (:phone bot))

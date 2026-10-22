@@ -54,6 +54,17 @@
   []
   (:home (agent)))
 
+(defn context-window
+  "The context window of the model `id` in tokens, from the models
+   registry of the agent; nil for a model it does not know."
+  [id]
+  (let [{:keys [models provider]} (agent)]
+    (when (and models (seq (str id)))
+      (try
+        (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-contextWindow)
+        (catch :default _
+          nil)))))
+
 (defn bot
   "The map of the open bot `id`, nil for none."
   [id]
