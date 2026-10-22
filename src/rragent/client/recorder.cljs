@@ -23,8 +23,9 @@
    laptop tells the machine to start and stop with the recording; it
    records its own file at full quality and sends it up itself, and
    the end waits for that file. The phone alone is a vertical video
-   for the agent to cut. An Android phone's screen comes over a USB
-   cable (`rragent.client.usb-screen`): connected in the panel, shown
+   for the agent to cut. An Android phone's screen comes over ADB
+   (`rragent.client.usb-screen`: the laptop's adb server through its
+   bridge, else USB from Chrome itself): connected in the panel, shown
    live there, recorded here like the laptop's screen, with a copy of
    the microphone, into `phone-screen.webm`.
 
@@ -369,12 +370,19 @@
   (swap! session* #(some-> % (dissoc :usb)))
   (update! store dissoc :usb))
 
+(def usb-dark-ms
+  "How long after connecting the panel waits for the phone's first
+   frame before it says to wake the phone's screen."
+  3000)
+
 (defn- usb-error
   "What the panel says when the phone over USB did not come."
   [^js error]
   (let [words (get-in @session* [:ctx :labels])]
     (cond
-      (= :busy (:reason (ex-data error))) (or (:usb-busy words) "Another program holds the phone: an adb server on this laptop, most likely. Run adb kill-server, then connect again.")
+      (= :busy (:reason (ex-data error))) (or (:usb-busy words) "An adb server on this laptop holds the phone: start the bridge to it (scripts/adb-bridge.mjs), then connect again.")
+      (= :no-phone (:reason (ex-data error))) (or (:usb-no-phone words) "The adb server on this laptop knows no phone: plug it in with USB debugging on.")
+      (= :no-usb (:reason (ex-data error))) (or (:usb-unsupported words) "This browser cannot reach a phone over USB.")
       (#{"SecurityError" "NotAllowedError"} (some-> error .-name)) (or (:usb-denied words) "Chrome may not use this USB device. On Linux it needs a udev rule for the phone.")
       :else (str (or (some-> error .-message) error)))))
 
@@ -390,9 +398,19 @@
       (.then (fn [{:keys [name exited] :as connection}]
                (if-not connection
                  (update! store dissoc :usb)
-                 (let [id (str (random-uuid))]
+                 (let [id (str (random-uuid))
+                       current? #(= id (get-in @session* [:usb :id]))
+                       frames (:frames connection)]
                    (swap! session* assoc :usb (assoc connection :id id))
                    (update! store assoc :usb {:status :live :name name :id id})
+                   ;; no picture yet a while after connecting: the display is off
+                   (letfn [(check! []
+                             (when (current?)
+                               (if (pos? (frames))
+                                 (update! store update :usb dissoc :dark?)
+                                 (do (update! store assoc-in [:usb :dark?] true)
+                                     (js/setTimeout check! 1000)))))]
+                     (js/setTimeout check! usb-dark-ms))
                    (.then exited (fn [_]
                                    (when (= id (get-in @session* [:usb :id]))
                                      (when (= :recording (:status (:ui/recorder @store)))
@@ -832,7 +850,7 @@
   "The phone's screen over USB when it is ticked: live once connected,
    the button to connect it otherwise; a word when this browser cannot
    reach a phone over USB."
-  [store labels {:keys [status name id]} ready?]
+  [store labels {:keys [status name id dark?]} ready?]
   [:figure.usb-screen {:replicant/key "usb"}
    (cond
      (not (usb/supported?))
@@ -844,7 +862,9 @@
                        :replicant/on-mount (fn [{:keys [replicant/node]}]
                                              (when-let [element (get-in @session* [:usb :element])]
                                                (.appendChild ^js node element)))}]
-      [:figcaption name])
+      [:figcaption name]
+      (when dark?
+        [:p.hint (:usb-dark labels)]))
 
      :else
      [:button.choose {:type "button"

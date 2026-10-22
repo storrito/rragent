@@ -483,9 +483,22 @@ Apache-2.0, its license beside it), starts it, and decodes the phone's
 H.264 with WebCodecs into a video track: live in the panel, recorded
 like the laptop's screen with a copy of the microphone into
 `phone-screen.webm`. Only the picture, no sound of the phone and no
-control of it; a phone unplugged ends the recording. An `adb` server
-running on the laptop holds the phone (`adb kill-server` frees it); on
-Linux, Chrome needs a udev rule for the phone.
+control of it; the display is woken on connecting, the panel says to
+wake it when no picture comes; a phone unplugged ends the recording.
+
+An `adb` server running on the laptop holds the phone, and Chrome cannot
+claim it then. `scripts/adb-bridge.mjs`, run on the laptop, lets the page
+go through that server instead, so adb and whatever uses it go on:
+
+    node scripts/adb-bridge.mjs --origin https://<sprite>.sprites.app
+
+It listens on `ws://127.0.0.1:15037` and turns each WebSocket into one
+connection to the adb server (port 5037), bytes both ways; adb is a
+shell on the phone, so only pages of the origins named are let in, and
+only from the laptop. *Connect the phone* tries the bridge first and
+goes over USB itself when no bridge answers. Chrome asks once whether
+the page may reach apps on this device. Over USB on Linux, Chrome needs
+a udev rule for the phone.
 
 ## Development
 

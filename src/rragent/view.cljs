@@ -521,6 +521,8 @@
                                 :usb-connecting [:i18n :record/usb-connecting]
                                 :usb-none [:i18n :record/usb-none]
                                 :usb-busy [:i18n :record/usb-busy]
+                                :usb-no-phone [:i18n :record/usb-no-phone]
+                                :usb-dark [:i18n :record/usb-dark]
                                 :usb-denied [:i18n :record/usb-denied]
                                 :usb-unsupported [:i18n :record/usb-unsupported]
                                 :recording-local [:i18n :record/recording-local]
