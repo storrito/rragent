@@ -484,7 +484,11 @@ H.264 with WebCodecs into a video track: live in the panel, recorded
 like the laptop's screen with a copy of the microphone into
 `phone-screen.webm`. Only the picture, no sound of the phone and no
 control of it; the display is woken on connecting, the panel says to
-wake it when no picture comes; a phone unplugged ends the recording.
+wake it when no picture comes; a phone unplugged ends the recording. The
+phone's screen and the phone's camera exclude each other, ticking one
+unticks the other: while the phone is used, its camera page is in the
+background, and Android gives a page in the background the sound only,
+a picture a second at most, in any browser.
 
 An `adb` server running on the laptop holds the phone, and Chrome cannot
 claim it then. `scripts/adb-bridge.mjs`, run on the laptop, lets the page

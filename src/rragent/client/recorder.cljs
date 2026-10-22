@@ -110,10 +110,20 @@
 (def default-sources
   #{:screen :webcam})
 
+(def ^:private exclusive
+  "The phone's camera and the phone's screen exclude each other: while
+   the phone is used, its camera page is in the background, and Android
+   gives a page in the background the sound only, a picture a second at
+   most. Each ticked unticks the other."
+  {:phone :phone-screen
+   :phone-screen :phone})
+
 (defn- remembered-sources
   []
   (if-let [kept (remembered :sources)]
-    (set (keep #(#{:screen :webcam :phone :phone-screen} (keyword %)) (str/split kept #",")))
+    (let [found (set (keep #(#{:screen :webcam :phone :phone-screen} (keyword %)) (str/split kept #",")))]
+      (cond-> found
+        (every? found [:phone :phone-screen]) (disj :phone-screen)))
     default-sources))
 
 (defn- sources
@@ -797,17 +807,20 @@
 (declare pair!)
 
 (defn toggle!
-  "A source ticked or unticked, remembered. The phone ticked without a
-   phone connected shows the pairing at once, unticked hides it; the
-   screen unticked is let go."
+  "A source ticked or unticked, remembered. The phone's camera and its
+   screen exclude each other (`exclusive`): ticking one unticks the
+   other. The phone ticked without a phone connected shows the pairing
+   at once, unticked hides it; the screen unticked is let go, the phone
+   over USB too."
   [store source phone]
-  (let [now (if (contains? (sources store) source)
-              (disj (sources store) source)
-              (conj (sources store) source))]
+  (let [before (sources store)
+        now (if (contains? before source)
+              (disj before source)
+              (disj (conj before source) (exclusive source)))]
     (remember! :sources (str/join "," (map name now)))
     (update! store assoc :sources now :error nil)
-    (when-not (contains? now source)
-      (case source
+    (doseq [gone (remove now before)]
+      (case gone
         :screen (drop-screen! store)
         :phone (update! store dissoc :pair)
         :phone-screen (drop-usb! store)
@@ -1069,8 +1082,6 @@
                                 :disabled (or (not= :ready status) (empty? ticked))
                                 :on {:click (fn [_] (start! store))}}
                (:start labels)]]
-             (when (every? ticked [:phone :phone-screen])
-               [:p.hint (:phone-both labels)])
              [:p.hint (cond
                         (empty? ticked) (:none labels)
                         (contains? ticked :screen) (:screen-hint labels)
