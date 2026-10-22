@@ -8,6 +8,14 @@
 // which rragent shows; everything else passes through. The CLI's exit
 // status is this script's. RRAGENT_RENDER_ARGS adds arguments for the
 // CLI, `--browser-gpu` on a machine with a graphics card for example.
+//
+// The CLI keeps its work folder (the frames, the compiled composition,
+// the sound) beside the file it writes, and rragent lists every file
+// under artifacts/ that is not hidden: rendering into artifacts/ itself
+// showed dozens of files while it ran. So the CLI writes into a hidden
+// folder beside the output, `.render-<name>/`, and the finished video is
+// moved to <out> only when the render succeeded; the folder goes in any
+// case, so a half-written video never shows either.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,12 +27,19 @@ if (!projectDir || !out) {
   process.exit(2);
 }
 
+const target = path.resolve(out);
+const staging = path.join(path.dirname(target), `.render-${path.basename(target, path.extname(target))}`);
+const staged = path.join(staging, path.basename(target));
+const clean = () => fs.rmSync(staging, { recursive: true, force: true });
+clean();
+fs.mkdirSync(staging, { recursive: true });
+
 const composition = path.join(path.resolve(projectDir), "composition");
 const variables = path.join(path.resolve(projectDir), "variables.json");
 const cli = process.env.HYPERFRAMES || "hyperframes";
 const chrome = process.env.CHROME;
 const extra = (process.env.RRAGENT_RENDER_ARGS || "").trim().split(/\s+/).filter(Boolean);
-const args = ["render", ".", "--output", path.resolve(out), ...extra];
+const args = ["render", ".", "--output", staged, ...extra];
 if (fs.existsSync(variables)) args.push("--variables-file", variables);
 
 const env = {
@@ -51,8 +66,25 @@ readline.createInterface({ input: child.stdout }).on("line", (line) => {
 });
 child.on("error", (error) => {
   console.error(`${cli}: ${error.message}`);
+  clean();
   process.exit(1);
 });
 child.on("close", (code, signal) => {
-  process.exit(code ?? (signal ? 1 : 0));
+  const status = code ?? (signal ? 1 : 0);
+  if (status === 0 && fs.existsSync(staged)) fs.renameSync(staged, target);
+  else if (status === 0) {
+    console.error(`${cli} ended without writing ${path.basename(target)}`);
+    clean();
+    process.exit(1);
+  }
+  clean();
+  process.exit(status);
 });
+// stopped (the person's Stop): the CLI goes with the process group, the folder with this
+for (const name of ["SIGTERM", "SIGINT"]) {
+  process.on(name, () => {
+    child.kill(name);
+    clean();
+    process.exit(name === "SIGTERM" ? 143 : 130);
+  });
+}
