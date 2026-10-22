@@ -21,7 +21,19 @@
 
    :artifacts/open "Open"
    :artifacts/download "Download"
-   :artifacts/video " · video"
+   :artifacts/back "Artifacts"
+   :artifacts/project "project"
+   :artifacts/pick "Pick a file on the left."
+   :artifacts/truncated "The file is longer than this; download it from above for all of it."
+   :artifacts/notes [:fn/str "Notes · {{:n}}"]
+   :artifacts/filter "Filter the list"
+   :artifacts/actions "More"
+   :artifacts/rename "Rename"
+   :artifacts/name "Name"
+   :artifacts/delete "Delete"
+   :artifacts/delete-sure [:fn/str "Delete {{:title}}? It goes to the trash."]
+   :artifacts/delete-yes "Delete"
+   :artifacts/keep "Keep"
    :artifacts/render "Make the video"
    :artifacts/rendering [:fn/str "Making the video {{:progress}}"]
    :artifacts/render-stop "Stop"
@@ -166,7 +178,19 @@
 
    :artifacts/open "Öffnen"
    :artifacts/download "Herunterladen"
-   :artifacts/video " · Video"
+   :artifacts/back "Artefakte"
+   :artifacts/project "Projekt"
+   :artifacts/pick "Wähle links eine Datei."
+   :artifacts/truncated "Die Datei ist länger als das hier; oben lässt sie sich ganz herunterladen."
+   :artifacts/notes [:fn/str "Notizen · {{:n}}"]
+   :artifacts/filter "Liste filtern"
+   :artifacts/actions "Mehr"
+   :artifacts/rename "Umbenennen"
+   :artifacts/name "Name"
+   :artifacts/delete "Löschen"
+   :artifacts/delete-sure [:fn/str "{{:title}} löschen? Es kommt in den Papierkorb."]
+   :artifacts/delete-yes "Löschen"
+   :artifacts/keep "Behalten"
    :artifacts/render "Video erstellen"
    :artifacts/rendering [:fn/str "Video wird erstellt {{:progress}}"]
    :artifacts/render-stop "Stopp"

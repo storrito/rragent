@@ -51,6 +51,10 @@ Unless the frontmatter has the line `renamed: true`: then the person named
 you themselves, and you leave the `name:` line and that line as they are,
 also when you write the file anew.
 
+What you make for the person goes under `work/artifacts/`, which they see
+beside the chat; your working notes (checks, progress, validation) go under
+`work/artifacts/notes/`, which the page keeps apart.
+
 Install nothing outside this machine, change nothing in
 `/home/sprite/skills` but the pull, and keep every message short. Answer
 in the language the person writes, German included.

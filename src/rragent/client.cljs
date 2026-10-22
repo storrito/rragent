@@ -3,8 +3,9 @@
    frame stream of the page it is on and renders every frame with
    Replicant, with aliases of our own: the composer, the canvas of the
    artifacts pane, the iframe that shows a page or a project and reloads
-   it in place (the canvas is rchat's), and the button of a ```hiccup
-   block that sends the boxes ticked in it.
+   it in place (the canvas is rchat's), the filter above the pane's
+   list (`files-filter`), and the button of a ```hiccup block that
+   sends the boxes ticked in it.
 
    The composer takes files, the way pchat's does: an image picked,
    dropped or pasted goes up scaled and in one request, a video or an
@@ -721,7 +722,17 @@
          (when-let [^js link (some-> (.-target event) (.closest "a[data-bot]"))]
            (when (plain-click? event)
              (.preventDefault event)
-             (go! (.getAttribute link "data-bot"))))))
+             (go! (.getAttribute link "data-bot"))))
+         ;; a card in the chat (`a[data-artifact]`, rragent.view/artifact-card)
+         ;; opens the artifact in the pane, and the pane on a phone
+         (when-let [^js card (some-> (.-target event) (.closest "a[data-artifact]"))]
+           (when (plain-click? event)
+             (.preventDefault event)
+             (state/dispatch! [[:data/command {:command/kind :artifacts/open
+                                               :command/data {:bot (.getAttribute card "data-artifact-bot")
+                                                              :path (.getAttribute card "data-artifact")}}]])
+             (when-let [^js made (js/document.getElementById "view-made")]
+               (set! (.-checked made) true))))))
       (js/window.addEventListener
        "popstate"
        (fn [_]
@@ -788,11 +799,120 @@
      ;; U+FE0E: the text symbol, not a colored emoji on a phone
      (if dark "\u2600\uFE0E" "\u263E\uFE0E")]))
 
+(defn- narrow
+  "The hiccup with `hidden` on every node that carries a `data-name`
+   (a row of the list, a group of rows) without `query` in it; the
+   group's `data-name` is its rows' together, so that it hides with
+   them."
+  [query node]
+  (cond
+    (vector? node)
+    (let [[tag attrs & children] node
+          named? (and (map? attrs) (contains? attrs :data-name))]
+      (into (if (map? attrs)
+              [tag (cond-> attrs
+                     named? (assoc :hidden (not (str/includes? (str (:data-name attrs)) query))))]
+              [tag])
+            (map #(narrow query %) (if (map? attrs) children (rest node)))))
+
+    (seq? node)
+    (map #(narrow query %) node)
+
+    :else node))
+
+(defn files-filter
+  "The list of the artifacts (`rragent.view/artifacts`, the rows as
+   the children) with a field above it that narrows the rows: the
+   text lives in the store under `:ui/store-key`, per bot, so that a
+   frame does not reset it; a row whose `data-name` (its title and
+   path, lowercase) does not have the text is hidden, the rows stay
+   the server's. The field only with `:ui/field?`, a long list."
+  [{:keys [ui/store-key ui/field? ui/placeholder ui/state]} children]
+  (let [text (str (get state store-key ""))
+        query (if field? (str/lower-case (str/trim text)) "")]
+    [:div.list
+     (when field?
+       [:input.filter {:type "search"
+                       :value text
+                       :placeholder placeholder
+                       :aria-label placeholder
+                       :on {:input [[:store/assoc store-key :event/target.value]]}}])
+     (into [:ul.files] (map #(narrow query %) children))]))
+
+(def pane-width-key
+  "Where the browser keeps the width of the pane the person dragged."
+  "rragent.pane-width")
+
+(defn- pane-width
+  []
+  (try
+    (some-> (js/localStorage.getItem pane-width-key) js/parseInt (as-> n (when-not (js/isNaN n) n)))
+    (catch :default _
+      nil)))
+
+(defn- set-pane-width!
+  "The pane's width on the body the splitter is in, kept within what
+   leaves the chat room; nil clears it."
+  [^js splitter width]
+  (when-let [^js body (.-parentElement splitter)]
+    (if width
+      (let [room (.-clientWidth body)
+            width (js/Math.round (js/Math.min (js/Math.max width 320) (js/Math.max 320 (- room 420))))]
+        (.setProperty (.-style body) "--pane-width" (str width "px"))
+        width)
+      (.removeProperty (.-style body) "--pane-width"))))
+
+(defn splitter
+  "`[:ui/splitter]`: the handle between the chat and the pane. Dragged,
+   it sets the pane's width (`--pane-width` on the body, read by the
+   stylesheet) and the browser remembers it; a double click gives the
+   half back. While it drags the iframes take no pointer (`.dragging`
+   on the body, the stylesheet), so the drag does not stop over a
+   page."
+  [_attrs _children]
+  [:div.splitter {:role "separator"
+                  :aria-orientation "vertical"
+                  :replicant/on-mount (fn [{:keys [replicant/node]}]
+                                        (when-let [width (pane-width)]
+                                          (set-pane-width! node width)))
+                  :on {:pointerdown (fn [^js event]
+                                      (let [^js node (.-currentTarget event)
+                                            ^js body (.-parentElement node)]
+                                        (.preventDefault event)
+                                        (.setPointerCapture node (.-pointerId event))
+                                        (.add (.-classList body) "dragging")))
+                       :pointermove (fn [^js event]
+                                      (let [^js node (.-currentTarget event)
+                                            ^js body (.-parentElement node)]
+                                        (when (.hasPointerCapture node (.-pointerId event))
+                                          (set-pane-width! node (- (.-right (.getBoundingClientRect body)) (.-clientX event))))))
+                       :pointerup (fn [^js event]
+                                    (let [^js node (.-currentTarget event)
+                                          ^js body (.-parentElement node)]
+                                      (when (.hasPointerCapture node (.-pointerId event))
+                                        (.releasePointerCapture node (.-pointerId event))
+                                        (.remove (.-classList body) "dragging")
+                                        (when-let [width (set-pane-width! node (- (.-right (.getBoundingClientRect body)) (.-clientX event)))]
+                                          (try
+                                            (js/localStorage.setItem pane-width-key (str width))
+                                            (catch :default _
+                                              nil))))))
+                       :dblclick (fn [^js event]
+                                   (set-pane-width! (.-currentTarget event) nil)
+                                   (try
+                                     (js/localStorage.removeItem pane-width-key)
+                                     (catch :default _
+                                       nil)))}}])
+
 (def register
   "The aliases of the page, the URL of the bot, and `:ui/tabid` in a
    command, the id of this tab."
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
+   {:ui.alias/kind :ui/splitter
+    :ui.alias/fn splitter}
+   {:ui.alias/kind :ui/files-filter
+    :ui.alias/fn files-filter}
    {:ui.alias/kind :ui/canvas
     :ui.alias/fn canvas}
    {:ui.alias/kind :ui/send-checked

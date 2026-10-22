@@ -75,6 +75,7 @@
    comparison: a change of one pushes no frame."
   #{:value :definition :schedules/next :failed
     :artifacts/list :artifacts/rev :artifacts/current :artifacts/picked-at :projects :renders
+    :artifacts/renaming :artifacts/deleting
     :deleting? :renaming? :phone})
 
 (def sidebar-keys
@@ -121,6 +122,15 @@
   [w]
   (first (split-bot (get-in w [:ring/route-params :*]))))
 
+(defn- artifacts-pane
+  "The keys of the pane (`rragent.view/artifacts`), with the text of
+   the artifact on screen when it is a text file."
+  [{:keys [dir] :as bot}]
+  (let [pane (select-keys bot [:artifacts/list :artifacts/current :artifacts/renaming :artifacts/deleting :projects :renders])
+        current (some #(when (= (:artifacts/current bot) (:path %)) %) (:artifacts/list bot))]
+    (cond-> pane
+      current (assoc :artifacts/text (artifacts/text-of dir current)))))
+
 (defn page-view
   "The page in the language of the connection, with the bot of the
    tab. The bot's name and model are its definition's as last read
@@ -136,7 +146,7 @@
                           :name (machine/label-of id)
                           :model (:model definition)}
                     :conversation (conversation (:value bot))
-                    :artifacts (select-keys bot [:artifacts/list :artifacts/current :projects :renders])
+                    :artifacts (artifacts-pane bot)
                     :phone (phone/status (:phone bot))
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
@@ -235,14 +245,105 @@
   (some #(when (= path (:path %)) %) (:artifacts/list bot)))
 
 (defn- open-artifact-command
-  "The person picked an artifact in the chooser."
+  "The person picked an artifact in the list or on a card, or went back
+   to the list (a nil path)."
+  [w]
+  (let [{:keys [path]} (command/command-data w)
+        bot (bot-of-command w)]
+    (if (and bot (or (nil? path) (artifact-of bot path)))
+      (do (artifacts/pick! db/db (db/bot-path (:id bot)) path)
+          (command/accepted w))
+      (command/rejected w :no-such-artifact))))
+
+(defn- clear-artifact-flags
+  "The bot's map without a rename or a delete under way in a row of
+   the pane."
+  [value id]
+  (update-in value (db/bot-path id) dissoc :artifacts/renaming :artifacts/deleting))
+
+(defn- busy?
+  "Whether the artifact is in use, so that it stays where it is: a
+   project whose process runs (`rragent.projects`), one whose render
+   runs, or the file a render writes (`rragent.render`)."
+  [{:keys [projects-handle render-handle]} {:keys [path kind]}]
+  (let [project? (= :project kind)
+        render-name (if project? path (artifacts/render-name path))]
+    (boolean (or (and project? projects-handle (projects/running? projects-handle path))
+                 (and render-name render-handle (render/running? render-handle render-name))))))
+
+(defn- rename-start-artifact-command
+  "The field in the row of the artifact, see `:artifacts/rename`."
   [w]
   (let [{:keys [path]} (command/command-data w)
         bot (bot-of-command w)]
     (if (and bot (artifact-of bot path))
-      (do (artifacts/pick! db/db (db/bot-path (:id bot)) path)
+      (do (swap! db/db #(assoc-in (clear-artifact-flags % (:id bot)) (conj (db/bot-path (:id bot)) :artifacts/renaming) path))
           (command/accepted w))
       (command/rejected w :no-such-artifact))))
+
+(defn- rename-artifact-command
+  "The artifact renamed to the base name the field says, its extension
+   kept (`rragent.artifacts/renamed-path`); a blank name keeps the old.
+   The renamed file is the one on screen then. Refused while the
+   artifact is in use (`busy?`), for a name that leaves the folder, or
+   one that is taken."
+  [w]
+  (let [{:keys [path name]} (command/command-data w)
+        bot (bot-of-command w)
+        artifact (artifact-of bot path)]
+    (when bot
+      (swap! db/db clear-artifact-flags (:id bot)))
+    (cond
+      (nil? artifact) (command/rejected w :no-such-artifact)
+      (str/blank? (str name)) (command/accepted w)
+      (busy? bot artifact) (command/rejected w :busy)
+      :else (if-let [to (artifacts/renamed-path artifact name)]
+              (let [outcome (artifacts/rename! (:dir bot) path to)]
+                (if (= :renamed outcome)
+                  (do (artifacts/pick! db/db (db/bot-path (:id bot)) to)
+                      (artifacts/refresh! db/db (db/bot-path (:id bot)) (:dir bot))
+                      (command/accepted w))
+                  (command/rejected w outcome)))
+              (command/rejected w :bad-name)))))
+
+(defn- delete-artifact-command
+  "The first click arms the question in the artifact's row, the second
+   moves the file into the bot's trash, `<home>/trash/<bot>/artifacts/`
+   (`rragent.artifacts/trash!`); a deleted file on screen goes back to
+   the list. Refused while the artifact is in use (`busy?`)."
+  [w]
+  (let [{:keys [path]} (command/command-data w)
+        bot (bot-of-command w)
+        artifact (artifact-of bot path)
+        bot-path (some-> bot :id db/bot-path)]
+    (cond
+      (nil? artifact)
+      (command/rejected w :no-such-artifact)
+
+      (not= path (:artifacts/deleting bot))
+      (do (swap! db/db #(assoc-in (clear-artifact-flags % (:id bot)) (conj bot-path :artifacts/deleting) path))
+          (command/accepted w))
+
+      :else
+      (do (swap! db/db clear-artifact-flags (:id bot))
+          (if (busy? bot artifact)
+            (command/rejected w :busy)
+            (let [trash (path/join (bots/trash-dir (machine/home)) (str (:id bot)) (subs artifacts/url-prefix 1))
+                  outcome (artifacts/trash! (:dir bot) trash path)]
+              (if (keyword? outcome)
+                (command/rejected w outcome)
+                (do (when (= path (:artifacts/current bot))
+                      (artifacts/pick! db/db bot-path nil))
+                    (artifacts/refresh! db/db bot-path (:dir bot))
+                    (command/accepted w)))))))))
+
+(defn- keep-artifact-command
+  "The question of a delete, or the field of a rename, taken back."
+  [w]
+  (if-let [bot (bot-of-command w)]
+    (do (swap! db/db clear-artifact-flags (:id bot))
+        (command/accepted w))
+    (command/rejected w :no-such-bot)))
 
 (defn- render-command
   "Make the video of the project on screen; the frames show the progress."
@@ -548,6 +649,14 @@
       :command/fn #'stop-command}
      {:command/kind :artifacts/open
       :command/fn #'open-artifact-command}
+     {:command/kind :artifacts/rename-start
+      :command/fn #'rename-start-artifact-command}
+     {:command/kind :artifacts/rename
+      :command/fn #'rename-artifact-command}
+     {:command/kind :artifacts/delete
+      :command/fn #'delete-artifact-command}
+     {:command/kind :artifacts/keep
+      :command/fn #'keep-artifact-command}
      {:command/kind :artifacts/render
       :command/fn #'render-command}
      {:command/kind :artifacts/render-stop
