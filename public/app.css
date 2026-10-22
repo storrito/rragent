@@ -397,6 +397,130 @@ body {
   color: var(--muted);
 }
 
+/* How full the model's context is: a ring in the header, the way the
+   Claude app shows it, amber past 60 %, red past 85 %; a click opens
+   the usage card under it. */
+.bar .context {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.bar .context .ring-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.bar .context .ring-button:hover {
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+}
+
+.bar .context .ring {
+  display: block;
+  transform: rotate(-90deg);
+}
+
+.bar .context .ring circle {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.bar .context .ring .track {
+  stroke: var(--line);
+}
+
+.bar .context .ring .fill {
+  stroke: var(--ok);
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s ease;
+}
+
+.bar .context.warn .ring .fill {
+  stroke: var(--warn);
+}
+
+.bar .context.full .ring .fill {
+  stroke: var(--accent);
+}
+
+.bar .context .usage {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  font-size: 14px;
+  font-weight: 400;
+  white-space: normal;
+}
+
+.bar .context .usage .head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bar .context .usage button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.bar .context .usage .bar {
+  height: 8px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: var(--line);
+}
+
+.bar .context .usage .filled {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--ok);
+  transition: width 0.3s ease;
+}
+
+.bar .context.warn .usage .filled {
+  background: var(--warn);
+}
+
+.bar .context.full .usage .filled {
+  background: var(--accent);
+}
+
+.bar .context .usage p {
+  margin: 0;
+}
+
+.bar .context .usage .muted {
+  color: var(--muted);
+}
+
+.bar .context .usage .hint {
+  color: var(--text);
+  font-size: 13px;
+}
+
 .bar .status::before {
   content: "";
   display: inline-block;

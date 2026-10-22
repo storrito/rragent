@@ -159,6 +159,14 @@
 
    :bots/title "Bots"
    :bots/menu "The bots"
+   :context/title "Context window"
+   :context/used "{percent} % used"
+   :context/of "{used} of {window} tokens"
+   :context/unknown "{used} tokens; the window of this model is not known."
+   :context/cost "This conversation so far: {cost}"
+   :context/hint "A full context makes the model slow and forgetful. A new bot starts with an empty one; it can read this one's files."
+   :context/ring "Context: {percent} % used"
+   :context/close "Close"
    :bot/new "New bot"
    :bot/new-at [:fn/str "New bot · {{:time}}"]
    :bot/name "Name"
@@ -320,6 +328,14 @@
 
    :bots/title "Bots"
    :bots/menu "Die Bots"
+   :context/title "Kontextfenster"
+   :context/used "{percent} % belegt"
+   :context/of "{used} von {window} Tokens"
+   :context/unknown "{used} Tokens; das Fenster dieses Modells ist nicht bekannt."
+   :context/cost "Dieses Gespräch bisher: {cost}"
+   :context/hint "Ein voller Kontext macht das Modell langsam und vergesslich. Ein neuer Bot fängt mit leerem Kontext an; er kann die Dateien dieses Bots lesen."
+   :context/ring "Kontext: {percent} % belegt"
+   :context/close "Schließen"
    :bot/new "Neuer Bot"
    :bot/new-at [:fn/str "Neuer Bot · {{:time}}"]
    :bot/name "Name"
