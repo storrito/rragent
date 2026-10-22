@@ -234,6 +234,29 @@
                                  (tool-result 2 "c1" "boom" true)]})))
       (is (nil? (card {:entries [(assistant 1 [{:type "toolCall" :id "c1" :name "write" :arguments {:path "artifacts/x.md"}}] "toolUse")]}))))))
 
+(deftest context-usage-test
+  (let [with-usage (fn [id usage]
+                     {:id id :kind "pi.assistant" :model [{:role "assistant" :content [{:type "text" :text "ok"}] :stopReason "stop" :timestamp id :usage usage}]})]
+    (testing "the newest answer's request is what the context holds; the cost adds up"
+      (is (= {:used 775200 :cost 1.75}
+             (view/context-usage {:entries [(user 1 "hi")
+                                            (with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0 :cost {:total 0.5}})
+                                            (user 3 "more")
+                                            (with-usage 4 {:input 5200 :output 1000 :cacheRead 700000 :cacheWrite 69000 :cost {:total 1.25}})]}))))
+    (testing "without an answer there is nothing to show; without prices no cost"
+      (is (nil? (view/context-usage {:entries [(user 1 "hi")]})))
+      (is (= {:used 1200 :cost nil}
+             (view/context-usage {:entries [(with-usage 2 {:input 1000 :output 200})]}))))
+    (testing "the header carries the ring with the window of the model"
+      (let [page (view/page {:bot {:id "b1" :name "Bot" :model "m" :context-window 1000000}
+                             :conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0})]}
+                             :locale :en})
+            ring (second (find-tag page :ui/context))]
+        (is (= 1200 (:ui/used ring)))
+        (is (= 1000000 (:ui/window ring)))
+        (is (= "Context window" (:title (:ui/labels (second (find-tag (i18n/translate page :en) :ui/context)))))))
+      (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en}) :ui/context)) "no ring before the first answer"))))
+
 (deftest update-banner-test
   (testing "nothing while nothing newer is known"
     (is (nil? (view/update-banner nil)))
