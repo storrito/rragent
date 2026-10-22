@@ -55,7 +55,9 @@
                            {:ring/route [:get "/pair/*"]
                             :ring/handler (fn [w] (phone/pair-handler "secret" w))}
                            {:ring/route [:post "/bot/7/record/*"]
-                            :ring/handler (fn [w] (recordings/handler dir {:phone-done? #(phone/done? db [] %)} w))}]
+                            :ring/handler (fn [w] (recordings/handler dir {:phone-done? #(phone/done? db [] %)} w))}
+                           {:ring/route [:get "/bot/7/record/*"]
+                            :ring/handler (fn [w] (recordings/get-handler dir w))}]
                  server (await (http/listen (http/ring-handler (constantly register)) 0))
                  base (str "http://127.0.0.1:" (.-port (.address server)))
                  post (^:async fn [subpath value & [type]]
@@ -103,6 +105,24 @@
                      (is (= ["phone.mp4" "recording.json" "screen.webm"] (sort (array-seq (fs/readdirSync (recordings/folder dir stamp)))))))
                    (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {}}))) "no files is no recording")
                    (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {"tablet" "mp4"}}))) "a name that is not ours")))
+               (testing "a test clip of the phone: asked for, sent to the hidden test folder, finished by the phone, named for the laptop, served"
+                 (let [response (await (js/fetch (str base "/bot/7/phone/events")))
+                       event (read-event response)]
+                   (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                   (is (= [200 {:phones 1}] (await (post "/bot/7/phone/test" {:seconds 5}))))
+                   (is (= ["test" {"stamp" "test" "seconds" 5}] (await event))))
+                 (is (= [200 {:received 3}] (await (post "/bot/7/record/test/phone?offset=0&ext=webm" "abc" "video/webm"))))
+                 (is (= [200 {:received 3}] (await (post "/bot/7/record/test/phone?offset=0&ext=webm" "xyz" "video/webm"))) "the first piece starts the file over")
+                 (is (= [200 {:folder "recordings/test" :files ["phone.webm"]}]
+                        (await (post "/bot/7/record/test/finish" {:files {"phone" "webm"} :test true}))) "the phone ends its own test, nothing to wait for")
+                 (is (= [200 {:ok true}] (await (post "/bot/7/phone/done" {:stamp "test" :file "phone.webm"}))))
+                 (is (= "phone.webm" (:file (phone/test-of db []))))
+                 (is (= ".test" (path/basename (recordings/folder dir "test"))) "hidden from the pane")
+                 (let [served (await (js/fetch (str base "/bot/7/record/test/phone.webm")))]
+                   (is (= 200 (.-status served)))
+                   (is (= "xyz" (await (.text served)))))
+                 (is (= 404 (.-status (await (js/fetch (str base "/bot/7/record/test/recording.json"))))) "only the files of a recording are served")
+                 (is (= 404 (.-status (await (js/fetch (str base "/bot/7/record/..%2F..%2Fx/phone.webm")))))))
                (finally
                  (.close server))))))
         (.catch (fn [error]

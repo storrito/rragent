@@ -535,6 +535,12 @@
       (= rest (str (subs phone/path-prefix 1) "/events"))
       (phone/events-handler id w)
 
+      (= rest (str (subs phone/path-prefix 1) "/test"))
+      (phone/test-handler {:db db/db :path (db/bot-path id)} w)
+
+      (str/starts-with? rest (str (subs recordings/path-prefix 1) "/"))
+      (recordings/get-handler (:dir bot) (with-subpath w rest (subs recordings/path-prefix 1)))
+
       :else
       (assoc w :ring/response http/not-found))))
 

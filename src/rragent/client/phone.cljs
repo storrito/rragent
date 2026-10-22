@@ -97,12 +97,24 @@
         (swap! state* assoc :seconds seconds)))))
 
 (defn- ^:async finish!
-  "The last pieces up, the machine told."
+  "The last pieces up, the machine told. A test is the phone's own: it
+   asks for the end itself and names its clip, so the laptop's panel
+   can play it."
   [stamp]
   (try
     (await (:chain @(:uploader @session*)))
-    (await (post! "done" {:stamp stamp}))
-    (swap! state* assoc :status :done :stamp stamp)
+    (if (= "test" stamp)
+      (let [ext (:ext @session*)
+            response (await (js/fetch (str (:record-url @state*) "/test/finish")
+                                      #js {:method "POST"
+                                           :headers #js {"Content-Type" "application/transit+json"}
+                                           :body (t/write (t/writer :json) {:files {"phone" ext} :test true})}))]
+        (when-not (= 200 (.-status response))
+          (throw (js/Error. (str "The test clip was not kept (" (.-status response) ")."))))
+        (await (post! "done" {:stamp stamp :file (str "phone." ext)}))
+        (swap! state* assoc :status :ready :tested? true))
+      (do (await (post! "done" {:stamp stamp}))
+          (swap! state* assoc :status :done :stamp stamp)))
     (catch :default error
       (js/console.error "[phone]" error)
       (swap! state* assoc :status :failed :error (str (.-message error))))
@@ -111,11 +123,13 @@
       (some-> (:timer @session*) js/clearInterval)
       (swap! session* dissoc :recorder :uploader :since :wake :timer))))
 
+(declare stop!)
+
 (defn- start!
   "The laptop started the recording `stamp`: this camera records into
-   its file of it."
-  [stamp]
-  (when-not (= :recording (:status @state*))
+   its file of it; a test (`seconds`) stops by itself."
+  [stamp & [seconds]]
+  (when-not (#{:recording :testing} (:status @state*))
     (let [^js stream (:stream @session*)
           mime (mime-type)
           ext (extension-of mime)
@@ -134,11 +148,14 @@
       (swap! session* assoc
              :recorder recorder
              :uploader up
+             :ext ext
              :since (js/performance.now)
              :timer (js/setInterval tick! 250))
       (wake!)
       (.start recorder recorder/piece-ms)
-      (swap! state* assoc :status :recording :stamp stamp :seconds 0 :error nil))))
+      (when seconds
+        (js/setTimeout stop! (* 1000 seconds)))
+      (swap! state* assoc :status (if seconds :testing :recording) :stamp stamp :seconds 0 :error nil :tested? false))))
 
 (defn- stop!
   []
@@ -155,6 +172,10 @@
                          (let [data (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true)]
                            (start! (:stamp data)))))
     (.addEventListener source "stop" (fn [_] (stop!)))
+    (.addEventListener source "test"
+                       (fn [^js event]
+                         (let [data (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true)]
+                           (start! "test" (or (:seconds data) 5)))))
     (set! (.-onerror source) (fn [_] (swap! state* assoc :listening? false)))
     (set! (.-onopen source) (fn [_] (swap! state* assoc :listening? true)))
     (swap! session* assoc :source source)))
@@ -172,7 +193,7 @@
   (str (quot (or seconds 0) 60) ":" (.padStart (str (rem (or seconds 0) 60)) 2 "0")))
 
 (defn- view
-  [{:keys [status seconds error listening? stamp] bot-name :name}]
+  [{:keys [status seconds error listening? stamp tested?] bot-name :name}]
   [:div.phone
    [:header
     [:strong (words :title)]
@@ -186,12 +207,16 @@
                                    (when-let [stream (:stream @session*)]
                                      (set! (.-srcObject ^js node) stream)
                                      (some-> (.play ^js node) (.catch (fn [_] nil)))))}]
-    (when (= :recording status)
+    (when (#{:recording :testing} status)
       [:div.badge [:span.dot] (clock seconds)])]
    [:div.state {:class (name status)}
     (case status
       :connecting (words :connecting)
-      :ready (if listening? (words :waiting) (words :reconnecting))
+      :ready (cond
+               (not listening?) (words :reconnecting)
+               tested? (words :tested)
+               :else (words :waiting))
+      :testing (words :testing)
       :recording (words :recording)
       :uploading (words :uploading)
       :done (str/replace (words :done) "{stamp}" (str stamp))
@@ -202,7 +227,7 @@
        [:p.error error]))
    [:div.actions
     [:button {:type "button"
-              :disabled (= :recording status)
+              :disabled (contains? #{:recording :testing} status)
               :on {:click (fn [_] (flip!))}}
      (words :flip)]]
    [:p.hint (words :keep-open)]])
