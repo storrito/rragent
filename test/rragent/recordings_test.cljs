@@ -67,6 +67,11 @@
                           (await (post (str stamp "/finish")
                                        (transit/write-str {:started {} :files {"screen" "webm" "phone-screen" "webm"}})
                                        "application/transit+json"))))
+                   (is (= [200 {:folder (str "recordings/" stamp) :files ["phone-screen.webm" "screen.webm"]}]
+                          (await (post (str stamp "/finish")
+                                       (transit/write-str {:started {} :files {"screen" "webm" "phone-screen" "webm"}})
+                                       "application/transit+json")))
+                       "asked again once done, the end answers as it did")
                    (is (re-matches recordings/file-pattern "phone-screen.webm") "served for the panel's test")))
                (finally
                  (.close server))))))

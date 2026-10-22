@@ -553,15 +553,29 @@
                                                         :headers #js {"Content-Type" "video/webm"}
                                                         :body blob}))
                          status (.-status response)
+                         text (await (.text response))
                          value (try
-                                 (t/read (t/reader :json) (await (.text response)))
+                                 (t/read (t/reader :json) text)
                                  (catch :default _
-                                   nil))]
+                                   nil))
+                         file (second (re-find #"/([^/?]+)(?:\?|$)" url))]
                      (cond
-                       (= 200 status) {:taken (:received value)}
+                       (and (= 200 status) (map? value)) {:taken (:received value)}
+                       ;; an answer that is not the machine's: tried again
+                       (= 200 status) {:retry? true :error (str "A strange answer to the upload of " file ": " (subs text 0 80))}
                        (= 409 status) {:received (:received value)}
                        (= 503 status) {:retry? true}
-                       :else {:error (str "HTTP " status)}))
+                       ;; rragent's own refusal: the browser's login is gone
+                       (and (= 403 status) (str/includes? text "Access required"))
+                       {:error (str "The machine refused the upload of " file " (HTTP 403): this browser is not logged in any more. Open the page with its link again.")}
+                       ;; a refusal on the way, not rragent's: tried again
+                       (= 403 status)
+                       {:retry? true
+                        :error (str "The upload of " file " was refused on the way to the machine (HTTP 403"
+                                    (some->> (.get (.-headers response) "server") (str ", "))
+                                    ").")}
+                       :else {:retry? (<= 500 status)
+                              :error (str "The upload of " file " failed (HTTP " status ").")}))
                    (catch :default error
                      {:retry? true :error (str (.-message error))}))
           end (+ offset (.-size blob))]
@@ -656,27 +670,44 @@
 
 (defn- ^:async ask-finish!
   "The end, asked for until the server has every file: the phone's
-   may still be going up, or not have begun to (409)."
+   may still be going up, or not have begun to (409). An answer that is
+   not the machine's (the network, the proxy on the way) is asked again
+   after a while; the machine answers a second ask as the first."
   [base facts]
-  (loop [tries 0]
-    (let [response (await (js/fetch (str base "/finish")
-                                    #js {:method "POST"
-                                         :headers #js {"Content-Type" "application/transit+json"}
-                                         :body (t/write (t/writer :json) facts)}))
-          value (t/read (t/reader :json) (await (.text response)))]
+  (loop [tries 0
+         strange 0]
+    (let [{:keys [status value text]}
+          (try
+            (let [response (await (js/fetch (str base "/finish")
+                                            #js {:method "POST"
+                                                 :headers #js {"Content-Type" "application/transit+json"}
+                                                 :body (t/write (t/writer :json) facts)}))
+                  text (await (.text response))]
+              {:status (.-status response)
+               :text text
+               :value (try (t/read (t/reader :json) text) (catch :default _ nil))})
+            (catch :default error
+              {:status 0 :text (str (.-message error))}))]
       (cond
-        (= 200 (.-status response))
+        (and (= 200 status) (map? value))
         value
 
-        (and (= 409 (.-status response))
+        (and (= 409 status)
              (or (= :phone-uploading (:error value))
                  (and (= :not-recorded (:error value)) (= ["phone"] (:missing value))))
              (< tries finish-tries))
         (do (await (sleep finish-retry-ms))
-            (recur (inc tries)))
+            (recur (inc tries) strange))
+
+        ;; not the machine's answer: asked again after a while
+        (and (not (map? value)) (< strange (count retry-delays-ms)))
+        (do (await (sleep (nth retry-delays-ms strange)))
+            (recur tries (inc strange)))
 
         :else
-        (throw (js/Error. (str "The recording was not saved (" (.-status response) " " (pr-str value) ").")))))))
+        (throw (js/Error. (str "The recording was not saved (" status " "
+                               (if (map? value) (pr-str value) (subs (str text) 0 120))
+                               ").")))))))
 
 (defn- ^:async finish!
   "The recorders stopped: once every piece is up, the server makes the

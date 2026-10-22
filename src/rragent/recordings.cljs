@@ -161,7 +161,9 @@
   "The recording is over: every file finalized, the facts beside them,
    the folder answered as the agent names it. A recording with the
    phone's file waits for the phone to say its file is up
-   (`phone-done?`, 409 until then, the laptop asks again)."
+   (`phone-done?`, 409 until then, the laptop asks again). Asked again
+   once it is done (its answer was lost on the way), the end answers as
+   it did."
   [dir {:keys [phone-done?]} w stamp]
   (let [facts (try
                 (await (transit/read-stream (:body (:ring/request w))))
@@ -175,6 +177,12 @@
 
       (nil? files)
       (uploads/respond w 400 {:error :bad-files})
+
+      ;; done already: every file made, no part file left
+      (and (http/regular-file? (path/join (folder dir stamp) "recording.json"))
+           (every? (fn [[name ext]] (http/regular-file? (file dir stamp name ext))) files))
+      (uploads/respond w 200 {:folder (str "recordings/" stamp)
+                              :files (mapv (fn [[name ext]] (str name "." ext)) (sort-by first files))})
 
       (seq missing)
       (uploads/respond w 409 {:error :not-recorded

@@ -105,7 +105,14 @@
       (handler request)
 
       :else
-      access-required)))
+      (do
+        ;; what was refused, for the log: never the cookie's value
+        (js/console.warn "[auth] 403" (str/upper-case (name (:request-method request :get))) (:uri request)
+                         (str "cookie: " (cond
+                                           (not (contains? (cookies request) cookie-name)) "none"
+                                           :else "wrong"))
+                         (str "agent: " (subs (str (get-in request [:headers "user-agent"])) 0 60)))
+        access-required))))
 
 (defn link
   "The link that sets the cookie."
