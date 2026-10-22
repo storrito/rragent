@@ -1,5 +1,6 @@
 (ns rragent.uploads-test
-  (:require ["node:fs" :as fs]
+  (:require ["node:child_process" :as child]
+            ["node:fs" :as fs]
             ["node:os" :as os]
             ["node:path" :as path]
             [clojure.test :refer [async deftest is testing]]
@@ -67,6 +68,81 @@
                  (uploads/content dir "" attachments false)))))
       (finally
         (fs/rmSync dir #js {:recursive true :force true})))))
+
+(defn- wav
+  "A WAV of `seconds` of silence, mono, 16 kHz, 16 bit."
+  [seconds]
+  (let [data (* 2 16000 seconds)
+        header (js/Buffer.alloc 44)]
+    (.write header "RIFF" 0)
+    (.writeUInt32LE header (+ 36 data) 4)
+    (.write header "WAVE" 8)
+    (.write header "fmt " 12)
+    (.writeUInt32LE header 16 16)
+    (.writeUInt16LE header 1 20)
+    (.writeUInt16LE header 1 22)
+    (.writeUInt32LE header 16000 24)
+    (.writeUInt32LE header 32000 28)
+    (.writeUInt16LE header 2 32)
+    (.writeUInt16LE header 16 34)
+    (.write header "data" 36)
+    (.writeUInt32LE header data 40)
+    (js/Buffer.concat #js [header (js/Buffer.alloc data)])))
+
+(defn- ffmpeg?
+  []
+  (try
+    (zero? (.-status (child/spawnSync "ffmpeg" #js ["-version"] #js {:stdio "ignore"})))
+    (catch :default _
+      false)))
+
+(deftest conversion-test
+  (async done
+    (-> ((^:async fn []
+           (let [dir (path/join (fs/mkdtempSync (path/join (os/tmpdir) "rragent-uploads-")) "uploads")
+                 server (await (http/listen (http/ring-handler (constantly (uploads/routes dir ""))) 0))
+                 base (str "http://127.0.0.1:" (.-port (.address server)))
+                 post (^:async fn [type body query]
+                        (let [response (await (js/fetch (str base "/upload?" query)
+                                                        #js {:method "POST"
+                                                             :headers #js {"Content-Type" type}
+                                                             :body body}))]
+                          [(.-status response) (transit/read-str (await (.text response)))]))
+                 ffmpeg? (ffmpeg?)
+                 sound (wav 1)
+                 id "ffeeddccbbaa99887766554433221100"]
+             (try
+               (testing "a clip in one request with `to=mp3`"
+                 (let [[status {:keys [name kind size]}] (await (post "audio/wav" sound "to=mp3"))]
+                   (is (= 200 status))
+                   (is (= :audio kind))
+                   (if ffmpeg?
+                     (testing ", converted, the original gone"
+                       (is (re-matches #"[0-9a-f]{32}\.mp3" name))
+                       (is (< 0 size (.-length sound)))
+                       (is (= [name] (visible-files dir))))
+                     (testing ", as it came without ffmpeg"
+                       (is (re-matches #"[0-9a-f]{32}\.wav" name))
+                       (is (= (.-length sound) size))))))
+               (testing "a clip in pieces with `to=mp3`: the last answer names the MP3"
+                 (is (= [200 {:received 1000}] (await (post "audio/wav" (.subarray sound 0 1000) (str "id=" id "&offset=0&total=" (.-length sound) "&to=mp3")))))
+                 (let [[status {:keys [name kind] :as answer}] (await (post "audio/wav" (.subarray sound 1000) (str "id=" id "&offset=1000&total=" (.-length sound) "&to=mp3")))]
+                   (is (= 200 status))
+                   (is (= :audio kind))
+                   (is (= (str id (if ffmpeg? ".mp3" ".wav")) name))
+                   (is (fs/existsSync (path/join dir name)))
+                   (is (not (fs/existsSync (path/join dir (str id ".wav.part")))))
+                   (testing ", and the last piece sent again, whose answer was lost, is answered with it"
+                     (is (= [200 answer] (await (post "audio/wav" (.subarray sound 1000) (str "id=" id "&offset=1000&total=" (.-length sound) "&to=mp3"))))))))
+               (testing "a format nobody converts to stays"
+                 (let [[status {:keys [name]}] (await (post "audio/mpeg" (bytes-of 500) "to=ogg"))]
+                   (is (= 200 status))
+                   (is (re-matches #"[0-9a-f]{32}\.mp3" name))))
+               (finally
+                 (.close server)
+                 (fs/rmSync (path/dirname dir) #js {:recursive true :force true}))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
 
 (deftest server-test
   (async done

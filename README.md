@@ -201,6 +201,18 @@ picture as a thumbnail and a clip as its name, linked to
 `/bot/<id>/uploads/<name>`, which serves the files with ranges, behind
 the token.
 
+A message can carry a voice memo: the record button beside the
+microphone records from a click to the next (`rragent.client.memo`), a
+strip above the text shows a red dot and the time, and the stop hands
+the recording to the clip upload with `?to=mp3`, so the server has
+ffmpeg make an MP3 of the WebM or MP4 the browser recorded (the chip
+says so after the last piece; without ffmpeg the file stays as it
+came). The message names it like any audio file, `audio:
+uploads/<id>.mp3`, and the agent cuts, cleans and converts it with
+ffmpeg in bash and writes it down with the `transcribe` tool (below):
+the words are not written into the draft, the recording itself is what
+the person sends.
+
 A message can be dictated: the microphone button beside the attach
 button records while it is held, or from a click to the next; Space
 held in the text records too, until it is let go, as in Claude Code (a
@@ -296,6 +308,18 @@ the gateway's connector or the key, as the models reach it
 (`RRAGENT_IMAGE_MODEL`), `voice`, text to speech into the project's
 folder (`RRAGENT_VOICE_MODEL`, `RRAGENT_VOICE`), and `music`, a clip or
 a whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`). The
+`transcribe` tool (`rragent.tools.transcribe`) goes the other way: the
+words spoken in an audio or a video file, one the person attached or
+recorded (`uploads/<name>`) or one under `artifacts/`, written down by
+the dictation's speech-to-text model (`RRAGENT_DICTATION_MODEL`, the
+language detected) into `artifacts/transcripts/<name>.md`, or where
+`out` says, in paragraphs cut at the pauses of the speech, each with
+its time when `timestamps` is asked, and answered to the model as
+text. OpenRouter takes 25 MB of audio inline, so ffmpeg cuts a file of
+any length into pieces of ten minutes (mono, 16 kHz, 48 kbit/s MP3,
+the audio alone of a video), each written down on its own, the times
+shifted; without ffmpeg a small file in a format the model reads goes
+whole. The
 `eval` tool with `project` evaluates in a project's process, for a
 template that takes an eval (below); without `project` it is the
 agent's REPL (`rragent.codemode`, see [Connectors and the REPL](#connectors-and-the-repl)).

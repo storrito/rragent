@@ -15,10 +15,15 @@
    each, appended to a hidden part file and renamed when the last piece
    is in, so a lost connection costs one piece, not the clip; a clip in
    one request (no `id`) is named by its hash. `max-bytes` caps a clip
-   at ten gigabytes. `GET /uploads/<name>` serves the files, with ranges
+   at ten gigabytes. `?to=mp3` on a clip has it converted by ffmpeg once
+   it is in (`conversions`): a voice memo the page records
+   (`rragent.client.memo`) is WebM or MP4 as the browser makes it, the
+   message names an MP3 the agent cuts and transcribes; without ffmpeg
+   the file stays as it came. `GET /uploads/<name>` serves the files, with ranges
    for the players. Both are under the bot's page, `/bot/<id>`, the
    `base` the handler is given, which the URLs it answers carry."
-  (:require ["node:crypto" :as crypto]
+  (:require ["node:child_process" :as child]
+            ["node:crypto" :as crypto]
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
@@ -126,6 +131,42 @@
   [file]
   (fs/rmSync file #js {:force true}))
 
+(def conversions
+  "What `?to=` may ask for a clip: the extension of the file written,
+   with ffmpeg's arguments for it. MP3 at LAME's quality 4, some 165
+   kbit/s, more than a voice needs and what every editor takes."
+  {"mp3" ["-vn" "-codec:a" "libmp3lame" "-q:a" "4"]})
+
+(defn convert!
+  "A promise of the name of `file-name` of `dir` converted `to` by
+   ffmpeg, the original removed then; the name as it is when the file
+   has the format already, and when ffmpeg is not there or fails, which
+   one line on stderr says."
+  [dir file-name to]
+  (let [target (str/replace file-name #"\.[^.]+$" (str "." to))
+        arguments (conversions to)]
+    (if (or (= target file-name) (nil? arguments))
+      (js/Promise.resolve file-name)
+      (js/Promise.
+       (fn [resolve _reject]
+         (let [part (path/join dir (str "." target ".part"))
+               done (fn [error]
+                      (if error
+                        (do (js/console.error (str "[uploads] " file-name " stays as it is, no " to ": " error))
+                            (remove! part)
+                            (resolve file-name))
+                        (do (fs/renameSync part (path/join dir target))
+                            (remove! (path/join dir file-name))
+                            (resolve target))))]
+           (try
+             (child/execFile "ffmpeg"
+                             (clj->js (concat ["-y" "-v" "error" "-i" (path/join dir file-name)] arguments ["-f" to part]))
+                             #js {:timeout 600000 :maxBuffer (* 1024 1024)}
+                             (fn [error _stdout stderr]
+                               (done (when error (str/trim (str (if (seq (str stderr)) stderr (.-message error))))))))
+             (catch :default error
+               (done (.-message error))))))))))
+
 (defn- stored
   "The answer for a file that is complete, its URL under `base`."
   [dir base file-name]
@@ -172,8 +213,8 @@
 
 (defn- ^:async whole!
   "A file in one request, named by the hash of its bytes, at most
-   `limit` bytes."
-  [dir base w extension limit]
+   `limit` bytes; a clip converted `to` when asked."
+  [dir base w extension limit & [to]]
   (let [digest (crypto/createHash "sha256")
         part (path/join dir (str "." (random-uuid) ".part"))
         length (await (copy-counted! (:body (:ring/request w)) part limit digest))]
@@ -192,7 +233,7 @@
         (if (http/regular-file? file)
           (remove! part)
           (fs/renameSync part file))
-        (respond w 200 (stored dir base file-name))))))
+        (respond w 200 (stored dir base (if to (await (convert! dir file-name to)) file-name)))))))
 
 (defonce ^:private writing
   ;; the ids of the clips a piece is being written to
@@ -204,12 +245,16 @@
    complete is answered with the file: the answer to its last piece was
    lost, and the browser sends it again. A piece of a clip whose last
    piece the server still writes waits (503, the browser tries again):
-   two writers of one part file would mix their bytes."
-  [dir base w extension {:strs [id offset total]}]
+   two writers of one part file would mix their bytes. The last piece
+   of a clip wanted `to` another format is answered once ffmpeg has
+   converted it (`convert!`); the clip sent again then is the
+   converted file."
+  [dir base w extension {:strs [id offset total to]}]
   (let [offset (parse-long (str offset))
         total (parse-long (str total))
         part (path/join dir (str "." id "." extension ".part"))
         file-name (str id "." extension)
+        converted (when (contains? conversions to) (str id "." to))
         received (file-size part)]
     (cond
       (not (and (re-matches #"[0-9a-f]{16,64}" (str id)) offset total (pos? total)))
@@ -225,6 +270,12 @@
            (http/regular-file? (path/join dir file-name))
            (= total (file-size (path/join dir file-name))))
       (respond w 200 (stored dir base file-name))
+
+      (and (pos? offset)
+           converted
+           (not (http/regular-file? part))
+           (http/regular-file? (path/join dir converted)))
+      (respond w 200 (stored dir base converted))
 
       (not= offset (if (zero? offset) 0 received))
       (respond w 409 {:error :out-of-order
@@ -245,14 +296,15 @@
 
               (= length total)
               (do (fs/renameSync part (path/join dir file-name))
-                  (respond w 200 (stored dir base file-name)))
+                  (respond w 200 (stored dir base (if converted (await (convert! dir file-name to)) file-name))))
 
               :else
               (respond w 200 {:received length})))))))
 
 (defn ^:async handler
   "`POST /upload` into `dir`: a picture content-addressed, a clip as it
-   comes, any other type a 415; the URLs answered under `base`."
+   comes, converted `to` another format when asked, any other type a
+   415; the URLs answered under `base`."
   [dir base w]
   (let [request (:ring/request w)
         type (content-type request)
@@ -269,7 +321,7 @@
       (await (piece! dir base w (first (media type)) params))
 
       :else
-      (await (whole! dir base w (first (media type)) max-bytes)))))
+      (await (whole! dir base w (first (media type)) max-bytes (get params "to"))))))
 
 (defn file-handler
   "`GET /uploads/<name>`: the file of `dir`, never a hidden one (a part

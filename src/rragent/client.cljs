@@ -18,7 +18,9 @@
    opens in the tab instead of the page.
 
    The microphone button beside them dictates into the draft
-   (`rragent.client.dictation`); a button in the header switches between
+   (`rragent.client.dictation`), the record button beside it records a
+   voice memo that goes with the message as an MP3
+   (`rragent.client.memo`); a button in the header switches between
    the light and the dark theme.
 
    The bots of the machine are in the sidebar, each a link to its page,
@@ -34,6 +36,7 @@
             [rframes.client.state :as state]
             [rframes.client.ui :as ui]
             [rragent.client.dictation :as dictation]
+            [rragent.client.memo :as memo]
             [rragent.client.phone :as phone]
             [rragent.client.recorder :as recorder]))
 
@@ -209,12 +212,15 @@
    answers a piece that does not start where its part file ends with
    what it holds (409, `:received`), and the upload goes on from there,
    so what a broken piece left is kept. A chip the person removes stops
-   the upload after the piece under way."
+   the upload after the piece under way. An `upload-url` with a query
+   (`?to=mp3`, a memo the server converts) keeps it, the chip says so
+   while the last piece is in and the answer is not (`:convert?`)."
   [store attachments-key upload-url ^js file]
   (let [type (clip-type file)
         id (random-id)
         total (.-size file)
         chip (str "uploading-" id)
+        [url-base query] (str/split upload-url #"\?" 2)
         present? (fn []
                    (some #(= chip (:chip %)) (get @store attachments-key)))
         update-chip! (fn [f]
@@ -227,10 +233,11 @@
                                             :file-name (.-name file)
                                             :size total
                                             :uploading? true
+                                            :convert? (boolean (some->> query (re-find #"(^|&)to=")))
                                             :progress 0})
     ((fn step [offset attempt]
        (let [end (min total (+ offset piece-bytes))]
-         (send-piece! (str upload-url "?id=" id "&offset=" offset "&total=" total)
+         (send-piece! (str url-base "?id=" id "&offset=" offset "&total=" total (when query (str "&" query)))
                       (.slice file offset end)
                       type
                       {:on-progress (fn [loaded]
@@ -370,12 +377,15 @@
     (str (if (< mb 10) (.toFixed mb 1) (js/Math.round mb)) " MB")))
 
 (defn- clip-chip
-  [{:keys [kind file-name name size uploading? progress retry failed?]} uploading-label failed-label]
+  [{:keys [kind file-name name size uploading? progress retry failed? convert?]} uploading-label failed-label converting-label]
   [:span.clip
    [:span.icon (if (= :audio kind) "🎵" "🎬")]
    [:span.file (short-name (or file-name name))]
    [:small (megabytes size)
     (cond
+      (and uploading? convert? (<= 0.999 progress))
+      (str " · " (or converting-label "Converting to MP3"))
+
       uploading? (str " · " (or uploading-label "Uploading") " "
                       (js/Math.round (* 100 progress)) " %"
                       (when retry
@@ -383,7 +393,7 @@
       failed? (str " · " (or failed-label "The upload failed")))]])
 
 (defn- attachments-view
-  [store attachments-key attachments {:keys [remove-title uploading-label failed-label]}]
+  [store attachments-key attachments {:keys [remove-title uploading-label failed-label converting-label]}]
   (when (seq attachments)
     [:div.attachments {:replicant/key "attachments"}
      (for [{:keys [name url kind failed?] :as attachment} attachments]
@@ -392,7 +402,7 @@
         (if (= :image kind)
           [:img {:src url
                  :alt (str name)}]
-          (clip-chip attachment uploading-label failed-label))
+          (clip-chip attachment uploading-label failed-label converting-label))
         [:button.remove {:type "button"
                          :title (or remove-title "Remove")
                          :on {:click (fn [_event]
@@ -447,7 +457,11 @@
    Space held in the text, dictates into the draft, its pieces go to
    `:ui/dictation-url`; while it runs the draft is the dictation's, and
    Ctrl+Enter or Send end it and send once its text is in
-   (`:ui/send-after-dictation-label`). A paste with
+   (`:ui/send-after-dictation-label`). The record button beside it
+   records a voice memo (`rragent.client.memo`), which goes up as a
+   clip with `?to=mp3` on `:ui/upload-url`, its words in
+   `:ui/memo-title`, `:ui/memo-stop-title`, `:ui/memo-failed-title`
+   and `:ui/converting-label`. A paste with
    files on the clipboard uploads them, a paste of text pastes; files dragged over the page
    bring up the veil (`drop-veil`), a drop on it uploads them. With
    `:ui/stop`, actions, a Stop button beside Send runs them (a run
@@ -461,7 +475,8 @@
            ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
            ui/drop-title ui/drop-hint ui/dictation-url ui/dictate-title ui/dictate-stop-title
            ui/transcribing-title ui/dictation-failed-title ui/send-after-dictation-label ui/state
-           ui/stop ui/stop-label ui/record-url ui/recorder ui/phone]
+           ui/stop ui/stop-label ui/record-url ui/recorder ui/phone
+           ui/memo-title ui/memo-stop-title ui/memo-failed-title ui/converting-label]
     :as attrs}
    _children]
   (let [store state/store
@@ -500,11 +515,13 @@
        (drop-veil store attachments-key upload-url {:title drop-title
                                                     :hint drop-hint}))
      (dictation/indicator state)
+     (memo/indicator state)
      (when record-url
        (recorder/panel store state recorder phone))
      (attachments-view store attachments-key attachments {:remove-title remove-title
                                                           :uploading-label uploading-label
-                                                          :failed-label failed-label})
+                                                          :failed-label failed-label
+                                                          :converting-label converting-label})
      ;; keyed, as all the composer's children that come and go: the strip
      ;; of a dictation appearing above would otherwise make Replicant build
      ;; the row again, and the text would lose the focus and its caret
@@ -515,7 +532,8 @@
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
                    :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
                    :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label
-                   :ui/record-url :ui/recorder :ui/phone)
+                   :ui/record-url :ui/recorder :ui/phone
+                   :ui/memo-title :ui/memo-stop-title :ui/memo-failed-title :ui/converting-label)
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -547,6 +565,12 @@
                          :dictate-stop-title dictate-stop-title
                          :transcribing-title transcribing-title
                          :failed-title dictation-failed-title})
+      (memo/button store state
+                   (fn [file]
+                     (upload-clip! store attachments-key (str upload-url "?to=mp3") file))
+                   {:title memo-title
+                    :stop-title memo-stop-title
+                    :failed-title memo-failed-title})
       [:label.attach {:title (or attach-title "Attach an image, a video or an audio file")}
        "📎"
        [:input {:type "file"

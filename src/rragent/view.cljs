@@ -560,6 +560,10 @@
                   :ui/transcribing-title [:i18n :composer/transcribing]
                   :ui/dictation-failed-title [:i18n :composer/dictation-failed]
                   :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
+                  :ui/memo-title [:i18n :composer/memo]
+                  :ui/memo-stop-title [:i18n :composer/memo-stop]
+                  :ui/memo-failed-title [:i18n :composer/memo-failed]
+                  :ui/converting-label [:i18n :composer/converting]
                   :rows 3
                   :title [:i18n :composer/keys]
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]])
