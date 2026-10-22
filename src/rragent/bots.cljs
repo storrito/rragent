@@ -10,10 +10,13 @@
    `<home>/trash/<id>/`, where a deleted bot's folder goes.
 
    A machine from before the bots ran one agent at the top of the
-   home, `AGENT.md` and `work/` beside `agent.sqlite`: `migrate!`
-   moves the two into `bots/1/`, the folder of the root conversation,
-   one rename each, nothing copied, the storage untouched, and leaves
-   a home in the new layout alone (`rragent.harness/open` runs it). A
+   home, `AGENT.md` (or a skill's `SKILL.md`) and `work/` beside
+   `agent.sqlite`, the home being the agent's folder: `migrate!` moves
+   everything but the storage into `bots/1/`, the folder of the root
+   conversation (a skill's `tools/`, `README.md` … with its
+   definition, which names them by `<skill>`), one rename each,
+   nothing copied, the storage untouched, and leaves a home in the new
+   layout alone (`rragent.harness/open` runs it). A
    failure undoes the renames made and throws, the old layout as it
    was."
   (:require ["@earendil-works/pi-durable" :refer [ROOT_CONVERSATION_ID]]
@@ -218,9 +221,29 @@
       nil)))
 
 (def old-files
-  "What the old layout had at the top of the home besides the storage,
-   which stays where it is: the definition and the work folder."
+  "What tells the old layout: the definition or the work folder at the
+   top of the home."
   ["AGENT.md" "SKILL.md" "work"])
+
+(def machine-files
+  "What stays at the top of the home when the old layout moves into
+   `bots/1/`: the storage with its WAL and journal, and the folders and
+   files of the new layout."
+  #{"agent.sqlite" "agent.sqlite-wal" "agent.sqlite-shm" "agent.sqlite-journal"
+    "bots" "shared" "trash" "assistant.md"})
+
+(defn agent-files
+  "What of the home's top is the old agent's: everything but the
+   machine's (`machine-files`). The home was the agent's folder, so
+   the definition may name any of it: a skill's `<skill>/tools/…`. A
+   relative symlink among them moves as it is and points elsewhere
+   from `bots/1/`; a `shared/` or `trash/` of the old agent stays and
+   becomes the machine's."
+  [home]
+  (->> (array-seq (fs/readdirSync home))
+       (remove machine-files)
+       (sort)
+       (vec)))
 
 (defn old-layout?
   "Whether `home` has the one agent of before at its top and no
@@ -252,8 +275,10 @@
 
 (defn migrate!
   "The one agent of the old layout moved into `bots/1/`, the folder of
-   the root conversation, which is the first bot: its definition and
-   its work folder, one rename each; `agent.sqlite` stays. And
+   the root conversation, which is the first bot: its definition, its
+   work folder and whatever else of it lies at the top of the home (a
+   skill's tools, `agent-files`), one rename each; `agent.sqlite`
+   stays. And
    `<home>/assistant.md` written from the definition when that is the
    generic one (the image filled the skills repository into it), else
    from the bundle's copy at the first use. Answers the first bot's
@@ -266,10 +291,9 @@
           moved (atom [])]
       (try
         (fs/mkdirSync dir #js {:recursive true})
-        (doseq [name old-files
+        (doseq [name (agent-files home)
                 :let [from (path/join home name)
-                      to (path/join dir name)]
-                :when (fs/existsSync from)]
+                      to (path/join dir name)]]
           (fs/renameSync from to)
           (swap! moved conj [from to]))
         (when (and text (generic? text) (not (regular-file? (assistant-file home))))
