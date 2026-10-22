@@ -2,8 +2,9 @@
   "The bots on disk: a new bot's definition from the assistant's text,
    a bot's folder (its definition written, named, renamed in the
    file, trashed), and the migration of a home from before the bots:
-   the definition and the work folder into the first bot's folder, one
-   rename each, the storage untouched, idempotent, a failure undone."
+   the old agent's files (the definition, the work folder, a skill's
+   tools) into the first bot's folder, one rename each, the storage
+   untouched, idempotent, a failure undone."
   (:require ["node:fs" :as fs]
             ["node:os" :as os]
             ["node:path" :as path]
@@ -135,6 +136,26 @@
           (is (= ["agent.sqlite" "agent.sqlite-wal" "bots"] (top-level home)))))
       (finally
         (fs/rmSync home #js {:recursive true :force true}))))
+  (testing "a skill at the top of the home moves with its definition: its tools are where <skill> names them"
+    (let [home (old-home! test-home/definition-text)]
+      (try
+        (fs/renameSync (path/join home "AGENT.md") (path/join home "SKILL.md"))
+        (fs/mkdirSync (path/join home "tools" "lib") #js {:recursive true})
+        (fs/writeFileSync (path/join home "tools" "takes.mjs") "// takes")
+        (fs/writeFileSync (path/join home "tools" "lib" "cut.mjs") "// cut")
+        (fs/writeFileSync (path/join home "README.md") "# best-takes")
+        (fs/writeFileSync (path/join home ".gitignore") "node_modules/")
+        (fs/writeFileSync (path/join home "agent.sqlite-shm") "shm")
+        (is (= [".gitignore" "README.md" "SKILL.md" "tools" "work"] (bots/agent-files home)))
+        (let [dir (home/bot-dir home (bots/migrate! home))]
+          (is (= ["agent.sqlite" "agent.sqlite-shm" "agent.sqlite-wal" "bots"] (top-level home)) "the storage stays, with its WAL and shared memory")
+          (is (= "// takes" (fs/readFileSync (path/join dir "tools" "takes.mjs") "utf8")))
+          (is (= "// cut" (fs/readFileSync (path/join dir "tools" "lib" "cut.mjs") "utf8")))
+          (is (= "# best-takes" (fs/readFileSync (path/join dir "README.md") "utf8")))
+          (is (fs/existsSync (path/join dir ".gitignore")))
+          (is (= dir (:folder (definition/definition (home/definition-file dir)))) "<skill> is the bot's folder, where the tools now are"))
+        (finally
+          (fs/rmSync home #js {:recursive true :force true})))))
   (testing "the generic definition of the machine becomes the assistant every new bot starts from"
     (let [home (old-home! assistant)]
       (try
