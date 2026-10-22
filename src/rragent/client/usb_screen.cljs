@@ -47,11 +47,24 @@
   [error]
   (instance? (.-DeviceBusyError AdbDaemonWebUsbDevice) error))
 
-(defn- ^:async adb!
-  "The phone Chrome's picker gives, connected and allowed; nil when the
+(defn- ^:async device!
+  "The phone: the one this site was allowed before when it is the only
+   one plugged in, else the one Chrome's picker gives; nil when the
    person closed the picker."
   []
-  (when-let [^js device (await (.requestDevice (.-BROWSER AdbDaemonWebUsbDeviceManager)))]
+  (let [^js manager (.-BROWSER AdbDaemonWebUsbDeviceManager)
+        known (array-seq (await (.getDevices manager)))]
+    (if (= 1 (count known))
+      (first known)
+      (await (.requestDevice manager)))))
+
+(defn- ^:async adb!
+  "The phone connected and allowed; nil when the person closed the
+   picker. `on-picked` hears of the phone once it is chosen, before it
+   asks to allow this browser."
+  [on-picked]
+  (when-let [^js device (await (device!))]
+    (on-picked (.-name device))
     (let [connection (try
                        (await (.connect device))
                        (catch :default error
@@ -82,9 +95,9 @@
    of its picture, the `:element` that shows it, `:exited`, a promise
    that settles when the phone is gone, and `:close`; nil when the
    person closed the picker. A phone another program holds throws with
-   `{:reason :busy}`."
-  []
-  (when-let [{:keys [^js adb name]} (await (adb!))]
+   `{:reason :busy}`. `on-picked` hears of the phone once it is chosen."
+  [on-picked]
+  (when-let [{:keys [^js adb name]} (await (adb! on-picked))]
     (try
       (await (push-server! adb))
       (let [^js client (await (.start AdbScrcpyClient adb DefaultServerPath

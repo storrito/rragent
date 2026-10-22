@@ -384,8 +384,9 @@
    panel. A phone unplugged ends a recording, as Chrome's Stop sharing
    does, and is let go."
   [store]
-  (update! store assoc :usb {:status :connecting} :error nil)
-  (-> (usb/connect!)
+  (update! store assoc :usb {:status :picking} :error nil)
+  (-> (usb/connect! (fn [name]
+                      (update! store assoc :usb {:status :connecting :name name})))
       (.then (fn [{:keys [name exited] :as connection}]
                (if-not connection
                  (update! store dissoc :usb)
@@ -847,10 +848,11 @@
 
      :else
      [:button.choose {:type "button"
-                      :disabled (or (not ready?) (= :connecting status))
+                      :disabled (or (not ready?) (#{:picking :connecting} status))
                       :on {:click (fn [_] (connect-usb! store))}}
-      (if (= :connecting status)
-        (:usb-connecting labels)
+      (case status
+        :picking (:usb-picking labels)
+        :connecting (:usb-connecting labels)
         (:usb-connect labels))])])
 
 (defn- screen-preview

@@ -517,6 +517,7 @@
                                 :source-phone-screen [:i18n :record/source-phone-screen]
                                 :file-phone-screen [:i18n :record/file-phone-screen]
                                 :usb-connect [:i18n :record/usb-connect]
+                                :usb-picking [:i18n :record/usb-picking]
                                 :usb-connecting [:i18n :record/usb-connecting]
                                 :usb-none [:i18n :record/usb-none]
                                 :usb-busy [:i18n :record/usb-busy]
