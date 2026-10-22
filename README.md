@@ -442,8 +442,11 @@ The 🎥 button of the composer records a screencast the way
 webcam as two files, both with the microphone, no layout up front. The
 panel picks the microphone and the camera (remembered in the browser),
 shows the camera live with the level of the microphone and makes a test
-recording of five seconds to play back; Start opens Chrome's screen
-picker. The pieces go to the machine as they are recorded
+recording of five seconds to play back. *Choose the screen* opens
+Chrome's screen picker and shows the screen live beside the camera; the
+test and Start record that screen, and Start opens the picker itself
+when none is chosen yet. Chrome's own Stop sharing lets the screen go,
+or ends a recording. The pieces go to the machine as they are recorded
 (`rragent.recordings`), into `artifacts/recordings/<stamp>/`:
 `screen.webm`, `webcam.webm` and `recording.json` with the devices and
 when each recorder started (remuxed by ffmpeg when the machine has one,
@@ -460,7 +463,11 @@ through the machine (`rragent.phone`, server-sent events); the phone
 records its own file at full quality, with its own microphone, and sends
 it up itself, as `phone.webm` (`phone.mp4` from an iPhone) of the same
 recording. The end waits for the phone's file. Nothing streams between
-the two browsers. What is recorded is ticked: the screen, the webcam, the
+the two browsers: while its page is open, the phone sends a small still
+of its camera every second, which the machine keeps in memory and the
+panel shows as the phone's preview. The panel names the phone by its
+model when the browser tells it (Chrome's client hints), else by its
+system and browser, with the camera it uses. What is recorded is ticked: the screen, the webcam, the
 phone, any of them; the phone alone is a vertical video for the agent to
 cut, nothing is recorded on the laptop then.
 

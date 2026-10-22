@@ -522,6 +522,10 @@
                                 :pair [:i18n :record/pair]
                                 :pair-hint [:i18n :record/pair-hint]
                                 :phone-connected [:i18n :record/phone-connected]
+                                :phone-back [:i18n :record/phone-back]
+                                :phone-front [:i18n :record/phone-front]
+                                :screen-choose [:i18n :record/screen-choose]
+                                :screen-change [:i18n :record/screen-change]
                                 :phone-none [:i18n :record/phone-none]
                                 :phone-waiting [:i18n :record/phone-waiting]}
                   :ui/dictate-title [:i18n :composer/dictate]

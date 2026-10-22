@@ -50,6 +50,8 @@
                  ctx {:db db :path [] :bot "7"}
                  register [{:ring/route [:post "/bot/7/phone/*"]
                             :ring/handler (fn [w] (phone/post! ctx (get-in w [:ring/route-params :*]) w))}
+                           {:ring/route [:get "/bot/7/phone/frame"]
+                            :ring/handler (fn [w] (phone/frame-handler "7" w))}
                            {:ring/route [:get "/bot/7/phone/events"]
                             :ring/handler (fn [w] (phone/events-handler "7" w))}
                            {:ring/route [:get "/pair/*"]
@@ -123,6 +125,16 @@
                    (is (= "xyz" (await (.text served)))))
                  (is (= 404 (.-status (await (js/fetch (str base "/bot/7/record/test/recording.json"))))) "only the files of a recording are served")
                  (is (= 404 (.-status (await (js/fetch (str base "/bot/7/record/..%2F..%2Fx/phone.webm")))))))
+               (testing "the phone's still: none yet, then the last one sent, too large refused"
+                 (is (= 404 (.-status (await (js/fetch (str base "/bot/7/phone/frame"))))))
+                 (is (= [200 {:ok true}] (await (post "/bot/7/phone/frame" "jpeg-1" "image/jpeg"))))
+                 (is (= [200 {:ok true}] (await (post "/bot/7/phone/frame" "jpeg-2" "image/jpeg"))))
+                 (let [served (await (js/fetch (str base "/bot/7/phone/frame")))]
+                   (is (= 200 (.-status served)))
+                   (is (= "image/jpeg" (.get (.-headers served) "content-type")))
+                   (is (= "no-store" (.get (.-headers served) "cache-control")))
+                   (is (= "jpeg-2" (await (.text served)))))
+                 (is (= [413 {:error :too-large}] (await (post "/bot/7/phone/frame" (.repeat "x" (inc phone/max-frame-bytes)) "image/jpeg")))))
                (finally
                  (.close server))))))
         (.catch (fn [error]

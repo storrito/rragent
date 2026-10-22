@@ -146,14 +146,25 @@
           (recur (inc i) (+ sum (* x x))))
         (js/Math.sqrt (/ sum (max n 1)))))))
 
+(def still-ms
+  "How often the phone's preview asks for the phone's last still."
+  1000)
+
+(declare phone-url)
+
 (defn- tick!
   "The level on the meter, twenty times a second, straight to the node;
-   the seconds in the store once they change."
+   the phone's still every second; the seconds in the store once they
+   change."
   [store]
-  (let [{:keys [analyser samples meter since]} @session*
-        status (:status (:ui/recorder @store))]
+  (let [{:keys [analyser samples meter since phone-node still-at]} @session*
+        status (:status (:ui/recorder @store))
+        now (js/performance.now)]
     (when (and analyser meter)
       (.setProperty (.-style ^js meter) "--level" (str (min 1 (* 8 (level analyser samples))))))
+    (when (and phone-node (< (+ (or still-at 0) still-ms) now))
+      (swap! session* assoc :still-at now)
+      (set! (.-src ^js phone-node) (str (phone-url) "/frame?t=" (js/Date.now))))
     (when (and since (#{:recording :testing} status))
       (let [seconds (js/Math.floor (/ (- (js/performance.now) since) 1000))]
         (when (not= seconds (:seconds (:ui/recorder @store)))
@@ -280,6 +291,67 @@
       (.catch (fn [error]
                 (failed! store error)))))
 
+(def display-options
+  "What Chrome's screen picker is asked for: the whole screen, without
+   its own tab and without the sound of the system."
+  #js {:video #js {:frameRate #js {:ideal 30} :displaySurface "monitor"}
+       :audio false
+       :selfBrowserSurface "exclude"
+       :surfaceSwitching "exclude"
+       :systemAudio "exclude"})
+
+(declare stop!)
+
+(defn- live?
+  "Whether the screen chosen is still shared: Chrome's own Stop
+   sharing ends its track."
+  [^js display]
+  (some-> display .getVideoTracks array-seq first .-readyState (= "live")))
+
+(defn- drop-screen!
+  "The screen let go: no longer shared, no longer shown."
+  [store]
+  (stop-tracks! (:display @session*))
+  (swap! session* #(some-> % (dissoc :display)))
+  (update! store dissoc :screen?))
+
+(defn- ^:async screen!
+  "The screen, live in the panel: the one chosen already, or Chrome's
+   picker from the click. Test and Start record it, so the picker is
+   asked once. Chrome's own Stop sharing ends a recording, and before
+   one lets the screen go."
+  [store]
+  (let [kept (:display @session*)]
+    (if (live? kept)
+      kept
+      (let [^js display (await (js/navigator.mediaDevices.getDisplayMedia display-options))
+            ^js track (first (array-seq (.getVideoTracks display)))]
+        (stop-tracks! kept)
+        (swap! session* assoc :display display)
+        (set! (.-onended track)
+              (fn [_]
+                (when (identical? display (:display @session*))
+                  (if (= :recording (:status (:ui/recorder @store)))
+                    (stop! store)
+                    (drop-screen! store)))))
+        (when-let [^js node (:screen-node @session*)]
+          (set! (.-srcObject node) display))
+        (update! store assoc :screen? true)
+        display))))
+
+(defn choose-screen!
+  "Another screen from Chrome's picker, shown in the panel; closing the
+   picker keeps the one there was."
+  [store]
+  (let [kept (:display @session*)]
+    (swap! session* dissoc :display)
+    (-> (screen! store)
+        (.then (fn [_] (stop-tracks! kept)))
+        (.catch (fn [^js error]
+                  (swap! session* assoc :display kept)
+                  (when-not (= "NotAllowedError" (.-name error))
+                    (failed! store error)))))))
+
 (defn- clip
   "A promise of an object URL: `stream` recorded for `test-ms`."
   [^js stream bits]
@@ -328,18 +400,13 @@
 
 (defn- ^:async clips!
   "The test clips of every source ticked, into `:tests` as each comes:
-   the screen (Chrome asks which, from the click) and the camera
-   recorded here, the phone's on the phone."
+   the screen (the one in the panel, or Chrome asks which, from the
+   click) and the camera recorded here, the phone's on the phone."
   [store]
   (let [wanted (sources store)
         ^js preview (:preview @session*)
         ^js display (when (contains? wanted :screen)
-                      (await (js/navigator.mediaDevices.getDisplayMedia
-                              #js {:video #js {:frameRate #js {:ideal 30} :displaySurface "monitor"}
-                                   :audio false
-                                   :selfBrowserSurface "exclude"
-                                   :surfaceSwitching "exclude"
-                                   :systemAudio "exclude"})))
+                      (await (screen! store)))
         asked-at (js/Date.now)
         phones (when (contains? wanted :phone)
                  (:phones (await (post-phone! "test" {:seconds (/ test-ms 1000)}))))
@@ -348,20 +415,16 @@
                    (.then (fn [url] (update! store assoc-in [:tests source] url)))
                    (.catch (fn [error] (update! store assoc-in [:tests source] {:error (str (.-message error))})))))]
     (when (and (contains? wanted :phone) (not (pos? (or phones 0))))
-      (stop-tracks! display)
       (throw (js/Error. (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected."))))
     (swap! session* assoc :since (js/performance.now))
     (update! store assoc :status :testing :seconds 0 :tests (into {} (map (fn [source] [source nil]) wanted)))
-    (try
-      (await (js/Promise.all
-              (clj->js (cond-> []
-                         display (conj (took :screen (clip (js/MediaStream. #js [(first (array-seq (.getVideoTracks display)))
-                                                                                  (.clone ^js (first (array-seq (.getAudioTracks preview))))])
-                                                            screen-bits)))
-                         (contains? wanted :webcam) (conj (took :webcam (clip preview webcam-bits)))
-                         (contains? wanted :phone) (conj (took :phone (phone-clip asked-at)))))))
-      (finally
-        (stop-tracks! display)))))
+    (await (js/Promise.all
+            (clj->js (cond-> []
+                       display (conj (took :screen (clip (js/MediaStream. #js [(first (array-seq (.getVideoTracks display)))
+                                                                                (.clone ^js (first (array-seq (.getAudioTracks preview))))])
+                                                          screen-bits)))
+                       (contains? wanted :webcam) (conj (took :webcam (clip preview webcam-bits)))
+                       (contains? wanted :phone) (conj (took :phone (phone-clip asked-at)))))))))
 
 (defn test!
   "A few seconds of every source ticked, played back in the panel so
@@ -605,8 +668,7 @@
         phones (when phone?
                  (:phones (await (post-phone! "start" {:stamp the-stamp}))))]
     (if (and phone? (not (pos? (or phones 0))))
-      (do (stop-tracks! display)
-          (update! store assoc :error (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected.")))
+      (update! store assoc :error (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected."))
       (let [^js preview (:preview @session*)
             ^js screen-track (when display (first (array-seq (.getVideoTracks display))))
             ^js clone (when display (.clone ^js (first (array-seq (.getAudioTracks preview)))))
@@ -616,7 +678,6 @@
                         display (assoc "screen" (recorder-of store base mime (js/MediaStream. #js [screen-track clone]) "screen" screen-bits))
                         (contains? wanted :webcam) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits)))]
         (swap! session* assoc
-               :display display
                :clone clone
                :recorders recorders
                :phone? phone?
@@ -626,29 +687,21 @@
                :started {}
                :stopped {}
                :since (js/performance.now))
-        ;; Chrome's own Stop sharing ends the recording too
-        (when screen-track
-          (set! (.-onended screen-track) (fn [_] (stop! store))))
         (doseq [{:keys [^js recorder]} (vals recorders)]
           (.start recorder piece-ms))
         (update! store assoc :status :recording :seconds 0 :error nil)))))
 
 (defn start!
   "Starts the recording from the click (Chrome asks which screen only
-   on a gesture): the screen with a copy of the microphone, the camera
-   with the microphone, the phone's camera on the phone, each to its
-   file. Without the screen nothing is asked: the cameras record."
+   on a gesture, and only when none is in the panel yet): the screen
+   with a copy of the microphone, the camera with the microphone, the
+   phone's camera on the phone, each to its file. Without the screen
+   nothing is asked: the cameras record."
   [store]
   (if-not (contains? (sources store) :screen)
     (-> (begin! store nil)
         (.catch (fn [^js error] (failed! store error))))
-    (-> (js/navigator.mediaDevices.getDisplayMedia
-         #js {:video #js {:frameRate #js {:ideal 30}
-                          :displaySurface "monitor"}
-              :audio false
-              :selfBrowserSurface "exclude"
-              :surfaceSwitching "exclude"
-              :systemAudio "exclude"})
+    (-> (screen! store)
         (.then (fn [^js display]
                  (begin! store display)))
         (.catch (fn [^js error]
@@ -660,29 +713,39 @@
 
 (defn toggle!
   "A source ticked or unticked, remembered. The phone ticked without a
-   phone connected shows the pairing at once."
+   phone connected shows the pairing at once, unticked hides it; the
+   screen unticked is let go."
   [store source phone]
   (let [now (if (contains? (sources store) source)
               (disj (sources store) source)
               (conj (sources store) source))]
     (remember! :sources (str/join "," (map name now)))
     (update! store assoc :sources now :error nil)
+    (when-not (contains? now source)
+      (case source
+        :screen (drop-screen! store)
+        :phone (update! store dissoc :pair)
+        nil))
     (when (and (= :phone source) (contains? now :phone) (nil? phone) (nil? (:pair (:ui/recorder @store))))
       (pair! store))))
 
 (defn pair!
-  "A pairing link from the machine, as a QR code in the panel."
+  "A pairing link from the machine, as a QR code in the panel; not
+   shown when the phone was unticked while the link was coming."
   [store]
   (update! store assoc :pair {:busy? true})
-  (-> (post-phone! "code" {})
-      (.then (fn [{:keys [url]}]
-               (if url
-                 (-> (.toDataURL qrcode url #js {:width 220 :margin 1})
-                     (.then (fn [data-url]
-                              (update! store assoc :pair {:url url :qr data-url}))))
-                 (throw (js/Error. "No pairing link.")))))
-      (.catch (fn [error]
-                (update! store assoc :pair nil :error (str (.-message error)))))))
+  (let [asked? #(some? (:pair (:ui/recorder @store)))]
+    (-> (post-phone! "code" {})
+        (.then (fn [{:keys [url]}]
+                 (if url
+                   (-> (.toDataURL qrcode url #js {:width 220 :margin 1})
+                       (.then (fn [data-url]
+                                (when (asked?)
+                                  (update! store assoc :pair {:url url :qr data-url})))))
+                   (throw (js/Error. "No pairing link.")))))
+        (.catch (fn [error]
+                  (when (asked?)
+                    (update! store assoc :pair nil :error (str (.-message error)))))))))
 
 (defn- preview-mount
   [{:keys [replicant/node]}]
@@ -690,6 +753,50 @@
   (swap! session* #(some-> % (assoc :preview-node node)))
   (when-let [stream (:preview @session*)]
     (set! (.-srcObject ^js node) stream)))
+
+(defn- screen-mount
+  [{:keys [replicant/node]}]
+  (swap! session* #(some-> % (assoc :screen-node node)))
+  (when-let [display (:display @session*)]
+    (set! (.-srcObject ^js node) display)))
+
+(defn- screen-preview
+  "The screen in the panel when it is ticked: live once chosen, with a
+   way to another; the button to choose it otherwise."
+  [store labels screen? ready?]
+  [:figure.screen {:replicant/key "screen"}
+   (if screen?
+     (list
+      [:video.screen {:replicant/key "live"
+                      :autoplay true
+                      :muted true
+                      :playsinline true
+                      :replicant/on-mount screen-mount
+                      :replicant/on-unmount (fn [_] (swap! session* #(some-> % (dissoc :screen-node))))}]
+      [:figcaption
+       (:source-screen labels)
+       [:button.link {:type "button"
+                      :disabled (not ready?)
+                      :on {:click (fn [_] (choose-screen! store))}}
+        (:screen-change labels)]])
+     [:button.choose {:type "button"
+                      :disabled (not ready?)
+                      :on {:click (fn [_] (choose-screen! store))}}
+      (:screen-choose labels)])])
+
+(defn- phone-preview
+  "The phone's picture in the panel, a still a second, while a phone
+   is connected and ticked; nothing while it has not sent one."
+  [phone]
+  [:figure.phone {:replicant/key "phone"}
+   [:img.phone {:alt ""
+                :replicant/on-mount (fn [{:keys [replicant/node]}]
+                                      (.add (.-classList ^js node) "none")
+                                      (set! (.-onload ^js node) #(.remove (.-classList ^js node) "none"))
+                                      (set! (.-onerror ^js node) #(.add (.-classList ^js node) "none"))
+                                      (swap! session* #(some-> % (assoc :phone-node node) (dissoc :still-at))))
+                :replicant/on-unmount (fn [_] (swap! session* #(some-> % (dissoc :phone-node))))}]
+   [:figcaption (:device phone)]])
 
 (defn- device-select
   [store kind chosen options]
@@ -717,7 +824,13 @@
                   :on {:change (fn [_] (toggle! store source phone))}}]
          word])]
    (if phone
-     [:p.connected (str/replace (or (:phone-connected labels) "Phone connected: {device}") "{device}" (str (:device phone)))]
+     [:p.connected (str/replace (or (:phone-connected labels) "Phone connected: {device}")
+                                "{device}"
+                                (str (:device phone)
+                                     (case (:facing phone)
+                                       "environment" (str " · " (:phone-back labels))
+                                       "user" (str " · " (:phone-front labels))
+                                       nil)))]
      [:p.hint (:pair-hint labels)])
    (cond
      (:qr pair)
@@ -740,7 +853,7 @@
    server's, translated; `phone` the phone connected, from the frame
    (`rragent.phone/status`)."
   [store state labels phone]
-  (let [{:keys [status devices mic camera seconds tests error phone-waiting?] :as recorder} (:ui/recorder state)
+  (let [{:keys [status devices mic camera seconds tests error phone-waiting? screen?] :as recorder} (:ui/recorder state)
         ticked (or (:sources recorder) default-sources)]
     (when status
       [:div.recorder {:replicant/key "recorder"}
@@ -780,7 +893,11 @@
                                                   (swap! session* #(some-> % (assoc :meter node))))
                             :replicant/on-unmount (fn [_]
                                                     (swap! session* #(some-> % (dissoc :meter))))}
-               [:span] [:span] [:span] [:span] [:span]]]
+               [:span] [:span] [:span] [:span] [:span]]
+              (when (contains? ticked :screen)
+                (screen-preview store labels screen? (= :ready status)))
+              (when (and phone (contains? ticked :phone))
+                (phone-preview phone))]
              (when (seq tests)
                [:div.tests
                 (for [source [:screen :webcam :phone]

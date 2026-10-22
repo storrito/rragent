@@ -21,7 +21,10 @@
    phone records, sends up and finishes itself; `GET .../phone/test`
    names that clip for the laptop's panel. When the phone's last piece
    is up it says so (`POST .../phone/done`), which the recording's
-   finish waits for."
+   finish waits for. While its page is open the phone sends a still of
+   its camera every second (`POST .../phone/frame`, a small JPEG, kept
+   in memory, the last one only), which the laptop's panel shows as the
+   phone's preview (`GET .../phone/frame`)."
   (:require ["node:crypto" :as crypto]
             [clojure.string :as str]
             [rragent.auth :as auth]
@@ -54,6 +57,14 @@
 
 (defonce ^:private next-conn-id
   (atom 0))
+
+(defonce ^:private frames
+  ;; bot id -> {:bytes :at}, the phone's last still
+  (atom {}))
+
+(def max-frame-bytes
+  "The largest still the phone sends."
+  (* 512 1024))
 
 (defn new-code!
   "A pairing code for the bot, good for ten minutes."
@@ -181,6 +192,26 @@
     {:device device
      :facing facing}))
 
+(defn frame!
+  "The phone's last still of the bot."
+  [bot-id bytes]
+  (swap! frames assoc (str bot-id) {:bytes bytes :at (js/Date.now)}))
+
+(defn frame-handler
+  "`GET /bot/<id>/phone/frame`: the phone's last still while it is
+   fresh, 404 otherwise."
+  [bot-id w]
+  (let [{:keys [bytes at]} (get @frames (str bot-id))]
+    (assoc w :ring/response
+           (if (and bytes (< (- (js/Date.now) at) fresh-ms))
+             {:status 200
+              :headers {"Content-Type" "image/jpeg"
+                        "Cache-Control" "no-store"}
+              :body bytes}
+             {:status 404
+              :headers {"Cache-Control" "no-store"}
+              :body ""}))))
+
 (defn test-handler
   "`GET /bot/<id>/phone/test`: the phone's last test clip."
   [{:keys [db path]} w]
@@ -197,7 +228,7 @@
   "`POST /bot/<id>/phone/<action>`: `code` makes a pairing code (the
    link for the QR), `hello` is the phone's presence, `start` and
    `stop` go to the phones, `done` marks the phone's file of a
-   recording as up."
+   recording as up, `frame` is the phone's still."
   [{:keys [db path bot]} action w]
   (case action
     "code" (let [code (new-code! bot)]
@@ -219,4 +250,8 @@
                (do (done! db path stamp file)
                    (uploads/respond w 200 {:ok true}))
                (uploads/respond w 400 {:error :no-stamp})))
+    "frame" (if-let [bytes (await (uploads/read-body (:body (:ring/request w)) max-frame-bytes))]
+              (do (frame! bot bytes)
+                  (uploads/respond w 200 {:ok true}))
+              (uploads/respond w 413 {:error :too-large}))
     (uploads/respond w 404 {:error :no-such-action})))

@@ -5,8 +5,9 @@
    stop: on start it records its camera and microphone at full
    quality into `phone.<webm|mp4>` of the recording, the pieces up as
    they come, the uploaders of `rragent.client.recorder`; on stop it
-   sends the last pieces and tells the machine its file is up. The
-   screen stays on while it records. Rendered by Replicant from the
+   sends the last pieces and tells the machine its file is up. A still
+   of the camera goes up every second, the phone's preview in the
+   laptop's panel. The screen stays on while it records. Rendered by Replicant from the
    atom `state*`, nothing of the frames."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
@@ -22,19 +23,48 @@
 (def hello-ms
   10000)
 
+(def frame-ms
+  "How often a still of the camera goes to the laptop's panel."
+  1000)
+
+(def frame-width
+  "The width of a still: enough to frame the picture by."
+  480)
+
 (defn- words
   [k]
   (get-in @state* [:words k] (name k)))
 
-(defn- device-name
-  "What the laptop shows: the phone's model when the browser says it,
-   else the browser."
-  []
-  (let [ua (str js/navigator.userAgent)]
-    (or (some-> (re-find #"Android [^;]+; ([^;)]+)\)" ua) second str/trim)
-        (when (re-find #"iPhone" ua) "iPhone")
-        (when (re-find #"iPad" ua) "iPad")
+(defn device-name
+  "What the laptop shows: the phone's model when the browser says it
+   (`model`, Chrome's client hint; the user agent's, unless it is the
+   `K` Chrome puts there instead), else the system and the browser."
+  [ua model]
+  (let [ua (str ua)
+        from-ua (some-> (re-find #"Android [^;]+; ([^;)]+)\)" ua) second str/trim)
+        known (some #(when-not (or (str/blank? %) (= "K" %)) %) [(some-> model str/trim) from-ua])
+        system (cond
+                 (re-find #"iPhone" ua) "iPhone"
+                 (re-find #"iPad" ua) "iPad"
+                 (re-find #"Android" ua) "Android")
+        browser (cond
+                  (re-find #"SamsungBrowser" ua) "Samsung Internet"
+                  (re-find #"Firefox|FxiOS" ua) "Firefox"
+                  (re-find #"EdgA|EdgiOS" ua) "Edge"
+                  (re-find #"CriOS|Chrome" ua) "Chrome"
+                  (re-find #"Safari" ua) "Safari")]
+    (or known
+        (some->> [system browser] (remove nil?) seq (str/join " · "))
         "Phone")))
+
+(defn- ^:async model
+  "The phone's model from Chrome's client hints, nil elsewhere."
+  []
+  (try
+    (some-> (await (some-> js/navigator .-userAgentData (.getHighEntropyValues #js ["model"])))
+            .-model)
+    (catch :default _
+      nil)))
 
 (defn- post!
   [action data]
@@ -45,7 +75,7 @@
 
 (defn- hello!
   []
-  (-> (post! "hello" {:device (device-name)
+  (-> (post! "hello" {:device (:device @state*)
                       :facing (:facing @state*)})
       (.catch (fn [_] nil))))
 
@@ -80,6 +110,35 @@
       (some-> (.play node) (.catch (fn [_] nil))))
     (swap! state* assoc :facing facing)
     stream))
+
+(defn- still!
+  "A still of the camera to the machine, for the laptop's panel to show
+   the phone's picture; none while the last is still going up, or the
+   page is hidden."
+  []
+  (let [^js node (:video @session*)]
+    (when (and node
+               (not (:sending-still? @session*))
+               (not js/document.hidden)
+               (pos? (.-videoWidth node)))
+      (let [canvas (js/document.createElement "canvas")
+            height (js/Math.round (* frame-width (/ (.-videoHeight node) (.-videoWidth node))))]
+        (set! (.-width canvas) frame-width)
+        (set! (.-height canvas) height)
+        (.drawImage (.getContext canvas "2d") node 0 0 frame-width height)
+        (swap! session* assoc :sending-still? true)
+        (.toBlob canvas
+                 (fn [^js blob]
+                   (-> (if blob
+                         (js/fetch (str (:phone-url @state*) "/frame")
+                                   #js {:method "POST"
+                                        :headers #js {"Content-Type" "image/jpeg"}
+                                        :body blob})
+                         (js/Promise.resolve nil))
+                       (.catch (fn [_] nil))
+                       (.finally (fn [] (swap! session* assoc :sending-still? false)))))
+                 "image/jpeg"
+                 0.6)))))
 
 (defn- ^:async wake!
   []
@@ -252,11 +311,15 @@
                     :record-url (str base "/record")})
     (add-watch state* ::render (fn [_ _ _ _] (render!)))
     (render!)
-    (-> (camera! "environment")
+    (-> (model)
+        (.then (fn [model]
+                 (swap! state* assoc :device (device-name js/navigator.userAgent model))
+                 (camera! "environment")))
         (.then (fn [_]
                  (swap! state* assoc :status :ready)
                  (hello!)
                  (js/setInterval hello! hello-ms)
+                 (js/setInterval still! frame-ms)
                  (listen!)))
         (.catch (fn [error]
                   (js/console.error "[phone]" error)

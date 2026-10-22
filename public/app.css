@@ -1671,8 +1671,66 @@ pre {
 
 .recorder .preview {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 12px;
+}
+
+/* The screen chosen, live, and the phone's last still beside the
+   camera; the button to choose the screen in the screen's place. */
+.recorder .preview figure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.recorder .preview figcaption {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.recorder video.screen {
+  width: 240px;
+  max-width: 60vw;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: var(--code-bg);
+  object-fit: contain;
+}
+
+.recorder figure.screen button.choose {
+  width: 240px;
+  max-width: 60vw;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.recorder figure.screen button.choose:disabled,
+.recorder figure.screen button.link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.recorder img.phone {
+  height: 135px;
+  max-width: 60vw;
+  border-radius: 8px;
+  background: var(--code-bg);
+  object-fit: contain;
+}
+
+.recorder img.phone.none {
+  width: 76px;
+  visibility: hidden;
 }
 
 .recorder video.camera {
