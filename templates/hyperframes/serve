@@ -4,8 +4,9 @@
 // chat (see TEMPLATE.md). It serves the project's composition/index.html
 // with the HyperFrames runtime and the values of its variables.json, the
 // page with the HyperFrames player and one control per declared
-// variable, and `rev`, the newest change of the files, which the page
-// polls to load the composition again at the same position. The player
+// variable, and `rev`, the newest change of the files and the layout of
+// the players, which the page polls to load the composition again at the
+// same position, or itself when the layout changed. The player
 // and the runtime come from the HyperFrames install of the machine:
 // HYPERFRAMES in the environment names the CLI (rragent sets it), else
 // the one on the PATH. Plain JavaScript on node:http, no dependencies.
@@ -221,6 +222,32 @@ function rev() {
   return newest;
 }
 
+// What the page is built from besides what the compositions show: which
+// compositions there are, their sizes and the titles under them. A page
+// built from another layout is built anew, not only its players loaded
+// again: a 9:16 starter replaced by a cut in 16:9 needs a 16:9 player.
+// A composition removed while it is read counts as gone.
+function layout() {
+  const names = compositions();
+  if (names.length === 0) return size(indexHtml()).join("x");
+  return JSON.stringify(
+    names.map((name) => {
+      let html = null;
+      try {
+        html = fs.readFileSync(path.join(compositionDir, name, "index.html"), "utf8");
+      } catch {
+        return null;
+      }
+      return [name, size(html).join("x"), title(html)];
+    }),
+  );
+}
+
+// What the page was built from, for it to compare with `/rev`.
+function served() {
+  return { rev: rev(), layout: layout() };
+}
+
 // The composition page for the player: the values, the registry of the
 // timelines defined before the composition's script, the runtime in the
 // head. A page that has the runtime already gets the values alone.
@@ -259,10 +286,13 @@ hyperframes-player { display: block; flex: none; }
 }`;
 
 // Runs in the browser: the controls from /variables, a change posted
-// back, and the players loaded again at their position when rev changes.
+// back, and the players loaded again at their position when rev changes;
+// the page built anew when the layout does. The page carries what it was
+// built from (window.__served): a build that lands before the first look
+// at rev is a change too, not where the page starts from.
 const script = `
 (function () {
-  var rev = null;
+  var served = window.__served;
   function escape(s) { return String(s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
   function control(d, values) {
     var set = values.hasOwnProperty(d.id), value = set ? values[d.id] : d["default"], id = "v-" + d.id, input;
@@ -307,9 +337,9 @@ const script = `
     });
   }
   setInterval(function () {
-    fetch("rev").then(function (r) { return r.text(); }).then(function (now) {
-      if (rev === null) { rev = now; return; }
-      if (now !== rev) { rev = now; reloadPlayers(now); loadControls(); }
+    fetch("rev").then(function (r) { return r.json(); }).then(function (now) {
+      if (now.layout !== served.layout) { location.reload(); return; }
+      if (now.rev !== served.rev) { served = now; reloadPlayers(now.rev); loadControls(); }
     }).catch(function () {});
   }, 1000);
   document.addEventListener("DOMContentLoaded", loadControls);
@@ -321,6 +351,8 @@ function player(src, html, widthRule) {
 }
 
 function page() {
+  // before the files are read: a change in between is one more reload, not a stale page
+  const state = served();
   const names = compositions();
   const body =
     names.length > 0
@@ -333,7 +365,8 @@ function page() {
       : `<div class="artifact">${player("composition/index.html", indexHtml(), (w, h) => `min(100%, calc(70vh * ${w} / ${h}))`)}<div class="controls" id="controls"></div></div>`;
   return (
     `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">` +
-    `<title>artifact</title><style>${styles}</style><script src="vendor/hyperframes-player.js"></script><script>${script}</script></head>` +
+    `<title>artifact</title><style>${styles}</style><script src="vendor/hyperframes-player.js"></script>` +
+    `<script>window.__served = ${JSON.stringify(state).replace(/</g, "\\u003c")};</script><script>${script}</script></head>` +
     `<body>${body}</body></html>`
   );
 }
@@ -382,7 +415,7 @@ function handle(req, res) {
   if (req.method === "POST" && p === "/variables") return setVariables(req, res);
   if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "text/plain", "method not allowed");
   if (p === "/" || p === "/index.html") return send(res, 200, "text/html; charset=utf-8", page());
-  if (p === "/rev") return send(res, 200, "text/plain", String(rev()));
+  if (p === "/rev") return send(res, 200, "application/json", JSON.stringify(served()));
   if (p === "/variables") return send(res, 200, "application/json", JSON.stringify({ declarations: declarations(indexHtml()), values: readVariables() }));
   if (p.startsWith("/vendor/")) {
     const relative = vendor[p.slice("/vendor/".length)];
