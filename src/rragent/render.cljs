@@ -16,10 +16,17 @@
    pchat.render and bin/render: the render is a child process of the
    agent's own.
 
+   Why a render did not work is said twice: `:reason`, an i18n tuple
+   the page shows in the person's language, and `:error`, the words for
+   the agent (the render tool's answer), in English; a failed script's
+   own words (its stderr) are `:detail` too, shown below the reason as
+   they are, since nothing translates a program's output.
+
    The key this namespace owns in the bot's map of the db
    (`rragent.db`, under the handle's `:path`):
 
-       :renders {name {:started ms :progress \"30 %\" :exit n :error \"...\"}}"
+       :renders {name {:started ms :progress \"30 %\" :exit n :error \"...\"
+                       :reason [:i18n :render/timed-out {:minutes 30}] :detail \"...\"}}"
   (:require ["node:child_process" :as child]
             ["node:fs" :as fs]
             ["node:path" :as path]
@@ -27,6 +34,7 @@
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
             [rragent.db :as db]
+            [rragent.i18n :as i18n]
             [rragent.programs :as programs]
             [rragent.templates :as templates]))
 
@@ -84,32 +92,39 @@
   [line]
   (when-let [[_ a b] (re-find #"^progress\s+(\d+)\s*(?:/\s*(\d+)|%)\s*$" (str line))]
     (if b
-      (str (js/Math.round (* 100 (/ (js/parseInt a 10) (max 1 (js/parseInt b 10))))) " %")
-      (str a " %"))))
+      (str (js/Math.round (* 100 (/ (js/parseInt a 10) (max 1 (js/parseInt b 10))))) " %")
+      (str a " %"))))
 
 (defn refusal
-  "Why the project cannot be rendered, or nil: no template, one that is
-   not installed, one that renders nothing, a need missing."
+  "Why the project cannot be rendered, as an i18n tuple, or nil: no
+   template, one that is not installed, one that renders nothing, a
+   need missing."
   [{:keys [dir] :as handle} name]
-  (let [template (template-of handle name)]
+  (let [template (template-of handle name)
+        missing (when template (programs/missing (:needs template)))]
     (cond
       (not (artifacts/project? (path/join dir name)))
-      (str name " is no project: a project is a folder under artifacts/ with a package.json.")
+      [:i18n :render/no-project {:name name}]
 
       (nil? template)
-      (str name " was not made from a template, so nothing knows how to render it.")
+      [:i18n :render/no-template {:name name}]
 
       (:missing? template)
-      (str "The template " (:name template) " of " name " is not installed.")
+      [:i18n :render/template-missing {:name name :template (:name template)}]
 
       (empty? (:renders template))
-      (str "The template " (:name template) " renders nothing.")
+      [:i18n :render/renders-nothing {:template (:name template)}]
 
       (not (fs/existsSync (templates/render-file template)))
-      (str "The template " (:name template) " has no render script.")
+      [:i18n :render/no-script {:template (:name template)}]
 
-      :else
-      (programs/not-ready-message (:name template) (programs/missing (:needs template))))))
+      (seq missing)
+      [:i18n :render/not-ready {:template (:name template) :programs (str/join ", " missing)}])))
+
+(defn- english
+  "The words of an i18n tuple for the agent."
+  [reason]
+  (i18n/translate reason :en))
 
 (defn- kill!
   "Ends the render and everything it started: SIGTERM to the process
@@ -147,10 +162,13 @@
                        (fn [render]
                          (cond-> (-> render (dissoc :progress) (assoc :exit exit))
                            timed-out?
-                           (assoc :error (str "The render took longer than " (js/Math.round (/ (:timeout-ms timed-out?) 60000)) " minutes and was ended."))
+                           (as-> r (let [reason [:i18n :render/timed-out {:minutes (js/Math.round (/ (:timeout-ms timed-out?) 60000))}]]
+                                     (assoc r :reason reason :error (english reason))))
 
                            (and (not timed-out?) (not (zero? exit)))
-                           (assoc :error (error-of exit lines errors))))))))
+                           (assoc :reason [:i18n :render/script-failed {:exit exit}]
+                                  :error (error-of exit lines errors)
+                                  :detail (error-of exit lines errors))))))))
     (artifacts/refollow! db path)
     (get-in (db/at @db path) [:renders name])))
 
@@ -158,7 +176,7 @@
   "No process: the render is over before it started, with the message
    as its error, where the person reads it."
   [{:keys [db path]} name message]
-  (let [render {:started (js/Date.now) :exit 1 :error message}]
+  (let [render {:started (js/Date.now) :exit 1 :reason message :error (english message)}]
     (swap! db db/update-at path assoc-in [:renders name] render)
     render))
 

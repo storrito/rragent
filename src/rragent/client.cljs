@@ -377,7 +377,7 @@
    [:small (megabytes size)
     (cond
       uploading? (str " · " (or uploading-label "Uploading") " "
-                      (js/Math.round (* 100 progress)) " %"
+                      (js/Math.round (* 100 progress)) " %"
                       (when retry
                         (str " · ↻ " retry "/" (count retry-delays-ms))))
       failed? (str " · " (or failed-label "The upload failed")))]])
@@ -939,9 +939,11 @@
    half back. While it drags the iframes take no pointer (`.dragging`
    on the body, the stylesheet), so the drag does not stop over a
    page."
-  [_attrs _children]
+  [{:keys [ui/label]} _children]
   [:div.splitter {:role "separator"
                   :aria-orientation "vertical"
+                  :aria-label label
+                  :title label
                   :replicant/on-mount (fn [{:keys [replicant/node]}]
                                         (when-let [width (pane-width)]
                                           (set-pane-width! node width)))

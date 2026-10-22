@@ -881,6 +881,17 @@ body {
   font-size: 13px;
 }
 
+/* what a failed render script said itself, below the reason in the
+   person's language: a program's words, as they are */
+.artifacts .render-detail {
+  max-height: 8em;
+  margin: 0 0 8px;
+  overflow: auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 .feed {
   flex: 1;
   min-height: 0;

@@ -293,7 +293,7 @@
                (get-in (second (find-tag (first menus) :button.item.danger)) [:on :click 0 1]))))
       (let [v (pane "card.html" {:artifacts/deleting "pool.png"})
             row (find-tag v :div.confirm)]
-        (is (contains? (strings (i18n/translate v :en)) "Delete Pool? It goes to the trash."))
+        (is (contains? (strings (i18n/translate v :en)) "Move “Pool” to the trash?"))
         (is (= {:bot "b1" :path "pool.png"} (get-in (second (find-tag row :button.link.danger)) [:on :click 0 1 :command/data])))
         (is (= :artifacts/keep (get-in (second (find-tag row :button.link)) [:on :click 0 1 :command/kind])))
         (is (nil? (find-tag (second (filter #(and (vector? %) (= :li (first %))) (nodes v))) :button.row)) "the row asks instead"))
@@ -335,7 +335,8 @@
         (is (contains? (strings (i18n/translate rendering :en)) "Making the video 50 %"))
         (is (contains? (strings (i18n/translate rendering :de)) "Stopp"))
         (is (some #{:p.error} (tags failed)))
-        (is (contains? (strings (i18n/translate failed :en)) "The video did not come out: boom"))
-        (is (contains? (strings (i18n/translate stopped :de)) "Der Prozess dieses Artefakts hat sich beendet (Exit 1). Seine .log sagt warum; er wird neu gestartet."))))
+        (is (contains? (strings (i18n/translate failed :en)) "The video could not be made:"))
+        (is (contains? (strings (i18n/translate failed :en)) "boom") "an error of before the reasons, shown as it is")
+        (is (contains? (strings (i18n/translate stopped :de)) "Der Prozess dieses Artefakts wurde beendet (Exit-Code 1). Den Grund nennt seine .log-Datei; er startet neu."))))
     (testing "nothing yet"
       (is (contains? (strings (i18n/translate (view/artifacts {}) :en)) "What the agent makes for you appears here.")))))

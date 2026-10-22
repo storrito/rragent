@@ -12,6 +12,7 @@
    Sprite, from the environment otherwise (`token`)."
   (:require ["node:crypto" :as crypto]
             [clojure.string :as str]
+            [rragent.i18n :as i18n]
             [rragent.sprite :as sprite]))
 
 (def cookie-name
@@ -60,15 +61,19 @@
   [token request]
   (timing-safe= (get (cookies request) cookie-name "") (cookie-value token)))
 
-(def access-required
-  {:status 403
-   :headers {"Content-Type" "text/html; charset=utf-8"}
-   :body (str "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">"
-              "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
-              "<title>Access required</title></head>"
-              "<body style=\"font: 16px system-ui, sans-serif; padding: 2rem\">"
-              "<h1>Access required</h1><p>Open this page with the link you were given.</p>"
-              "</body></html>")})
+(defn access-required
+  "The page for a browser without the cookie, in its language."
+  [request]
+  (let [locale (i18n/locale request)
+        text (fn [k] (i18n/translate [:i18n k] locale))]
+    {:status 403
+     :headers {"Content-Type" "text/html; charset=utf-8"}
+     :body (str "<!DOCTYPE html><html lang=\"" (name locale) "\"><head><meta charset=\"UTF-8\">"
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+                "<title>" (text :auth/title) "</title></head>"
+                "<body style=\"font: 16px system-ui, sans-serif; padding: 2rem\">"
+                "<h1>" (text :auth/title) "</h1><p>" (text :auth/hint) "</p>"
+                "</body></html>")}))
 
 (defn- secure?
   [request]
@@ -105,7 +110,7 @@
       (handler request)
 
       :else
-      access-required)))
+      (access-required request))))
 
 (defn link
   "The link that sets the cookie."

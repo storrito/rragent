@@ -307,7 +307,7 @@
                              (is (true? (await (none-within 1500))) "handles changed: no frame to the first bot's tab")
                              (is (true? (await (other-none-within 500))) "nor to the other's")
                              (swap! db/db assoc-in [:bots id3 :failed] "a value")
-                             (is (mentions? (await (other-frame! #(mentions? % "a value"))) "This bot did not open: a value") "the other bot's own tab shows it")
+                             (is (mentions? (await (other-frame! #(mentions? % "a value"))) "This bot could not be opened: a value") "the other bot's own tab shows it")
                              (is (mentions? (await (frame! #(mentions? % "failed"))) "failed") "and the first bot's tab, whose sidebar shows the state")
                              (swap! db/db update-in [:bots id3] dissoc :failed)
                              (await (other-frame! #(not (mentions? % "a value"))))
@@ -408,7 +408,7 @@
                (try
                  (testing "the main thread is free while a program blocks in a call: the page answers meanwhile"
                    (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Call slowly."}))))
-                   (let [running (await (frame! #(mentions? % "Evaluated")))
+                   (let [running (await (frame! #(mentions? % "Ran code")))
                          at (js/Date.now)]
                      (is (mentions? running "Stop") "the run goes")
                      (is (mentions? running "(:status slow)") "the program is on the page")
