@@ -91,6 +91,14 @@
           (is (= {:path "clip" :kind :project :title "Clip" :mtime 7000} (dissoc clip :size)))
           (is (not-any? #(str/starts-with? (:path %) "clip/") listed))
           (is (= "story.mp4" (:path (first listed))) "the file from the future stays newest")))
+      (testing "while the agent works the screen stays put: what is shown, or the list; the newest takes it once the run is over"
+        (let [listed [{:path "new.html" :mtime 50} {:path "old.mp4" :mtime 10}]
+              facts {:artifacts/list listed}]
+          (is (= "old.mp4" (artifacts/follow {:artifacts/current "old.mp4" :artifacts/picked-at 20 :working? true} facts)) "a video being watched")
+          (is (= "old.mp4" (artifacts/follow {:artifacts/current "old.mp4" :working? true} facts)) "shown without a pick too")
+          (is (nil? (artifacts/follow {:artifacts/current nil :artifacts/picked-at 20 :working? true} facts)) "the list the person went back to")
+          (is (= "new.html" (artifacts/follow {:artifacts/current nil :working? true} facts)) "an empty screen follows the work")
+          (is (= "new.html" (artifacts/follow {:artifacts/current "old.mp4" :artifacts/picked-at 20 :working? false} facts)) "the run is over: what it made")))
       (testing "a pick that disappeared falls back to the newest"
         (artifacts/pick! db "first.html")
         (fs/rmSync (path/join dir "first.html"))
