@@ -1615,10 +1615,17 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 70vh;
+  overflow-y: auto;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
+}
+
+/* A panel taller than the window scrolls; its parts keep their size. */
+.recorder > * {
+  flex-shrink: 0;
 }
 
 .recorder .head {
@@ -1671,31 +1678,38 @@ pre {
 
 .recorder .preview {
   display: flex;
-  flex-wrap: wrap;
   align-items: flex-end;
   gap: 12px;
 }
 
 /* The screen chosen, live, and the phone's last still beside the
-   camera; the button to choose the screen in the screen's place. */
+   camera, in one row that narrows rather than wraps; the button to
+   choose the screen in the screen's place. */
 .recorder .preview figure {
   display: flex;
+  flex: 0 1 240px;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
   margin: 0;
+}
+
+.recorder .preview figure.phone-still {
+  flex: 0 1 76px;
 }
 
 .recorder .preview figcaption {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 0 8px;
   align-items: baseline;
+  overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 13px;
 }
 
 .recorder video.screen {
-  width: 240px;
-  max-width: 60vw;
+  width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: 8px;
   background: var(--code-bg);
@@ -1703,8 +1717,8 @@ pre {
 }
 
 .recorder figure.screen button.choose {
-  width: 240px;
-  max-width: 60vw;
+  width: 100%;
+  min-width: 0;
   aspect-ratio: 16 / 9;
   border: 1px dashed var(--line);
   border-radius: 8px;
@@ -1720,22 +1734,21 @@ pre {
   opacity: 0.6;
 }
 
-.recorder img.phone {
-  height: 135px;
-  max-width: 60vw;
+.recorder img.phone-still {
+  width: 100%;
+  aspect-ratio: 9 / 16;
   border-radius: 8px;
   background: var(--code-bg);
   object-fit: contain;
 }
 
-.recorder img.phone.none {
-  width: 76px;
+.recorder img.phone-still.none {
   visibility: hidden;
 }
 
 .recorder video.camera {
-  width: 240px;
-  max-width: 60%;
+  flex: 0 1 240px;
+  min-width: 0;
   aspect-ratio: 16 / 9;
   border-radius: 8px;
   background: var(--code-bg);

@@ -788,8 +788,8 @@
   "The phone's picture in the panel, a still a second, while a phone
    is connected and ticked; nothing while it has not sent one."
   [phone]
-  [:figure.phone {:replicant/key "phone"}
-   [:img.phone {:alt ""
+  [:figure.phone-still {:replicant/key "phone"}
+   [:img.phone-still {:alt ""
                 :replicant/on-mount (fn [{:keys [replicant/node]}]
                                       (.add (.-classList ^js node) "none")
                                       (set! (.-onload ^js node) #(.remove (.-classList ^js node) "none"))
