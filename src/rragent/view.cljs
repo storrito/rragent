@@ -613,7 +613,9 @@
                  exit [:div.placeholder [:i18n :artifacts/stopped {:exit exit}]]
                  ready-at (list
                            (when (:error render)
-                             [:p.error [:i18n :artifacts/render-failed {:error (:error render)}]])
+                             (list [:p.error [:i18n :artifacts/render-failed] " " (or (:reason render) (:error render))]
+                                   (when (:detail render)
+                                     [:pre.render-detail (:detail render)])))
                            [:ui/canvas {:ui/src (str (artifact-url base path) "/")
                                         :ui/rev ready-at
                                         :ui/title [:i18n :artifacts/creation]}])
@@ -903,7 +905,7 @@
   [:aside.sidebar
    [:div.brand "rragent"
     (when version
-      [:span.version {:title "rragent version"} version])]
+      [:span.version {:title [:i18n :page/version]} version])]
    (new-bot)
    ;; keyed by its order: a list whose rows move makes a new list
    ;; (Replicant 2026.07.1 keeps a stale vdom for a row moved to the front)
@@ -972,5 +974,5 @@
         (composer id base status (when fresh? (:placeholder onboarding)) phone)]
        ;; the handle between the chat and the pane, dragged to give one
        ;; more room (`rragent.client/splitter`); a phone has none
-       [:ui/splitter]
+       [:ui/splitter {:ui/label [:i18n :page/splitter]}]
        (artifacts (assoc pane :base base :bot id))]]]))

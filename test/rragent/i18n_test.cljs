@@ -10,6 +10,11 @@
   (is (= [:button "Senden"] (i18n/translate [:button [:i18n :composer/send]] :de)))
   (is (= [:p "Used fetch"] (i18n/translate [:p [:i18n :tool/other {:name "fetch"}]] :en)))
   (is (= [:p "fetch benutzt"] (i18n/translate [:p [:i18n :tool/other {:name "fetch"}]] :de)))
+  (testing "a render's reason, in the person's language and in English for the agent"
+    (is (= "Das Rendern hat länger als 30 Minuten gedauert und wurde abgebrochen."
+           (i18n/translate [:i18n :render/timed-out {:minutes 30}] :de)))
+    (is (= "The template motion needs chrome, ffmpeg on this machine, and it is not installed: whoever runs the machine installs it."
+           (i18n/translate [:i18n :render/not-ready {:template "motion" :programs "chrome, ffmpeg"}] :en))))
   (testing "a key no dictionary has shows itself"
     (is (= [:p ":chat/nope"] (i18n/translate [:p [:i18n :chat/nope]] :de)))))
 

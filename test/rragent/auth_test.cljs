@@ -10,8 +10,15 @@
 
 (deftest wrap-test
   (let [handler (auth/wrap (constantly page) {:token "s3cret"})]
-    (testing "without the cookie: access required"
-      (is (= 403 (:status (handler {:request-method :get :uri "/" :headers {}})))))
+    (testing "without the cookie: access required, in the browser's language"
+      (let [{:keys [status body]} (handler {:request-method :get :uri "/" :headers {}})]
+        (is (= 403 status))
+        (is (str/includes? body "<html lang=\"en\">"))
+        (is (str/includes? body "Access required")))
+      (let [{:keys [body]} (handler {:request-method :get :uri "/" :headers {"accept-language" "de-DE,de;q=0.9"}})]
+        (is (str/includes? body "<html lang=\"de\">"))
+        (is (str/includes? body "Zugang nötig"))
+        (is (str/includes? body "Öffne diese Seite mit dem Link"))))
     (testing "the token in the query: the cookie and a redirect to the path"
       (let [{:keys [status headers]} (handler {:request-method :get :uri "/x" :query-string "token=s3cret" :headers {}})
             cookie (get headers "Set-Cookie")]

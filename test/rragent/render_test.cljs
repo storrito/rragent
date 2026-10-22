@@ -53,9 +53,9 @@
                  (fs/rmSync tools #js {:recursive true :force true}))}))
 
 (deftest progress-test
-  (is (= "30 %" (render/progress-of "progress 54/180")))
-  (is (= "25 %" (render/progress-of "progress 25%")))
-  (is (= "25 %" (render/progress-of "progress 25 %")))
+  (is (= "30 %" (render/progress-of "progress 54/180")))
+  (is (= "25 %" (render/progress-of "progress 25%")))
+  (is (= "25 %" (render/progress-of "progress 25 %")))
   (is (nil? (render/progress-of "@hf-progress {\"pct\":30}")) "the CLI's line is the template's to translate")
   (is (nil? (render/progress-of "frame 54/180"))))
 
@@ -67,10 +67,7 @@
       (js-delete env "CHROME")
       (js-delete env "RRAGENT_HYPERFRAMES")
       (testing "an empty PATH misses every program"
-        (is (= ["chrome" "ffmpeg" "hyperframes"] (programs/missing ["chrome" "ffmpeg" "hyperframes"])))
-        (is (= "The template motion needs chrome, ffmpeg on this machine, which is not installed, so no render: the operator installs it."
-               (programs/not-ready-message "motion" ["chrome" "ffmpeg"])))
-        (is (nil? (programs/not-ready-message "motion" []))))
+        (is (= ["chrome" "ffmpeg" "hyperframes"] (programs/missing ["chrome" "ffmpeg" "hyperframes"]))))
       (let [{:keys [tools restore!]} (with-tools!)]
         (try
           (testing "a Chrome by any of its names counts, a program from the environment too"
@@ -121,7 +118,7 @@
                  (let [first-run (render/start! handle "card")
                        second-run (render/start! handle "card")]
                    (await (js/Promise. (fn [resolve] (js/setTimeout resolve 300))))
-                   (is (= "25 %" (get-in @db [:renders "card" :progress])))
+                   (is (= "25 %" (get-in @db [:renders "card" :progress])))
                    (testing "stopped: the torso of a file goes, the render is gone from the db"
                      (render/stop! handle "card")
                      (is (nil? (await first-run)))

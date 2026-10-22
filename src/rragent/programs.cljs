@@ -46,14 +46,6 @@
   [needs]
   (vec (remove locate needs)))
 
-(defn not-ready-message
-  "Why a template cannot work on this machine, or nil when its needs
-   are there: the words for the person, no stack trace."
-  [template-name missing]
-  (when (seq missing)
-    (str "The template " template-name " needs " (str/join ", " missing)
-         " on this machine, which is not installed, so no render: the operator installs it.")))
-
 (defn environment
   "The environment of a template's script: every need found as its
    variable, and the directory of this Node first on the PATH."

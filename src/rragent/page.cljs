@@ -496,11 +496,15 @@
       (assoc w :ring/response http/not-found))))
 
 (defn- shim
+  "The static shell of the page, in the person's language."
   [w]
-  (assoc w :ring/response {:status 200
-                           :headers {"Content-Type" "text/html; charset=utf-8"
-                                     "Cache-Control" "no-cache"}
-                           :body (replicant/shim-html (assets/head (assets/client)))}))
+  (let [locale (i18n/locale (:ring/request w))]
+    (assoc w :ring/response {:status 200
+                             :headers {"Content-Type" "text/html; charset=utf-8"
+                                       "Cache-Control" "no-cache"}
+                             :body (replicant/shim-html (assets/head (assets/client))
+                                                        {:lang (name locale)
+                                                         :noscript (i18n/translate [:i18n :page/js-required] locale)})})))
 
 (defn- ^:async bot-get
   "GET /bot/<id>: the page, for any id (the stream shows another bot
@@ -529,6 +533,7 @@
                                  :headers {"Content-Type" "text/html; charset=utf-8"
                                            "Cache-Control" "no-cache"}
                                  :body (phone/page-shell {:bot id
+                                                          :lang (name locale)
                                                           :name (i18n/translate (machine/label-of id) locale)
                                                           :words (i18n/translate (view/phone-words) locale)
                                                           :head (assets/head (assets/client))})}))

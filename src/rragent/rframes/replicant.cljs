@@ -32,15 +32,18 @@
 (defn shim-html
   "The static shell. The client runtime mounts at #root, the attribute is
    its cue to open the view stream on this path. `head` is an HTML string
-   with the stylesheets and script tags of the page."
-  [head]
-  (str "<!DOCTYPE html>"
-       "<html lang=\"en\"><head><meta charset=\"UTF-8\">"
-       "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content\">"
-       head
-       "</head><body><noscript>This UI requires JavaScript.</noscript>"
-       "<div id=\"root\" data-rframes-view=\"\" style=\"display:contents\"></div>"
-       "</body></html>"))
+   with the stylesheets and script tags of the page; `lang` the page's
+   language (en), `noscript` the words for a browser without JavaScript."
+  ([head]
+   (shim-html head {}))
+  ([head {:keys [lang noscript] :or {lang "en" noscript "This UI requires JavaScript."}}]
+   (str "<!DOCTYPE html>"
+        "<html lang=\"" lang "\"><head><meta charset=\"UTF-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content\">"
+        head
+        "</head><body><noscript>" noscript "</noscript>"
+        "<div id=\"root\" data-rframes-view=\"\" style=\"display:contents\"></div>"
+        "</body></html>")))
 
 (defn ^:async tabid
   "The tab id from the body of the stream-open POST, transit {:tabid ...},

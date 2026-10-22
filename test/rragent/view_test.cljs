@@ -108,18 +108,18 @@
             text (set (strings page))]
         (is (= "v0.1.2" (last (find-tag page :button.version))))
         (is (= [[:data/command {:command/kind :update/check}]] (get-in (second (find-tag page :button.version)) [:on :click])))
-        (is (= "Look for a newer rragent" (:title (second (find-tag page :button.version)))))
+        (is (= "Check for a newer rragent version" (:title (second (find-tag page :button.version)))))
         (is (contains? text "rragent 0.1.3 is available."))
         (is (contains? text "Subagents"))
         (is (contains? text "Update"))
-        (is (contains? text "It installs itself once the agent is idle; the page comes back by itself."))
+        (is (contains? text "It installs itself once the agent is idle; the page then reloads by itself."))
         (is (< (.indexOf (vec (nodes page)) (find-tag page :div.banner.update))
                (.indexOf (vec (nodes page)) (find-tag page :section.feed)))
             "the banner stands above the feed")
         (is (= page (transit/read-str (transit/write-str page))))))
     (testing "the header's button switches the theme, its titles translated"
       (let [page (i18n/translate (view/page {:agent {} :conversation nil :locale :de}) :de)]
-        (is (= {:ui/light-title "Helles Design" :ui/dark-title "Dunkles Design"}
+        (is (= {:ui/light-title "Zum hellen Design wechseln" :ui/dark-title "Zum dunklen Design wechseln"}
                (second (find-tag page :ui/theme-toggle))))))
     (testing "without the version nothing of it is on the page"
       (let [page (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en)]
@@ -179,6 +179,20 @@
         (is (= [:draft "cc33dd44"] (:ui/store-key composer)) "the draft is the bot's")
         (is (= {:bot "cc33dd44" :path "card.html"}
                (get-in (second (find-tag p :button.row)) [:on :click 0 1 :command/data])) "a row of the list opens its file under the bot")))
+    (testing "a failed render: the reason in the person's language, the script's own words below it"
+      (let [pane {:artifacts/list [{:path "card" :kind :project :title "Card" :mtime 3}]
+                  :artifacts/current "card"
+                  :projects {"card" {:ready-at 1}}
+                  :renders {"card" {:exit 1 :error "boom" :detail "Error: boom"
+                                    :reason [:i18n :render/script-failed {:exit 1}]}}
+                  :base "/bot/cc33dd44" :bot "cc33dd44"}
+            de (i18n/translate (view/artifacts pane) :de)
+            en (i18n/translate (view/artifacts pane) :en)]
+        (is (= [:p.error "Das Video konnte nicht erstellt werden:" " " "Das Render-Skript ist mit einem Fehler abgebrochen (Exit-Code 1):"]
+               (find-tag de :p.error)))
+        (is (= [:p.error "The video could not be made:" " " "The render script ended with an error (exit code 1):"]
+               (find-tag en :p.error)))
+        (is (= [:pre.render-detail "Error: boom"] (find-tag de :pre.render-detail)))))
     (testing "on a phone the chat and the artifacts are tabs, once there are artifacts"
       (let [with (page {:artifacts {:artifacts/list [{:path "card.html" :kind :page :title "Card" :mtime 3}]
                                     :artifacts/current "card.html"}})
@@ -269,12 +283,12 @@
       (is (contains? text "Subagents"))
       (is (= [:button.link {:on {:click [[:data/command {:command/kind :update/apply}]]}} "Update"]
              (find-tag banner :button.link)))
-      (is (not (contains? text "It installs itself once the agent is idle; the page comes back by itself.")))))
+      (is (not (contains? text "It installs itself once the agent is idle; the page then reloads by itself.")))))
   (testing "with the idle apply the banner says that it goes in by itself"
     (let [banner (i18n/translate (view/update-banner {:current "0.1.2" :version "0.1.3" :state :known :auto? true}) :en)]
-      (is (some #{"It installs itself once the agent is idle; the page comes back by itself."} (strings banner)))))
+      (is (some #{"It installs itself once the agent is idle; the page then reloads by itself."} (strings banner)))))
   (testing "what the update is doing, and why it did not work"
-    (is (= [:div.banner.update "Updating to rragent 0.1.3 … the page comes back by itself."]
+    (is (= [:div.banner.update "Updating to rragent 0.1.3… the page reloads by itself."]
            (i18n/translate (view/update-banner {:version "0.1.3" :state :applying}) :en)))
     (let [banner (i18n/translate (view/update-banner {:version "0.1.3" :state :failed :error "HTTP 404 from x"}) :de)]
       (is (= :div.banner.update.failed (first banner)))
@@ -283,7 +297,7 @@
   (testing "the answers of a lookup the person asked for"
     (is (= [:div.banner.update "rragent 0.1.2 is the newest."]
            (i18n/translate (view/update-banner {:current "0.1.2" :checked :newest}) :en)))
-    (is (= [:div.banner.update.failed "The newest release could not be looked up."]
+    (is (= [:div.banner.update.failed "The newest release could not be checked."]
            (i18n/translate (view/update-banner {:current "0.1.2" :checked :failed}) :en)))))
 
 (deftest attachments-test

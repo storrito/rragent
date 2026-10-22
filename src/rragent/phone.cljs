@@ -26,6 +26,7 @@
             [clojure.string :as str]
             [rragent.auth :as auth]
             [rragent.db :as db]
+            [rragent.i18n :as i18n]
             [rragent.rframes.transit :as transit]
             [rragent.uploads :as uploads]))
 
@@ -98,14 +99,15 @@
               :body ""}
              {:status 404
               :headers {"Content-Type" "text/plain; charset=utf-8"}
-              :body "This pairing code is unknown or too old. Show the QR code on the laptop again."}))))
+              :body (i18n/translate [:i18n :phone/unknown-code] (i18n/locale request))}))))
 
 (defn page-shell
-  "The phone's page: the client bundle mounts `rragent.client.phone` on
-   `#phone`, which carries the bot and the words of the page."
-  [{:keys [bot name words head]}]
+  "The phone's page, in the language `lang` (en by default): the client
+   bundle mounts `rragent.client.phone` on `#phone`, which carries the
+   bot and the words of the page."
+  [{:keys [bot name words head lang]}]
   (str "<!DOCTYPE html>"
-       "<html lang=\"en\"><head><meta charset=\"UTF-8\">"
+       "<html lang=\"" (or lang "en") "\"><head><meta charset=\"UTF-8\">"
        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover\">"
        head
        "</head><body>"

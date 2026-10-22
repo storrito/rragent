@@ -54,7 +54,12 @@
     (is (= [:get "/"] route))
     (is (= 200 status))
     (is (str/includes? body "<title>t</title>"))
-    (is (str/includes? body "data-rframes-view"))))
+    (is (str/includes? body "data-rframes-view"))
+    (is (str/includes? body "<html lang=\"en\">") "English when the page says no language"))
+  (testing "the page's language and its words for a browser without JavaScript"
+    (let [html (replicant/shim-html "" {:lang "de" :noscript "Diese Seite braucht JavaScript."})]
+      (is (str/includes? html "<html lang=\"de\">"))
+      (is (str/includes? html "<noscript>Diese Seite braucht JavaScript.</noscript>")))))
 
 (deftest expand-test
   (is (= [:post "/"] (:ring/route (replicant/expand-entry {:replicant/render "/"
