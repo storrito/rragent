@@ -51,7 +51,7 @@
                  register [{:ring/route [:post "/bot/7/phone/*"]
                             :ring/handler (fn [w] (phone/post! ctx (get-in w [:ring/route-params :*]) w))}
                            {:ring/route [:get "/bot/7/phone/frame"]
-                            :ring/handler (fn [w] (phone/frame-handler "7" w))}
+                            :ring/handler (fn [w] (phone/frame-handler "7" w {:wait-ms 200}))}
                            {:ring/route [:get "/bot/7/phone/events"]
                             :ring/handler (fn [w] (phone/events-handler "7" w))}
                            {:ring/route [:get "/pair/*"]
@@ -125,15 +125,24 @@
                    (is (= "xyz" (await (.text served)))))
                  (is (= 404 (.-status (await (js/fetch (str base "/bot/7/record/test/recording.json"))))) "only the files of a recording are served")
                  (is (= 404 (.-status (await (js/fetch (str base "/bot/7/record/..%2F..%2Fx/phone.webm")))))))
-               (testing "the phone's still: none yet, then the last one sent, too large refused"
-                 (is (= 404 (.-status (await (js/fetch (str base "/bot/7/phone/frame"))))))
+               (testing "the phone's still: none yet, the last one sent with its number, an ask held until a newer one, too large refused"
+                 (is (= 204 (.-status (await (js/fetch (str base "/bot/7/phone/frame"))))) "none came while the ask was held")
                  (is (= [200 {:ok true}] (await (post "/bot/7/phone/frame" "jpeg-1" "image/jpeg"))))
                  (is (= [200 {:ok true}] (await (post "/bot/7/phone/frame" "jpeg-2" "image/jpeg"))))
-                 (let [served (await (js/fetch (str base "/bot/7/phone/frame")))]
+                 (let [served (await (js/fetch (str base "/bot/7/phone/frame?after=0")))]
                    (is (= 200 (.-status served)))
                    (is (= "image/jpeg" (.get (.-headers served) "content-type")))
                    (is (= "no-store" (.get (.-headers served) "cache-control")))
+                   (is (= "2" (.get (.-headers served) "x-still")))
                    (is (= "jpeg-2" (await (.text served)))))
+                 (is (= 204 (.-status (await (js/fetch (str base "/bot/7/phone/frame?after=2"))))) "nothing newer than the second")
+                 (let [held (js/fetch (str base "/bot/7/phone/frame?after=2"))]
+                   (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                   (await (post "/bot/7/phone/frame" "jpeg-3" "image/jpeg"))
+                   (let [served (await held)]
+                     (is (= 200 (.-status served)) "the held ask is answered by the next still")
+                     (is (= "3" (.get (.-headers served) "x-still")))
+                     (is (= "jpeg-3" (await (.text served))))))
                  (is (= [413 {:error :too-large}] (await (post "/bot/7/phone/frame" (.repeat "x" (inc phone/max-frame-bytes)) "image/jpeg")))))
                (finally
                  (.close server))))))

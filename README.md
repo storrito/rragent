@@ -441,7 +441,7 @@ The 🎥 button of the composer records a screencast the way
 [rawcast](https://github.com/maxweber/rawcast) does: the screen and the
 webcam as two files, both with the microphone, no layout up front. The
 panel picks the microphone and the camera (remembered in the browser),
-shows the camera live with the level of the microphone and makes a test
+shows the level of the microphone beside it and the camera live, and makes a test
 recording of five seconds to play back. *Choose the screen* opens
 Chrome's screen picker and shows the screen live beside the camera; the
 test and Start record that screen, and Start opens the picker itself

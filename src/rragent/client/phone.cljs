@@ -5,9 +5,9 @@
    stop: on start it records its camera and microphone at full
    quality into `phone.<webm|mp4>` of the recording, the pieces up as
    they come, the uploaders of `rragent.client.recorder`; on stop it
-   sends the last pieces and tells the machine its file is up. A still
-   of the camera goes up every second, the phone's preview in the
-   laptop's panel. The screen stays on while it records. Rendered by Replicant from the
+   sends the last pieces and tells the machine its file is up. Stills
+   of the camera go up as fast as the network takes them, the phone's
+   preview in the laptop's panel. The screen stays on while it records. Rendered by Replicant from the
    atom `state*`, nothing of the frames."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
@@ -24,12 +24,13 @@
   10000)
 
 (def frame-ms
-  "How often a still of the camera goes to the laptop's panel."
-  1000)
+  "How often a still of the camera may go to the laptop's panel: six a
+   second at most, fewer when one takes longer to go up."
+  160)
 
 (def frame-width
   "The width of a still: enough to frame the picture by."
-  480)
+  320)
 
 (defn- words
   [k]

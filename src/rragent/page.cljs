@@ -536,7 +536,7 @@
       (phone/events-handler id w)
 
       (= rest (str (subs phone/path-prefix 1) "/frame"))
-      (phone/frame-handler id w)
+      (await (phone/frame-handler id w))
 
       (= rest (str (subs phone/path-prefix 1) "/test"))
       (phone/test-handler {:db db/db :path (db/bot-path id)} w)

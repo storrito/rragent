@@ -21,10 +21,11 @@
    phone records, sends up and finishes itself; `GET .../phone/test`
    names that clip for the laptop's panel. When the phone's last piece
    is up it says so (`POST .../phone/done`), which the recording's
-   finish waits for. While its page is open the phone sends a still of
-   its camera every second (`POST .../phone/frame`, a small JPEG, kept
-   in memory, the last one only), which the laptop's panel shows as the
-   phone's preview (`GET .../phone/frame`)."
+   finish waits for. While its page is open the phone sends stills of
+   its camera as fast as they go up (`POST .../phone/frame`, small
+   JPEGs, kept in memory, the last one only), which the laptop's panel
+   shows as the phone's preview: `GET .../phone/frame?after=<n>` is
+   held until a still newer than the `n`th is there."
   (:require ["node:crypto" :as crypto]
             [clojure.string :as str]
             [rragent.auth :as auth]
@@ -59,8 +60,16 @@
   (atom 0))
 
 (defonce ^:private frames
-  ;; bot id -> {:bytes :at}, the phone's last still
+  ;; bot id -> {:bytes :at :n}, the phone's last still and its number
   (atom {}))
+
+(defonce ^:private frame-waiters
+  ;; bot id -> the resolves of the panels waiting for a newer still
+  (atom {}))
+
+(def frame-wait-ms
+  "How long the panel's ask for a newer still is held."
+  10000)
 
 (def max-frame-bytes
   "The largest still the phone sends."
@@ -193,22 +202,57 @@
      :facing facing}))
 
 (defn frame!
-  "The phone's last still of the bot."
+  "The phone's last still of the bot, numbered; the panels waiting for
+   one are answered."
   [bot-id bytes]
-  (swap! frames assoc (str bot-id) {:bytes bytes :at (js/Date.now)}))
+  (let [bot (str bot-id)
+        waiting (get @frame-waiters bot)]
+    (swap! frames update bot (fn [{:keys [n]}]
+                               {:bytes bytes :at (js/Date.now) :n (inc (or n 0))}))
+    (swap! frame-waiters dissoc bot)
+    (doseq [resolve waiting]
+      (resolve nil))))
 
-(defn frame-handler
-  "`GET /bot/<id>/phone/frame`: the phone's last still while it is
-   fresh, 404 otherwise."
-  [bot-id w]
-  (let [{:keys [bytes at]} (get @frames (str bot-id))]
+(defn- newer-frame
+  "The bot's still when it is fresh and newer than the `after`th."
+  [bot after]
+  (let [{:keys [at n] :as frame} (get @frames bot)]
+    (when (and frame (< after n) (< (- (js/Date.now) at) fresh-ms))
+      frame)))
+
+(defn- next-frame
+  "A promise that settles when the bot's next still comes, or after
+   `ms`."
+  [bot ms]
+  (js/Promise.
+   (fn [resolve]
+     (let [timer (js/setTimeout (fn []
+                                  (swap! frame-waiters update bot disj resolve)
+                                  (resolve nil))
+                                ms)
+           done (fn [_]
+                  (js/clearTimeout timer)
+                  (resolve nil))]
+       (swap! frame-waiters update bot (fnil conj #{}) done)))))
+
+(defn ^:async frame-handler
+  "`GET /bot/<id>/phone/frame?after=<n>`: the phone's last still when
+   it is newer than the `n`th, with its number in `X-Still`; held
+   until one comes, 204 when none came in `wait-ms`."
+  [bot-id w & [{:keys [wait-ms] :or {wait-ms frame-wait-ms}}]]
+  (let [bot (str bot-id)
+        after (or (parse-long (str (get (uploads/query-params (:ring/request w)) "after"))) 0)
+        frame (or (newer-frame bot after)
+                  (do (await (next-frame bot wait-ms))
+                      (newer-frame bot after)))]
     (assoc w :ring/response
-           (if (and bytes (< (- (js/Date.now) at) fresh-ms))
+           (if frame
              {:status 200
               :headers {"Content-Type" "image/jpeg"
-                        "Cache-Control" "no-store"}
-              :body bytes}
-             {:status 404
+                        "Cache-Control" "no-store"
+                        "X-Still" (str (:n frame))}
+              :body (:bytes frame)}
+             {:status 204
               :headers {"Cache-Control" "no-store"}
               :body ""}))))
 

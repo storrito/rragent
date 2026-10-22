@@ -146,25 +146,16 @@
           (recur (inc i) (+ sum (* x x))))
         (js/Math.sqrt (/ sum (max n 1)))))))
 
-(def still-ms
-  "How often the phone's preview asks for the phone's last still."
-  1000)
-
 (declare phone-url)
 
 (defn- tick!
   "The level on the meter, twenty times a second, straight to the node;
-   the phone's still every second; the seconds in the store once they
-   change."
+   the seconds in the store once they change."
   [store]
-  (let [{:keys [analyser samples meter since phone-node still-at]} @session*
-        status (:status (:ui/recorder @store))
-        now (js/performance.now)]
+  (let [{:keys [analyser samples meter since]} @session*
+        status (:status (:ui/recorder @store))]
     (when (and analyser meter)
       (.setProperty (.-style ^js meter) "--level" (str (min 1 (* 8 (level analyser samples))))))
-    (when (and phone-node (< (+ (or still-at 0) still-ms) now))
-      (swap! session* assoc :still-at now)
-      (set! (.-src ^js phone-node) (str (phone-url) "/frame?t=" (js/Date.now))))
     (when (and since (#{:recording :testing} status))
       (let [seconds (js/Math.floor (/ (- (js/performance.now) since) 1000))]
         (when (not= seconds (:seconds (:ui/recorder @store)))
@@ -784,18 +775,45 @@
                       :on {:click (fn [_] (choose-screen! store))}}
       (:screen-choose labels)])])
 
+(defn- ^:async watch-stills!
+  "The phone's stills on `node` as they come: the machine holds each
+   ask until a newer still is there (`rragent.phone`); until the node
+   goes or the ask is aborted. A failed ask is tried again after a
+   second."
+  [^js node ^js controller]
+  (loop [after 0
+         ^js shown nil]
+    (when-not (.. controller -signal -aborted)
+      (let [[after shown]
+            (try
+              (let [response (await (js/fetch (str (phone-url) "/frame?after=" after)
+                                              #js {:signal (.-signal controller)}))]
+                (if (= 200 (.-status response))
+                  (let [url (js/URL.createObjectURL (await (.blob response)))]
+                    (set! (.-src node) url)
+                    (.remove (.-classList node) "none")
+                    (some-> shown js/URL.revokeObjectURL)
+                    [(or (parse-long (str (.get (.-headers response) "X-Still"))) after) url])
+                  [after shown]))
+              (catch :default _
+                (when-not (.. controller -signal -aborted)
+                  (await (sleep 1000)))
+                [after shown]))]
+        (recur after shown)))))
+
 (defn- phone-preview
-  "The phone's picture in the panel, a still a second, while a phone
-   is connected and ticked; nothing while it has not sent one."
+  "The phone's picture in the panel, its stills as they come, while a
+   phone is connected and ticked; nothing while it has not sent one."
   [phone]
   [:figure.phone-still {:replicant/key "phone"}
    [:img.phone-still {:alt ""
-                :replicant/on-mount (fn [{:keys [replicant/node]}]
-                                      (.add (.-classList ^js node) "none")
-                                      (set! (.-onload ^js node) #(.remove (.-classList ^js node) "none"))
-                                      (set! (.-onerror ^js node) #(.add (.-classList ^js node) "none"))
-                                      (swap! session* #(some-> % (assoc :phone-node node) (dissoc :still-at))))
-                :replicant/on-unmount (fn [_] (swap! session* #(some-> % (dissoc :phone-node))))}]
+                      :replicant/on-mount (fn [{:keys [replicant/node]}]
+                                            (let [controller (js/AbortController.)]
+                                              (.add (.-classList ^js node) "none")
+                                              (set! (.-__stills node) controller)
+                                              (watch-stills! node controller)))
+                      :replicant/on-unmount (fn [{:keys [replicant/node]}]
+                                              (some-> ^js (.-__stills node) .abort))}]
    [:figcaption (:device phone)]])
 
 (defn- device-select
@@ -847,8 +865,8 @@
       (:pair labels)])]))
 
 (defn panel
-  "The panel above the text while it is open: the devices, the camera
-   live with the meter, the phone as a camera, the test, Start; a bar
+  "The panel above the text while it is open: the devices, the meter
+   beside the microphone, the camera, the screen and the phone live, the test, Start; a bar
    with the time and Stop while it records. `labels` are the words, the
    server's, translated; `phone` the phone connected, from the frame
    (`rragent.phone/status`)."
@@ -882,18 +900,19 @@
             (list
              [:div.devices
               [:label (:mic labels)
-               (device-select store :mic mic (:mics devices))]
+               [:span.mic
+                (device-select store :mic mic (:mics devices))
+                [:span.meter {:replicant/on-mount (fn [{:keys [replicant/node]}]
+                                                    (swap! session* #(some-> % (assoc :meter node))))
+                              :replicant/on-unmount (fn [_]
+                                                      (swap! session* #(some-> % (dissoc :meter))))}
+                 [:span] [:span] [:span] [:span] [:span]]]]
               [:label (:camera labels)
                (device-select store :camera camera (:cameras devices))]]
              [:div.preview
               [:video.camera {:autoplay true
                               :playsinline true
                               :replicant/on-mount preview-mount}]
-              [:span.meter {:replicant/on-mount (fn [{:keys [replicant/node]}]
-                                                  (swap! session* #(some-> % (assoc :meter node))))
-                            :replicant/on-unmount (fn [_]
-                                                    (swap! session* #(some-> % (dissoc :meter))))}
-               [:span] [:span] [:span] [:span] [:span]]
               (when (contains? ticked :screen)
                 (screen-preview store labels screen? (= :ready status)))
               (when (and phone (contains? ticked :phone))

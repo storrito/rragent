@@ -1608,8 +1608,8 @@ pre {
 }
 
 /* The screencast panel above the text (rragent.client.recorder): the
-   devices in a row, the camera live with the meter of the microphone,
-   the test's playback, Test and Start; while it records, a bar with a
+   devices in a row, the meter beside the microphone, the previews in a
+   row, the test's playback, Test and Start; while it records, a bar with a
    red dot, the time and Stop. The button in the row is red then. */
 .recorder {
   display: flex;
@@ -1665,6 +1665,18 @@ pre {
   font-size: 13px;
 }
 
+/* The microphone with the level of its sound beside it. */
+.recorder .devices .mic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recorder .devices .mic select {
+  flex: 1;
+}
+
 .recorder .devices select {
   min-width: 0;
   padding: 6px 8px;
@@ -1678,7 +1690,7 @@ pre {
 
 .recorder .preview {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 12px;
 }
 
@@ -1820,8 +1832,8 @@ pre {
   display: flex;
   align-items: center;
   gap: 3px;
+  flex-shrink: 0;
   height: 24px;
-  margin-bottom: 8px;
 }
 
 .recorder .meter span {
