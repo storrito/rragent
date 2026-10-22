@@ -4,37 +4,25 @@
    recording to `POST /dictation`, which has it transcribed by a
    speech-to-text model behind OpenRouter (`/audio/transcriptions`) and
    answers the text, which the browser puts into the draft. The
-   recording is not kept.
-
-   The model is RRAGENT_DICTATION_MODEL, AssemblyAI's Universal-3.6 Pro
-   by default, half a second for ten seconds of speech: it scores every
-   word it hears, so the answer carries the words with their confidence
-   (0 to 1) besides the text. Of the models behind OpenRouter only it
-   and ElevenLabs' Scribe v2 score words (October 2026, Deepgram's
-   Nova-3 among those that do not); its scores are the lower ones where
-   it misheard, a name it did not know at 0.2. No language is named,
-   the model detects the one spoken. The request goes where the REPL
-   `codemode` of the agent knows OpenRouter: through the gateway's
-   connection, else with OPENROUTER_API_KEY (`rragent.openrouter`, as
-   the models and the media tools have it)."
+   recording is not kept. The request is `rragent.transcription`'s,
+   the `transcribe` tool's too: the model scores every word, so the
+   answer carries the words with their confidence (0 to 1) besides
+   the text, for the correction (`rragent.correction`)."
   (:require [clojure.string :as str]
             [rragent.correction :as correction]
-            [rragent.openrouter :as openrouter]
-            [rragent.rframes.transit :as transit]))
+            [rragent.rframes.transit :as transit]
+            [rragent.transcription :as transcription]))
 
 (def path
   "Where the browser posts a recording."
   "/dictation")
 
 (def model
-  (or (not-empty (aget (.-env js/process) "RRAGENT_DICTATION_MODEL"))
-      "assemblyai/universal-3-6-pro"))
+  transcription/model)
 
 (def max-bytes
-  "The largest recording, OpenRouter's cap of audio sent inline; the
-   browser sends a piece of 30 seconds at most
-   (`rragent.client.dictation`)."
-  (* 25 1024 1024))
+  "The largest recording (`rragent.transcription`)."
+  transcription/max-bytes)
 
 (def formats
   "The format OpenRouter is told by the media type of the recording:
@@ -83,18 +71,6 @@
                               (resolve nil))
                           (.push chunks chunk))))))))
 
-(defn request-body
-  "The JSON body of the transcription request: the words with their
-   timestamps and, where the model scores them, their confidence come
-   only with `verbose_json`."
-  [^js audio format]
-  {:model model
-   :input_audio {:data (.toString audio "base64")
-                 :format format}
-   :response_format "verbose_json"
-   :timestamp_granularities ["word"]
-   :temperature 0})
-
 (defn answer
   "The answer for the browser from OpenRouter's response: the text, the
    words with their confidence, nil where the model gave none, and
@@ -113,21 +89,10 @@
 
 (defn ^:async transcribe!
   "The transcription of `audio` by OpenRouter, where `codemode` knows
-   it (`rragent.openrouter/route!`), as `answer`; throws with the
+   it (`rragent.transcription`), as `answer`; throws with the
    service's message, or with why there is no OpenRouter."
   [codemode audio format]
-  (let [{:keys [base-url headers]} (openrouter/route! codemode "dictation")
-        response (await (js/fetch (str base-url "/audio/transcriptions")
-                                  #js {:method "POST"
-                                       :headers (clj->js (assoc headers "Content-Type" "application/json"))
-                                       :body (js/JSON.stringify (clj->js (request-body audio format)))
-                                       :signal (js/AbortSignal.timeout 90000)}))
-        text (await (.text response))
-        body (try (js->clj (js/JSON.parse text) :keywordize-keys true) (catch :default _ nil))]
-    (when-not (.-ok response)
-      (throw (js/Error. (str "The transcription service answered " (.-status response) ": "
-                             (or (get-in body [:error :message]) text)))))
-    (answer body)))
+  (answer (await (transcription/transcription! codemode audio format "dictation"))))
 
 (defn ^:async handler
   "`POST /dictation`: the recording as the body with its media type,

@@ -1868,6 +1868,10 @@ pre {
   background: var(--code-bg);
 }
 
+.recorder audio.test {
+  width: 100%;
+}
+
 .recorder .meter {
   --level: 0;
   display: flex;

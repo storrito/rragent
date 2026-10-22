@@ -8,7 +8,8 @@
    coding tools (read, write, edit, bash in the bot's `work/`) and
    rragent's own (remember and recall, fetch, the REPL `eval` with
    the connectors of the gateway as functions, schedule, hook, and
-   the tools of the artifacts: project, render, image, voice, music;
+   the tools of the artifacts: project, render, image, voice, music,
+   transcribe;
    the pane shows what they make; subagent, which hands a task to a
    conversation of its own; and what the caller brings, the `bot`
    tool of `rragent.machine`), one registry for every bot. A bot is a
@@ -45,6 +46,7 @@
             [rragent.tools.render :as render-tool]
             [rragent.tools.schedule :as schedule-tool]
             [rragent.tools.subagent :as subagent-tool]
+            [rragent.tools.transcribe :as transcribe-tool]
             [rragent.tools.facts :as facts-tool]))
 
 (def context
@@ -59,7 +61,8 @@
   [codemode]
   (defineExtension #js {:name "rragent"
                         :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
-                                    (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)]
+                                    (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)
+                                    (transcribe-tool/tool codemode)]
                         :tasks #js [schedule/Task]}))
 
 (defn gateway-auth
