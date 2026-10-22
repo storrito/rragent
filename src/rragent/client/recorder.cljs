@@ -19,9 +19,11 @@
 
    A phone paired by a QR code (`rragent.phone`, its page
    `rragent.client.phone`) is a camera too, instead of the webcam or
-   besides it (`:mode`): the laptop tells the machine to start and
-   stop it with the recording, the phone records its own file at full
-   quality and sends it up itself, and the end waits for that file.
+   besides it, or the only one, without the screen, for a vertical
+   video the agent cuts (`:mode`: `:webcam`, `:phone`, `:both`,
+   `:phone-only`): the laptop tells the machine to start and stop it
+   with the recording, the phone records its own file at full quality
+   and sends it up itself, and the end waits for that file.
 
    The state is in the store under `:ui/recorder`: the `:status`
    (`:opening`, `:ready`, `:testing`, `:recording`, `:finishing`,
@@ -328,6 +330,10 @@
            (.then chain (fn [offset]
                           (post-piece! (:url @up) blob offset))))))
 
+(def phone-modes
+  "The modes the phone records in."
+  #{:phone :both :phone-only})
+
 (defn- phone-url
   []
   (get-in @session* [:ctx :phone-url]))
@@ -346,18 +352,23 @@
       (js/console.error "[recorder] phone" error)
       nil)))
 
+(declare finish!)
+
 (defn stop!
   "Ends the recording: the recorders stop, the phone is told, the last
    pieces go up, then the recording is finished on the server
-   (`finish!`)."
+   (`finish!`); with the phone alone there is no recorder here and
+   the end is asked for at once."
   [store]
   (when (= :recording (:status (:ui/recorder @store)))
     (update! store assoc :status :finishing)
     (when (:phone? @session*)
       (post-phone! "stop" {:stamp (:stamp @session*)}))
-    (doseq [{:keys [^js recorder]} (vals (:recorders @session*))]
-      (when (= "recording" (.-state recorder))
-        (.stop recorder)))))
+    (if-let [recorders (seq (vals (:recorders @session*)))]
+      (doseq [{:keys [^js recorder]} recorders]
+        (when (= "recording" (.-state recorder))
+          (.stop recorder)))
+      (finish! store))))
 
 (defn- labels-of
   [store]
@@ -375,7 +386,7 @@
         named (str/join ", " (map (fn [file]
                                     (str file " (" (get what (first (str/split file #"\.")) file) ")"))
                                   files))]
-    (-> (or (:draft labels) "I recorded a screencast in {folder}: {files}; every file carries a microphone. ")
+    (-> (or (:draft labels) "New recording in {folder}: {files}; every file carries a microphone. ")
         (str/replace "{folder}" folder)
         (str/replace "{files}" named))))
 
@@ -469,10 +480,11 @@
 (defn- ^:async begin!
   "The recorders of the mode, started together once the phone, when it
    is a camera, was told the stamp; without a phone listening the
-   recording does not start."
+   recording does not start. `display` is the screen, nil with the
+   phone alone."
   [store ^js display]
   (let [{:keys [mode]} (:ui/recorder @store)
-        phone? (contains? #{:phone :both} mode)
+        phone? (contains? phone-modes mode)
         the-stamp (stamp)
         phones (when phone?
                  (:phones (await (post-phone! "start" {:stamp the-stamp}))))]
@@ -480,13 +492,13 @@
       (do (stop-tracks! display)
           (update! store assoc :error (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected.")))
       (let [^js preview (:preview @session*)
-            ^js screen-track (first (array-seq (.getVideoTracks display)))
-            ^js clone (.clone ^js (first (array-seq (.getAudioTracks preview))))
-            screen-stream (js/MediaStream. #js [screen-track clone])
+            ^js screen-track (when display (first (array-seq (.getVideoTracks display))))
+            ^js clone (when display (.clone ^js (first (array-seq (.getAudioTracks preview)))))
             base (str (get-in @session* [:ctx :url]) "/" the-stamp)
             mime (mime-type)
-            recorders (cond-> {"screen" (recorder-of store base mime screen-stream "screen" screen-bits)}
-                        (not= :phone mode) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits)))]
+            recorders (cond-> {}
+                        display (assoc "screen" (recorder-of store base mime (js/MediaStream. #js [screen-track clone]) "screen" screen-bits))
+                        (contains? #{:webcam :both} mode) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits)))]
         (swap! session* assoc
                :display display
                :clone clone
@@ -499,7 +511,8 @@
                :stopped {}
                :since (js/performance.now))
         ;; Chrome's own Stop sharing ends the recording too
-        (set! (.-onended screen-track) (fn [_] (stop! store)))
+        (when screen-track
+          (set! (.-onended screen-track) (fn [_] (stop! store))))
         (doseq [{:keys [^js recorder]} (vals recorders)]
           (.start recorder piece-ms))
         (update! store assoc :status :recording :seconds 0 :error nil)))))
@@ -508,27 +521,36 @@
   "Starts the recording from the click (Chrome asks which screen only
    on a gesture): the screen with a copy of the microphone, the camera
    with the microphone, the phone's camera on the phone, each to its
-   file."
+   file. With the phone alone nothing is asked: the phone records."
   [store]
-  (-> (js/navigator.mediaDevices.getDisplayMedia
-       #js {:video #js {:frameRate #js {:ideal 30}
-                        :displaySurface "monitor"}
-            :audio false
-            :selfBrowserSurface "exclude"
-            :surfaceSwitching "exclude"
-            :systemAudio "exclude"})
-      (.then (fn [^js display]
-               (begin! store display)))
-      (.catch (fn [^js error]
-                ;; the person closed Chrome's picker: nothing happened
-                (when-not (= "NotAllowedError" (.-name error))
-                  (failed! store error))))))
+  (if (= :phone-only (:mode (:ui/recorder @store)))
+    (-> (begin! store nil)
+        (.catch (fn [^js error] (failed! store error))))
+    (-> (js/navigator.mediaDevices.getDisplayMedia
+         #js {:video #js {:frameRate #js {:ideal 30}
+                          :displaySurface "monitor"}
+              :audio false
+              :selfBrowserSurface "exclude"
+              :surfaceSwitching "exclude"
+              :systemAudio "exclude"})
+        (.then (fn [^js display]
+                 (begin! store display)))
+        (.catch (fn [^js error]
+                  ;; the person closed Chrome's picker: nothing happened
+                  (when-not (= "NotAllowedError" (.-name error))
+                    (failed! store error)))))))
+
+(declare pair!)
 
 (defn mode!
-  "Which camera records: the webcam, the phone, or both; remembered."
-  [store mode]
+  "What records: the screen with the webcam, with the phone, with
+   both, or the phone alone; remembered. A phone mode without a phone
+   connected shows the pairing at once."
+  [store mode phone]
   (remember! :mode (name mode))
-  (update! store assoc :mode mode :error nil))
+  (update! store assoc :mode mode :error nil)
+  (when (and (contains? phone-modes mode) (nil? phone) (nil? (:pair (:ui/recorder @store))))
+    (pair! store)))
 
 (defn pair!
   "A pairing link from the machine, as a QR code in the panel."
@@ -561,19 +583,21 @@
       label])])
 
 (defn- phone-section
-  "The phone as a camera: which camera records, the phone connected
-   or the way to pair one, its QR while shown."
+  "What records, the phone connected or the way to pair one, its QR
+   while shown."
   [store labels phone {:keys [mode pair]}]
   [:div.phone-camera
    [:div.modes
     [:span.label (:camera-choice labels)]
-    (for [[m word] [[:webcam (:mode-webcam labels)] [:phone (:mode-phone labels)] [:both (:mode-both labels)]]]
+    (for [[m word] [[:webcam (:mode-webcam labels)]
+                    [:phone (:mode-phone labels)]
+                    [:both (:mode-both labels)]
+                    [:phone-only (:mode-phone-only labels)]]]
       [:label {:replicant/key m}
        [:input {:type "radio"
                 :name "camera-mode"
                 :checked (= m (or mode :webcam))
-                :disabled (and (not= :webcam m) (nil? phone))
-                :on {:change (fn [_] (mode! store m))}}]
+                :on {:change (fn [_] (mode! store m phone))}}]
        word])]
    (if phone
      [:p.connected (str/replace (or (:phone-connected labels) "Phone connected: {device}") "{device}" (str (:device phone)))]
@@ -599,7 +623,7 @@
    server's, translated; `phone` the phone connected, from the frame
    (`rragent.phone/status`)."
   [store state labels phone]
-  (let [{:keys [status devices mic camera seconds test error phone-waiting?] :as recorder} (:ui/recorder state)]
+  (let [{:keys [status devices mic camera seconds test error phone-waiting? mode] :as recorder} (:ui/recorder state)]
     (when status
       [:div.recorder {:replicant/key "recorder"}
        (if (#{:recording :finishing} status)
@@ -609,6 +633,7 @@
           [:span.hint (cond
                         phone-waiting? (:phone-waiting labels)
                         (= :finishing status) (:saving labels)
+                        (= :phone-only mode) (:recording-phone labels)
                         :else (:recording labels))]
           (when (= :recording status)
             [:button.primary {:type "button"
@@ -654,7 +679,7 @@
                                 :disabled (not= :ready status)
                                 :on {:click (fn [_] (start! store))}}
                (:start labels)]]
-             [:p.hint (:screen-hint labels)]))
+             [:p.hint (if (= :phone-only mode) (:phone-only-hint labels) (:screen-hint labels))]))
           (when error
             [:p.error (str/replace (or (:failed labels) "The recording did not work: {error}") "{error}" (str error))])))])))
 

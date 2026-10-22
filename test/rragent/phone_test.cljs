@@ -101,7 +101,8 @@
                      (is (= 200 status))
                      (is (= {:folder (str "recordings/" stamp) :files ["phone.mp4" "screen.webm"]} value))
                      (is (= ["phone.mp4" "recording.json" "screen.webm"] (sort (array-seq (fs/readdirSync (recordings/folder dir stamp)))))))
-                   (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {"phone" "mp4"}}))) "the screen is always one of the files")))
+                   (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {}}))) "no files is no recording")
+                   (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {"tablet" "mp4"}}))) "a name that is not ours")))
                (finally
                  (.close server))))))
         (.catch (fn [error]

@@ -132,12 +132,12 @@
 
 (defn- files-of
   "The files the facts name, name to extension, the laptop's two
-   without a word; nil when a name or an extension is not one of ours."
+   without a word; nil when there is none, or a name or an extension
+   is not one of ours. The phone alone is a recording too."
   [facts]
   (let [files (or (:files facts) default-files)]
     (when (and (map? files)
                (seq files)
-               (contains? files "screen")
                (every? names (keys files))
                (every? extensions (vals files)))
       files)))
