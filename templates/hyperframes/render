@@ -30,7 +30,15 @@ if (!projectDir || !out) {
 const target = path.resolve(out);
 const staging = path.join(path.dirname(target), `.render-${path.basename(target, path.extname(target))}`);
 const staged = path.join(staging, path.basename(target));
-const clean = () => fs.rmSync(staging, { recursive: true, force: true });
+// the folder gone; a CLI still writing into it after a stop may keep it, hidden, until the next render
+const clean = () => {
+  try {
+    fs.rmSync(staging, { recursive: true, force: true });
+  } catch {
+    // left for the next render's clean
+  }
+};
+let stopping = false;
 clean();
 fs.mkdirSync(staging, { recursive: true });
 
@@ -70,12 +78,22 @@ child.on("error", (error) => {
   process.exit(1);
 });
 child.on("close", (code, signal) => {
+  // a stopped render puts nothing in place, whatever the CLI did after the signal
+  if (stopping) return;
   const status = code ?? (signal ? 1 : 0);
-  if (status === 0 && fs.existsSync(staged)) fs.renameSync(staged, target);
-  else if (status === 0) {
+  if (status === 0 && !fs.existsSync(staged)) {
     console.error(`${cli} ended without writing ${path.basename(target)}`);
     clean();
     process.exit(1);
+  }
+  if (status === 0) {
+    try {
+      fs.renameSync(staged, target);
+    } catch (error) {
+      console.error(`the video could not be put in place as ${path.basename(target)}: ${error.message}`);
+      clean();
+      process.exit(1);
+    }
   }
   clean();
   process.exit(status);
@@ -83,6 +101,7 @@ child.on("close", (code, signal) => {
 // stopped (the person's Stop): the CLI goes with the process group, the folder with this
 for (const name of ["SIGTERM", "SIGINT"]) {
   process.on(name, () => {
+    stopping = true;
     child.kill(name);
     clean();
     process.exit(name === "SIGTERM" ? 143 : 130);
