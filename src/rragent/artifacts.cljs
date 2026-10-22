@@ -25,6 +25,9 @@
        :artifacts/current    the path on screen
        :artifacts/picked-at  when the person picked it, to know what is newer
 
+   It reads `:working?` (`rragent.machine`): while a run goes the
+   screen stays put, see `follow`.
+
    It reads `:renders` (`rragent.render`): a file a render still
    writes is shown as is, with its progress, and does not take the
    screen. The files are served under `/artifacts/`."
@@ -232,16 +235,22 @@
   "The artifact on screen after the folder changed: the newest finished
    file when it is newer than the person's pick, what they picked while
    it exists, the list alone when they went back to it and nothing
-   newer came, the newest otherwise. A video a render still writes
-   changes with every frame and does not take the screen by itself; it
-   is news once the render is done (`refollow!`). A note (`note?`) is
-   no news either: it does not take the screen from a creation."
-  [{:keys [artifacts/current artifacts/picked-at] :as value} {listed :artifacts/list}]
+   newer came, the newest otherwise. While the agent works (`:working?`
+   of the bot, `rragent.machine`) the screen stays where it is, a video
+   playing or the list: the agent writes file after file then, and
+   what it made takes the screen once the run is over (`refollow!`);
+   only an empty screen follows the work live. A video a render still
+   writes changes with every frame and does not take the screen by
+   itself; it is news once the render is done. A note (`note?`) is no
+   news either: it does not take the screen from a creation."
+  [{:keys [artifacts/current artifacts/picked-at working?] :as value} {listed :artifacts/list}]
   (let [finished (remove #(or (writing value %) (note? (:path %))) listed)
         newest (or (first finished) (first listed))
         shown (some #(when (= current (:path %)) %) listed)]
     (cond
       (nil? newest) nil
+      (and working? shown) (:path shown)
+      (and working? (nil? current) picked-at) nil
       (> (:mtime newest) (or picked-at 0)) (:path newest)
       shown (:path shown)
       (and (nil? current) picked-at) nil

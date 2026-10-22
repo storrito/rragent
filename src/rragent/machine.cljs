@@ -64,6 +64,24 @@
   []
   (:bots @db/db))
 
+(defn- running?
+  "Whether a run goes in the view value: the `pi.live` document has
+   one."
+  [^js value]
+  (boolean (some-> value .-docs (aget "pi.live") .-run)))
+
+(defn- value!
+  "A new view value of the bot: into its map, with whether a run goes;
+   when the run just ended, the pane shows what the run made
+   (`rragent.artifacts/refollow!`, the screen stays put while a run
+   goes)."
+  [path ^js value]
+  (let [was (:working? (db/at @db/db path))
+        now (running? value)]
+    (swap! db/db db/update-at path assoc :value value :working? now)
+    (when (and was (not now))
+      (artifacts/refollow! db/db path))))
+
 (defn- start-pane!
   "The bot's map follows the bot: the view value now and every one
    after it, the artifacts folder watched, the projects in it run while
@@ -79,8 +97,8 @@
                                    :dir dir
                                    :base base
                                    :shown? (fn [] (pos? (sse/connections)))})]
-    (swap! db/db assoc-in (conj path :value) (.-value view))
-    (let [unsubscribe (.subscribe view (fn [value] (swap! db/db assoc-in (conj path :value) value)))
+    (swap! db/db db/update-at path assoc :value (.-value view) :working? (running? (.-value view)))
+    (let [unsubscribe (.subscribe view (fn [value] (value! path value)))
           stop-artifacts (artifacts/watch! db/db path dir)
           stop-projects (projects/watch! projects)]
       {:dir dir
