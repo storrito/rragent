@@ -183,6 +183,7 @@
                (map first (filter #(and (vector? %) (#{:input#view-chat.toggle :input#view-made.toggle} (first %))) (nodes with)))))
         (is (= ["showing"] (:class (second (find-tag with :section.artifacts)))))
         (is (nil? (find-tag without :nav.views)) "no tabs without artifacts")
+        (is (some? (find-tag with :ui/splitter)) "the handle between the chat and the pane")
         (is (= ["empty"] (:class (second (find-tag without :section.artifacts)))) "the pane says it is empty, a phone hides it")))
     (testing "a delete armed asks in the row, a rename is a field, a note says the bot of the URL is gone"
       (let [p (page {:bots [(assoc (nth bots 0) :deleting? true) (nth bots 1) (assoc (nth bots 2) :renaming? true)]

@@ -42,8 +42,9 @@
    shows the projects under (`/artifacts`, or `/bot/<id>/artifacts`),
    :shown? a function of no arguments, whether someone looks at the
    page right now (yes, by default)}`. `:procs`, the processes by
-   name, is shared by every handle of the process unless given, so
-   that a tool reaches what the pane started."
+   the project's folder, is shared by every handle of the process
+   unless given, so that a tool reaches what the pane started; a
+   handle touches only the projects of its own folder."
   [{:keys [dir shown? procs base path] :as opts}]
   (assoc opts
          :dir (path/resolve dir)
@@ -142,6 +143,14 @@
   [{:keys [dir]} name]
   (path/join dir name))
 
+(defn- key-of
+  "The project's key in the table of processes: its folder, so that the
+   bots of a machine, which share the table, never mistake one
+   another's projects (two bots may name a project alike, and one
+   bot's `sync!` must not stop another's)."
+  [handle name]
+  (project-dir handle name))
+
 (defn- newest-change
   [project-dir]
   (reduce max 0 (map :mtime (artifacts/files project-dir))))
@@ -168,10 +177,10 @@
 (defn- note-exit!
   "The exit of the process into the table and the db, when it is still
    the project's process (a restart replaced it otherwise)."
-  [{:keys [procs db path]} name process code signal]
-  (when (identical? process (:process (get @procs name)))
+  [{:keys [procs db path] :as handle} name process code signal]
+  (when (identical? process (:process (get @procs (key-of handle name))))
     (let [exit (or code (if signal 1 0))]
-      (swap! procs assoc-in [name :exit] exit)
+      (swap! procs assoc-in [(key-of handle name) :exit] exit)
       (swap! db db/update-at path assoc-in [:projects name :exit] exit))))
 
 (defn- note-failure!
@@ -179,7 +188,7 @@
    into the table and the db."
   [{:keys [procs db path] :as handle} name message]
   (fs/appendFileSync (path/join (project-dir handle name) ".log") (str message "\n"))
-  (swap! procs assoc name {:exit 1 :started (js/Date.now) :last-wanted (js/Date.now)})
+  (swap! procs assoc (key-of handle name) {:exit 1 :started (js/Date.now) :last-wanted (js/Date.now)})
   (swap! db db/update-at path assoc-in [:projects name] {:exit 1}))
 
 (defn ^:async start!
@@ -205,10 +214,10 @@
                                (js/console.error "[projects]" name (str error))
                                (fs/appendFileSync (path/join project-dir ".log") (str error "\n"))
                                (note-exit! handle name process 1 nil)))
-        (swap! procs assoc name {:process process
-                                 :port port
-                                 :started now
-                                 :last-wanted now})
+        (swap! procs assoc (key-of handle name) {:process process
+                                                 :port port
+                                                 :started now
+                                                 :last-wanted now})
         (swap! db db/update-at path assoc-in [:projects name] {:port port :ready-at nil})))
     name))
 
@@ -225,15 +234,23 @@
             nil))))))
 
 (defn stop!
-  [{:keys [procs db path]} name]
-  (when-let [{:keys [process]} (get @procs name)]
+  [{:keys [procs db path] :as handle} name]
+  (when-let [{:keys [process]} (get @procs (key-of handle name))]
     (some-> process kill!))
-  (swap! procs dissoc name)
+  (swap! procs dissoc (key-of handle name))
   (swap! db db/update-at path update :projects dissoc name))
 
+(defn- own-names
+  "The projects of this handle's folder in the table."
+  [{:keys [procs dir]}]
+  (for [key (keys @procs)
+        :when (= dir (path/dirname key))]
+    (path/basename key)))
+
 (defn stop-all!
-  [{:keys [procs] :as handle}]
-  (doseq [name (keys @procs)]
+  "Every process of this handle's folder stopped."
+  [handle]
+  (doseq [name (own-names handle)]
     (stop! handle name)))
 
 (defn running?
@@ -255,14 +272,14 @@
 
 (defn- ^:async check-ready!
   [{:keys [db procs path] :as handle} name]
-  (let [{:keys [port exit]} (get @procs name)]
+  (let [{:keys [port exit]} (get @procs (key-of handle name))]
     (when (and port (nil? exit) (nil? (get-in (state handle) [:projects name :ready-at])))
       (when (await (answers? port))
         (swap! db db/update-at path assoc-in [:projects name :ready-at] (js/Date.now))))))
 
 (defn- ^:async restart-exited!
   [{:keys [procs] :as handle} name now]
-  (let [{:keys [exit started]} (get @procs name)]
+  (let [{:keys [exit started]} (get @procs (key-of handle name))]
     (when (and exit (< restart-after-ms (- now started)))
       (stop! handle name)
       (await (start! handle name)))))
@@ -271,9 +288,9 @@
   "A running project no one wanted for `idle-ms` is stopped: a process
    and its memory for nothing."
   [{:keys [procs] :as handle} name now wanted?]
-  (when-let [{:keys [last-wanted]} (get @procs name)]
+  (when-let [{:keys [last-wanted]} (get @procs (key-of handle name))]
     (if wanted?
-      (swap! procs assoc-in [name :last-wanted] now)
+      (swap! procs assoc-in [(key-of handle name) :last-wanted] now)
       (when (< idle-ms (- now last-wanted))
         (stop! handle name)))))
 
@@ -290,7 +307,7 @@
 (defn- ^:async sync-process!
   [{:keys [procs] :as handle} name now]
   (let [wanted? (wanted? handle name now)]
-    (if (contains? @procs name)
+    (if (contains? @procs (key-of handle name))
       (do (await (check-ready! handle name))
           (await (restart-exited! handle name now))
           (stop-idle! handle name now wanted?))
@@ -305,7 +322,7 @@
   [{:keys [dir procs db path] :as handle}]
   (let [current (set (names dir))
         now (js/Date.now)]
-    (doseq [name (keys @procs)
+    (doseq [name (own-names handle)
             :when (not (contains? current name))]
       (stop! handle name))
     (doseq [name (keys (:projects (state handle)))
@@ -376,7 +393,7 @@
    the caller, without a response."
   [{:keys [procs dir] :as handle} w]
   (let [[name rest] (split-path (get-in w [:ring/route-params :*]))
-        {:keys [port]} (get @procs name)
+        {:keys [port]} (get @procs (key-of handle name))
         {:keys [ready-at static? entry]} (get-in (state handle) [:projects name])
         uri (get-in w [:ring/request :uri])
         folder? (str/blank? rest)]
@@ -406,7 +423,7 @@
    names `<base>/<name>/`, and the project is ready."
   [{:keys [procs base] :as handle} request]
   (when-let [[_ name] (re-find (re-pattern (str "^https?://[^/]+" (quoted base) "/([^/?#]+)/")) (str (get-in request [:headers "referer"])))]
-    (when (and (get @procs name)
+    (when (and (get @procs (key-of handle name))
                (get-in (state handle) [:projects name :ready-at]))
       name)))
 
@@ -418,7 +435,7 @@
   [{:keys [procs] :as handle} w]
   (let [request (:ring/request w)]
     (if-let [name (referer-project handle request)]
-      (assoc w :ring/response (await (proxy/request (:port (get @procs name)) "command" request)))
+      (assoc w :ring/response (await (proxy/request (:port (get @procs (key-of handle name))) "command" request)))
       w)))
 
 (def wake-ms
@@ -438,10 +455,10 @@
     (throw (js/Error. (str "artifacts/" name " is no project."))))
   (when (static-template (project-dir handle name))
     (throw (js/Error. (str "artifacts/" name " has no process: its template serves a page as it is."))))
-  (when-not (contains? @procs name)
+  (when-not (contains? @procs (key-of handle name))
     (await (start! handle name)))
   (loop [waited 0]
-    (let [{:keys [port exit]} (get @procs name)]
+    (let [{:keys [port exit]} (get @procs (key-of handle name))]
       (cond
         exit
         (throw (js/Error. (str "artifacts/" name " exited with " exit ", its .log says why.")))

@@ -902,4 +902,7 @@
           [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
         (feed items status onboarding {:base base :bot id})
         (composer id base status (when fresh? (:placeholder onboarding)))]
+       ;; the handle between the chat and the pane, dragged to give one
+       ;; more room (`rragent.client/splitter`); a phone has none
+       [:ui/splitter]
        (artifacts (assoc pane :base base :bot id))]]]))

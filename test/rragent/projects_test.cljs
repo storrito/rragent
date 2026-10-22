@@ -100,7 +100,16 @@
                  (is (true? (get-in @db [:projects "page" :static?])))
                  (is (= "index.html" (get-in @db [:projects "page" :entry])))
                  (is (number? (get-in @db [:projects "page" :ready-at])))
-                 (is (nil? (get @(:procs handle) "page")) "no process for a page"))
+                 (is (nil? (get @(:procs handle) (path/join dir "page"))) "no process for a page")
+                 (is (some? (get @(:procs handle) (path/join dir "card"))) "the table is keyed by the project's folder"))
+               (testing "the bots of a machine share the table: another bot's sync leaves this bot's project alone"
+                 (let [other (projects/handle {:db (atom {}) :dir (temp-dir) :procs (:procs handle)})
+                       before (get @(:procs handle) (path/join dir "card"))]
+                   (await (projects/sync! other))
+                   (is (identical? (:process before) (:process (get @(:procs handle) (path/join dir "card")))) "the same process, not stopped")
+                   (is (nil? (get-in @db [:projects "card" :exit])))
+                   (projects/stop-all! other)
+                   (is (some? (get @(:procs handle) (path/join dir "card"))) "stop-all! of the other bot stops only its own")))
                (testing "the page of the process, through the proxy"
                  (let [{:keys [status body]} (:ring/response (await (projects/handler handle (w "card/"))))]
                    (is (= 200 status))
