@@ -51,6 +51,7 @@
             [rragent.openrouter :as openrouter]
             [rragent.programs :as programs]
             [rragent.projects :as projects]
+            [rragent.recordings :as recordings]
             [rragent.render :as render]
             [rragent.rframes.command :as command]
             [rragent.rframes.http :as http]
@@ -524,7 +525,8 @@
 
 (defn- ^:async bot-post
   "POST /bot/<id>: the view stream; /bot/<id>/upload: a file into
-   the bot's folder;
+   the bot's folder; /bot/<id>/record/<stamp>/...: a screencast as it
+   is recorded, into the bot's artifacts (`rragent.recordings`);
    /bot/<id>/artifacts/<name>/...: to the project's process;
    /bot/<id>/dictation and /bot/<id>/dictation/correct: a recording
    written down by the OpenRouter the machine knows, and the dictation
@@ -544,6 +546,9 @@
 
       (str/starts-with? rest (str (subs artifacts/url-prefix 1) "/"))
       (await (artifacts-post bot (with-subpath w rest (subs artifacts/url-prefix 1))))
+
+      (str/starts-with? rest (str (subs recordings/path-prefix 1) "/"))
+      (await (recordings/handler (:dir bot) (with-subpath w rest (subs recordings/path-prefix 1))))
 
       (= rest (subs dictation/path 1))
       (await (dictation/handler (machine/codemode) w))

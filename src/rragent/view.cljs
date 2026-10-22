@@ -20,6 +20,7 @@
             [rragent.bots :as bots]
             [rragent.dictation :as dictation]
             [rragent.markdown :as markdown]
+            [rragent.recordings :as recordings]
             [rragent.uploads :as uploads]))
 
 (defn cut
@@ -446,8 +447,11 @@
    alias has the microphone button, whose recording goes into the draft
    as text (`rragent.dictation`, under the bot's page), the attach
    button and Send, which waits for the uploads; while a run goes, a
-   Stop button beside it aborts the run (`:ui/stop`). `placeholder` is
-   the skill's while the chat is empty, the page's own otherwise."
+   Stop button beside it aborts the run (`:ui/stop`); the screencast
+   button records the screen and the webcam into the bot's artifacts
+   (`rragent.recordings`, the words of its panel in `:ui/recorder`).
+   `placeholder` is the skill's while the chat is empty, the page's own
+   otherwise."
   [id base status placeholder]
   [:div.composer
    [:ui/composer {:ui/store-key (draft-key id)
@@ -469,6 +473,22 @@
                   :ui/drop-title [:i18n :composer/drop-title]
                   :ui/drop-hint [:i18n :composer/drop-hint]
                   :ui/dictation-url (str base dictation/path)
+                  :ui/record-url (str base recordings/path-prefix)
+                  :ui/recorder {:button [:i18n :record/button]
+                                :title [:i18n :record/title]
+                                :close [:i18n :record/close]
+                                :opening [:i18n :record/opening]
+                                :mic [:i18n :record/mic]
+                                :camera [:i18n :record/camera]
+                                :test [:i18n :record/test]
+                                :testing [:i18n :record/testing]
+                                :start [:i18n :record/start]
+                                :screen-hint [:i18n :record/screen-hint]
+                                :recording [:i18n :record/recording]
+                                :stop [:i18n :record/stop]
+                                :saving [:i18n :record/saving]
+                                :failed [:i18n :record/failed]
+                                :draft [:i18n :record/draft]}
                   :ui/dictate-title [:i18n :composer/dictate]
                   :ui/dictate-stop-title [:i18n :composer/dictate-stop]
                   :ui/transcribing-title [:i18n :composer/transcribing]

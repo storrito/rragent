@@ -199,7 +199,7 @@
                          (is (mentions? answer "Capital of France?") "the question is on the page")
                          (is (mentions? answer "Noted a fact") "the tool call is on the page")
                          (is (mentions? answer "Noted: asked") "and the fact itself, as a note")
-                         (is (not (mentions? answer "Stop")) "the run is over")
+                         (is (nil? (:ui/stop (second (find-tag answer :ui/composer)))) "the run is over, no Stop in the composer")
                          (testing "the answer's markdown is rendered"
                            (let [tags (set (map first (filter vector? (tree-seq coll? seq answer))))]
                              (is (contains? tags :strong))
@@ -421,7 +421,7 @@
                    (await (frame! #(mentions? % "(loop [] (recur))")))
                    (let [at (js/Date.now)]
                      (is (= {:success? true} (await (command! base cookie :chat/stop {:bot id}))))
-                     (let [idle (await (frame! #(not (mentions? % "Stop"))))]
+                     (let [idle (await (frame! #(nil? (:ui/stop (second (find-tag % :ui/composer))))))]
                        (is (< (- (js/Date.now) at) 1500) "stopped within a second")
                        (is (mentions? idle "did not work") "the call is marked as failed"))
                      (is (str/includes? (tools-test/result-text (get (await (tools-test/tool-results agent)) "e2")) "Tool eval was aborted"))))
