@@ -158,18 +158,37 @@
         (when (not= seconds (:seconds (:ui/recorder @store)))
           (update! store assoc :seconds seconds))))))
 
+(defn- device-gone?
+  "Whether the browser could not give the devices asked for: none, or
+   not the ones remembered (their ids change when the person revokes
+   and allows the site again)."
+  [^js error]
+  (contains? #{"NotFoundError" "OverconstrainedError" "NotReadableError"} (some-> error .-name)))
+
+(defn- ^:async user-media
+  "The camera and the microphone, the ones chosen when the browser has
+   them, any otherwise: a remembered id that is gone does not stop the
+   panel."
+  [mic camera]
+  (let [chosen (clj->js {:audio (if mic {:deviceId {:ideal mic}} true)
+                         :video (cond-> {:width {:ideal 1920}
+                                         :height {:ideal 1080}
+                                         :frameRate {:ideal 30}}
+                                  camera (assoc :deviceId {:ideal camera}))})]
+    (try
+      (await (js/navigator.mediaDevices.getUserMedia chosen))
+      (catch :default error
+        (if (device-gone? error)
+          (await (js/navigator.mediaDevices.getUserMedia #js {:audio true :video true}))
+          (throw error))))))
+
 (defn- ^:async preview!
   "The camera and the microphone chosen, live in the panel: the stream
    the webcam file records, with the meter on its microphone."
   [store]
   (let [{:keys [mic camera]} (:ui/recorder @store)]
     (stop-tracks! (:preview @session*))
-    (let [stream (await (js/navigator.mediaDevices.getUserMedia
-                         (clj->js {:audio (if mic {:deviceId {:exact mic}} true)
-                                   :video (cond-> {:width {:ideal 1920}
-                                                   :height {:ideal 1080}
-                                                   :frameRate {:ideal 30}}
-                                            camera (assoc :deviceId {:exact camera}))})))
+    (let [stream (await (user-media mic camera))
           audio-context (or (:audio-context @session*) (js/AudioContext.))
           analyser (.createAnalyser audio-context)]
       (set! (.-fftSize analyser) 2048)
@@ -184,9 +203,19 @@
       stream)))
 
 (defn- failed!
+  "The panel says what went wrong: a camera or a microphone the
+   browser does not give (blocked for the site, none there) in the
+   panel's own words, anything else as the browser put it."
   [store ^js error]
   (js/console.error "[recorder]" error)
-  (update! store assoc :status :failed :error (str (or (some-> error .-message) error))))
+  (let [name (some-> error .-name)
+        words (get-in @session* [:ctx :labels])]
+    (update! store assoc
+             :status :failed
+             :error (cond
+                      (= "NotAllowedError" name) (or (:blocked words) "The camera or the microphone is blocked for this site: allow them in the browser, then open the panel again.")
+                      (device-gone? error) (or (:no-devices words) "No camera or microphone the browser can use: check they are plugged in and allowed for this site, then open the panel again.")
+                      :else (str (or (some-> error .-message) error))))))
 
 (defn open!
   "Opens the panel: the devices, the ones used last time or the first,

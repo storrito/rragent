@@ -515,6 +515,8 @@
                                 :recording-local [:i18n :record/recording-local]
                                 :no-screen-hint [:i18n :record/no-screen-hint]
                                 :none [:i18n :record/none]
+                                :blocked [:i18n :record/blocked]
+                                :no-devices [:i18n :record/no-devices]
                                 :pair [:i18n :record/pair]
                                 :pair-hint [:i18n :record/pair-hint]
                                 :phone-connected [:i18n :record/phone-connected]
