@@ -4,16 +4,18 @@ name: Release
 # the tag's: set into package.json for this build alone (npm version
 # --no-git-tag-version, nothing committed, main keeps 0.0.0), so that
 # the bundle says it (scripts/version.mjs writes src/rragent/version.cljs
-# from package.json before the build). Then the bundle is built and a
-# GitHub release published with rragent.tar.gz (dist/: rragent.js,
-# public/ and templates/) and its checksum, so that a machine image
-# downloads a release instead of building the app:
-# releases/download/v<version>/rragent.tar.gz, or the newest from
-# releases/latest/download/rragent.tar.gz, which a running agent takes
-# by itself (rragent.update). Then the same dist/ goes into the Sprite
-# image, ghcr.io/storrito/rragent-sprite:<version> and latest
-# (deploy/Dockerfile.full), see .github/actions/sprite-image and the
-# README's Deploy section.
+# from package.json before the build). Then the bundle is built, the
+# same dist/ goes into the Sprite image,
+# ghcr.io/storrito/rragent-sprite:<version> and latest
+# (deploy/Dockerfile.full, see .github/actions/sprite-image and the
+# README's Deploy section), and last a GitHub release is published with
+# rragent.tar.gz (dist/: rragent.js, public/ and templates/) and its
+# checksum, so that a machine image downloads a release instead of
+# building the app: releases/download/v<version>/rragent.tar.gz, or the
+# newest from releases/latest/download/rragent.tar.gz, which a running
+# agent takes by itself (rragent.update). The release comes last so
+# that whoever sees a release can count on its image: Storrito picks
+# the newest release's image for a new agent.
 on:
   push:
     tags: ["v*"]
@@ -52,11 +54,17 @@ jobs:
         run: npm version --no-git-tag-version --allow-same-version "$VERSION"
       - run: npm test
       - run: npm run release
+      # The image before the release: a release that exists has its image.
+      - name: The Sprite image
+        uses: ./.github/actions/sprite-image
+        with:
+          tag: ${{ steps.version.outputs.version }}
+          latest: "true"
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         # A rerun of the job finds the release already there: the assets are
-        # replaced instead, so the image step after it can run again.
+        # replaced instead.
         run: |
           if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 --clobber
@@ -65,8 +73,3 @@ jobs:
               --title "rragent ${GITHUB_REF_NAME}" \
               --generate-notes
           fi
-      - name: The Sprite image
-        uses: ./.github/actions/sprite-image
-        with:
-          tag: ${{ steps.version.outputs.version }}
-          latest: "true"
