@@ -108,10 +108,16 @@ the last visible bot stays. There is no message between bots in this
 version: the person talks to each on its page.
 
 A machine from before the bots ran one agent at the top of the home,
-`AGENT.md` and `work/` beside `agent.sqlite`. At start the two are
-moved into `bots/1/`, the folder of the root conversation, one rename
-each, nothing copied, the storage untouched, and `assistant.md` is
-written from that definition when it is the generic one. A home in
+`AGENT.md` (or a skill's `SKILL.md`) and `work/` beside
+`agent.sqlite`, the home being the agent's folder. At start everything
+at the top but the storage (`agent.sqlite` with its WAL, shared memory
+and journal) is moved into `bots/1/`, the folder of the root
+conversation: the definition, `work/`, and a skill's `tools/`,
+`README.md` … with it, which its instructions name by `<skill>`. One
+rename each, nothing copied, and `assistant.md` is written from that
+definition when it is the generic one. A relative symlink keeps its
+target text and so points elsewhere one folder deeper; a `shared/` or
+`trash/` the old agent made stays at the top as the machine's. A home in
 the new layout is left alone. A failure undoes the renames made,
 leaves the old layout as it was, and the server refuses to start with
 the reason (`rragent.bots/migrate!`).

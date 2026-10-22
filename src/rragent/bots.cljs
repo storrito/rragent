@@ -235,7 +235,10 @@
 (defn agent-files
   "What of the home's top is the old agent's: everything but the
    machine's (`machine-files`). The home was the agent's folder, so
-   the definition may name any of it: a skill's `<skill>/tools/…`."
+   the definition may name any of it: a skill's `<skill>/tools/…`. A
+   relative symlink among them moves as it is and points elsewhere
+   from `bots/1/`; a `shared/` or `trash/` of the old agent stays and
+   becomes the machine's."
   [home]
   (->> (array-seq (fs/readdirSync home))
        (remove machine-files)
