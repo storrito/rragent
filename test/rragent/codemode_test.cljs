@@ -6,6 +6,8 @@
             [clojure.test :refer [async deftest is testing]]
             [rragent.codemode :as codemode]
             [rragent.fake-gateway :as fake-gateway]
+            [rragent.fake-sprite-env :as fake-sprite-env]
+            [rragent.sprite :as sprite]
             [rragent.sync-fetch :as sync-fetch]))
 
 (defn- failure
@@ -223,6 +225,22 @@
                 (is (str/includes? message "missing required key"))))
             (testing "a 503 is tried again"
               (is (= "=> {:ok true}" (codemode/evaluate handle "(storrito/flaky-once)"))))))
+        (.finally done))))
+
+(deftest agent-uuid-test
+  (async done
+    (-> (with-fake nil
+          (fn [_url handle]
+            (testing "the agent's uuid is the machine's agent: label"
+              (binding [sprite/*sprite-env* (:script (fake-sprite-env/make! {:discover (fake-sprite-env/discover-json ["token:test123" "agent:7b1b2c3d-0000-4000-8000-000000000042"])}))]
+                (is (= "=> \"7b1b2c3d-0000-4000-8000-000000000042\"" (codemode/evaluate handle "(storrito/agent-uuid)")))))
+            (testing "a machine without the label"
+              (binding [sprite/*sprite-env* (:script (fake-sprite-env/make! {:discover (fake-sprite-env/discover-json ["token:test123"])}))]
+                (is (str/includes? (failure #(codemode/evaluate handle "(storrito/agent-uuid)")) "No agent uuid"))))
+            (testing "help names it and the trigger recipe"
+              (let [help (codemode/evaluate handle "(help)")]
+                (is (str/includes? help "(storrito/agent-uuid)"))
+                (is (str/includes? help "(storrito/add-integration-trigger {:agentUuid (storrito/agent-uuid)"))))))
         (.finally done))))
 
 (deftest no-storrito-test
