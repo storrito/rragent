@@ -223,15 +223,24 @@ function rev() {
 }
 
 // What the page is built from besides what the compositions show: which
-// compositions there are and their sizes, the players' frames. A page
+// compositions there are, their sizes and the titles under them. A page
 // built from another layout is built anew, not only its players loaded
 // again: a 9:16 starter replaced by a cut in 16:9 needs a 16:9 player.
+// A composition removed while it is read counts as gone.
 function layout() {
   const names = compositions();
   if (names.length === 0) return size(indexHtml()).join("x");
-  return names
-    .map((name) => name + "@" + size(fs.readFileSync(path.join(compositionDir, name, "index.html"), "utf8")).join("x"))
-    .join(",");
+  return JSON.stringify(
+    names.map((name) => {
+      let html = null;
+      try {
+        html = fs.readFileSync(path.join(compositionDir, name, "index.html"), "utf8");
+      } catch {
+        return null;
+      }
+      return [name, size(html).join("x"), title(html)];
+    }),
+  );
 }
 
 // What the page was built from, for it to compare with `/rev`.
