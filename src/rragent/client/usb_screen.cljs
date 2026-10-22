@@ -161,10 +161,16 @@
                          (throw (if (busy? error)
                                   (ex-info "busy" {:reason :busy} error)
                                   error))))
-          transport (await (.authenticate AdbDaemonTransport
-                                          #js {:serial (.-serial device)
-                                               :connection connection
-                                               :credentialStore (AdbWebCredentialStore. "rragent")}))]
+          transport (try
+                      (await (.authenticate AdbDaemonTransport
+                                            #js {:serial (.-serial device)
+                                                 :connection connection
+                                                 :credentialStore (AdbWebCredentialStore. "rragent")}))
+                      (catch :default error
+                        ;; not allowed on the phone: the USB device let go, or the
+                        ;; next Connect finds it claimed
+                        (.catch (.close ^js (.-raw device)) (fn [_] nil))
+                        (throw error)))]
       {:adb (Adb. transport)
        :name (.-name device)
        :via :webusb})))

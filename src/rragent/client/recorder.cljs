@@ -188,7 +188,22 @@
           (recur (inc i) (+ sum (* x x))))
         (js/Math.sqrt (/ sum (max n 1)))))))
 
-(declare phone-url)
+(defn- phone-url
+  "Where the phone's routes of the bot are."
+  []
+  (get-in @session* [:ctx :phone-url]))
+
+(defn- with-mic
+  "`track`, a picture, with a copy of the microphone of `preview`: what
+   the screen's and the phone's screen's files record."
+  [^js track ^js preview]
+  (js/MediaStream. #js [track (.clone ^js (first (array-seq (.getAudioTracks preview))))]))
+
+(defn- stop-audio!
+  "The microphone's copy in `stream` let go."
+  [^js stream]
+  (doseq [^js track (array-seq (.getAudioTracks stream))]
+    (.stop track)))
 
 (defn- tick!
   "The level on the meter, twenty times a second, straight to the node;
@@ -421,8 +436,17 @@
   (-> (usb/connect! (fn [name]
                       (update! store assoc :usb {:status :connecting :name name})))
       (.then (fn [{:keys [name exited] :as connection}]
-               (if-not connection
+               (cond
+                 (not connection)
                  (update! store dissoc :usb)
+
+                 ;; unticked or the panel closed while the phone came: let go
+                 (not (and (:ctx @session*)
+                           (contains? (sources store) :phone-screen)
+                           (#{:picking :connecting} (get-in @store [:ui/recorder :usb :status]))))
+                 ((:close connection))
+
+                 :else
                  (let [id (str (random-uuid))
                        current? #(= id (get-in @session* [:usb :id]))
                        frames (:frames connection)]
@@ -436,12 +460,12 @@
                                  (do (update! store assoc-in [:usb :dark?] true)
                                      (js/setTimeout check! 1000)))))]
                      (js/setTimeout check! usb-dark-ms))
+                   ;; the phone gone: a recording ends, the connection is let go
                    (.then exited (fn [_]
-                                   (when (= id (get-in @session* [:usb :id]))
+                                   (when (current?)
                                      (when (= :recording (:status (:ui/recorder @store)))
                                        (stop! store))
-                                     (swap! session* update :usb dissoc :close)
-                                     (update! store dissoc :usb))))))))
+                                     (drop-usb! store))))))))
       (.catch (fn [error]
                 (js/console.error "[recorder] usb" error)
                 (update! store assoc :usb nil :error (usb-error error))))))
@@ -532,17 +556,17 @@
       (throw (js/Error. (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected."))))
     (swap! session* assoc :since (js/performance.now))
     (update! store assoc :status :testing :seconds 0 :tests (into {} (map (fn [source] [source nil]) wanted)))
-    (await (js/Promise.all
-            (clj->js (cond-> []
-                       display (conj (took :screen (clip (js/MediaStream. #js [(first (array-seq (.getVideoTracks display)))
-                                                                                (.clone ^js (first (array-seq (.getAudioTracks preview))))])
-                                                          screen-bits)))
-                       (contains? wanted :webcam) (conj (took :webcam (clip preview webcam-bits)))
-                       (contains? wanted :mic) (conj (took :mic (clip (audio-only preview) nil)))
-                       (contains? wanted :phone-screen) (conj (took :phone-screen (clip (js/MediaStream. #js [(usb-track)
-                                                                                                             (.clone ^js (first (array-seq (.getAudioTracks preview))))])
-                                                                                          screen-bits)))
-                       (contains? wanted :phone) (conj (took :phone (phone-clip asked-at)))))))))
+    (let [;; a picture with the microphone's copy, the copy let go after
+          picture-clip (fn [track]
+                         (let [stream (with-mic track preview)]
+                           (.finally (clip stream screen-bits) #(stop-audio! stream))))]
+      (await (js/Promise.all
+              (clj->js (cond-> []
+                         display (conj (took :screen (picture-clip (first (array-seq (.getVideoTracks display))))))
+                         (contains? wanted :webcam) (conj (took :webcam (clip preview webcam-bits)))
+                         (contains? wanted :mic) (conj (took :mic (clip (audio-only preview) nil)))
+                         (contains? wanted :phone-screen) (conj (took :phone-screen (picture-clip (usb-track))))
+                         (contains? wanted :phone) (conj (took :phone (phone-clip asked-at))))))))))
 
 (defn test!
   "A few seconds of every source ticked, played back in the panel so
@@ -633,10 +657,6 @@
            (.then chain (fn [offset]
                           (post-piece! (:url @up) blob offset))))))
 
-(defn- phone-url
-  []
-  (get-in @session* [:ctx :phone-url]))
-
 (defn- ^:async post-phone!
   "A word to the phones through the machine; what it answers, or nil
    when it could not be told."
@@ -718,9 +738,11 @@
         (and (= 200 status) (map? value))
         value
 
-        (and (= 409 status)
-             (or (= :phone-uploading (:error value))
-                 (and (= :not-recorded (:error value)) (= ["phone"] (:missing value))))
+        (and (or (and (= 409 status)
+                      (or (= :phone-uploading (:error value))
+                          (and (= :not-recorded (:error value)) (= ["phone"] (:missing value)))))
+                 ;; the end still at work on an earlier ask
+                 (and (= 503 status) (= :finishing (:error value))))
              (< tries finish-tries))
         (do (await (sleep finish-retry-ms))
             (recur (inc tries) strange))
@@ -811,10 +833,10 @@
       (update! store assoc :error (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected."))
       (let [^js preview (:preview @session*)
             ^js screen-track (when display (first (array-seq (.getVideoTracks display))))
-            ^js with-screen (when display (js/MediaStream. #js [screen-track (.clone ^js (first (array-seq (.getAudioTracks preview))))]))
+            ^js with-screen (when display (with-mic screen-track preview))
             ^js alone (when (contains? wanted :mic) (audio-only preview))
             phone-track (when (contains? wanted :phone-screen) (usb-track))
-            ^js with-phone (when phone-track (js/MediaStream. #js [phone-track (.clone ^js (first (array-seq (.getAudioTracks preview))))]))
+            ^js with-phone (when phone-track (with-mic phone-track preview))
             base (str (get-in @session* [:ctx :url]) "/" the-stamp)
             mime (mime-type)
             recorders (cond-> {}
@@ -983,13 +1005,17 @@
             (try
               (let [response (await (js/fetch (str (phone-url) "/frame?after=" after)
                                               #js {:signal (.-signal controller)}))]
-                (if (= 200 (.-status response))
-                  (let [url (js/URL.createObjectURL (await (.blob response)))]
-                    (set! (.-src node) url)
-                    (.remove (.-classList node) "none")
-                    (some-> shown js/URL.revokeObjectURL)
-                    [(or (parse-long (str (.get (.-headers response) "X-Still"))) after) url])
-                  [after shown]))
+                (case (.-status response)
+                  200 (let [url (js/URL.createObjectURL (await (.blob response)))]
+                        (set! (.-src node) url)
+                        (.remove (.-classList node) "none")
+                        (some-> shown js/URL.revokeObjectURL)
+                        [(or (parse-long (str (.get (.-headers response) "X-Still"))) after) url])
+                  ;; no newer still while the ask was held: ask again at once
+                  204 [after shown]
+                  ;; anything else (refused, gone, the proxy): after a second
+                  (do (await (sleep 1000))
+                      [after shown])))
               (catch :default _
                 (when-not (.. controller -signal -aborted)
                   (await (sleep 1000)))

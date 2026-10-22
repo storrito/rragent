@@ -175,13 +175,18 @@
                (every? extensions (vals files)))
       files)))
 
+(defonce ^:private finishing
+  ;; the recordings whose end is at work, [dir stamp]
+  (atom #{}))
+
 (defn- ^:async finish!
   "The recording is over: every file finalized, the facts beside them,
    the folder answered as the agent names it. A recording with the
    phone's file waits for the phone to say its file is up
    (`phone-done?`, 409 until then, the laptop asks again). Asked again
    once it is done (its answer was lost on the way), the end answers as
-   it did."
+   it did, from `recording.json`; asked again while it is still at work
+   (ffmpeg takes a while), it answers 503 and the laptop asks later."
   [dir {:keys [phone-done?]} w stamp]
   (let [facts (try
                 (await (transit/read-stream (:body (:ring/request w))))
@@ -196,11 +201,15 @@
       (nil? files)
       (uploads/respond w 400 {:error :bad-files})
 
-      ;; done already: every file made, no part file left
+      (contains? @finishing [dir stamp])
+      (uploads/respond w 503 {:error :finishing})
+
+      ;; done already: the files as made, no part file left
       (and (http/regular-file? (path/join (folder dir stamp) "recording.json"))
-           (every? (fn [[name ext]] (http/regular-file? (file dir stamp name ext))) files))
+           (empty? (filter (fn [[name ext]] (http/regular-file? (part-file dir stamp name ext))) files)))
       (uploads/respond w 200 {:folder (str "recordings/" stamp)
-                              :files (mapv (fn [[name ext]] (str name "." ext)) (sort-by first files))})
+                              :files (vec (get (js->clj (js/JSON.parse (fs/readFileSync (path/join (folder dir stamp) "recording.json") "utf8")))
+                                               "files"))})
 
       (seq missing)
       (uploads/respond w 409 {:error :not-recorded
@@ -211,15 +220,20 @@
       (uploads/respond w 409 {:error :phone-uploading})
 
       :else
-      (let [made (loop [files (sort-by first files)
-                        made []]
-                   (if-let [[name ext] (first files)]
-                     (recur (rest files) (conj made (await (finalize! dir stamp name ext))))
-                     made))]
-        (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
-                          (js/JSON.stringify (clj->js (assoc facts :files made)) nil 2))
-        (uploads/respond w 200 {:folder (str "recordings/" stamp)
-                                :files made})))))
+      (do
+        (swap! finishing conj [dir stamp])
+        (try
+          (let [made (loop [files (sort-by first files)
+                            made []]
+                       (if-let [[name ext] (first files)]
+                         (recur (rest files) (conj made (await (finalize! dir stamp name ext))))
+                         made))]
+            (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
+                              (js/JSON.stringify (clj->js (assoc facts :files made)) nil 2))
+            (uploads/respond w 200 {:folder (str "recordings/" stamp)
+                                    :files made}))
+          (finally
+            (swap! finishing disj [dir stamp])))))))
 
 (defn ^:async handler
   "`POST /record/<stamp>/<name>` into the artifacts `dir`: a piece of

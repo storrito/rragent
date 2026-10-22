@@ -127,29 +127,44 @@
     (swap! state* assoc :facing facing)
     stream))
 
+(def unwatched-ms
+  "How often a still goes up while no laptop panel watches: enough for
+   a panel that opens to show the phone at once."
+  2000)
+
 (defn- still!
   "A still of the camera to the machine, for the laptop's panel to show
-   the phone's picture; none while the last is still going up, or the
-   page is hidden."
+   the phone's picture: as fast as they go up while a panel watches
+   (the machine's answer says so), every `unwatched-ms` otherwise; none
+   while the last is still going up, or the page is hidden. One canvas
+   for all of them."
   []
-  (let [^js node (:video @session*)]
-    (when (and node
-               (not (:sending-still? @session*))
+  (let [{:keys [^js video sending-still? watched? still-at]} @session*
+        now (js/Date.now)]
+    (when (and video
+               (not sending-still?)
                (not js/document.hidden)
-               (pos? (.-videoWidth node)))
-      (let [canvas (js/document.createElement "canvas")
-            height (js/Math.round (* frame-width (/ (.-videoHeight node) (.-videoWidth node))))]
+               (pos? (.-videoWidth video))
+               (or watched? (< (+ (or still-at 0) unwatched-ms) now)))
+      (let [^js canvas (or (:canvas @session*)
+                           (let [made (js/document.createElement "canvas")]
+                             (swap! session* assoc :canvas made)
+                             made))
+            height (js/Math.round (* frame-width (/ (.-videoHeight video) (.-videoWidth video))))]
         (set! (.-width canvas) frame-width)
         (set! (.-height canvas) height)
-        (.drawImage (.getContext canvas "2d") node 0 0 frame-width height)
-        (swap! session* assoc :sending-still? true)
+        (.drawImage (.getContext canvas "2d") video 0 0 frame-width height)
+        (swap! session* assoc :sending-still? true :still-at now)
         (.toBlob canvas
                  (fn [^js blob]
                    (-> (if blob
-                         (js/fetch (str (:phone-url @state*) "/frame")
-                                   #js {:method "POST"
-                                        :headers #js {"Content-Type" "image/jpeg"}
-                                        :body blob})
+                         (-> (js/fetch (str (:phone-url @state*) "/frame")
+                                       #js {:method "POST"
+                                            :headers #js {"Content-Type" "image/jpeg"}
+                                            :body blob})
+                             (.then (fn [^js response] (.text response)))
+                             (.then (fn [text]
+                                      (swap! session* assoc :watched? (boolean (:watched (t/read (t/reader :json) text)))))))
                          (js/Promise.resolve nil))
                        (.catch (fn [_] nil))
                        (.finally (fn [] (swap! session* assoc :sending-still? false)))))

@@ -181,13 +181,19 @@
                                                     :facing (str facing)
                                                     :seen (js/Date.now)})
   {:ok true
-   :stop (contains? (get-in (db/at @db path) [:phone :stopped]) (str recording))})
+   :stop (boolean (some #{(str recording)} (get-in (db/at @db path) [:phone :stopped])))})
+
+(def stopped-kept
+  "How many stopped recordings the bot's map keeps for a phone that
+   missed the stop: the latest."
+  50)
 
 (defn stopped!
   "The laptop stopped the recording `stamp`: a phone that missed the
    event hears of it at its next hello."
   [db path stamp]
-  (swap! db db/update-at path update-in [:phone :stopped] (fnil conj #{}) (str stamp)))
+  (swap! db db/update-at path update-in [:phone :stopped]
+         (fn [kept] (vec (take-last stopped-kept (conj (vec kept) (str stamp)))))))
 
 (defn done!
   "The phone's file of the recording `stamp` is up; for the test, the
@@ -227,26 +233,43 @@
       (resolve nil))))
 
 (defn- newer-frame
-  "The bot's still when it is fresh and newer than the `after`th."
+  "The bot's still when it is fresh and not the `after`th, the one the
+   panel has: the numbers start again with the machine, a panel that
+   watched before has a higher one then."
   [bot after]
   (let [{:keys [at n] :as frame} (get @frames bot)]
-    (when (and frame (< after n) (< (- (js/Date.now) at) fresh-ms))
+    (when (and frame (not= after n) (< (- (js/Date.now) at) fresh-ms))
       frame)))
 
 (defn- next-frame
   "A promise that settles when the bot's next still comes, or after
-   `ms`."
+   `ms`; the waiter is let go either way."
   [bot ms]
   (js/Promise.
    (fn [resolve]
-     (let [timer (js/setTimeout (fn []
-                                  (swap! frame-waiters update bot disj resolve)
-                                  (resolve nil))
-                                ms)
-           done (fn [_]
-                  (js/clearTimeout timer)
+     (let [timer (volatile! nil)
+           done (fn done [_]
+                  (js/clearTimeout @timer)
+                  (swap! frame-waiters update bot disj done)
                   (resolve nil))]
+       (vreset! timer (js/setTimeout done ms))
        (swap! frame-waiters update bot (fnil conj #{}) done)))))
+
+(defonce ^:private watched
+  ;; bot id -> when a panel last asked for a still
+  (atom {}))
+
+(def watch-ms
+  "How long after a panel's last ask the phone's stills count as
+   watched."
+  15000)
+
+(defn watched?
+  "Whether a panel asked for the bot's stills lately: the phone sends
+   them at full rate then, else rarely."
+  [bot-id]
+  (when-let [at (get @watched (str bot-id))]
+    (< (- (js/Date.now) at) watch-ms)))
 
 (defn ^:async frame-handler
   "`GET /bot/<id>/phone/frame?after=<n>`: the phone's last still when
@@ -255,6 +278,7 @@
   [bot-id w & [{:keys [wait-ms] :or {wait-ms frame-wait-ms}}]]
   (let [bot (str bot-id)
         after (or (parse-long (str (get (uploads/query-params (:ring/request w)) "after"))) 0)
+        _ (swap! watched assoc bot (js/Date.now))
         frame (or (newer-frame bot after)
                   (do (await (next-frame bot wait-ms))
                       (newer-frame bot after)))]
@@ -310,6 +334,6 @@
                (uploads/respond w 400 {:error :no-stamp})))
     "frame" (if-let [bytes (await (uploads/read-body (:body (:ring/request w)) max-frame-bytes))]
               (do (frame! bot bytes)
-                  (uploads/respond w 200 {:ok true}))
+                  (uploads/respond w 200 {:ok true :watched (boolean (watched? bot))}))
               (uploads/respond w 413 {:error :too-large}))
     (uploads/respond w 404 {:error :no-such-action})))

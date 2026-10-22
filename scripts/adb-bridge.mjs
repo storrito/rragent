@@ -113,8 +113,9 @@ server.on("upgrade", (request, socket) => {
     adb.destroy();
   };
 
+  // backpressure: one side paused until the other drains, one listener at a time
   adb.on("data", (chunk) => {
-    if (!socket.write(frame(0x2, chunk))) {
+    if (!socket.write(frame(0x2, chunk)) && !adb.isPaused()) {
       adb.pause();
       socket.once("drain", () => adb.resume());
     }
@@ -134,7 +135,7 @@ server.on("upgrade", (request, socket) => {
       } else if (opcode === 0x9) {
         socket.write(frame(0xa, payload));
       } else if (opcode === 0x0 || opcode === 0x1 || opcode === 0x2) {
-        if (!adb.write(payload)) {
+        if (!adb.write(payload) && !socket.isPaused()) {
           socket.pause();
           adb.once("drain", () => socket.resume());
         }
