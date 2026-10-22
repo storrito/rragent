@@ -16,9 +16,12 @@
    the bot's map under `:phone` so that the panel on the laptop shows
    it), and listens on `GET .../phone/events`, server-sent events: the
    laptop's `POST .../phone/start` with the stamp of the recording and
-   `POST .../phone/stop` go to every phone listening. When the phone's
-   last piece is up it says so (`POST .../phone/done`), which the
-   recording's finish waits for."
+   `POST .../phone/stop` go to every phone listening, and
+   `POST .../phone/test` asks for a clip of a few seconds, which the
+   phone records, sends up and finishes itself; `GET .../phone/test`
+   names that clip for the laptop's panel. When the phone's last piece
+   is up it says so (`POST .../phone/done`), which the recording's
+   finish waits for."
   (:require ["node:crypto" :as crypto]
             [clojure.string :as str]
             [rragent.auth :as auth]
@@ -154,9 +157,17 @@
                                                     :seen (js/Date.now)}))
 
 (defn done!
-  "The phone's file of the recording `stamp` is up."
-  [db path stamp]
-  (swap! db db/update-at path update-in [:phone :done] (fnil conj #{}) (str stamp)))
+  "The phone's file of the recording `stamp` is up; for the test, the
+   file's name and when, for the laptop's panel (`test-of`)."
+  [db path stamp file]
+  (if (= "test" (str stamp))
+    (swap! db db/update-at path assoc-in [:phone :test] {:file (str file) :at (js/Date.now)})
+    (swap! db db/update-at path update-in [:phone :done] (fnil conj #{}) (str stamp))))
+
+(defn test-of
+  "The phone's last test clip, `{:file :at}`, or nil."
+  [db path]
+  (get-in (db/at @db path) [:phone :test]))
 
 (defn done?
   [db path stamp]
@@ -169,6 +180,11 @@
   (when (and seen (< (- (js/Date.now) seen) fresh-ms))
     {:device device
      :facing facing}))
+
+(defn test-handler
+  "`GET /bot/<id>/phone/test`: the phone's last test clip."
+  [{:keys [db path]} w]
+  (uploads/respond w 200 (or (test-of db path) {})))
 
 (defn- ^:async body
   [w]
@@ -196,9 +212,11 @@
                 (uploads/respond w 400 {:error :no-stamp})))
     "stop" (let [{:keys [stamp]} (await (body w))]
              (uploads/respond w 200 {:phones (send-phones! bot :stop {:stamp (str stamp)})}))
-    "done" (let [{:keys [stamp]} (await (body w))]
+    "test" (let [{:keys [seconds]} (await (body w))]
+             (uploads/respond w 200 {:phones (send-phones! bot :test {:stamp "test" :seconds (or seconds 5)})}))
+    "done" (let [{:keys [stamp file]} (await (body w))]
              (if (seq (str stamp))
-               (do (done! db path stamp)
+               (do (done! db path stamp file)
                    (uploads/respond w 200 {:ok true}))
                (uploads/respond w 400 {:error :no-stamp})))
     (uploads/respond w 404 {:error :no-such-action})))

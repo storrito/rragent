@@ -1684,6 +1684,59 @@ pre {
   object-fit: cover;
 }
 
+/* The clips of a test, one per source ticked, side by side. */
+.recorder .tests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.recorder .tests figure {
+  display: flex;
+  flex: 1 1 200px;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  min-width: 0;
+}
+
+.recorder .tests figcaption {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.recorder .tests .pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+
+.recorder .tests .dots {
+  display: flex;
+  gap: 4px;
+}
+
+.recorder .tests .dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.recorder .tests .dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.recorder .tests .dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
 .recorder video.test {
   width: 100%;
   max-height: 240px;

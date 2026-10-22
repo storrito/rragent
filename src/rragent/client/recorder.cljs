@@ -29,8 +29,9 @@
    (`:opening`, `:ready`, `:testing`, `:recording`, `:finishing`,
    `:failed`), the `:devices`, the `:mic` and `:camera` chosen, the
    `:sources` ticked, the `:pair` (the link and its QR while shown),
-   the `:seconds` recorded, the `:test` (an object URL) and the
-   `:error`.
+   the `:seconds` recorded, the `:tests` (the clips of the last test,
+   one per source: object URLs of the laptop's, the phone's on the
+   machine) and the `:error`.
    What is no data (the streams, the recorders, the uploaders, the
    meter and the preview node, the URL and the labels the panel was
    opened with) is in `session*`."
@@ -254,11 +255,19 @@
     (some-> ^js audio-context .close)
     (reset! session* nil)))
 
+(defn- forget-tests!
+  "The clips of the last test let go."
+  [store]
+  (doseq [[_ url] (:tests (:ui/recorder @store))]
+    (when (str/starts-with? (str url) "blob:")
+      (js/URL.revokeObjectURL url)))
+  (update! store dissoc :tests))
+
 (defn close!
   "Closes the panel, unless it records."
   [store]
   (when-not (#{:recording :finishing} (:status (:ui/recorder @store)))
-    (some-> (:test (:ui/recorder @store)) js/URL.revokeObjectURL)
+    (forget-tests! store)
     (release!)
     (swap! store dissoc :ui/recorder)))
 
@@ -271,32 +280,101 @@
       (.catch (fn [error]
                 (failed! store error)))))
 
-(defn test!
-  "Five seconds of the camera and the microphone, played back in the
-   panel; nothing goes up."
+(defn- clip
+  "A promise of an object URL: `stream` recorded for `test-ms`."
+  [^js stream bits]
+  (js/Promise.
+   (fn [resolve reject]
+     (let [recorder (js/MediaRecorder. stream #js {:mimeType (mime-type)
+                                                   :videoBitsPerSecond bits
+                                                   :audioBitsPerSecond audio-bits})
+           chunks #js []]
+       (set! (.-ondataavailable recorder)
+             (fn [^js event]
+               (when (pos? (.. event -data -size))
+                 (.push chunks (.-data event)))))
+       (set! (.-onstop recorder)
+             (fn [_]
+               (resolve (js/URL.createObjectURL (js/Blob. chunks #js {:type (.-mimeType recorder)})))))
+       (set! (.-onerror recorder) (fn [^js event] (reject (.-error event))))
+       (.start recorder)
+       (js/setTimeout (fn []
+                        (when (= "recording" (.-state recorder))
+                          (.stop recorder)))
+                      test-ms)))))
+
+(defn- ^:async phone-clip
+  "The phone's test clip: the phone is asked for `test-ms`, and the
+   machine is asked for the clip until the phone has named it (its
+   `at` newer than the asking); the URL the panel plays it from."
+  [asked-at]
+  (let [url (str (phone-url) "/test")]
+    (loop [tries 0]
+      (let [{:keys [file at]} (try
+                                (let [response (await (js/fetch url))]
+                                  (t/read (t/reader :json) (await (.text response))))
+                                (catch :default _
+                                  nil))]
+        (cond
+          (and file at (> at asked-at))
+          (str (str/replace (phone-url) #"/phone$" "/record") "/test/" file "?t=" at)
+
+          (< tries 40)
+          (do (await (sleep 1000))
+              (recur (inc tries)))
+
+          :else
+          (throw (js/Error. "The phone's test clip did not come.")))))))
+
+(defn- ^:async clips!
+  "The test clips of every source ticked, into `:tests` as each comes:
+   the screen (Chrome asks which, from the click) and the camera
+   recorded here, the phone's on the phone."
   [store]
-  (let [recorder (js/MediaRecorder. (:preview @session*)
-                                    #js {:mimeType (mime-type)
-                                         :videoBitsPerSecond webcam-bits
-                                         :audioBitsPerSecond audio-bits})
-        chunks #js []]
-    (some-> (:test (:ui/recorder @store)) js/URL.revokeObjectURL)
-    (update! store assoc :status :testing :test nil :seconds 0)
+  (let [wanted (sources store)
+        ^js preview (:preview @session*)
+        ^js display (when (contains? wanted :screen)
+                      (await (js/navigator.mediaDevices.getDisplayMedia
+                              #js {:video #js {:frameRate #js {:ideal 30} :displaySurface "monitor"}
+                                   :audio false
+                                   :selfBrowserSurface "exclude"
+                                   :surfaceSwitching "exclude"
+                                   :systemAudio "exclude"})))
+        asked-at (js/Date.now)
+        phones (when (contains? wanted :phone)
+                 (:phones (await (post-phone! "test" {:seconds (/ test-ms 1000)}))))
+        took (fn [source promise]
+               (-> promise
+                   (.then (fn [url] (update! store assoc-in [:tests source] url)))
+                   (.catch (fn [error] (update! store assoc-in [:tests source] {:error (str (.-message error))})))))]
+    (when (and (contains? wanted :phone) (not (pos? (or phones 0))))
+      (stop-tracks! display)
+      (throw (js/Error. (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected."))))
     (swap! session* assoc :since (js/performance.now))
-    (set! (.-ondataavailable recorder)
-          (fn [^js event]
-            (when (pos? (.. event -data -size))
-              (.push chunks (.-data event)))))
-    (set! (.-onstop recorder)
-          (fn [_]
-            (update! store assoc
-                     :status :ready
-                     :test (js/URL.createObjectURL (js/Blob. chunks #js {:type (.-mimeType recorder)})))))
-    (.start recorder)
-    (js/setTimeout (fn []
-                     (when (= "recording" (.-state recorder))
-                       (.stop recorder)))
-                   test-ms)))
+    (update! store assoc :status :testing :seconds 0 :tests (into {} (map (fn [source] [source nil]) wanted)))
+    (try
+      (await (js/Promise.all
+              (clj->js (cond-> []
+                         display (conj (took :screen (clip (js/MediaStream. #js [(first (array-seq (.getVideoTracks display)))
+                                                                                  (.clone ^js (first (array-seq (.getAudioTracks preview))))])
+                                                            screen-bits)))
+                         (contains? wanted :webcam) (conj (took :webcam (clip preview webcam-bits)))
+                         (contains? wanted :phone) (conj (took :phone (phone-clip asked-at)))))))
+      (finally
+        (stop-tracks! display)))))
+
+(defn test!
+  "A few seconds of every source ticked, played back in the panel so
+   that the whole setup can be checked; nothing of it is kept as an
+   artifact."
+  [store]
+  (forget-tests! store)
+  (-> (clips! store)
+      (.then (fn [_] (update! store assoc :status :ready)))
+      (.catch (fn [^js error]
+                (if (= "NotAllowedError" (.-name error))
+                  (update! store assoc :status :ready :tests nil)
+                  (failed! store error))))))
 
 (defn- ^:async post-piece!
   "One piece to the server, at `offset` of its file, until it is taken:
@@ -662,7 +740,7 @@
    server's, translated; `phone` the phone connected, from the frame
    (`rragent.phone/status`)."
   [store state labels phone]
-  (let [{:keys [status devices mic camera seconds test error phone-waiting?] :as recorder} (:ui/recorder state)
+  (let [{:keys [status devices mic camera seconds tests error phone-waiting?] :as recorder} (:ui/recorder state)
         ticked (or (:sources recorder) default-sources)]
     (when status
       [:div.recorder {:replicant/key "recorder"}
@@ -703,14 +781,23 @@
                             :replicant/on-unmount (fn [_]
                                                     (swap! session* #(some-> % (dissoc :meter))))}
                [:span] [:span] [:span] [:span] [:span]]]
-             (when test
-               [:video.test {:replicant/key test
-                             :src test
-                             :controls true}])
+             (when (seq tests)
+               [:div.tests
+                (for [source [:screen :webcam :phone]
+                      :let [url (get tests source ::none)]
+                      :when (not= ::none url)]
+                  [:figure {:replicant/key source}
+                   (cond
+                     (nil? url) [:div.pending [:span.dots [:span] [:span] [:span]]]
+                     (map? url) [:p.error (:error url)]
+                     :else [:video.test {:replicant/key url
+                                         :src url
+                                         :controls true}])
+                   [:figcaption (get labels (keyword (str "source-" (name source))))]])])
              (phone-section store labels phone recorder)
              [:div.actions
               [:button {:type "button"
-                        :disabled (not= :ready status)
+                        :disabled (or (not= :ready status) (empty? ticked))
                         :on {:click (fn [_] (test! store))}}
                (if (= :testing status)
                  (str (:testing labels) " " (clock seconds))

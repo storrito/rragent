@@ -428,6 +428,8 @@
    :waiting [:i18n :phone/waiting]
    :reconnecting [:i18n :phone/reconnecting]
    :recording [:i18n :phone/recording]
+   :testing [:i18n :phone/testing]
+   :tested [:i18n :phone/tested]
    :uploading [:i18n :phone/uploading]
    :done [:i18n :phone/done]
    :failed [:i18n :phone/failed]

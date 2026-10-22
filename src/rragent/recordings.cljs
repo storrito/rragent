@@ -51,10 +51,20 @@
   "The largest file, ten gigabytes: hours of a screen."
   (* 10 1024 1024 1024))
 
+(def test-stamp
+  "The stamp of the test recording: the pieces of a test go into a
+   hidden folder the pane does not list, written over by the next."
+  "test")
+
+(defn stamp?
+  [stamp]
+  (or (= test-stamp stamp) (boolean (re-matches stamp-pattern (str stamp)))))
+
 (defn folder
-  "Where the recording `stamp` lives under the artifacts `dir`."
+  "Where the recording `stamp` lives under the artifacts `dir`; the
+   test's folder is hidden."
   [dir stamp]
-  (path/join dir "recordings" stamp))
+  (path/join dir "recordings" (if (= test-stamp stamp) ".test" stamp)))
 
 (defn- part-file
   [dir stamp name ext]
@@ -85,12 +95,16 @@
       (contains? @writing [stamp name])
       (uploads/respond w 503 {:error :busy})
 
-      (not= offset received)
+      (and (pos? offset) (not= offset received))
       (uploads/respond w 409 {:error :out-of-order
                               :received received})
 
       :else
       (do (fs/mkdirSync (folder dir stamp) #js {:recursive true})
+          ;; the first piece starts the file over: a test again, or the
+          ;; first piece sent again after a lost answer
+          (when (zero? offset)
+            (fs/rmSync part #js {:force true}))
           (swap! writing conj [stamp name])
           (let [length (try
                          (await (uploads/copy-counted! (:body (:ring/request w)) part max-bytes nil))
@@ -165,7 +179,8 @@
       (uploads/respond w 409 {:error :not-recorded
                               :missing (mapv first missing)})
 
-      (and (contains? files "phone") phone-done? (not (phone-done? stamp)))
+      ;; the phone ends its own test, so the test waits for nobody
+      (and (contains? files "phone") phone-done? (not= test-stamp stamp) (not (phone-done? stamp)))
       (uploads/respond w 409 {:error :phone-uploading})
 
       :else
@@ -184,7 +199,7 @@
   [dir opts w]
   (let [[stamp name & more] (str/split (str (get-in w [:ring/route-params :*])) #"/")]
     (cond
-      (or (not (re-matches stamp-pattern (str stamp))) (seq more))
+      (or (not (stamp? stamp)) (seq more))
       (uploads/respond w 400 {:error :bad-recording})
 
       (= "finish" name)
@@ -195,3 +210,19 @@
 
       :else
       (uploads/respond w 404 {:error :no-such-file}))))
+
+(def file-pattern
+  "A finished file of a recording, as `get-handler` serves it."
+  #"(screen|webcam|phone)\.(webm|mp4)")
+
+(defn get-handler
+  "`GET /record/<stamp>/<file>`: a finished file of a recording, the
+   test's among them, for the panel to play."
+  [dir w]
+  (let [[stamp file & more] (str/split (str (get-in w [:ring/route-params :*])) #"/")
+        path (when (and (stamp? stamp) (re-matches file-pattern (str file)) (empty? more))
+               (path/join (folder dir stamp) file))]
+    (assoc w :ring/response
+           (if (and path (http/regular-file? path))
+             (http/file-response (:ring/request w) path)
+             http/not-found))))
