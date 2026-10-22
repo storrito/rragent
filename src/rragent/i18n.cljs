@@ -21,7 +21,10 @@
 
    :artifacts/open "Open"
    :artifacts/download "Download"
-   :artifacts/video " · video"
+   :artifacts/back "Artifacts"
+   :artifacts/project "project"
+   :artifacts/pick "Pick a file on the left."
+   :artifacts/truncated "The file is longer than this; download it from above for all of it."
    :artifacts/render "Make the video"
    :artifacts/rendering [:fn/str "Making the video {{:progress}}"]
    :artifacts/render-stop "Stop"
@@ -126,7 +129,10 @@
 
    :artifacts/open "Öffnen"
    :artifacts/download "Herunterladen"
-   :artifacts/video " · Video"
+   :artifacts/back "Artefakte"
+   :artifacts/project "Projekt"
+   :artifacts/pick "Wähle links eine Datei."
+   :artifacts/truncated "Die Datei ist länger als das hier; oben lässt sie sich ganz herunterladen."
    :artifacts/render "Video erstellen"
    :artifacts/rendering [:fn/str "Video wird erstellt {{:progress}}"]
    :artifacts/render-stop "Stopp"

@@ -31,6 +31,11 @@
   (is (= :video (artifacts/kind "story.mp4")))
   (is (= :file (artifacts/kind "review-story.clj")))
   (is (= :file (artifacts/kind "notes")))
+  (is (= :markdown (artifacts/kind "youtube-title_and_description.md")))
+  (is (= :text (artifacts/kind "notes/transcript.TXT")))
+  (is (= :text (artifacts/kind "captions.srt")))
+  (is (= "md" (artifacts/extension "a/b/notes.md")))
+  (is (nil? (artifacts/extension "Makefile")))
   (is (= "Guest review card" (artifacts/title "guest-review_card.html")))
   (is (= "Pool" (artifacts/title "photos/Pool.JPG")))
   (is (= "story" (artifacts/render-name "story.mp4")))
@@ -89,6 +94,24 @@
       (finally
         (fs/rmSync root #js {:recursive true :force true})))))
 
+(deftest text-of-test
+  (let [dir (temp-dir "rragent-text-")]
+    (touch! dir "notes.md" 1000)
+    (touch! dir "pool.png" 1000)
+    (testing "a text file is read for the pane, markdown and plain alike, nothing else"
+      (is (= {:text "content of notes.md" :truncated? false}
+             (artifacts/text-of dir {:path "notes.md" :kind :markdown :mtime 1000})))
+      (is (nil? (artifacts/text-of dir {:path "pool.png" :kind :image :mtime 1000})))
+      (is (nil? (artifacts/text-of dir {:path "gone.txt" :kind :text :mtime 1000})) "a file that is gone is no text"))
+    (testing "a long file is cut at the cap, and the pane says so"
+      (with-redefs [artifacts/text-cap 7]
+        (is (= {:text "content" :truncated? true}
+               (artifacts/text-of dir {:path "notes.md" :kind :markdown :mtime 1001})))))
+    (testing "the list names the extension of every file"
+      (touch! dir "clip/package.json" 1000)
+      (is (= [["clip" nil] ["notes.md" "md"] ["pool.png" "png"]]
+             (map (juxt :path :ext) (sort-by :path (artifacts/list-files dir))))))))
+
 (deftest watch-test
   (async done
     (-> ((^:async fn []
@@ -136,19 +159,40 @@
   (set (filter string? (tree-seq coll? seq hiccup))))
 
 (deftest pane-test
-  (let [listed [{:path "card.html" :kind :page :title "Card" :mtime 3}
-                {:path "pool.png" :kind :image :title "Pool" :mtime 2}
-                {:path "story.mp4" :kind :video :title "Story" :mtime 1}
-                {:path "clip" :kind :project :title "Clip" :mtime 0}]
+  (let [listed [{:path "card.html" :kind :page :title "Card" :ext "html" :mtime 3 :size 1200}
+                {:path "pool.png" :kind :image :title "Pool" :ext "png" :mtime 2 :size 300000}
+                {:path "story.mp4" :kind :video :title "Story" :ext "mp4" :mtime 1 :size 5000000}
+                {:path "clip" :kind :project :title "Clip" :mtime 0 :size 0}
+                {:path "notes/plan.md" :kind :markdown :title "Plan" :ext "md" :mtime 0 :size 40}]
         pane (fn [current & [more]]
-               (view/artifacts (merge {:artifacts/list listed :artifacts/current current} more)))]
-    (testing "a page is the live iframe under /artifacts/"
-      (let [v (pane "card.html")]
+               (view/artifacts (merge {:artifacts/list listed :artifacts/current current :bot "b1"} more)))]
+    (testing "a page is the live iframe under /artifacts/, the list beside it with the one on screen marked"
+      (let [v (pane "card.html")
+            rows (filter #(and (vector? %) (= :li (first %))) (nodes v))]
         (is (some #{:ui/canvas} (tags v)))
-        (is (some #{:select.chooser} (tags v)))
-        (is (= 4 (count (filter #{:option} (tags v)))))
+        (is (= 5 (count rows)))
+        (is (= ["page" "current"] (:class (second (first rows)))))
+        (is (= ["html" " · " "1 KB"] (rest (find-tag (first rows) :span.meta))) "the extension and the size tell files apart")
+        (is (= ["md" " · " "notes/" " · " "40 B"] (rest (find-tag (nth rows 4) :span.meta))) "the folder too")
+        (is (some #{[:i18n :artifacts/project]} (nodes (nth rows 3))) "a project is named as such")
+        (is (= {:bot "b1" :path "pool.png"} (get-in (second (find-tag (second rows) :button.row)) [:on :click 0 1 :command/data])))
+        (is (= {:bot "b1" :path nil} (get-in (second (find-tag v :button.link.back)) [:on :click 0 1 :command/data])) "the way back to the list")
+        (is (= ["showing"] (:class (second v))))
         (is (= "/artifacts/card.html" (:ui/src (second (find-tag v :ui/canvas)))))
         (is (= 3 (:ui/rev (second (find-tag v :ui/canvas)))))))
+    (testing "a text file is shown as text, markdown rendered, with a note when cut"
+      (let [md (pane "notes/plan.md" {:artifacts/text {:text "# Plan\n\nSoon." :truncated? false}})
+            cut (pane "notes/plan.md" {:artifacts/text {:text "Pla" :truncated? true}})
+            unread (pane "notes/plan.md")]
+        (is (some #{:div.document} (tags md)))
+        (is (some #{:h1} (tags md)))
+        (is (contains? (strings (i18n/translate cut :en)) "The file is longer than this; download it from above for all of it."))
+        (is (contains? (strings (i18n/translate unread :en)) "There is no preview for this file. Download it from above."))))
+    (testing "no pick: the list alone, a word in the pane's place"
+      (let [v (pane nil)]
+        (is (nil? (find-tag v :button.link.back)))
+        (is (= [] (:class (second v))))
+        (is (contains? (strings (i18n/translate v :en)) "Pick a file on the left."))))
     (testing "an image and a video are shown as themselves"
       (is (some #{:img} (tags (pane "pool.png"))))
       (is (some #{:video} (tags (pane "story.mp4"))))

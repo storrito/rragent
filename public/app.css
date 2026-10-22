@@ -422,8 +422,9 @@ body {
   text-align: center;
 }
 
-/* The bar of the pane: the label, the chooser over the artifacts, the
-   links and buttons of the one on screen. It wraps when the pane is
+/* The bar of the pane: the label, the links and buttons of the artifact
+   on screen; on a phone the way back to the list and the title of the
+   one on screen instead of the label. It wraps when the pane is
    narrow. */
 .artifacts .bar {
   display: flex;
@@ -439,16 +440,128 @@ body {
   white-space: nowrap;
 }
 
-.artifacts .bar select.chooser {
-  flex: 1 1 140px;
-  min-width: 140px;
-  max-width: 320px;
-  padding: 4px 8px;
+.artifacts .bar .back,
+.artifacts .bar .title {
+  display: none;
+}
+
+.artifacts .bar .title {
+  flex: 1 1 60px;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The list of the artifacts beside the one on screen: a row per file
+   with the icon of its kind, its title and what tells two of one title
+   apart; the one on screen marked. */
+.artifacts .split {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  min-height: 0;
+}
+
+.artifacts ul.files {
+  flex: none;
+  width: 200px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--panel);
+  list-style: none;
+}
+
+.artifacts ul.files li + li {
+  border-top: 1px solid var(--line);
+}
+
+.artifacts ul.files button.row {
+  display: grid;
+  grid-template-areas: "icon name" "icon meta";
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifacts ul.files button.row:hover {
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+}
+
+.artifacts ul.files li.current button.row {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.artifacts ul.files .icon {
+  grid-area: icon;
+  font-size: 18px;
+}
+
+.artifacts ul.files .name {
+  grid-area: name;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts ul.files .meta {
+  grid-area: meta;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts .shown {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* A text file on screen: markdown rendered, the rest as it is (the
+   rows of the list carry the kind as their class, `text` among them,
+   hence `document`). */
+.artifacts .document {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.artifacts .document pre.plain {
+  margin: 0;
+  padding: 0;
+  max-height: none;
+  overflow: visible;
+  background: none;
   color: var(--text);
-  font: inherit;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.artifacts .document .hint {
+  margin-top: 12px;
+  font-size: 13px;
 }
 
 .artifacts .bar a.link,
@@ -1067,12 +1180,29 @@ pre {
     border: 0;
   }
 
-  .artifacts .bar .label {
+  .artifacts .bar .back {
+    display: inline;
+  }
+
+  .artifacts.showing .bar .label {
     display: none;
   }
 
-  .artifacts .bar select.chooser {
-    max-width: none;
+  .artifacts .bar .title {
+    display: block;
+  }
+
+  .artifacts .split {
+    gap: 0;
+  }
+
+  .artifacts ul.files {
+    width: 100%;
+  }
+
+  .artifacts.showing ul.files,
+  .artifacts:not(.showing) .shown {
+    display: none;
   }
 
   .rragent #view-made:checked ~ .body .artifacts {
@@ -1401,6 +1531,50 @@ pre {
   line-height: 20px;
   text-align: center;
   background: var(--bg);
+}
+
+/* What a tool call made, as a card under its row (rragent.view/
+   artifact-card): the icon of the kind, the title, the extension; a
+   click opens it in the pane. */
+.artifact-card {
+  display: inline-grid;
+  grid-template-areas: "icon name" "icon meta";
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: center;
+  max-width: 100%;
+  margin: 6px 0 2px;
+  padding: 8px 16px 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.artifact-card:hover {
+  border-color: var(--muted);
+}
+
+.artifact-card .icon {
+  grid-area: icon;
+  font-size: 22px;
+}
+
+.artifact-card .name {
+  grid-area: name;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-card .meta {
+  grid-area: meta;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
 }
 
 /* The files of a sent message: a picture as a thumbnail, a clip as its

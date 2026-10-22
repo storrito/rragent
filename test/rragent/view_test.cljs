@@ -171,8 +171,8 @@
         (is (= "/bot/cc33dd44/upload" (:ui/upload-url composer)))
         (is (= "/bot/cc33dd44/dictation" (:ui/dictation-url composer)))
         (is (= [:draft "cc33dd44"] (:ui/store-key composer)) "the draft is the bot's")
-        (is (= {:bot "cc33dd44" :path :event/target.value}
-               (get-in (second (find-tag p :select.chooser)) [:on :change 0 1 :command/data])))))
+        (is (= {:bot "cc33dd44" :path "card.html"}
+               (get-in (second (find-tag p :button.row)) [:on :click 0 1 :command/data])) "a row of the list opens its file under the bot")))
     (testing "on a phone the chat and the artifacts are tabs, once there are artifacts"
       (let [with (page {:artifacts {:artifacts/list [{:path "card.html" :kind :page :title "Card" :mtime 3}]
                                     :artifacts/current "card.html"}})
@@ -180,9 +180,9 @@
         (is (= ["Chat" "Artifacts"] (map last (filter #(and (vector? %) (= :label (first %))) (nodes (find-tag with :nav.views))))))
         (is (= [:input#view-chat.toggle :input#view-made.toggle]
                (map first (filter #(and (vector? %) (#{:input#view-chat.toggle :input#view-made.toggle} (first %))) (nodes with)))))
-        (is (nil? (:class (second (find-tag with :section.artifacts)))))
+        (is (= ["showing"] (:class (second (find-tag with :section.artifacts)))))
         (is (nil? (find-tag without :nav.views)) "no tabs without artifacts")
-        (is (= "empty" (:class (second (find-tag without :section.artifacts)))) "the pane says it is empty, a phone hides it")))
+        (is (= ["empty"] (:class (second (find-tag without :section.artifacts)))) "the pane says it is empty, a phone hides it")))
     (testing "a delete armed asks in the row, a rename is a field, a note says the bot of the URL is gone"
       (let [p (page {:bots [(assoc (nth bots 0) :deleting? true) (nth bots 1) (assoc (nth bots 2) :renaming? true)]
                      :note [:i18n :bot/missing]})
@@ -199,6 +199,31 @@
     (testing "the page stays data a frame can carry"
       (let [p (page {})]
         (is (= p (transit/read-str (transit/write-str p))))))))
+
+(deftest artifact-card-test
+  (let [made (fn [name arguments result]
+               {:entries [(assistant 1 [{:type "toolCall" :id "c1" :name name :arguments arguments}] "toolUse")
+                          (tool-result 2 "c1" result false)]})
+        card (fn [conversation]
+               (find-tag (view/page {:bot {:id "b1"} :conversation conversation :locale :en}) :a.artifact-card))]
+    (testing "a file written under artifacts/ is a card that opens it in the pane"
+      (let [c (card (made "write" {:path "artifacts/youtube-title_and_description.md" :content "x"} "ok"))]
+        (is (= "youtube-title_and_description.md" (:data-artifact (second c))))
+        (is (= "b1" (:data-artifact-bot (second c))))
+        (is (= "/bot/b1/artifacts/youtube-title_and_description.md" (:href (second c))))
+        (is (= "Youtube title and description" (last (find-tag c :span.name))))
+        (is (= "md" (last (find-tag c :span.meta))))))
+    (testing "an absolute path below artifacts/, a render, a picture, a project"
+      (is (= "card/pool.png" (:data-artifact (second (card (made "write" {:path "/home/sprite/rragent/agent/bots/1/work/artifacts/card/pool.png"} "ok"))))))
+      (is (= "story.mp4" (:data-artifact (second (card (made "render" {:name "story"} "artifacts/story.mp4 is ready."))))))
+      (is (= "card/pool.png" (:data-artifact (second (card (made "image" {:file "card/pool.png"} "artifacts/card/pool.png: 12345 bytes, model x"))))))
+      (is (= "clip" (:data-artifact (second (card (made "project" {:name "clip"} "artifacts/clip/ is ready, made from the template motion"))))))
+      (is (= [:i18n :artifacts/project] (last (find-tag (card (made "project" {:name "clip"} "artifacts/clip/ is ready")) :span.meta)))))
+    (testing "no card for a file elsewhere, a failed call, or a call still running"
+      (is (nil? (card (made "write" {:path "notes/todo.md"} "ok"))))
+      (is (nil? (card {:entries [(assistant 1 [{:type "toolCall" :id "c1" :name "write" :arguments {:path "artifacts/x.md"}}] "toolUse")
+                                 (tool-result 2 "c1" "boom" true)]})))
+      (is (nil? (card {:entries [(assistant 1 [{:type "toolCall" :id "c1" :name "write" :arguments {:path "artifacts/x.md"}}] "toolUse")]}))))))
 
 (deftest update-banner-test
   (testing "nothing while nothing newer is known"

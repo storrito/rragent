@@ -3,9 +3,10 @@
    `work/artifacts/` of the agent's folder (`rragent.home`), shown by
    kind. A page in an iframe that reloads when its file changes
    (rchat's canvas alias, `rragent.client`), an image, a video, an audio
-   file as themselves, anything else as a download. The newest change
-   the agent makes becomes the one on screen, unless the person picked
-   another one since. The port of pchat.artifacts to one folder: an
+   file as themselves, markdown rendered, a text file as it is
+   (`text-of`), anything else as a download. The newest change the
+   agent makes becomes the one on screen, unless the person picked
+   another one since; a pick of nil is the list alone. The port of pchat.artifacts to one folder: an
    agent has one conversation and one pane, no chats.
 
    A directory with a package.json is a project, an artifact with a
@@ -15,7 +16,7 @@
    (`rragent.db`, under the bot's `path`; the map itself for a test's
    plain atom):
 
-       :artifacts/list       [{:path :kind :title :mtime :size} ...], newest first
+       :artifacts/list       [{:path :kind :title :ext :mtime :size} ...], newest first
        :artifacts/rev        the newest modification time
        :artifacts/current    the path on screen
        :artifacts/picked-at  when the person picked it, to know what is newer
@@ -37,14 +38,56 @@
   {"html" :page "htm" :page
    "png" :image "jpg" :image "jpeg" :image "gif" :image "webp" :image "svg" :image
    "mp4" :video "webm" :video "mov" :video
-   "mp3" :audio "wav" :audio "m4a" :audio "ogg" :audio})
+   "mp3" :audio "wav" :audio "m4a" :audio "ogg" :audio
+   "md" :markdown "markdown" :markdown
+   "txt" :text "json" :text "csv" :text "srt" :text "vtt" :text "log" :text
+   "edn" :text "yaml" :text "yml" :text "xml" :text})
+
+(defn extension
+  "The extension of the file, lowercase, nil without one."
+  [p]
+  (let [name (last (str/split (str p) #"/"))]
+    (when (str/includes? name ".")
+      (str/lower-case (last (str/split name #"\."))))))
 
 (defn kind
   [p]
-  (let [name (last (str/split (str p) #"/"))
-        extension (when (str/includes? name ".")
-                    (str/lower-case (last (str/split name #"\."))))]
-    (get kinds extension :file)))
+  (get kinds (extension p) :file))
+
+(def text-kinds
+  "The kinds shown as text: markdown rendered, the rest as it is."
+  #{:markdown :text})
+
+(def text-cap
+  "How much of a text file the pane shows."
+  (* 256 1024))
+
+(defonce ^:private text-cache
+  (atom {}))
+
+(defn text-of
+  "The text of the artifact for the pane, `{:text :truncated?}`, for
+   one of the text kinds; nil for the other kinds or when the file
+   cannot be read. The first `text-cap` bytes, since the frame carries
+   it: a transcript is read once per change, not once per frame."
+  [dir {:keys [path kind mtime]}]
+  (when (text-kinds kind)
+    (let [key [dir path mtime]]
+      (or (get @text-cache key)
+          (when-let [value (try
+                             (let [file (path/join dir path)
+                                   size (.-size (fs/statSync file))
+                                   fd (fs/openSync file "r")
+                                   buffer (js/Buffer.alloc (min size text-cap))
+                                   read (try (fs/readSync fd buffer 0 (.-length buffer) 0)
+                                             (finally (fs/closeSync fd)))]
+                               {:text (.toString (.subarray buffer 0 read) "utf8")
+                                :truncated? (> size text-cap)})
+                             (catch :default _
+                               nil))]
+            (swap! text-cache (fn [cache]
+                                (assoc (if (< (count cache) 16) cache {}) key value)))
+            value)))))
 
 (defn title
   "What a person calls the file: `guest-review_card.html` is `Guest review card`."
@@ -131,7 +174,7 @@
           plain (->> (files dir)
                      (remove #(project-names (first (str/split (:path %) #"/"))))
                      (map (fn [{:keys [path] :as file}]
-                            (assoc file :kind (kind path) :title (title path)))))]
+                            (assoc file :kind (kind path) :title (title path) :ext (extension path)))))]
       (->> (concat projects plain)
            (sort-by :mtime >)
            (vec)))

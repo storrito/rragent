@@ -119,6 +119,15 @@
   [w]
   (first (split-bot (get-in w [:ring/route-params :*]))))
 
+(defn- artifacts-pane
+  "The keys of the pane (`rragent.view/artifacts`), with the text of
+   the artifact on screen when it is a text file."
+  [{:keys [dir] :as bot}]
+  (let [pane (select-keys bot [:artifacts/list :artifacts/current :projects :renders])
+        current (some #(when (= (:artifacts/current bot) (:path %)) %) (:artifacts/list bot))]
+    (cond-> pane
+      current (assoc :artifacts/text (artifacts/text-of dir current)))))
+
 (defn page-view
   "The page in the language of the connection, with the bot of the
    tab. The bot's name and model are its definition's as last read
@@ -134,7 +143,7 @@
                           :name (machine/label-of id)
                           :model (:model definition)}
                     :conversation (conversation (:value bot))
-                    :artifacts (select-keys bot [:artifacts/list :artifacts/current :projects :renders])
+                    :artifacts (artifacts-pane bot)
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
                     :update update
@@ -232,11 +241,12 @@
   (some #(when (= path (:path %)) %) (:artifacts/list bot)))
 
 (defn- open-artifact-command
-  "The person picked an artifact in the chooser."
+  "The person picked an artifact in the list or on a card, or went back
+   to the list (a nil path)."
   [w]
   (let [{:keys [path]} (command/command-data w)
         bot (bot-of-command w)]
-    (if (and bot (artifact-of bot path))
+    (if (and bot (or (nil? path) (artifact-of bot path)))
       (do (artifacts/pick! db/db (db/bot-path (:id bot)) path)
           (command/accepted w))
       (command/rejected w :no-such-artifact))))
