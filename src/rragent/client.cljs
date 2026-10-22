@@ -828,11 +828,78 @@
                        :on {:input [[:store/assoc store-key :event/target.value]]}}])
      (into [:ul.files] (map #(narrow query %) children))]))
 
+(def pane-width-key
+  "Where the browser keeps the width of the pane the person dragged."
+  "rragent.pane-width")
+
+(defn- pane-width
+  []
+  (try
+    (some-> (js/localStorage.getItem pane-width-key) js/parseInt (as-> n (when-not (js/isNaN n) n)))
+    (catch :default _
+      nil)))
+
+(defn- set-pane-width!
+  "The pane's width on the body the splitter is in, kept within what
+   leaves the chat room; nil clears it."
+  [^js splitter width]
+  (when-let [^js body (.-parentElement splitter)]
+    (if width
+      (let [room (.-clientWidth body)
+            width (js/Math.round (js/Math.min (js/Math.max width 320) (js/Math.max 320 (- room 420))))]
+        (.setProperty (.-style body) "--pane-width" (str width "px"))
+        width)
+      (.removeProperty (.-style body) "--pane-width"))))
+
+(defn splitter
+  "`[:ui/splitter]`: the handle between the chat and the pane. Dragged,
+   it sets the pane's width (`--pane-width` on the body, read by the
+   stylesheet) and the browser remembers it; a double click gives the
+   half back. While it drags the iframes take no pointer (`.dragging`
+   on the body, the stylesheet), so the drag does not stop over a
+   page."
+  [_attrs _children]
+  [:div.splitter {:role "separator"
+                  :aria-orientation "vertical"
+                  :replicant/on-mount (fn [{:keys [replicant/node]}]
+                                        (when-let [width (pane-width)]
+                                          (set-pane-width! node width)))
+                  :on {:pointerdown (fn [^js event]
+                                      (let [^js node (.-currentTarget event)
+                                            ^js body (.-parentElement node)]
+                                        (.preventDefault event)
+                                        (.setPointerCapture node (.-pointerId event))
+                                        (.add (.-classList body) "dragging")))
+                       :pointermove (fn [^js event]
+                                      (let [^js node (.-currentTarget event)
+                                            ^js body (.-parentElement node)]
+                                        (when (.hasPointerCapture node (.-pointerId event))
+                                          (set-pane-width! node (- (.-right (.getBoundingClientRect body)) (.-clientX event))))))
+                       :pointerup (fn [^js event]
+                                    (let [^js node (.-currentTarget event)
+                                          ^js body (.-parentElement node)]
+                                      (when (.hasPointerCapture node (.-pointerId event))
+                                        (.releasePointerCapture node (.-pointerId event))
+                                        (.remove (.-classList body) "dragging")
+                                        (when-let [width (set-pane-width! node (- (.-right (.getBoundingClientRect body)) (.-clientX event)))]
+                                          (try
+                                            (js/localStorage.setItem pane-width-key (str width))
+                                            (catch :default _
+                                              nil))))))
+                       :dblclick (fn [^js event]
+                                   (set-pane-width! (.-currentTarget event) nil)
+                                   (try
+                                     (js/localStorage.removeItem pane-width-key)
+                                     (catch :default _
+                                       nil)))}}])
+
 (def register
   "The aliases of the page, the URL of the bot, and `:ui/tabid` in a
    command, the id of this tab."
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
+   {:ui.alias/kind :ui/splitter
+    :ui.alias/fn splitter}
    {:ui.alias/kind :ui/files-filter
     :ui.alias/fn files-filter}
    {:ui.alias/kind :ui/canvas

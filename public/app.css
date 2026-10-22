@@ -433,15 +433,44 @@ body {
 }
 
 /* The pane beside the chat: the artifacts of the agent, like an
-   artifact pane. */
+   artifact pane. Its width is the half, or what the person dragged the
+   splitter to (`--pane-width` on the body, rragent.client/splitter). */
 .artifacts {
   display: flex;
+  flex: none;
   flex-direction: column;
-  width: 50%;
+  width: var(--pane-width, 50%);
   min-width: 0;
   padding: 12px 16px;
   gap: 8px;
   border-left: 1px solid var(--line);
+}
+
+/* The handle between the chat and the pane: thin, a line on hover and
+   while it drags; the pages in the iframes take no pointer then, so the
+   drag goes on over them. */
+.splitter {
+  flex: none;
+  width: 7px;
+  margin: 0 -3px;
+  z-index: 5;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.splitter:hover,
+.body.dragging .splitter {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.body.dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.body.dragging iframe {
+  pointer-events: none;
 }
 
 .artifacts .placeholder {
@@ -1272,6 +1301,10 @@ pre {
     min-height: 0;
     padding: 8px 12px;
     border: 0;
+  }
+
+  .splitter {
+    display: none;
   }
 
   .artifacts .bar .back {
