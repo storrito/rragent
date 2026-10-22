@@ -266,7 +266,8 @@
                           :devices found
                           :mic (pick :mic mics)
                           :camera (pick :camera cameras)
-                          :sources (remembered-sources))
+                          :sources (remembered-sources)
+                          :minimized? (= "1" (remembered :minimized)))
                  (preview! store))))
       (.then (fn [_]
                (swap! session* assoc :timer (js/setInterval #(tick! store) 50))
@@ -777,7 +778,7 @@
                :since (js/performance.now))
         (doseq [{:keys [^js recorder]} (vals recorders)]
           (.start recorder piece-ms))
-        (update! store assoc :status :recording :seconds 0 :error nil)))))
+        (update! store assoc :status :recording :seconds 0 :error nil :started-at (js/Date.now))))))
 
 (defn start!
   "Starts the recording from the click (Chrome asks which screen only
@@ -953,6 +954,37 @@
                                               (some-> ^js (.-__stills node) .abort))}]
    [:figcaption (:device phone)]])
 
+(defn toggle-minimized!
+  "The live views of a recording hidden or shown, remembered: hidden,
+   the panel is the bar with the time and Stop."
+  [store]
+  (let [minimized? (not (:minimized? (:ui/recorder @store)))]
+    (remember! :minimized (if minimized? "1" "0"))
+    (update! store assoc :minimized? minimized?)))
+
+(defn- started-at
+  "When the recording started, as the clock here says it: 15:25:22."
+  [ms]
+  (.toLocaleTimeString (js/Date. ms) js/undefined #js {:hour "2-digit" :minute "2-digit" :second "2-digit"}))
+
+(defn- previews
+  "What is recorded, live: the camera, the screen chosen, the phone's
+   stills, the phone's screen over USB; the same before and while it
+   records. `ready?` lets the buttons to choose a screen and connect a
+   phone work."
+  [store labels {:keys [screen? usb] :as recorder} phone ready?]
+  (let [ticked (or (:sources recorder) default-sources)]
+    [:div.preview {:replicant/key "preview"}
+     [:video.camera {:autoplay true
+                     :playsinline true
+                     :replicant/on-mount preview-mount}]
+     (when (contains? ticked :screen)
+       (screen-preview store labels screen? ready?))
+     (when (and phone (contains? ticked :phone))
+       (phone-preview phone))
+     (when (contains? ticked :phone-screen)
+       (usb-preview store labels usb ready?))]))
+
 (defn- device-select
   [store kind chosen options]
   [:select {:on {:change (fn [^js event]
@@ -1004,28 +1036,39 @@
 
 (defn panel
   "The panel above the text while it is open: the devices, the meter
-   beside the microphone, the camera, the screen and the phone live, the test, Start; a bar
-   with the time and Stop while it records. `labels` are the words, the
-   server's, translated; `phone` the phone connected, from the frame
+   beside the microphone, the camera, the screen and the phone live,
+   the test, Start. While it records: a bar with the time, when it
+   started and Stop, and the live views under it, which can be hidden
+   (`toggle-minimized!`). `labels` are the words, the server's,
+   translated; `phone` the phone connected, from the frame
    (`rragent.phone/status`)."
   [store state labels phone]
-  (let [{:keys [status devices mic camera seconds tests error phone-waiting? screen? usb] :as recorder} (:ui/recorder state)
+  (let [{:keys [status devices mic camera seconds tests error phone-waiting? minimized? started-at] :as recorder} (:ui/recorder state)
         ticked (or (:sources recorder) default-sources)]
     (when status
-      [:div.recorder {:replicant/key "recorder"}
+      [:div.recorder {:replicant/key "recorder"
+                      :class (when (and minimized? (#{:recording :finishing} status)) "minimized")}
        (if (#{:recording :finishing} status)
-         [:div.live
-          [:span.dot]
-          [:span.time (clock seconds)]
-          [:span.hint (cond
-                        phone-waiting? (:phone-waiting labels)
-                        (= :finishing status) (:saving labels)
-                        (contains? ticked :screen) (:recording labels)
-                        :else (:recording-local labels))]
-          (when (= :recording status)
-            [:button.primary {:type "button"
-                              :on {:click (fn [_] (stop! store))}}
-             (:stop labels)])]
+         (list
+          [:div.live {:replicant/key "live"}
+           [:span.dot]
+           [:span.time (clock seconds)]
+           (when started-at
+             [:span.started (str/replace (or (:started labels) "started at {time}") "{time}" (started-at started-at))])
+           [:span.hint (cond
+                         phone-waiting? (:phone-waiting labels)
+                         (= :finishing status) (:saving labels)
+                         (contains? ticked :screen) (:recording labels)
+                         :else (:recording-local labels))]
+           [:button.link {:type "button"
+                          :on {:click (fn [_] (toggle-minimized! store))}}
+            (if minimized? (:show-live labels) (:hide-live labels))]
+           (when (= :recording status)
+             [:button.primary {:type "button"
+                               :on {:click (fn [_] (stop! store))}}
+              (:stop labels)])]
+          (when-not minimized?
+            (previews store labels recorder phone false)))
          (list
           [:div.head
            [:strong (:title labels)]
@@ -1047,16 +1090,7 @@
                  [:span] [:span] [:span] [:span] [:span]]]]
               [:label (:camera labels)
                (device-select store :camera camera (:cameras devices))]]
-             [:div.preview
-              [:video.camera {:autoplay true
-                              :playsinline true
-                              :replicant/on-mount preview-mount}]
-              (when (contains? ticked :screen)
-                (screen-preview store labels screen? (= :ready status)))
-              (when (and phone (contains? ticked :phone))
-                (phone-preview phone))
-              (when (contains? ticked :phone-screen)
-                (usb-preview store labels usb (= :ready status)))]
+             (previews store labels recorder phone (= :ready status))
              (when (seq tests)
                [:div.tests
                 (for [source [:screen :webcam :phone :phone-screen]

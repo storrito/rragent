@@ -446,7 +446,11 @@ recording of five seconds to play back. *Choose the screen* opens
 Chrome's screen picker and shows the screen live beside the camera; the
 test and Start record that screen, and Start opens the picker itself
 when none is chosen yet. Chrome's own Stop sharing lets the screen go,
-or ends a recording. The pieces go to the machine as they are recorded
+or ends a recording. While it records, the panel is a bar with the
+time, when the recording started and Stop, and the live views of all
+that is recorded under it, which *Hide live views* folds away
+(remembered in the browser); the screen's own live view is in the
+screen's recording while it shows. The pieces go to the machine as they are recorded
 (`rragent.recordings`), into `artifacts/recordings/<stamp>/`:
 `screen.webm`, `webcam.webm` and `recording.json` with the devices and
 when each recorder started (remuxed by ffmpeg when the machine has one,

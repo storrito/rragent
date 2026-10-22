@@ -1904,6 +1904,18 @@ pre {
   font-weight: 600;
 }
 
+.recorder .live .started {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hidden live views: the panel is the bar alone, slim. */
+.recorder.minimized {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
 .recorder .live .hint {
   flex: 1 1 200px;
   color: var(--muted);
