@@ -962,7 +962,7 @@
     (remember! :minimized (if minimized? "1" "0"))
     (update! store assoc :minimized? minimized?)))
 
-(defn- started-at
+(defn clock-time
   "When the recording started, as the clock here says it: 15:25:22."
   [ms]
   (.toLocaleTimeString (js/Date. ms) js/undefined #js {:hour "2-digit" :minute "2-digit" :second "2-digit"}))
@@ -1054,7 +1054,7 @@
            [:span.dot]
            [:span.time (clock seconds)]
            (when started-at
-             [:span.started (str/replace (or (:started labels) "started at {time}") "{time}" (started-at started-at))])
+             [:span.started (str/replace (or (:started labels) "started at {time}") "{time}" (clock-time started-at))])
            [:span.hint (cond
                          phone-waiting? (:phone-waiting labels)
                          (= :finishing status) (:saving labels)
