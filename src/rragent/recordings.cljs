@@ -10,7 +10,7 @@
    (`rragent.tools.transcribe`): `audio.webm` as the browser records
    it, made into `audio.mp3` by ffmpeg at the end when there is one.
 
-   `POST /bot/<id>/record/<stamp>/<screen|webcam|phone|audio>?offset=<n>&ext=<webm|mp4>`
+   `POST /bot/<id>/record/<stamp>/<screen|webcam|phone|phone-screen|audio>?offset=<n>&ext=<webm|mp4>`
    appends a piece of a file as it is recorded, to a hidden part file
    (the pane lists no hidden file); the piece must start where the
    part file ends, as the pieces of an upload do (`rragent.uploads`).
@@ -40,9 +40,10 @@
 
 (def names
   "The files of a recording: the screen and the webcam from the laptop,
-   the phone's camera from the phone (`rragent.phone`), the microphone
-   alone as audio."
-  #{"screen" "webcam" "phone" "audio"})
+   and the phone's screen, which the laptop gets over USB; the phone's
+   camera from the phone (`rragent.phone`); the microphone alone as
+   audio."
+  #{"screen" "webcam" "phone" "phone-screen" "audio"})
 
 (def audio-name
   "The file of the microphone alone, which ffmpeg makes an MP3 of."
@@ -174,11 +175,18 @@
                (every? extensions (vals files)))
       files)))
 
+(defonce ^:private finishing
+  ;; the recordings whose end is at work, [dir stamp]
+  (atom #{}))
+
 (defn- ^:async finish!
   "The recording is over: every file finalized, the facts beside them,
    the folder answered as the agent names it. A recording with the
    phone's file waits for the phone to say its file is up
-   (`phone-done?`, 409 until then, the laptop asks again)."
+   (`phone-done?`, 409 until then, the laptop asks again). Asked again
+   once it is done (its answer was lost on the way), the end answers as
+   it did, from `recording.json`; asked again while it is still at work
+   (ffmpeg takes a while), it answers 503 and the laptop asks later."
   [dir {:keys [phone-done?]} w stamp]
   (let [facts (try
                 (await (transit/read-stream (:body (:ring/request w))))
@@ -193,6 +201,16 @@
       (nil? files)
       (uploads/respond w 400 {:error :bad-files})
 
+      (contains? @finishing [dir stamp])
+      (uploads/respond w 503 {:error :finishing})
+
+      ;; done already: the files as made, no part file left
+      (and (http/regular-file? (path/join (folder dir stamp) "recording.json"))
+           (empty? (filter (fn [[name ext]] (http/regular-file? (part-file dir stamp name ext))) files)))
+      (uploads/respond w 200 {:folder (str "recordings/" stamp)
+                              :files (vec (get (js->clj (js/JSON.parse (fs/readFileSync (path/join (folder dir stamp) "recording.json") "utf8")))
+                                               "files"))})
+
       (seq missing)
       (uploads/respond w 409 {:error :not-recorded
                               :missing (mapv first missing)})
@@ -202,15 +220,20 @@
       (uploads/respond w 409 {:error :phone-uploading})
 
       :else
-      (let [made (loop [files (sort-by first files)
-                        made []]
-                   (if-let [[name ext] (first files)]
-                     (recur (rest files) (conj made (await (finalize! dir stamp name ext))))
-                     made))]
-        (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
-                          (js/JSON.stringify (clj->js (assoc facts :files made)) nil 2))
-        (uploads/respond w 200 {:folder (str "recordings/" stamp)
-                                :files made})))))
+      (do
+        (swap! finishing conj [dir stamp])
+        (try
+          (let [made (loop [files (sort-by first files)
+                            made []]
+                       (if-let [[name ext] (first files)]
+                         (recur (rest files) (conj made (await (finalize! dir stamp name ext))))
+                         made))]
+            (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
+                              (js/JSON.stringify (clj->js (assoc facts :files made)) nil 2))
+            (uploads/respond w 200 {:folder (str "recordings/" stamp)
+                                    :files made}))
+          (finally
+            (swap! finishing disj [dir stamp])))))))
 
 (defn ^:async handler
   "`POST /record/<stamp>/<name>` into the artifacts `dir`: a piece of
@@ -233,7 +256,7 @@
 
 (def file-pattern
   "A finished file of a recording, as `get-handler` serves it."
-  #"(screen|webcam|phone|audio)\.(webm|mp4|mp3)")
+  #"(screen|webcam|phone|phone-screen|audio)\.(webm|mp4|mp3)")
 
 (defn get-handler
   "`GET /record/<stamp>/<file>`: a finished file of a recording, the

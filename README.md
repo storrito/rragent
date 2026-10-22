@@ -461,9 +461,16 @@ The 🎥 button of the composer records a screencast the way
 webcam as two files, both with the microphone, no layout up front; or
 the microphone alone, a voice memo (below). The
 panel picks the microphone and the camera (remembered in the browser),
-shows the camera live with the level of the microphone and makes a test
-recording of five seconds to play back; Start opens Chrome's screen
-picker. The pieces go to the machine as they are recorded
+shows the level of the microphone beside it and the camera live, and makes a test
+recording of five seconds to play back. *Choose the screen* opens
+Chrome's screen picker and shows the screen live beside the camera; the
+test and Start record that screen, and Start opens the picker itself
+when none is chosen yet. Chrome's own Stop sharing lets the screen go,
+or ends a recording. While it records, the panel is a bar with the
+time, when the recording started and Stop, and the live views of all
+that is recorded under it, which *Hide live views* folds away
+(remembered in the browser); the screen's own live view is in the
+screen's recording while it shows. The pieces go to the machine as they are recorded
 (`rragent.recordings`), into `artifacts/recordings/<stamp>/`:
 `screen.webm`, `webcam.webm` and `recording.json` with the devices and
 when each recorder started (remuxed by ffmpeg when the machine has one,
@@ -480,7 +487,11 @@ through the machine (`rragent.phone`, server-sent events); the phone
 records its own file at full quality, with its own microphone, and sends
 it up itself, as `phone.webm` (`phone.mp4` from an iPhone) of the same
 recording. The end waits for the phone's file. Nothing streams between
-the two browsers. What is recorded is ticked: the screen, the webcam, the
+the two browsers: while its page is open, the phone sends a small still
+of its camera every second, which the machine keeps in memory and the
+panel shows as the phone's preview. The panel names the phone by its
+model when the browser tells it (Chrome's client hints), else by its
+system and browser, with the camera it uses. What is recorded is ticked: the screen, the webcam, the
 phone, any of them; the phone alone is a vertical video for the agent to
 cut, nothing is recorded on the laptop then.
 
@@ -493,6 +504,39 @@ agent to cut, clean and convert with ffmpeg in bash and write down
 with the `transcribe` tool. The test plays it back as audio. The
 words are not written into the draft, the way the dictation does it:
 the recording itself is what the person sends.
+
+An Android phone's screen comes over a USB cable (*Phone screen (USB)*,
+`rragent.client.usb-screen`): no page on the phone can record its
+screen, but Chrome on the laptop can talk ADB to the phone itself
+(WebUSB, [Tango](https://github.com/yume-chan/ya-webadb)). *Connect the
+phone* opens Chrome's USB picker; the phone, with USB debugging on, asks
+once to allow this browser, whose key stays in the browser. The page
+pushes the [scrcpy](https://github.com/Genymobile/scrcpy) server to the
+phone (`public/scrcpy/`, version 3.3.3, the one the packages speak,
+Apache-2.0, its license beside it), starts it, and decodes the phone's
+H.264 with WebCodecs into a video track: live in the panel, recorded
+like the laptop's screen with a copy of the microphone into
+`phone-screen.webm`. Only the picture, no sound of the phone and no
+control of it; the display is woken on connecting, the panel says to
+wake it when no picture comes; a phone unplugged ends the recording. The
+phone's screen and the phone's camera exclude each other, ticking one
+unticks the other: while the phone is used, its camera page is in the
+background, and Android gives a page in the background the sound only,
+a picture a second at most, in any browser.
+
+An `adb` server running on the laptop holds the phone, and Chrome cannot
+claim it then. `scripts/adb-bridge.mjs`, run on the laptop, lets the page
+go through that server instead, so adb and whatever uses it go on:
+
+    node scripts/adb-bridge.mjs --origin https://<sprite>.sprites.app
+
+It listens on `ws://127.0.0.1:15037` and turns each WebSocket into one
+connection to the adb server (port 5037), bytes both ways; adb is a
+shell on the phone, so only pages of the origins named are let in, and
+only from the laptop. *Connect the phone* tries the bridge first and
+goes over USB itself when no bridge answers. Chrome asks once whether
+the page may reach apps on this device. Over USB on Linux, Chrome needs
+a udev rule for the phone.
 
 ## Development
 

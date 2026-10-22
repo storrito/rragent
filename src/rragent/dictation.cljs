@@ -11,7 +11,8 @@
   (:require [clojure.string :as str]
             [rragent.correction :as correction]
             [rragent.rframes.transit :as transit]
-            [rragent.transcription :as transcription]))
+            [rragent.transcription :as transcription]
+            [rragent.uploads :as uploads]))
 
 (def path
   "Where the browser posts a recording."
@@ -53,23 +54,6 @@
           :headers {"Content-Type" "application/transit+json"}
           :body (transit/write-str value)}))
 
-(defn- read-body
-  "A promise of the bytes of the readable `in` as a Buffer, or of nil
-   when they are more than `limit`."
-  [^js in limit]
-  (js/Promise.
-   (fn [resolve reject]
-     (let [chunks #js []
-           length (atom 0)]
-       (.on in "error" reject)
-       (.on in "end" (fn [] (resolve (js/Buffer.concat chunks))))
-       (.on in "data" (fn [^js chunk]
-                        (if (< limit (swap! length + (.-length chunk)))
-                          (do (.removeAllListeners in "data")
-                              (.removeAllListeners in "end")
-                              (.resume in)
-                              (resolve nil))
-                          (.push chunks chunk))))))))
 
 (defn answer
   "The answer for the browser from OpenRouter's response: the text, the
@@ -102,7 +86,7 @@
         format (format-of request)]
     (if-not format
       (respond w 415 {:error :not-audio})
-      (let [audio (await (read-body (:body request) max-bytes))]
+      (let [audio (await (uploads/read-body (:body request) max-bytes))]
         (cond
           (nil? audio)
           (respond w 413 {:error :too-large})

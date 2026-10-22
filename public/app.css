@@ -1732,17 +1732,24 @@ pre {
 }
 
 /* The screencast panel above the text (rragent.client.recorder): the
-   devices in a row, the camera live with the meter of the microphone,
-   the test's playback, Test and Start; while it records, a bar with a
+   devices in a row, the meter beside the microphone, the previews in a
+   row, the test's playback, Test and Start; while it records, a bar with a
    red dot, the time and Stop. The button in the row is red then. */
 .recorder {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 70vh;
+  overflow-y: auto;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
+}
+
+/* A panel taller than the window scrolls; its parts keep their size. */
+.recorder > * {
+  flex-shrink: 0;
 }
 
 .recorder .head {
@@ -1782,6 +1789,18 @@ pre {
   font-size: 13px;
 }
 
+/* The microphone with the level of its sound beside it. */
+.recorder .devices .mic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recorder .devices .mic select {
+  flex: 1;
+}
+
 .recorder .devices select {
   min-width: 0;
   padding: 6px 8px;
@@ -1795,13 +1814,97 @@ pre {
 
 .recorder .preview {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 12px;
 }
 
+/* The screen chosen, live, and the phone's last still beside the
+   camera, in one row that narrows rather than wraps; the button to
+   choose the screen in the screen's place. */
+.recorder .preview figure {
+  display: flex;
+  flex: 0 1 240px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+.recorder .preview figure.phone-still {
+  flex: 0 1 76px;
+}
+
+.recorder .preview figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.recorder video.screen {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: var(--code-bg);
+  object-fit: contain;
+}
+
+.recorder .preview figure button.choose {
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.recorder .preview figure button.choose:disabled,
+.recorder figure.screen button.link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* The phone's screen over USB: upright, the video the decoder renders
+   into, its size the phone's, scaled to the box. */
+.recorder .preview figure.usb-screen {
+  flex: 0 1 120px;
+}
+
+.recorder figure.usb-screen button.choose {
+  aspect-ratio: 9 / 16;
+}
+
+.recorder .usb-video video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 9 / 16;
+  border-radius: 8px;
+  background: var(--code-bg);
+  object-fit: contain;
+}
+
+.recorder img.phone-still {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  border-radius: 8px;
+  background: var(--code-bg);
+  object-fit: contain;
+}
+
+.recorder img.phone-still.none {
+  visibility: hidden;
+}
+
 .recorder video.camera {
-  width: 240px;
-  max-width: 60%;
+  flex: 0 1 240px;
+  min-width: 0;
   aspect-ratio: 16 / 9;
   border-radius: 8px;
   background: var(--code-bg);
@@ -1877,8 +1980,8 @@ pre {
   display: flex;
   align-items: center;
   gap: 3px;
+  flex-shrink: 0;
   height: 24px;
-  margin-bottom: 8px;
 }
 
 .recorder .meter span {
@@ -1927,6 +2030,18 @@ pre {
 .recorder .live .time {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+.recorder .live .started {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hidden live views: the panel is the bar alone, slim. */
+.recorder.minimized {
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .recorder .live .hint {

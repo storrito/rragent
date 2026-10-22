@@ -5,8 +5,9 @@
    stop: on start it records its camera and microphone at full
    quality into `phone.<webm|mp4>` of the recording, the pieces up as
    they come, the uploaders of `rragent.client.recorder`; on stop it
-   sends the last pieces and tells the machine its file is up. The
-   screen stays on while it records. Rendered by Replicant from the
+   sends the last pieces and tells the machine its file is up. Stills
+   of the camera go up as fast as the network takes them, the phone's
+   preview in the laptop's panel. The screen stays on while it records. Rendered by Replicant from the
    atom `state*`, nothing of the frames."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
@@ -22,19 +23,49 @@
 (def hello-ms
   10000)
 
+(def frame-ms
+  "How often a still of the camera may go to the laptop's panel: six a
+   second at most, fewer when one takes longer to go up."
+  160)
+
+(def frame-width
+  "The width of a still: enough to frame the picture by."
+  320)
+
 (defn- words
   [k]
   (get-in @state* [:words k] (name k)))
 
-(defn- device-name
-  "What the laptop shows: the phone's model when the browser says it,
-   else the browser."
-  []
-  (let [ua (str js/navigator.userAgent)]
-    (or (some-> (re-find #"Android [^;]+; ([^;)]+)\)" ua) second str/trim)
-        (when (re-find #"iPhone" ua) "iPhone")
-        (when (re-find #"iPad" ua) "iPad")
+(defn device-name
+  "What the laptop shows: the phone's model when the browser says it
+   (`model`, Chrome's client hint; the user agent's, unless it is the
+   `K` Chrome puts there instead), else the system and the browser."
+  [ua model]
+  (let [ua (str ua)
+        from-ua (some-> (re-find #"Android [^;]+; ([^;)]+)\)" ua) second str/trim)
+        known (some #(when-not (or (str/blank? %) (= "K" %)) %) [(some-> model str/trim) from-ua])
+        system (cond
+                 (re-find #"iPhone" ua) "iPhone"
+                 (re-find #"iPad" ua) "iPad"
+                 (re-find #"Android" ua) "Android")
+        browser (cond
+                  (re-find #"SamsungBrowser" ua) "Samsung Internet"
+                  (re-find #"Firefox|FxiOS" ua) "Firefox"
+                  (re-find #"EdgA|EdgiOS" ua) "Edge"
+                  (re-find #"CriOS|Chrome" ua) "Chrome"
+                  (re-find #"Safari" ua) "Safari")]
+    (or known
+        (some->> [system browser] (remove nil?) seq (str/join " · "))
         "Phone")))
+
+(defn- ^:async model
+  "The phone's model from Chrome's client hints, nil elsewhere."
+  []
+  (try
+    (some-> (await (some-> js/navigator .-userAgentData (.getHighEntropyValues #js ["model"])))
+            .-model)
+    (catch :default _
+      nil)))
 
 (defn- post!
   [action data]
@@ -43,11 +74,26 @@
                  :headers #js {"Content-Type" "application/transit+json"}
                  :body (t/write (t/writer :json) data)}))
 
+(declare stop!)
+
 (defn- hello!
+  "The phone's presence for the laptop's panel, with the recording it
+   is on: when the laptop stopped that one and the page missed the
+   event (Android pauses a page in the background), the answer says
+   so and the recording stops."
   []
-  (-> (post! "hello" {:device (device-name)
-                      :facing (:facing @state*)})
-      (.catch (fn [_] nil))))
+  (let [{:keys [status stamp]} @state*
+        recording (when (= :recording status) stamp)]
+    (-> (post! "hello" (cond-> {:device (:device @state*)
+                                :facing (:facing @state*)}
+                         recording (assoc :recording recording)))
+        (.then (fn [^js response] (.text response)))
+        (.then (fn [text]
+                 (when (and recording
+                            (:stop (t/read (t/reader :json) text))
+                            (= recording (:stamp @state*)))
+                   (stop!))))
+        (.catch (fn [_] nil)))))
 
 (defn- mime-type
   []
@@ -80,6 +126,50 @@
       (some-> (.play node) (.catch (fn [_] nil))))
     (swap! state* assoc :facing facing)
     stream))
+
+(def unwatched-ms
+  "How often a still goes up while no laptop panel watches: enough for
+   a panel that opens to show the phone at once."
+  2000)
+
+(defn- still!
+  "A still of the camera to the machine, for the laptop's panel to show
+   the phone's picture: as fast as they go up while a panel watches
+   (the machine's answer says so), every `unwatched-ms` otherwise; none
+   while the last is still going up, or the page is hidden. One canvas
+   for all of them."
+  []
+  (let [{:keys [^js video sending-still? watched? still-at]} @session*
+        now (js/Date.now)]
+    (when (and video
+               (not sending-still?)
+               (not js/document.hidden)
+               (pos? (.-videoWidth video))
+               (or watched? (< (+ (or still-at 0) unwatched-ms) now)))
+      (let [^js canvas (or (:canvas @session*)
+                           (let [made (js/document.createElement "canvas")]
+                             (swap! session* assoc :canvas made)
+                             made))
+            height (js/Math.round (* frame-width (/ (.-videoHeight video) (.-videoWidth video))))]
+        (set! (.-width canvas) frame-width)
+        (set! (.-height canvas) height)
+        (.drawImage (.getContext canvas "2d") video 0 0 frame-width height)
+        (swap! session* assoc :sending-still? true :still-at now)
+        (.toBlob canvas
+                 (fn [^js blob]
+                   (-> (if blob
+                         (-> (js/fetch (str (:phone-url @state*) "/frame")
+                                       #js {:method "POST"
+                                            :headers #js {"Content-Type" "image/jpeg"}
+                                            :body blob})
+                             (.then (fn [^js response] (.text response)))
+                             (.then (fn [text]
+                                      (swap! session* assoc :watched? (boolean (:watched (t/read (t/reader :json) text)))))))
+                         (js/Promise.resolve nil))
+                       (.catch (fn [_] nil))
+                       (.finally (fn [] (swap! session* assoc :sending-still? false)))))
+                 "image/jpeg"
+                 0.6)))))
 
 (defn- ^:async wake!
   []
@@ -122,8 +212,6 @@
       (some-> (:wake @session*) (.release))
       (some-> (:timer @session*) js/clearInterval)
       (swap! session* dissoc :recorder :uploader :since :wake :timer))))
-
-(declare stop!)
 
 (defn- start!
   "The laptop started the recording `stamp`: this camera records into
@@ -177,7 +265,10 @@
                          (let [data (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true)]
                            (start! "test" (or (:seconds data) 5)))))
     (set! (.-onerror source) (fn [_] (swap! state* assoc :listening? false)))
-    (set! (.-onopen source) (fn [_] (swap! state* assoc :listening? true)))
+    ;; back in touch: what was missed meanwhile is asked for at once
+    (set! (.-onopen source) (fn [_]
+                              (swap! state* assoc :listening? true)
+                              (hello!)))
     (swap! session* assoc :source source)))
 
 (defn- flip!
@@ -252,11 +343,20 @@
                     :record-url (str base "/record")})
     (add-watch state* ::render (fn [_ _ _ _] (render!)))
     (render!)
-    (-> (camera! "environment")
+    (-> (model)
+        (.then (fn [model]
+                 (swap! state* assoc :device (device-name js/navigator.userAgent model))
+                 (camera! "environment")))
         (.then (fn [_]
                  (swap! state* assoc :status :ready)
                  (hello!)
                  (js/setInterval hello! hello-ms)
+                 ;; a page back in front says hello at once
+                 (.addEventListener js/document "visibilitychange"
+                                    (fn [_]
+                                      (when (= "visible" js/document.visibilityState)
+                                        (hello!))))
+                 (js/setInterval still! frame-ms)
                  (listen!)))
         (.catch (fn [error]
                   (js/console.error "[phone]" error)

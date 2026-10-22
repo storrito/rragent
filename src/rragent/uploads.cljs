@@ -114,6 +114,24 @@
           :headers {"Content-Type" "application/transit+json"}
           :body (transit/write-str value)}))
 
+(defn read-body
+  "A promise of the bytes of the readable `in` as a Buffer, or of nil
+   when they are more than `limit`."
+  [^js in limit]
+  (js/Promise.
+   (fn [resolve reject]
+     (let [chunks #js []
+           length (atom 0)]
+       (.on in "error" reject)
+       (.on in "end" (fn [] (resolve (js/Buffer.concat chunks))))
+       (.on in "data" (fn [^js chunk]
+                        (if (< limit (swap! length + (.-length chunk)))
+                          (do (.removeAllListeners in "data")
+                              (.removeAllListeners in "end")
+                              (.resume in)
+                              (resolve nil))
+                          (.push chunks chunk))))))))
+
 (defn file-size
   "The bytes of `file`, 0 without it."
   [file]

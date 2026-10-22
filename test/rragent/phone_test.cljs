@@ -50,6 +50,8 @@
                  ctx {:db db :path [] :bot "7"}
                  register [{:ring/route [:post "/bot/7/phone/*"]
                             :ring/handler (fn [w] (phone/post! ctx (get-in w [:ring/route-params :*]) w))}
+                           {:ring/route [:get "/bot/7/phone/frame"]
+                            :ring/handler (fn [w] (phone/frame-handler "7" w {:wait-ms 200}))}
                            {:ring/route [:get "/bot/7/phone/events"]
                             :ring/handler (fn [w] (phone/events-handler "7" w))}
                            {:ring/route [:get "/pair/*"]
@@ -78,8 +80,18 @@
                      (is (str/starts-with? (str (.get (.-headers response) "set-cookie")) "rragent=") "the token's cookie"))
                    (is (= 404 (.-status (await (js/fetch url #js {:redirect "manual"})))) "the code is gone")))
                (testing "the phone's hello is in the bot's map, the panel sees it while fresh"
-                 (is (= [200 {:ok true}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :facing "environment"}))))
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :facing "environment"}))))
                  (is (= {:device "Pixel 8" :facing "environment"} (phone/status (:phone @db)))))
+               (testing "a stop the phone missed is in the answer to its hello, for the recording it is on only"
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"}))))
+                 (is (= [200 {:phones 0}] (await (post "/bot/7/phone/stop" {:stamp "2026-10-22T16-00-00"}))) "nobody listened")
+                 (is (= [200 {:ok true :stop true}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"}))))
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-05-00"}))) "another recording goes on")
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8"}))) "a phone that records nothing")
+                 (doseq [n (range phone/stopped-kept)]
+                   (await (post "/bot/7/phone/stop" {:stamp (str "2026-10-23T00-00-" n)})))
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"})))
+                     "only the latest stops are kept"))
                (testing "start and stop reach a phone listening, with the stamp"
                  (is (= [200 {:phones 0}] (await (post "/bot/7/phone/start" {:stamp stamp}))) "nobody listens yet")
                  (let [response (await (js/fetch (str base "/bot/7/phone/events")))
@@ -123,6 +135,28 @@
                    (is (= "xyz" (await (.text served)))))
                  (is (= 404 (.-status (await (js/fetch (str base "/bot/7/record/test/recording.json"))))) "only the files of a recording are served")
                  (is (= 404 (.-status (await (js/fetch (str base "/bot/7/record/..%2F..%2Fx/phone.webm")))))))
+               (testing "the phone's still: none yet, the last one sent with its number, an ask held until a newer one, too large refused"
+                 (is (= 204 (.-status (await (js/fetch (str base "/bot/7/phone/frame"))))) "none came while the ask was held")
+                 (is (= [200 {:ok true :watched true}] (await (post "/bot/7/phone/frame" "jpeg-1" "image/jpeg"))) "a panel asked just now")
+                 (is (= [200 {:ok true :watched true}] (await (post "/bot/7/phone/frame" "jpeg-2" "image/jpeg"))))
+                 (let [served (await (js/fetch (str base "/bot/7/phone/frame?after=0")))]
+                   (is (= 200 (.-status served)))
+                   (is (= "image/jpeg" (.get (.-headers served) "content-type")))
+                   (is (= "no-store" (.get (.-headers served) "cache-control")))
+                   (is (= "2" (.get (.-headers served) "x-still")))
+                   (is (= "jpeg-2" (await (.text served)))))
+                 (is (= 204 (.-status (await (js/fetch (str base "/bot/7/phone/frame?after=2"))))) "nothing newer than the second")
+                 (let [held (js/fetch (str base "/bot/7/phone/frame?after=2"))]
+                   (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                   (await (post "/bot/7/phone/frame" "jpeg-3" "image/jpeg"))
+                   (let [served (await held)]
+                     (is (= 200 (.-status served)) "the held ask is answered by the next still")
+                     (is (= "3" (.get (.-headers served) "x-still")))
+                     (is (= "jpeg-3" (await (.text served)))))
+                   (let [served (await (js/fetch (str base "/bot/7/phone/frame?after=9000")))]
+                     (is (= 200 (.-status served)) "a panel with a number from before the machine restarted gets the still")
+                     (is (= "3" (.get (.-headers served) "x-still")))))
+                 (is (= [413 {:error :too-large}] (await (post "/bot/7/phone/frame" (.repeat "x" (inc phone/max-frame-bytes)) "image/jpeg")))))
                (finally
                  (.close server))))))
         (.catch (fn [error]

@@ -110,6 +110,28 @@
                      (is (= ["screen.webm" "webcam.webm"] (get facts "files"))))
                    ;; what the test sent is no video: ffmpeg, when there is one, refuses it and the bytes stay as recorded
                    (is (= (vec content) (vec (fs/readFileSync (path/join (recordings/folder dir stamp) "webcam.webm")))))))
+               (testing "the phone's screen over USB, a file of the laptop like the screen"
+                 (let [stamp "2026-10-22T15-00-00"]
+                   (is (= [200 {:received 30}] (await (post (str stamp "/screen?offset=0") content))))
+                   (is (= [200 {:received 30}] (await (post (str stamp "/phone-screen?offset=0") content))))
+                   (is (= [200 {:folder (str "recordings/" stamp) :files ["phone-screen.webm" "screen.webm"]}]
+                          (await (post (str stamp "/finish")
+                                       (transit/write-str {:started {} :files {"screen" "webm" "phone-screen" "webm"}})
+                                       "application/transit+json"))))
+                   (is (= [200 {:folder (str "recordings/" stamp) :files ["phone-screen.webm" "screen.webm"]}]
+                          (await (post (str stamp "/finish")
+                                       (transit/write-str {:started {} :files {"screen" "webm" "phone-screen" "webm"}})
+                                       "application/transit+json")))
+                       "asked again once done, the end answers as it did")
+                   (is (re-matches recordings/file-pattern "phone-screen.webm") "served for the panel's test")))
+               (testing "the microphone alone, asked to end twice: the second answer names the files as the first made them"
+                 (let [stamp "2026-10-22T17-00-00"
+                       facts (transit/write-str {:started {} :files {"audio" "webm"}})
+                       [status first-answer] (await (post (str stamp "/audio?offset=0") content))
+                       _ (is (= 200 status))
+                       [_ made] (await (post (str stamp "/finish") facts "application/transit+json"))]
+                   (is (= [200 made] (await (post (str stamp "/finish") facts "application/transit+json"))))
+                   (is (contains? #{["audio.mp3"] ["audio.webm"]} (:files made)) "an MP3 with ffmpeg, the WebM as it came without")))
                (finally
                  (.close server))))))
         (.catch (fn [error]

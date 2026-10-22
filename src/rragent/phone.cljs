@@ -16,12 +16,19 @@
    the bot's map under `:phone` so that the panel on the laptop shows
    it), and listens on `GET .../phone/events`, server-sent events: the
    laptop's `POST .../phone/start` with the stamp of the recording and
-   `POST .../phone/stop` go to every phone listening, and
+   `POST .../phone/stop` go to every phone listening (a stop is kept
+   too: a phone whose page was in the background missed the event, and
+   its next hello, which names the recording it is on, is answered with
+   `stop`), and
    `POST .../phone/test` asks for a clip of a few seconds, which the
    phone records, sends up and finishes itself; `GET .../phone/test`
    names that clip for the laptop's panel. When the phone's last piece
    is up it says so (`POST .../phone/done`), which the recording's
-   finish waits for."
+   finish waits for. While its page is open the phone sends stills of
+   its camera as fast as they go up (`POST .../phone/frame`, small
+   JPEGs, kept in memory, the last one only), which the laptop's panel
+   shows as the phone's preview: `GET .../phone/frame?after=<n>` is
+   held until a still newer than the `n`th is there."
   (:require ["node:crypto" :as crypto]
             [clojure.string :as str]
             [rragent.auth :as auth]
@@ -54,6 +61,22 @@
 
 (defonce ^:private next-conn-id
   (atom 0))
+
+(defonce ^:private frames
+  ;; bot id -> {:bytes :at :n}, the phone's last still and its number
+  (atom {}))
+
+(defonce ^:private frame-waiters
+  ;; bot id -> the resolves of the panels waiting for a newer still
+  (atom {}))
+
+(def frame-wait-ms
+  "How long the panel's ask for a newer still is held."
+  10000)
+
+(def max-frame-bytes
+  "The largest still the phone sends."
+  (* 512 1024))
 
 (defn new-code!
   "A pairing code for the bot, good for ten minutes."
@@ -150,11 +173,27 @@
   (count (get @listeners (str bot-id))))
 
 (defn hello!
-  "The phone's hello in the bot's map: its device, its camera, when."
-  [db path {:keys [device facing]}]
+  "The phone's hello in the bot's map: its device, its camera, when.
+   The answer: whether the recording the phone is on (`recording`) was
+   stopped meanwhile."
+  [db path {:keys [device facing recording]}]
   (swap! db db/update-at path update :phone merge {:device (str device)
                                                     :facing (str facing)
-                                                    :seen (js/Date.now)}))
+                                                    :seen (js/Date.now)})
+  {:ok true
+   :stop (boolean (some #{(str recording)} (get-in (db/at @db path) [:phone :stopped])))})
+
+(def stopped-kept
+  "How many stopped recordings the bot's map keeps for a phone that
+   missed the stop: the latest."
+  50)
+
+(defn stopped!
+  "The laptop stopped the recording `stamp`: a phone that missed the
+   event hears of it at its next hello."
+  [db path stamp]
+  (swap! db db/update-at path update-in [:phone :stopped]
+         (fn [kept] (vec (take-last stopped-kept (conj (vec kept) (str stamp)))))))
 
 (defn done!
   "The phone's file of the recording `stamp` is up; for the test, the
@@ -181,6 +220,79 @@
     {:device device
      :facing facing}))
 
+(defn frame!
+  "The phone's last still of the bot, numbered; the panels waiting for
+   one are answered."
+  [bot-id bytes]
+  (let [bot (str bot-id)
+        waiting (get @frame-waiters bot)]
+    (swap! frames update bot (fn [{:keys [n]}]
+                               {:bytes bytes :at (js/Date.now) :n (inc (or n 0))}))
+    (swap! frame-waiters dissoc bot)
+    (doseq [resolve waiting]
+      (resolve nil))))
+
+(defn- newer-frame
+  "The bot's still when it is fresh and not the `after`th, the one the
+   panel has: the numbers start again with the machine, a panel that
+   watched before has a higher one then."
+  [bot after]
+  (let [{:keys [at n] :as frame} (get @frames bot)]
+    (when (and frame (not= after n) (< (- (js/Date.now) at) fresh-ms))
+      frame)))
+
+(defn- next-frame
+  "A promise that settles when the bot's next still comes, or after
+   `ms`; the waiter is let go either way."
+  [bot ms]
+  (js/Promise.
+   (fn [resolve]
+     (let [timer (volatile! nil)
+           done (fn done [_]
+                  (js/clearTimeout @timer)
+                  (swap! frame-waiters update bot disj done)
+                  (resolve nil))]
+       (vreset! timer (js/setTimeout done ms))
+       (swap! frame-waiters update bot (fnil conj #{}) done)))))
+
+(defonce ^:private watched
+  ;; bot id -> when a panel last asked for a still
+  (atom {}))
+
+(def watch-ms
+  "How long after a panel's last ask the phone's stills count as
+   watched."
+  15000)
+
+(defn watched?
+  "Whether a panel asked for the bot's stills lately: the phone sends
+   them at full rate then, else rarely."
+  [bot-id]
+  (when-let [at (get @watched (str bot-id))]
+    (< (- (js/Date.now) at) watch-ms)))
+
+(defn ^:async frame-handler
+  "`GET /bot/<id>/phone/frame?after=<n>`: the phone's last still when
+   it is newer than the `n`th, with its number in `X-Still`; held
+   until one comes, 204 when none came in `wait-ms`."
+  [bot-id w & [{:keys [wait-ms] :or {wait-ms frame-wait-ms}}]]
+  (let [bot (str bot-id)
+        after (or (parse-long (str (get (uploads/query-params (:ring/request w)) "after"))) 0)
+        _ (swap! watched assoc bot (js/Date.now))
+        frame (or (newer-frame bot after)
+                  (do (await (next-frame bot wait-ms))
+                      (newer-frame bot after)))]
+    (assoc w :ring/response
+           (if frame
+             {:status 200
+              :headers {"Content-Type" "image/jpeg"
+                        "Cache-Control" "no-store"
+                        "X-Still" (str (:n frame))}
+              :body (:bytes frame)}
+             {:status 204
+              :headers {"Cache-Control" "no-store"}
+              :body ""}))))
+
 (defn test-handler
   "`GET /bot/<id>/phone/test`: the phone's last test clip."
   [{:keys [db path]} w]
@@ -197,20 +309,21 @@
   "`POST /bot/<id>/phone/<action>`: `code` makes a pairing code (the
    link for the QR), `hello` is the phone's presence, `start` and
    `stop` go to the phones, `done` marks the phone's file of a
-   recording as up."
+   recording as up, `frame` is the phone's still."
   [{:keys [db path bot]} action w]
   (case action
     "code" (let [code (new-code! bot)]
              (uploads/respond w 200 {:code code
                                      :url (str (origin (:ring/request w)) pair-prefix "/" code)}))
     "hello" (let [facts (await (body w))]
-              (hello! db path (if (map? facts) facts {}))
-              (uploads/respond w 200 {:ok true}))
+              (uploads/respond w 200 (hello! db path (if (map? facts) facts {}))))
     "start" (let [{:keys [stamp]} (await (body w))]
               (if (seq (str stamp))
                 (uploads/respond w 200 {:phones (send-phones! bot :start {:stamp (str stamp)})})
                 (uploads/respond w 400 {:error :no-stamp})))
     "stop" (let [{:keys [stamp]} (await (body w))]
+             (when (seq (str stamp))
+               (stopped! db path stamp))
              (uploads/respond w 200 {:phones (send-phones! bot :stop {:stamp (str stamp)})}))
     "test" (let [{:keys [seconds]} (await (body w))]
              (uploads/respond w 200 {:phones (send-phones! bot :test {:stamp "test" :seconds (or seconds 5)})}))
@@ -219,4 +332,8 @@
                (do (done! db path stamp file)
                    (uploads/respond w 200 {:ok true}))
                (uploads/respond w 400 {:error :no-stamp})))
+    "frame" (if-let [bytes (await (uploads/read-body (:body (:ring/request w)) max-frame-bytes))]
+              (do (frame! bot bytes)
+                  (uploads/respond w 200 {:ok true :watched (boolean (watched? bot))}))
+              (uploads/respond w 413 {:error :too-large}))
     (uploads/respond w 404 {:error :no-such-action})))
