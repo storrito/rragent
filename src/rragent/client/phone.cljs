@@ -74,11 +74,26 @@
                  :headers #js {"Content-Type" "application/transit+json"}
                  :body (t/write (t/writer :json) data)}))
 
+(declare stop!)
+
 (defn- hello!
+  "The phone's presence for the laptop's panel, with the recording it
+   is on: when the laptop stopped that one and the page missed the
+   event (Android pauses a page in the background), the answer says
+   so and the recording stops."
   []
-  (-> (post! "hello" {:device (:device @state*)
-                      :facing (:facing @state*)})
-      (.catch (fn [_] nil))))
+  (let [{:keys [status stamp]} @state*
+        recording (when (= :recording status) stamp)]
+    (-> (post! "hello" (cond-> {:device (:device @state*)
+                                :facing (:facing @state*)}
+                         recording (assoc :recording recording)))
+        (.then (fn [^js response] (.text response)))
+        (.then (fn [text]
+                 (when (and recording
+                            (:stop (t/read (t/reader :json) text))
+                            (= recording (:stamp @state*)))
+                   (stop!))))
+        (.catch (fn [_] nil)))))
 
 (defn- mime-type
   []
@@ -183,8 +198,6 @@
       (some-> (:timer @session*) js/clearInterval)
       (swap! session* dissoc :recorder :uploader :since :wake :timer))))
 
-(declare stop!)
-
 (defn- start!
   "The laptop started the recording `stamp`: this camera records into
    its file of it; a test (`seconds`) stops by itself."
@@ -237,7 +250,10 @@
                          (let [data (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true)]
                            (start! "test" (or (:seconds data) 5)))))
     (set! (.-onerror source) (fn [_] (swap! state* assoc :listening? false)))
-    (set! (.-onopen source) (fn [_] (swap! state* assoc :listening? true)))
+    ;; back in touch: what was missed meanwhile is asked for at once
+    (set! (.-onopen source) (fn [_]
+                              (swap! state* assoc :listening? true)
+                              (hello!)))
     (swap! session* assoc :source source)))
 
 (defn- flip!
@@ -320,6 +336,11 @@
                  (swap! state* assoc :status :ready)
                  (hello!)
                  (js/setInterval hello! hello-ms)
+                 ;; a page back in front says hello at once
+                 (.addEventListener js/document "visibilitychange"
+                                    (fn [_]
+                                      (when (= "visible" js/document.visibilityState)
+                                        (hello!))))
                  (js/setInterval still! frame-ms)
                  (listen!)))
         (.catch (fn [error]

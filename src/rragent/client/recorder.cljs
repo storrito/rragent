@@ -1069,6 +1069,8 @@
                                 :disabled (or (not= :ready status) (empty? ticked))
                                 :on {:click (fn [_] (start! store))}}
                (:start labels)]]
+             (when (every? ticked [:phone :phone-screen])
+               [:p.hint (:phone-both labels)])
              [:p.hint (cond
                         (empty? ticked) (:none labels)
                         (contains? ticked :screen) (:screen-hint labels)

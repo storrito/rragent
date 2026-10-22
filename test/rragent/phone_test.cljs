@@ -80,8 +80,14 @@
                      (is (str/starts-with? (str (.get (.-headers response) "set-cookie")) "rragent=") "the token's cookie"))
                    (is (= 404 (.-status (await (js/fetch url #js {:redirect "manual"})))) "the code is gone")))
                (testing "the phone's hello is in the bot's map, the panel sees it while fresh"
-                 (is (= [200 {:ok true}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :facing "environment"}))))
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :facing "environment"}))))
                  (is (= {:device "Pixel 8" :facing "environment"} (phone/status (:phone @db)))))
+               (testing "a stop the phone missed is in the answer to its hello, for the recording it is on only"
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"}))))
+                 (is (= [200 {:phones 0}] (await (post "/bot/7/phone/stop" {:stamp "2026-10-22T16-00-00"}))) "nobody listened")
+                 (is (= [200 {:ok true :stop true}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"}))))
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-05-00"}))) "another recording goes on")
+                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8"}))) "a phone that records nothing"))
                (testing "start and stop reach a phone listening, with the stamp"
                  (is (= [200 {:phones 0}] (await (post "/bot/7/phone/start" {:stamp stamp}))) "nobody listens yet")
                  (let [response (await (js/fetch (str base "/bot/7/phone/events")))

@@ -16,7 +16,10 @@
    the bot's map under `:phone` so that the panel on the laptop shows
    it), and listens on `GET .../phone/events`, server-sent events: the
    laptop's `POST .../phone/start` with the stamp of the recording and
-   `POST .../phone/stop` go to every phone listening, and
+   `POST .../phone/stop` go to every phone listening (a stop is kept
+   too: a phone whose page was in the background missed the event, and
+   its next hello, which names the recording it is on, is answered with
+   `stop`), and
    `POST .../phone/test` asks for a clip of a few seconds, which the
    phone records, sends up and finishes itself; `GET .../phone/test`
    names that clip for the laptop's panel. When the phone's last piece
@@ -170,11 +173,21 @@
   (count (get @listeners (str bot-id))))
 
 (defn hello!
-  "The phone's hello in the bot's map: its device, its camera, when."
-  [db path {:keys [device facing]}]
+  "The phone's hello in the bot's map: its device, its camera, when.
+   The answer: whether the recording the phone is on (`recording`) was
+   stopped meanwhile."
+  [db path {:keys [device facing recording]}]
   (swap! db db/update-at path update :phone merge {:device (str device)
                                                     :facing (str facing)
-                                                    :seen (js/Date.now)}))
+                                                    :seen (js/Date.now)})
+  {:ok true
+   :stop (contains? (get-in (db/at @db path) [:phone :stopped]) (str recording))})
+
+(defn stopped!
+  "The laptop stopped the recording `stamp`: a phone that missed the
+   event hears of it at its next hello."
+  [db path stamp]
+  (swap! db db/update-at path update-in [:phone :stopped] (fnil conj #{}) (str stamp)))
 
 (defn done!
   "The phone's file of the recording `stamp` is up; for the test, the
@@ -279,13 +292,14 @@
              (uploads/respond w 200 {:code code
                                      :url (str (origin (:ring/request w)) pair-prefix "/" code)}))
     "hello" (let [facts (await (body w))]
-              (hello! db path (if (map? facts) facts {}))
-              (uploads/respond w 200 {:ok true}))
+              (uploads/respond w 200 (hello! db path (if (map? facts) facts {}))))
     "start" (let [{:keys [stamp]} (await (body w))]
               (if (seq (str stamp))
                 (uploads/respond w 200 {:phones (send-phones! bot :start {:stamp (str stamp)})})
                 (uploads/respond w 400 {:error :no-stamp})))
     "stop" (let [{:keys [stamp]} (await (body w))]
+             (when (seq (str stamp))
+               (stopped! db path stamp))
              (uploads/respond w 200 {:phones (send-phones! bot :stop {:stamp (str stamp)})}))
     "test" (let [{:keys [seconds]} (await (body w))]
              (uploads/respond w 200 {:phones (send-phones! bot :test {:stamp "test" :seconds (or seconds 5)})}))

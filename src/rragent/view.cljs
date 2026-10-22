@@ -523,6 +523,7 @@
                                 :usb-busy [:i18n :record/usb-busy]
                                 :usb-no-phone [:i18n :record/usb-no-phone]
                                 :usb-dark [:i18n :record/usb-dark]
+                                :phone-both [:i18n :record/phone-both]
                                 :usb-denied [:i18n :record/usb-denied]
                                 :usb-unsupported [:i18n :record/usb-unsupported]
                                 :recording-local [:i18n :record/recording-local]
