@@ -17,20 +17,20 @@
    the panel is a bar with the time and Stop; Chrome's own Stop sharing
    ends it too.
 
-   A phone paired by a QR code (`rragent.phone`, its page
-   `rragent.client.phone`) is a camera too, instead of the webcam or
-   besides it, or the only one, without the screen, for a vertical
-   video the agent cuts (`:mode`: `:webcam`, `:phone`, `:both`,
-   `:phone-only`): the laptop tells the machine to start and stop it
-   with the recording, the phone records its own file at full quality
-   and sends it up itself, and the end waits for that file.
+   What is recorded is a set of sources (`:sources`): the screen, the
+   webcam, a phone, any of them ticked. A phone paired by a QR code
+   (`rragent.phone`, its page `rragent.client.phone`) is a camera the
+   laptop tells the machine to start and stop with the recording; it
+   records its own file at full quality and sends it up itself, and
+   the end waits for that file. The phone alone is a vertical video
+   for the agent to cut.
 
    The state is in the store under `:ui/recorder`: the `:status`
    (`:opening`, `:ready`, `:testing`, `:recording`, `:finishing`,
    `:failed`), the `:devices`, the `:mic` and `:camera` chosen, the
-   `:mode` (`:webcam`, `:phone`, `:both`), the `:pair` (the link and
-   its QR while shown), the `:seconds` recorded, the `:test` (an
-   object URL) and the `:error`.
+   `:sources` ticked, the `:pair` (the link and its QR while shown),
+   the `:seconds` recorded, the `:test` (an object URL) and the
+   `:error`.
    What is no data (the streams, the recorders, the uploaders, the
    meter and the preview node, the URL and the labels the panel was
    opened with) is in `session*`."
@@ -206,7 +206,7 @@
                           :devices found
                           :mic (pick :mic mics)
                           :camera (pick :camera cameras)
-                          :mode (keyword (or (remembered :mode) "webcam")))
+                          :sources (remembered-sources))
                  (preview! store))))
       (.then (fn [_]
                (swap! session* assoc :timer (js/setInterval #(tick! store) 50))
@@ -330,9 +330,18 @@
            (.then chain (fn [offset]
                           (post-piece! (:url @up) blob offset))))))
 
-(def phone-modes
-  "The modes the phone records in."
-  #{:phone :both :phone-only})
+(def default-sources
+  #{:screen :webcam})
+
+(defn- remembered-sources
+  []
+  (if-let [kept (remembered :sources)]
+    (set (keep #(#{:screen :webcam :phone} (keyword %)) (str/split kept #",")))
+    default-sources))
+
+(defn- sources
+  [store]
+  (or (:sources (:ui/recorder @store)) default-sources))
 
 (defn- phone-url
   []
@@ -483,8 +492,8 @@
    recording does not start. `display` is the screen, nil with the
    phone alone."
   [store ^js display]
-  (let [{:keys [mode]} (:ui/recorder @store)
-        phone? (contains? phone-modes mode)
+  (let [wanted (sources store)
+        phone? (contains? wanted :phone)
         the-stamp (stamp)
         phones (when phone?
                  (:phones (await (post-phone! "start" {:stamp the-stamp}))))]
@@ -498,7 +507,7 @@
             mime (mime-type)
             recorders (cond-> {}
                         display (assoc "screen" (recorder-of store base mime (js/MediaStream. #js [screen-track clone]) "screen" screen-bits))
-                        (contains? #{:webcam :both} mode) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits)))]
+                        (contains? wanted :webcam) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits)))]
         (swap! session* assoc
                :display display
                :clone clone
@@ -521,9 +530,9 @@
   "Starts the recording from the click (Chrome asks which screen only
    on a gesture): the screen with a copy of the microphone, the camera
    with the microphone, the phone's camera on the phone, each to its
-   file. With the phone alone nothing is asked: the phone records."
+   file. Without the screen nothing is asked: the cameras record."
   [store]
-  (if (= :phone-only (:mode (:ui/recorder @store)))
+  (if-not (contains? (sources store) :screen)
     (-> (begin! store nil)
         (.catch (fn [^js error] (failed! store error))))
     (-> (js/navigator.mediaDevices.getDisplayMedia
@@ -542,15 +551,17 @@
 
 (declare pair!)
 
-(defn mode!
-  "What records: the screen with the webcam, with the phone, with
-   both, or the phone alone; remembered. A phone mode without a phone
-   connected shows the pairing at once."
-  [store mode phone]
-  (remember! :mode (name mode))
-  (update! store assoc :mode mode :error nil)
-  (when (and (contains? phone-modes mode) (nil? phone) (nil? (:pair (:ui/recorder @store))))
-    (pair! store)))
+(defn toggle!
+  "A source ticked or unticked, remembered. The phone ticked without a
+   phone connected shows the pairing at once."
+  [store source phone]
+  (let [now (if (contains? (sources store) source)
+              (disj (sources store) source)
+              (conj (sources store) source))]
+    (remember! :sources (str/join "," (map name now)))
+    (update! store assoc :sources now :error nil)
+    (when (and (= :phone source) (contains? now :phone) (nil? phone) (nil? (:pair (:ui/recorder @store))))
+      (pair! store))))
 
 (defn pair!
   "A pairing link from the machine, as a QR code in the panel."
@@ -585,20 +596,19 @@
 (defn- phone-section
   "What records, the phone connected or the way to pair one, its QR
    while shown."
-  [store labels phone {:keys [mode pair]}]
-  [:div.phone-camera
-   [:div.modes
-    [:span.label (:camera-choice labels)]
-    (for [[m word] [[:webcam (:mode-webcam labels)]
-                    [:phone (:mode-phone labels)]
-                    [:both (:mode-both labels)]
-                    [:phone-only (:mode-phone-only labels)]]]
-      [:label {:replicant/key m}
-       [:input {:type "radio"
-                :name "camera-mode"
-                :checked (= m (or mode :webcam))
-                :on {:change (fn [_] (mode! store m phone))}}]
-       word])]
+  [store labels phone {:keys [pair]}]
+  (let [ticked (sources store)]
+    [:div.phone-camera
+     [:div.modes
+      [:span.label (:camera-choice labels)]
+      (for [[source word] [[:screen (:source-screen labels)]
+                           [:webcam (:source-webcam labels)]
+                           [:phone (:source-phone labels)]]]
+        [:label {:replicant/key source}
+         [:input {:type "checkbox"
+                  :checked (contains? ticked source)
+                  :on {:change (fn [_] (toggle! store source phone))}}]
+         word])]
    (if phone
      [:p.connected (str/replace (or (:phone-connected labels) "Phone connected: {device}") "{device}" (str (:device phone)))]
      [:p.hint (:pair-hint labels)])
@@ -614,7 +624,7 @@
      :else
      [:button {:type "button"
                :on {:click (fn [_] (pair! store))}}
-      (:pair labels)])])
+      (:pair labels)])]))
 
 (defn panel
   "The panel above the text while it is open: the devices, the camera
@@ -623,7 +633,8 @@
    server's, translated; `phone` the phone connected, from the frame
    (`rragent.phone/status`)."
   [store state labels phone]
-  (let [{:keys [status devices mic camera seconds test error phone-waiting? mode] :as recorder} (:ui/recorder state)]
+  (let [{:keys [status devices mic camera seconds test error phone-waiting?] :as recorder} (:ui/recorder state)
+        ticked (or (:sources recorder) default-sources)]
     (when status
       [:div.recorder {:replicant/key "recorder"}
        (if (#{:recording :finishing} status)
@@ -633,8 +644,8 @@
           [:span.hint (cond
                         phone-waiting? (:phone-waiting labels)
                         (= :finishing status) (:saving labels)
-                        (= :phone-only mode) (:recording-phone labels)
-                        :else (:recording labels))]
+                        (contains? ticked :screen) (:recording labels)
+                        :else (:recording-local labels))]
           (when (= :recording status)
             [:button.primary {:type "button"
                               :on {:click (fn [_] (stop! store))}}
@@ -676,10 +687,13 @@
                  (str (:testing labels) " " (clock seconds))
                  (:test labels))]
               [:button.primary {:type "button"
-                                :disabled (not= :ready status)
+                                :disabled (or (not= :ready status) (empty? ticked))
                                 :on {:click (fn [_] (start! store))}}
                (:start labels)]]
-             [:p.hint (if (= :phone-only mode) (:phone-only-hint labels) (:screen-hint labels))]))
+             [:p.hint (cond
+                        (empty? ticked) (:none labels)
+                        (contains? ticked :screen) (:screen-hint labels)
+                        :else (:no-screen-hint labels))]))
           (when error
             [:p.error (str/replace (or (:failed labels) "The recording did not work: {error}") "{error}" (str error))])))])))
 

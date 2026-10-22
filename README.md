@@ -460,8 +460,9 @@ through the machine (`rragent.phone`, server-sent events); the phone
 records its own file at full quality, with its own microphone, and sends
 it up itself, as `phone.webm` (`phone.mp4` from an iPhone) of the same
 recording. The end waits for the phone's file. Nothing streams between
-the two browsers. *Phone only* records nothing on the laptop: the phone
-alone, a vertical video for the agent to cut.
+the two browsers. What is recorded is ticked: the screen, the webcam, the
+phone, any of them; the phone alone is a vertical video for the agent to
+cut, nothing is recorded on the laptop then.
 
 ## Development
 
