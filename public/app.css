@@ -1728,7 +1728,7 @@ pre {
   object-fit: contain;
 }
 
-.recorder figure.screen button.choose {
+.recorder .preview figure button.choose {
   width: 100%;
   min-width: 0;
   aspect-ratio: 16 / 9;
@@ -1740,10 +1740,30 @@ pre {
   cursor: pointer;
 }
 
-.recorder figure.screen button.choose:disabled,
+.recorder .preview figure button.choose:disabled,
 .recorder figure.screen button.link:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+/* The phone's screen over USB: upright, the video the decoder renders
+   into, its size the phone's, scaled to the box. */
+.recorder .preview figure.usb-screen {
+  flex: 0 1 120px;
+}
+
+.recorder figure.usb-screen button.choose {
+  aspect-ratio: 9 / 16;
+}
+
+.recorder .usb-video video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 9 / 16;
+  border-radius: 8px;
+  background: var(--code-bg);
+  object-fit: contain;
 }
 
 .recorder img.phone-still {

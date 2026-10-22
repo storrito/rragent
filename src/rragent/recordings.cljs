@@ -7,7 +7,7 @@
    `webcam.webm`, and `recording.json` with the devices and when each
    recorder started.
 
-   `POST /bot/<id>/record/<stamp>/<screen|webcam|phone>?offset=<n>&ext=<webm|mp4>`
+   `POST /bot/<id>/record/<stamp>/<screen|webcam|phone|phone-screen>?offset=<n>&ext=<webm|mp4>`
    appends a piece of a file as it is recorded, to a hidden part file
    (the pane lists no hidden file); the piece must start where the
    part file ends, as the pieces of an upload do (`rragent.uploads`).
@@ -37,8 +37,9 @@
 
 (def names
   "The files of a recording: the screen and the webcam from the laptop,
-   the phone's camera from the phone (`rragent.phone`)."
-  #{"screen" "webcam" "phone"})
+   and the phone's screen, which the laptop gets over USB; the phone's
+   camera from the phone (`rragent.phone`)."
+  #{"screen" "webcam" "phone" "phone-screen"})
 
 (def extensions
   "What a recorder writes: webm in Chrome, mp4 on an iPhone."
@@ -213,7 +214,7 @@
 
 (def file-pattern
   "A finished file of a recording, as `get-handler` serves it."
-  #"(screen|webcam|phone)\.(webm|mp4)")
+  #"(screen|webcam|phone|phone-screen)\.(webm|mp4)")
 
 (defn get-handler
   "`GET /record/<stamp>/<file>`: a finished file of a recording, the

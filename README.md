@@ -471,6 +471,22 @@ system and browser, with the camera it uses. What is recorded is ticked: the scr
 phone, any of them; the phone alone is a vertical video for the agent to
 cut, nothing is recorded on the laptop then.
 
+An Android phone's screen comes over a USB cable (*Phone screen (USB)*,
+`rragent.client.usb-screen`): no page on the phone can record its
+screen, but Chrome on the laptop can talk ADB to the phone itself
+(WebUSB, [Tango](https://github.com/yume-chan/ya-webadb)). *Connect the
+phone* opens Chrome's USB picker; the phone, with USB debugging on, asks
+once to allow this browser, whose key stays in the browser. The page
+pushes the [scrcpy](https://github.com/Genymobile/scrcpy) server to the
+phone (`public/scrcpy/`, version 3.3.3, the one the packages speak,
+Apache-2.0, its license beside it), starts it, and decodes the phone's
+H.264 with WebCodecs into a video track: live in the panel, recorded
+like the laptop's screen with a copy of the microphone into
+`phone-screen.webm`. Only the picture, no sound of the phone and no
+control of it; a phone unplugged ends the recording. An `adb` server
+running on the laptop holds the phone (`adb kill-server` frees it); on
+Linux, Chrome needs a udev rule for the phone.
+
 ## Development
 
 Node 26 (`mise install`), Java 17 or later for the compiler.

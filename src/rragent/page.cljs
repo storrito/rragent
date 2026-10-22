@@ -643,6 +643,8 @@
   (let [dir (assets/public-dir)]
     [(http/files "/app.css" (path/join dir "app.css"))
      (http/files "/assets/*" (path/join dir "assets"))
+     ;; the scrcpy server the page pushes to a phone over USB
+     (http/files "/scrcpy/*" (path/join dir "scrcpy"))
      {:ring/route [:get "/"]
       :ring/handler #'root-handler}
      {:ring/route [:get "/bot/*"]
