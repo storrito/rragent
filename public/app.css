@@ -1604,8 +1604,7 @@ pre {
     order: 2;
   }
 
-  .composer button.dictate,
-  .composer button.memo {
+  .composer button.dictate {
     order: 2;
   }
 
@@ -1661,24 +1660,6 @@ pre {
 }
 
 .composer .dictate.failed {
-  border-color: var(--accent);
-}
-
-/* The record button of a voice memo (rragent.client.memo), red while it
-   records; its strip above the text is the dictation's without the
-   meter. */
-.composer .memo {
-  font: inherit;
-  color: inherit;
-  user-select: none;
-}
-
-.composer .memo.recording {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 25%, var(--panel));
-}
-
-.composer .memo.failed {
   border-color: var(--accent);
 }
 
@@ -1885,6 +1866,10 @@ pre {
   max-height: 240px;
   border-radius: 8px;
   background: var(--code-bg);
+}
+
+.recorder audio.test {
+  width: 100%;
 }
 
 .recorder .meter {

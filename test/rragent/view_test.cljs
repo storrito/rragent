@@ -170,7 +170,7 @@
         (is (= "/bot/cc33dd44/upload" (:ui/upload-url composer)))
         (is (= "/bot/cc33dd44/dictation" (:ui/dictation-url composer)))
         (is (= "/bot/cc33dd44/record" (:ui/record-url composer)) "a screencast's pieces go under the bot too")
-        (is (= "Record a screencast" (:title (:ui/recorder (second (find-tag (i18n/translate p :en) :ui/composer))))) "the panel's words are translated")
+        (is (= "Record" (:title (:ui/recorder (second (find-tag (i18n/translate p :en) :ui/composer))))) "the panel's words are translated")
         (is (= "Phone connected: {device}" (:phone-connected (:ui/recorder (second (find-tag (i18n/translate p :en) :ui/composer))))))
         (is (nil? (:ui/phone composer)) "no phone paired")
         (is (= {:device "Pixel 8" :facing "environment"}

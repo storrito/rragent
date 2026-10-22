@@ -201,18 +201,6 @@ picture as a thumbnail and a clip as its name, linked to
 `/bot/<id>/uploads/<name>`, which serves the files with ranges, behind
 the token.
 
-A message can carry a voice memo: the record button beside the
-microphone records from a click to the next (`rragent.client.memo`), a
-strip above the text shows a red dot and the time, and the stop hands
-the recording to the clip upload with `?to=mp3`, so the server has
-ffmpeg make an MP3 of the WebM or MP4 the browser recorded (the chip
-says so after the last piece; without ffmpeg the file stays as it
-came). The message names it like any audio file, `audio:
-uploads/<id>.mp3`, and the agent cuts, cleans and converts it with
-ffmpeg in bash and writes it down with the `transcribe` tool (below):
-the words are not written into the draft, the recording itself is what
-the person sends.
-
 A message can be dictated: the microphone button beside the attach
 button records while it is held, or from a click to the next; Space
 held in the text records too, until it is let go, as in Claude Code (a
@@ -309,8 +297,9 @@ the gateway's connector or the key, as the models reach it
 folder (`RRAGENT_VOICE_MODEL`, `RRAGENT_VOICE`), and `music`, a clip or
 a whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`). The
 `transcribe` tool (`rragent.tools.transcribe`) goes the other way: the
-words spoken in an audio or a video file, one the person attached or
-recorded (`uploads/<name>`) or one under `artifacts/`, written down by
+words spoken in an audio or a video file, one the person attached
+(`uploads/<name>`) or recorded (`artifacts/recordings/<stamp>/audio.mp3`,
+see [Screencasts](#screencasts)) or any other under `artifacts/`, written down by
 the dictation's speech-to-text model (`RRAGENT_DICTATION_MODEL`, the
 language detected) into `artifacts/transcripts/<name>.md`, or where
 `out` says, in paragraphs cut at the pauses of the speech, each with
@@ -469,7 +458,8 @@ Two Vite builds, one dev server:
 
 The 🎥 button of the composer records a screencast the way
 [rawcast](https://github.com/maxweber/rawcast) does: the screen and the
-webcam as two files, both with the microphone, no layout up front. The
+webcam as two files, both with the microphone, no layout up front; or
+the microphone alone, a voice memo (below). The
 panel picks the microphone and the camera (remembered in the browser),
 shows the camera live with the level of the microphone and makes a test
 recording of five seconds to play back; Start opens Chrome's screen
@@ -493,6 +483,16 @@ recording. The end waits for the phone's file. Nothing streams between
 the two browsers. What is recorded is ticked: the screen, the webcam, the
 phone, any of them; the phone alone is a vertical video for the agent to
 cut, nothing is recorded on the laptop then.
+
+The microphone alone is a source like the others, ticked in the
+panel and remembered: Start records its stream to `audio.webm` in the
+recording's folder, the pieces going up as they are recorded, and the
+end has ffmpeg make `audio.mp3` of it (`rragent.recordings`; without
+ffmpeg the WebM stays), which the draft names: a voice memo for the
+agent to cut, clean and convert with ffmpeg in bash and write down
+with the `transcribe` tool. The test plays it back as audio. The
+words are not written into the draft, the way the dictation does it:
+the recording itself is what the person sends.
 
 ## Development
 

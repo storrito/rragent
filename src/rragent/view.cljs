@@ -545,6 +545,11 @@
                                 :source-screen [:i18n :record/source-screen]
                                 :source-webcam [:i18n :record/source-webcam]
                                 :source-phone [:i18n :record/source-phone]
+                                :source-mic [:i18n :record/source-mic]
+                                :file-audio [:i18n :record/file-audio]
+                                :draft-audio [:i18n :record/draft-audio]
+                                :mic-hint [:i18n :record/mic-hint]
+                                :recording-audio [:i18n :record/recording-audio]
                                 :recording-local [:i18n :record/recording-local]
                                 :no-screen-hint [:i18n :record/no-screen-hint]
                                 :none [:i18n :record/none]
@@ -560,10 +565,6 @@
                   :ui/transcribing-title [:i18n :composer/transcribing]
                   :ui/dictation-failed-title [:i18n :composer/dictation-failed]
                   :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
-                  :ui/memo-title [:i18n :composer/memo]
-                  :ui/memo-stop-title [:i18n :composer/memo-stop]
-                  :ui/memo-failed-title [:i18n :composer/memo-failed]
-                  :ui/converting-label [:i18n :composer/converting]
                   :rows 3
                   :title [:i18n :composer/keys]
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]])

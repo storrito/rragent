@@ -5,9 +5,12 @@
    idea of rawcast, github.com/maxweber/rawcast). They land in
    `artifacts/recordings/<stamp>/` of the bot: `screen.webm` and
    `webcam.webm`, and `recording.json` with the devices and when each
-   recorder started.
+   recorder started. The microphone alone is a recording too, for a
+   voice memo the agent cuts, cleans and writes down
+   (`rragent.tools.transcribe`): `audio.webm` as the browser records
+   it, made into `audio.mp3` by ffmpeg at the end when there is one.
 
-   `POST /bot/<id>/record/<stamp>/<screen|webcam|phone>?offset=<n>&ext=<webm|mp4>`
+   `POST /bot/<id>/record/<stamp>/<screen|webcam|phone|audio>?offset=<n>&ext=<webm|mp4>`
    appends a piece of a file as it is recorded, to a hidden part file
    (the pane lists no hidden file); the piece must start where the
    part file ends, as the pieces of an upload do (`rragent.uploads`).
@@ -15,9 +18,9 @@
    recording as transit (`:files`, name to extension, the laptop's two
    without a word), ends it: the part files become the files, remuxed
    by ffmpeg when there is one, so that they carry their duration and
-   seek (a recorder's file has neither), and the facts are written
-   beside them. The phone's file comes from the phone itself
-   (`rragent.phone`)."
+   seek (a recorder's file has neither), the microphone's encoded to
+   MP3, and the facts are written beside them. The phone's file comes
+   from the phone itself (`rragent.phone`)."
   (:require ["node:child_process" :as child-process]
             ["node:fs" :as fs]
             ["node:path" :as path]
@@ -37,8 +40,13 @@
 
 (def names
   "The files of a recording: the screen and the webcam from the laptop,
-   the phone's camera from the phone (`rragent.phone`)."
-  #{"screen" "webcam" "phone"})
+   the phone's camera from the phone (`rragent.phone`), the microphone
+   alone as audio."
+  #{"screen" "webcam" "phone" "audio"})
+
+(def audio-name
+  "The file of the microphone alone, which ffmpeg makes an MP3 of."
+  "audio")
 
 (def extensions
   "What a recorder writes: webm in Chrome, mp4 on an iPhone."
@@ -116,14 +124,20 @@
 
 (defn- remux
   "A promise of the file written by ffmpeg from the part, with its
-   duration and cues; rejected when ffmpeg is not there or fails."
+   duration and cues, the streams copied; the microphone's encoded to
+   MP3 (LAME's quality 4, some 165 kbit/s, what every editor takes);
+   rejected when ffmpeg is not there or fails."
   [ffmpeg part out]
   (js/Promise.
    (fn [resolve reject]
      (if-not ffmpeg
        (reject (js/Error. "no ffmpeg"))
        (child-process/execFile ffmpeg
-                               #js ["-y" "-loglevel" "error" "-i" part "-c" "copy" out]
+                               (clj->js (concat ["-y" "-loglevel" "error" "-i" part]
+                                                (if (str/ends-with? out ".mp3")
+                                                  ["-vn" "-codec:a" "libmp3lame" "-q:a" "4"]
+                                                  ["-c" "copy"])
+                                                [out]))
                                #js {:timeout 600000}
                                (fn [error _stdout stderr]
                                  (if error
@@ -131,18 +145,22 @@
                                    (resolve out))))))))
 
 (defn- ^:async finalize!
-  "The part file as the file: through ffmpeg when it is there and
-   takes it, renamed otherwise."
+  "The part file as the file, answered as its name: through ffmpeg
+   when it is there and takes it, the microphone's as an MP3 then,
+   renamed as it came otherwise."
   [dir stamp name ext]
   (let [part (part-file dir stamp name ext)
-        out (file dir stamp name ext)]
+        made (str name "." (if (= audio-name name) "mp3" ext))
+        out (path/join (folder dir stamp) made)]
     (try
       (await (remux (programs/locate "ffmpeg") part out))
       (fs/rmSync part #js {:force true})
+      made
       (catch :default error
         (js/console.warn "[recordings] kept as recorded, no remux:" (str (.-message error)))
         (fs/rmSync out #js {:force true})
-        (fs/renameSync part out)))))
+        (fs/renameSync part (file dir stamp name ext))
+        (str name "." ext)))))
 
 (defn- files-of
   "The files the facts name, name to extension, the laptop's two
@@ -184,9 +202,11 @@
       (uploads/respond w 409 {:error :phone-uploading})
 
       :else
-      (let [made (mapv (fn [[name ext]] (str name "." ext)) (sort-by first files))]
-        (doseq [[name ext] files]
-          (await (finalize! dir stamp name ext)))
+      (let [made (loop [files (sort-by first files)
+                        made []]
+                   (if-let [[name ext] (first files)]
+                     (recur (rest files) (conj made (await (finalize! dir stamp name ext))))
+                     made))]
         (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
                           (js/JSON.stringify (clj->js (assoc facts :files made)) nil 2))
         (uploads/respond w 200 {:folder (str "recordings/" stamp)
@@ -213,7 +233,7 @@
 
 (def file-pattern
   "A finished file of a recording, as `get-handler` serves it."
-  #"(screen|webcam|phone)\.(webm|mp4)")
+  #"(screen|webcam|phone|audio)\.(webm|mp4|mp3)")
 
 (defn get-handler
   "`GET /record/<stamp>/<file>`: a finished file of a recording, the
