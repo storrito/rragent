@@ -3,8 +3,9 @@
    frame stream of the page it is on and renders every frame with
    Replicant, with aliases of our own: the composer, the canvas of the
    artifacts pane, the iframe that shows a page or a project and reloads
-   it in place (the canvas is rchat's), and the button of a ```hiccup
-   block that sends the boxes ticked in it.
+   it in place (the canvas is rchat's), the filter above the pane's
+   list (`files-filter`), and the button of a ```hiccup block that
+   sends the boxes ticked in it.
 
    The composer takes files, the way pchat's does: an image picked,
    dropped or pasted goes up scaled and in one request, a video or an
@@ -787,11 +788,53 @@
      ;; U+FE0E: the text symbol, not a colored emoji on a phone
      (if dark "\u2600\uFE0E" "\u263E\uFE0E")]))
 
+(defn- narrow
+  "The hiccup with `hidden` on every node that carries a `data-name`
+   (a row of the list, a group of rows) without `query` in it; the
+   group's `data-name` is its rows' together, so that it hides with
+   them."
+  [query node]
+  (cond
+    (vector? node)
+    (let [[tag attrs & children] node
+          named? (and (map? attrs) (contains? attrs :data-name))]
+      (into (if (map? attrs)
+              [tag (cond-> attrs
+                     named? (assoc :hidden (not (str/includes? (str (:data-name attrs)) query))))]
+              [tag])
+            (map #(narrow query %) (if (map? attrs) children (rest node)))))
+
+    (seq? node)
+    (map #(narrow query %) node)
+
+    :else node))
+
+(defn files-filter
+  "The list of the artifacts (`rragent.view/artifacts`, the rows as
+   the children) with a field above it that narrows the rows: the
+   text lives in the store under `:ui/store-key`, per bot, so that a
+   frame does not reset it; a row whose `data-name` (its title and
+   path, lowercase) does not have the text is hidden, the rows stay
+   the server's. The field only with `:ui/field?`, a long list."
+  [{:keys [ui/store-key ui/field? ui/placeholder ui/state]} children]
+  (let [text (str (get state store-key ""))
+        query (if field? (str/lower-case (str/trim text)) "")]
+    [:div.list
+     (when field?
+       [:input.filter {:type "search"
+                       :value text
+                       :placeholder placeholder
+                       :aria-label placeholder
+                       :on {:input [[:store/assoc store-key :event/target.value]]}}])
+     (into [:ul.files] (map #(narrow query %) children))]))
+
 (def register
   "The aliases of the page, the URL of the bot, and `:ui/tabid` in a
    command, the id of this tab."
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
+   {:ui.alias/kind :ui/files-filter
+    :ui.alias/fn files-filter}
    {:ui.alias/kind :ui/canvas
     :ui.alias/fn canvas}
    {:ui.alias/kind :ui/send-checked

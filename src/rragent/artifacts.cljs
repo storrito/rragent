@@ -11,6 +11,10 @@
 
    A directory with a package.json is a project, an artifact with a
    process of its own whose page is shown through `rragent.projects`.
+   The files under `notes/` are the agent's working notes (`note?`):
+   listed apart, and never the newest change that takes the screen.
+   The person renames a file from its row (`rename!`, the extension
+   stays) or deletes it (`trash!`, into the bot's trash).
 
    The keys this namespace owns in the bot's map of the db
    (`rragent.db`, under the bot's `path`; the map itself for a test's
@@ -104,6 +108,26 @@
   "Whether a relative path has a part that starts with a dot."
   [relative]
   (boolean (some #(str/starts-with? % ".") (str/split (str relative) #"/"))))
+
+(def notes-folder
+  "Where the agent's working notes go, apart from what it makes for
+   the person."
+  "notes")
+
+(defn note?
+  "Whether the path is a working note, a file under `notes/`."
+  [p]
+  (str/starts-with? (str p) (str notes-folder "/")))
+
+(defn inside?
+  "Whether `relative` names something inside `dir`: not blank, no
+   hidden part, and resolving below the folder, not beside or above it."
+  [dir relative]
+  (let [root (path/resolve dir)
+        relative (str relative)]
+    (and (not (str/blank? relative))
+         (not (hidden? relative))
+         (str/starts-with? (path/resolve root relative) (str root path/sep)))))
 
 (defn- directory?
   [p]
@@ -207,18 +231,21 @@
 (defn follow
   "The artifact on screen after the folder changed: the newest finished
    file when it is newer than the person's pick, what they picked while
-   it exists, the newest otherwise. A video a render still writes
+   it exists, the list alone when they went back to it and nothing
+   newer came, the newest otherwise. A video a render still writes
    changes with every frame and does not take the screen by itself; it
-   is news once the render is done (`refollow!`)."
+   is news once the render is done (`refollow!`). A note (`note?`) is
+   no news either: it does not take the screen from a creation."
   [{:keys [artifacts/current artifacts/picked-at] :as value} {listed :artifacts/list}]
-  (let [finished (remove (partial writing value) listed)
+  (let [finished (remove #(or (writing value %) (note? (:path %))) listed)
         newest (or (first finished) (first listed))
-        current (some #(when (= current (:path %)) %) listed)]
+        shown (some #(when (= current (:path %)) %) listed)]
     (cond
       (nil? newest) nil
-      (nil? current) (:path newest)
       (> (:mtime newest) (or picked-at 0)) (:path newest)
-      :else (:path current))))
+      shown (:path shown)
+      (and (nil? current) picked-at) nil
+      :else (:path newest))))
 
 (defn refresh!
   "Puts the facts of the folder into the bot's map at `path` of the db
@@ -250,6 +277,65 @@
    (swap! db db/update-at path assoc
           :artifacts/current p
           :artifacts/picked-at (js/Date.now))))
+
+(defn base-name
+  "What the person edits when renaming: the name of the file without
+   its extension (`Pool.JPG` is `Pool`); a project's name as it is."
+  [{:keys [path kind]}]
+  (let [name (last (str/split (str path) #"/"))]
+    (if (= :project kind)
+      name
+      (str/replace name #"\.[^.]+$" ""))))
+
+(defn renamed-path
+  "The path of the artifact renamed to the base name `name`: in its
+   folder, with its extension as it was (a project is a folder, it has
+   none); nil for a blank name or one that would leave the folder or
+   hide the file."
+  [{:keys [path kind] :as artifact} name]
+  (let [name (str/trim (str name))
+        folder (subs path 0 (inc (or (str/last-index-of path "/") -1)))
+        suffix (when (not= :project kind)
+                 (subs (last (str/split path #"/")) (count (base-name artifact))))
+        to (str folder name suffix)]
+    (when (and (seq name)
+               (not (str/includes? name "/"))
+               (not (hidden? to)))
+      to)))
+
+(defn rename!
+  "The artifact `from` of the folder moved to `to`, both relative. Answers
+   `:renamed`, or `:outside` when either leaves the folder, `:exists`
+   when `to` is taken."
+  [dir from to]
+  (cond
+    (not (and (inside? dir from) (inside? dir to))) :outside
+    (fs/existsSync (path/join dir to)) :exists
+    :else (do (fs/renameSync (path/join dir from) (path/join dir to))
+              :renamed)))
+
+(defn- free-name
+  "`target` when nothing is there, else the first of `name 2.ext`,
+   `name 3.ext` and so on that is free."
+  [target]
+  (let [{:keys [dir name ext]} (js->clj (path/parse target) :keywordize-keys true)]
+    (->> (cons target (map #(path/join dir (str name " " % ext)) (iterate inc 2)))
+         (remove fs/existsSync)
+         (first))))
+
+(defn trash!
+  "The artifact `relative` of `dir` moved into `trash` under its own
+   path, with a number behind its name when that is taken, the folders
+   on the way made. Answers where it went, or `:outside` for a path
+   that leaves the folder, `:missing` for one that is not there."
+  [dir trash relative]
+  (cond
+    (not (inside? dir relative)) :outside
+    (not (fs/existsSync (path/join dir relative))) :missing
+    :else (let [target (free-name (path/join trash relative))]
+            (fs/mkdirSync (path/dirname target) #js {:recursive true})
+            (fs/renameSync (path/join dir relative) target)
+            target)))
 
 (defn file-handler
   "GET /artifacts/<path>: the file, never a hidden one."

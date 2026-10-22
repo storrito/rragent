@@ -223,15 +223,18 @@ body {
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
-/* The three dots of a row and their menu, see rragent.view/bot-actions:
+/* The three dots of a row and their menu, see rragent.view/bot-actions
+   and file-actions (the rows of the artifacts list have the same):
    shown on hover, on the current row, and always on a touch screen. */
-.sidebar ul.bots li .actions {
+.sidebar ul.bots li .actions,
+.artifacts ul.files li .actions {
   position: relative;
   flex: none;
   margin-right: 4px;
 }
 
-.sidebar ul.bots li .actions summary {
+.sidebar ul.bots li .actions summary,
+.artifacts ul.files li .actions summary {
   padding: 2px 7px;
   border-radius: 6px;
   color: var(--muted);
@@ -242,24 +245,31 @@ body {
   opacity: 0;
 }
 
-.sidebar ul.bots li .actions summary::-webkit-details-marker {
+.sidebar ul.bots li .actions summary::-webkit-details-marker,
+.artifacts ul.files li .actions summary::-webkit-details-marker {
   display: none;
 }
 
 .sidebar ul.bots li:hover .actions summary,
 .sidebar ul.bots li.current .actions summary,
 .sidebar ul.bots li .actions[open] summary,
-.sidebar ul.bots li .actions summary:focus-visible {
+.sidebar ul.bots li .actions summary:focus-visible,
+.artifacts ul.files li:hover > .actions summary,
+.artifacts ul.files li.current > .actions summary,
+.artifacts ul.files li .actions[open] summary,
+.artifacts ul.files li .actions summary:focus-visible {
   opacity: 1;
 }
 
 @media (hover: none) {
-  .sidebar ul.bots li .actions summary {
+  .sidebar ul.bots li .actions summary,
+  .artifacts ul.files li .actions summary {
     opacity: 1;
   }
 }
 
-.sidebar ul.bots li .actions .items {
+.sidebar ul.bots li .actions .items,
+.artifacts ul.files li .actions .items {
   position: absolute;
   top: calc(100% + 2px);
   right: 0;
@@ -274,7 +284,8 @@ body {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
 }
 
-.sidebar ul.bots li .actions .item {
+.sidebar ul.bots li .actions .item,
+.artifacts ul.files li .actions .item {
   padding: 7px 10px;
   border: 0;
   border-radius: 6px;
@@ -285,17 +296,21 @@ body {
   cursor: pointer;
 }
 
-.sidebar ul.bots li .actions .item:hover {
+.sidebar ul.bots li .actions .item:hover,
+.artifacts ul.files li .actions .item:hover {
   background: color-mix(in srgb, var(--panel) 70%, var(--line));
 }
 
-.sidebar ul.bots li .actions .item.danger {
+.sidebar ul.bots li .actions .item.danger,
+.artifacts ul.files li .actions .item.danger {
   color: var(--accent);
 }
 
 /* The row while a delete is armed, or a rename goes. */
 .sidebar ul.bots li .confirm,
-.sidebar ul.bots li .rename {
+.sidebar ul.bots li .rename,
+.artifacts ul.files li .confirm,
+.artifacts ul.files li .rename {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -305,13 +320,16 @@ body {
   font-size: 13px;
 }
 
-.sidebar ul.bots li .confirm .choices {
+.sidebar ul.bots li .confirm .choices,
+.artifacts ul.files li .confirm .choices {
   display: flex;
   gap: 12px;
 }
 
 .sidebar ul.bots li .confirm button.link,
-.sidebar ul.bots li .rename button.link {
+.sidebar ul.bots li .rename button.link,
+.artifacts ul.files li .confirm button.link,
+.artifacts ul.files li .rename button.link {
   align-self: flex-start;
   padding: 0;
   border: 0;
@@ -322,8 +340,25 @@ body {
   cursor: pointer;
 }
 
-.sidebar ul.bots li .confirm button.link.danger {
+.sidebar ul.bots li .confirm button.link.danger,
+.artifacts ul.files li .confirm button.link.danger {
   color: var(--accent);
+}
+
+.artifacts ul.files li .rename input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.artifacts ul.files li .rename input:focus {
+  outline: 1px solid var(--accent);
 }
 
 .banner.note,
@@ -464,9 +499,36 @@ body {
   min-height: 0;
 }
 
-.artifacts ul.files {
+/* The column of the list: the filter field above the rows once the
+   list is long (`:ui/files-filter`, rragent.client), the rows below
+   it scrolling. */
+.artifacts .list {
+  display: flex;
   flex: none;
+  flex-direction: column;
+  gap: 6px;
   width: 200px;
+  min-height: 0;
+}
+
+.artifacts .list input.filter {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.artifacts .list input.filter:focus {
+  outline: 1px solid var(--accent);
+}
+
+.artifacts ul.files {
+  flex: 1;
   margin: 0;
   padding: 0;
   overflow-y: auto;
@@ -476,23 +538,55 @@ body {
   list-style: none;
 }
 
+.artifacts ul.files li {
+  display: flex;
+  align-items: center;
+}
+
 .artifacts ul.files li + li {
   border-top: 1px solid var(--line);
 }
 
+.artifacts ul.files li[hidden] {
+  display: none;
+}
+
 .artifacts ul.files button.row {
   display: grid;
+  flex: 1 1 auto;
   grid-template-areas: "icon name" "icon meta";
   grid-template-columns: auto 1fr;
   column-gap: 8px;
   align-items: center;
-  width: 100%;
+  min-width: 0;
   padding: 8px 10px;
   border: 0;
   border-radius: 0;
   background: none;
   text-align: left;
   cursor: pointer;
+}
+
+/* The working notes at the end of the list, folded (see
+   rragent.view/notes-group): the summary a muted row, the notes
+   below it as rows of their own. */
+.artifacts ul.files li.group {
+  display: block;
+}
+
+.artifacts ul.files details.notes > summary {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.artifacts ul.files details.notes > ul {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
 }
 
 .artifacts ul.files button.row:hover {
@@ -1196,11 +1290,12 @@ pre {
     gap: 0;
   }
 
-  .artifacts ul.files {
+  .artifacts .list {
+    flex: 1;
     width: 100%;
   }
 
-  .artifacts.showing ul.files,
+  .artifacts.showing .list,
   .artifacts:not(.showing) .shown {
     display: none;
   }
