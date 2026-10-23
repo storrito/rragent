@@ -171,7 +171,15 @@
    :starting/title "The agent is starting …"
    :starting/hint "This takes a few seconds; the page comes by itself."
 
-   :update/check-title "Look for a newer rragent"
+   :settings/button "Settings"
+   :settings/title "Settings"
+   :settings/close "Back to the chat"
+   :settings/version-title "Look for a newer rragent in the settings"
+   :updates/title "Updates"
+   :updates/current [:fn/str "You run rragent {{:version}}."]
+   :updates/explain "A newer release is looked up at start and once an hour; this looks right now."
+   :updates/check "Check for updates"
+   :updates/checking "Checking …"
    :update/available [:fn/str "rragent {{:version}} is available."]
    :update/button "Update"
    :update/retry "Try again"
@@ -364,7 +372,15 @@
    :starting/title "Der Agent startet …"
    :starting/hint "Das dauert ein paar Sekunden; die Seite kommt von selbst."
 
-   :update/check-title "Nach einer neueren rragent-Version sehen"
+   :settings/button "Einstellungen"
+   :settings/title "Einstellungen"
+   :settings/close "Zurück zum Chat"
+   :settings/version-title "In den Einstellungen nach einer neueren rragent-Version sehen"
+   :updates/title "Updates"
+   :updates/current [:fn/str "Du nutzt rragent {{:version}}."]
+   :updates/explain "Beim Start und einmal pro Stunde wird nach einer neueren Version gesehen; das hier sieht sofort nach."
+   :updates/check "Nach Updates suchen"
+   :updates/checking "Suche …"
    :update/available [:fn/str "rragent {{:version}} ist da."]
    :update/button "Aktualisieren"
    :update/retry "Noch einmal versuchen"

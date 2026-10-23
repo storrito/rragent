@@ -146,7 +146,7 @@
      :base (str "http://127.0.0.1:" (.-port (.address server)))
      :stop! (^:async fn []
               (sse/unwatch! db/db)
-              (swap! db/db dissoc :tabs :updater)
+              (swap! db/db dissoc :tabs :updater :settings-open)
               (.closeAllConnections server)
               (await (js/Promise. (fn [resolve] (.close server resolve))))
               (await (machine/close-all!)))}))
@@ -237,6 +237,20 @@
                              (is (= "image/webp" (:mimeType (second message))) "as rragent.images prepares it")
                              (is (= 200 (.-status (await (js/fetch (str base url) #js {:headers #js {:cookie cookie}})))) "the file is served behind the token")
                              (is (= 403 (.-status (await (js/fetch (str base url))))))))))))
+                       (testing "the settings in place of the chat, for this tab alone; a bot picked brings the chat back"
+                         (is (= {:success? false :result {:error :no-tab}} (await (command! base cookie :settings/open nil))))
+                         (is (= {:success? true} (await (command! base cookie :settings/open {:tab "t1"}))))
+                         (let [frame (await (frame! #(mentions? % "Check for updates")))]
+                           (is (nil? (find-tag frame :ui/composer)) "no chat")
+                           (is (= (str "/bot/" id) (url-of frame)) "the URL stays the bot's")
+                           (is (= #{"t1"} (:settings-open @db/db))))
+                         (is (= {:success? true} (await (command! base cookie :settings/close {:tab "t1"}))))
+                         (await (frame! #(find-tag % :ui/composer)))
+                         (is (= {:success? true} (await (command! base cookie :settings/open {:tab "t1"}))))
+                         (await (frame! #(mentions? % "Check for updates")))
+                         (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))))
+                         (await (frame! #(find-tag % :ui/composer)))
+                         (is (= #{} (:settings-open @db/db))))
                        (testing "a second bot by one click: made from the assistant's text, shown in this tab as New bot, its chat and its files its own"
                          (is (= {:success? true} (await (command! base cookie :bot/create {:tab "t1"}))))
                          (let [id2 (:id (second (machine/listed)))
@@ -318,7 +332,7 @@
                                (swap! db/db update-in [:bots id] dissoc :worker)))))))
                    (testing "a hook with a wrong secret is refused without the cookie"
                      (is (= 403 (.-status (await (js/fetch (str base "/hook/deploy/wrong") #js {:method "POST" :body "x"}))))))
-                   (testing "the Update button's command runs the apply of the updater, the version's click the lookup"
+                   (testing "the Update button's command runs the apply of the updater, Check for updates the lookup"
                      (let [applied (atom [])
                            post! (^:async fn [kind]
                                    (let [sent (await (js/fetch (str base "/command") #js {:method "POST"
@@ -340,7 +354,8 @@
                                                                (if (get-in @db/db [:update :checked])
                                                                  (resolve true)
                                                                  (js/setTimeout poll 20))))))))
-                         (is (= :failed (get-in @db/db [:update :checked])) "the lookup at a port that refuses fails, said in the banner")
+                         (is (= :failed (get-in @db/db [:update :checked])) "the lookup at a port that refuses fails, said in the settings")
+                         (is (nil? (get-in @db/db [:update :checking?])))
                          (finally
                            (swap! db/db dissoc :updater :update))))))
                  (finally

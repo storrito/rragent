@@ -137,7 +137,11 @@ pchat does it with its chats: a click in the sidebar changes the URL
 without a reload and tells the server which bot this tab shows, the
 root `/` redirects to the bot last used, and a tab whose bot is gone
 shows another with a note. The header shows the
-bot's name and model. The rest of the page is the bot's: its
+bot's name and model. Settings, at the bottom of the sidebar, opens in
+place of the chat for this tab: one section, Updates, where a newer
+rragent is looked for right away (Updates, below); the version in the
+header opens it too, and a bot picked in the sidebar brings the chat
+back. The rest of the page is the bot's: its
 conversation as a chat, user messages, the
 agent's answers rendered from their markdown (`rragent.markdown`:
 markdown-it's tokens walked into hiccup, so a tag the model writes is
@@ -239,7 +243,7 @@ protocol as the Clojure original, so the unchanged rframes client runs in the
 browser (`rragent.client`). The page is a function of the one atom of
 `rragent.db`, the one place of mutable state: the machine's harness
 map, the updater, the version and the banner, the bot each tab picked,
-and every open bot under `[:bots <conversation id>]` with the value
+the tabs with the settings open, and every open bot under `[:bots <conversation id>]` with the value
 keys the page reads (its conversation's view, pi-durable's
 `viewState`, its definition, its state, its pane) beside the handles
 of its runtime (the conversation, the worker, the reload's text, the
@@ -696,10 +700,12 @@ and a running agent takes the release by itself (Updates, below).
 ## Updates
 
 A running rragent looks the newest release up at start, every hour and
-when the person clicks the version in the header (`rragent.update`:
-`releases/latest` of GitHub's API, no token; a lookup that fails is one
-line on stderr). A newer one shows as a banner above the chat: the
-version, the first line of its notes and an Update button. The click
+when the person clicks Check for updates in the settings, so that
+nobody waits for the hourly lookup (`rragent.update`: `releases/latest`
+of GitHub's API, no token; a lookup that fails is one line on stderr).
+A newer one shows as a banner above the chat, and in the settings: the
+version, the first line of its notes and an Update button; the settings
+also say that there is nothing newer, or that the lookup failed. The click
 downloads `rragent.tar.gz` and its `.sha256` from the release into a
 temp folder next to `dist/`, verifies the checksum, unpacks into
 `dist.new`, swaps it for `dist/` and ends the process with exit code

@@ -537,6 +537,8 @@
           :else
           (throw (js/Error. "The phone's test clip did not come.")))))))
 
+(declare post-phone!)
+
 (defn- ^:async clips!
   "The test clips of every source ticked, into `:tests` as each comes:
    the screen (the one in the panel, or Chrome asks which, from the
