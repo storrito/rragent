@@ -45,8 +45,9 @@
    :artifacts/stopped [:fn/str "This artifact's process stopped (exit {{:exit}}). Its .log says why; it is started again."]
 
    :chat/you "You"
-   :chat/hook [:fn/str "Hook {{:name}}"]
-   :chat/schedule [:fn/str "Schedule {{:name}}"]
+   :chat/hook-called [:fn/str "Hook {{:name}} was called"]
+   :chat/hook-event [:fn/str "{{:event}} · hook {{:name}}"]
+   :chat/schedule-ran [:fn/str "Schedule {{:name}} ran"]
    :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/ready "Ready"
@@ -237,8 +238,9 @@
    :artifacts/stopped [:fn/str "Der Prozess dieses Artefakts hat sich beendet (Exit {{:exit}}). Seine .log sagt warum; er wird neu gestartet."]
 
    :chat/you "Du"
-   :chat/hook [:fn/str "Hook {{:name}}"]
-   :chat/schedule [:fn/str "Zeitplan {{:name}}"]
+   :chat/hook-called [:fn/str "Hook {{:name}} wurde aufgerufen"]
+   :chat/hook-event [:fn/str "{{:event}} · Hook {{:name}}"]
+   :chat/schedule-ran [:fn/str "Zeitplan {{:name}} lief"]
    :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
