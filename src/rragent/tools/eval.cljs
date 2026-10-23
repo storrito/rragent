@@ -70,6 +70,9 @@
        "value of the last form, cut at 10000 characters. What you def stays for the next call, unless a program was stopped "
        "(the person's Stop, or the timeout of " (codemode-worker/timeout-minutes) " minutes): the next call then starts over and says so. "
        "There is no JavaScript, no file system and no environment in it: files are for read, write, edit and bash, public web pages for fetch. "
+       "What a service finishes later (a story or post being published, a render, an import) you do not wait for: once the service "
+       "has taken it, answer with what it said, a preview link included, and look at its status again when the person asks; "
+       "no sleep in between, the person waits for every second of your turn. "
        "With `project`, the code is evaluated by that artifact project's process instead, where its template takes an eval "
        "(a motion design: in the namespace of design.cljs, a redefined function shows on the page at once, until the file is saved)."))
 
