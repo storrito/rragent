@@ -22,6 +22,7 @@
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
+            [rragent.images :as images]
             [rragent.rframes.http :as http]
             [rragent.rframes.transit :as transit]))
 
@@ -346,23 +347,30 @@
          {:kind kind
           :name file-name})))
 
-(defn image-block
-  "The picture `file-name` of `dir` as the image block of a user message."
+(defn ^:async image-block
+  "The picture `file-name` of `dir` as the image block of a user
+   message: as `rragent.images` prepares it for the model (a WebP
+   within pi-durable's default limits), the file as it is when that
+   is not possible (no ffmpeg). The file itself is untouched."
   [dir file-name]
-  {:type "image"
-   :data (.toString (fs/readFileSync (path/join dir file-name)) "base64")
-   :mimeType (media-type file-name)})
+  (let [bytes (fs/readFileSync (path/join dir file-name))
+        mime-type (media-type file-name)
+        image (await (images/prepare bytes mime-type))]
+    {:type "image"
+     :data (if image (:data image) (.toString bytes "base64"))
+     :mimeType (if image (:mimeType image) mime-type)}))
 
 (def no-vision-note
   "The line in place of the image blocks when the model takes no images."
   "(The model does not take pictures; the files above are there for the tools.)")
 
-(defn content
-  "The user message of `text` with the `attachments` of `dir` (what
-   `named` answered): the text with a line per file, which the agent
-   reads; and when `vision?`, the model takes images, the pictures as
-   image blocks besides, so the model sees them; without, a note that it
-   does not, and no block, which the transcript would carry for nothing."
+(defn ^:async content
+  "A promise of the user message of `text` with the `attachments` of
+   `dir` (what `named` answered): the text with a line per file, which
+   the agent reads; and when `vision?`, the model takes images, the
+   pictures as image blocks besides (`image-block`), so the model sees
+   them; without, a note that it does not, and no block, which the
+   transcript would carry for nothing."
   [dir text attachments vision?]
   (let [pictures (filter #(= :image (:kind %)) attachments)
         text (str/join "\n" (remove str/blank? (cons (str/trim (str text))
@@ -370,7 +378,7 @@
     (cond
       (empty? pictures) text
       vision? (into [{:type "text" :text text}]
-                    (map #(image-block dir (:name %)) pictures))
+                    (array-seq (await (js/Promise.all (into-array (map #(image-block dir (:name %)) pictures))))))
       :else (str text "\n" no-vision-note))))
 
 (comment

@@ -27,7 +27,7 @@
             ["@earendil-works/pi-durable" :refer [AssistantEntry Harness MemoryStorage createRegistry defineExtension]]
             ["@earendil-works/pi-durable/env/node" :refer [NodeExecutionEnv]]
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
-            ["@earendil-works/pi-durable/tools" :refer [CodingTools]]
+            ["@earendil-works/pi-durable/tools" :refer [createCodingTools]]
             ["node:fs" :as fs]
             [rragent.bots :as bots]
             [rragent.codemode :as codemode]
@@ -35,6 +35,8 @@
             [rragent.db :as db]
             [rragent.gateway :as gateway]
             [rragent.home :as home]
+            [rragent.images :as images]
+            [rragent.model-requests :as model-requests]
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
             [rragent.schedule :as schedule]
@@ -125,7 +127,7 @@
    brings."
   [codemode extensions]
   (let [registry (doto (createRegistry)
-                   (.install CodingTools)
+                   (.install (createCodingTools #js {:images images/processor}))
                    (.install (extension codemode))
                    (.install subagent-tool/extension))]
     (doseq [e extensions]
@@ -192,6 +194,9 @@
   [{:keys [home models storage provider now gateway retry extensions]}]
   (let [home (or home (home/home))
         _ (fs/mkdirSync home #js {:recursive true})
+        ;; every chat completion request measured, a refusal as too
+        ;; large turned into the overflow pi-durable compacts on
+        _ (model-requests/install!)
         migrated (bots/migrate! home)
         _ (when-not (home/definition-file (home/bot-dir home bots/root-id))
             (bots/write-definition! home bots/root-id (bots/assistant-text home)))

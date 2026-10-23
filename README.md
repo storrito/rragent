@@ -200,7 +200,13 @@ its own, `video: uploads/ab12.mp4`, `audio: …` or `image: …`, so the
 agent reaches the file from its working directory with its tools; a
 picture goes to the model as an image block besides, when the model
 takes images (pi-ai puts a placeholder where one was when it does not,
-so a picture then goes as its line and a note). The transcript shows a
+so a picture then goes as its line and a note). Every picture the model
+gets, uploaded or read by its `read` tool, is a WebP of quality 80 with
+at most 2048 pixels on the long edge, made by ffmpeg (`rragent.images`),
+the file itself untouched: the Sprites gateway forwards a request of at
+most 8,000,000 bytes, and pictures are what fills one. A request still
+refused as too large is answered to pi-ai as the overflow it compacts
+the conversation on, instead of retries (`rragent.model-requests`). The transcript shows a
 picture as a thumbnail and a clip as its name, linked to
 `/bot/<id>/uploads/<name>`, which serves the files with ranges, behind
 the token.

@@ -3,6 +3,7 @@
             ["node:os" :as os]
             ["node:path" :as path]
             [clojure.test :refer [async deftest is testing]]
+            [rragent.images-test :as images-test]
             [rragent.rframes.http :as http]
             [rragent.rframes.transit :as transit]
             [rragent.uploads :as uploads]))
@@ -47,26 +48,31 @@
       (is (= "video: uploads/ab12cd.mp4" (uploads/line :video "ab12cd.mp4"))))))
 
 (deftest content-test
-  (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-uploads-"))]
-    (try
-      (fs/writeFileSync (path/join dir "0a0b.png") png)
-      (fs/writeFileSync (path/join dir "ab12.mp4") (bytes-of 10))
-      (testing "only the files that are there, by the names the composer sent"
-        (is (= [{:kind :image :name "0a0b.png"} {:kind :video :name "ab12.mp4"}]
-               (uploads/named dir ["0a0b.png" "ab12.mp4" "missing.mp4" "../etc/passwd" "notes.txt"]))))
-      (let [attachments (uploads/named dir ["ab12.mp4" "0a0b.png"])]
-        (testing "a clip is a line, a picture a line and an image block when the model takes images"
-          (is (= "Cut this\nvideo: uploads/ab12.mp4" (uploads/content dir "Cut this" [{:kind :video :name "ab12.mp4"}] true)))
-          (let [[text image] (uploads/content dir "Cut this " attachments true)]
-            (is (= {:type "text" :text "Cut this\nvideo: uploads/ab12.mp4\nimage: uploads/0a0b.png"} text))
-            (is (= "image" (:type image)))
-            (is (= "image/png" (:mimeType image)))
-            (is (= (.toString png "base64") (:data image)))))
-        (testing "a picture for a model without image input: the line and a note, no block"
-          (is (= (str "video: uploads/ab12.mp4\nimage: uploads/0a0b.png\n" uploads/no-vision-note)
-                 (uploads/content dir "" attachments false)))))
-      (finally
-        (fs/rmSync dir #js {:recursive true :force true})))))
+  (async done
+    (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-uploads-"))]
+      (-> (images-test/with-webp-ffmpeg
+            (^:async fn []
+              (fs/writeFileSync (path/join dir "0a0b.png") png)
+              (fs/writeFileSync (path/join dir "ab12.mp4") (bytes-of 10))
+              (testing "only the files that are there, by the names the composer sent"
+                (is (= [{:kind :image :name "0a0b.png"} {:kind :video :name "ab12.mp4"}]
+                       (uploads/named dir ["0a0b.png" "ab12.mp4" "missing.mp4" "../etc/passwd" "notes.txt"]))))
+              (let [attachments (uploads/named dir ["ab12.mp4" "0a0b.png"])]
+                (testing "a clip is a line, a picture a line and an image block when the model takes images"
+                  (is (= "Cut this\nvideo: uploads/ab12.mp4" (await (uploads/content dir "Cut this" [{:kind :video :name "ab12.mp4"}] true))))
+                  (let [[text image] (await (uploads/content dir "Cut this " attachments true))]
+                    (is (= {:type "text" :text "Cut this\nvideo: uploads/ab12.mp4\nimage: uploads/0a0b.png"} text))
+                    (is (= "image" (:type image)))
+                    (is (= "image/webp" (:mimeType image)) "the picture as rragent.images prepares it for the model")
+                    (is (= "RIFF" (.toString (js/Buffer.from (:data image) "base64") "ascii" 0 4)))
+                    (is (.equals png (fs/readFileSync (path/join dir "0a0b.png"))) "the file itself untouched")))
+                (testing "a picture for a model without image input: the line and a note, no block"
+                  (is (= (str "video: uploads/ab12.mp4\nimage: uploads/0a0b.png\n" uploads/no-vision-note)
+                         (await (uploads/content dir "" attachments false))))))))
+          (.catch (fn [e] (is (nil? e) (str e))))
+          (.finally (fn []
+                      (fs/rmSync dir #js {:recursive true :force true})
+                      (done)))))))
 
 (deftest server-test
   (async done
