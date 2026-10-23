@@ -38,7 +38,15 @@
   (is (not (tc/similar? "underscore" "_"))))
 
 (def names
-  (tc/known "storrito_com, Car Funnews"))
+  (tc/known "storrito_com, Car Funnews" ""))
+
+(deftest known-test
+  (let [k (tc/known "Storrito" "Person: Post it on @storrito_com, there is the reel.\n\nAgent: There it is: posted to carfunnews at 9:30 with Storrito.")]
+    (is (contains? k "storrito") "the names passed")
+    (is (contains? k "storrito_com") "a handle of the conversation")
+    (is (not (contains? k "there")) "a word written in lower case too is no name, also when it starts a sentence")
+    (is (not (contains? k "carfunnews")) "a word in lower case alone is no name")
+    (is (contains? k "9:30") "a word with a digit")))
 
 (deftest apply-fixes-test
   (testing "as many words as heard: each keeps its time, the punctuation stays"
@@ -60,6 +68,13 @@
                                                   [{:heard "streeto_com" :meant "storrito_com"} {:heard "nowhere" :meant "nowhere1"}])]
       (is (= ["storrito_com!" "x"] (map :word words)))
       (is (= 1 (count applied)))))
+  (testing "the fixes of more words first, and a word one fix changed no other changes"
+    (let [{:keys [words]} (tc/apply-fixes [{:word "story" :start 0 :end 0.2 :confidence 0.5} {:word "to" :start 0.2 :end 0.3 :confidence 0.5}
+                                           {:word "com" :start 0.3 :end 0.6 :confidence 0.5}]
+                                          [{:heard "story" :meant "Storrito"} {:heard "story to com" :meant "storrito_com"} {:heard "storrito_com" :meant "storrito_co"}])]
+      (is (= ["storrito_com"] (map :word words)))))
+  (testing "the punctuation before a word stays too"
+    (is (= ["(storrito_com,"] (map :word (:words (tc/apply-fixes [{:word "(streeto_com," :start 0 :end 1 :confidence 0.4}] [{:heard "streeto_com" :meant "storrito_com"}]))))))
   (testing "what is no mishearing changes nothing: a rewording, only case or punctuation, a sure word not among the names"
     (let [sure [{:word "That," :start 0 :end 1 :confidence 0.99} {:word "will" :start 1 :end 2 :confidence 0.4}
                 {:word "reel." :start 2 :end 3 :confidence 0.5} {:word "Stories" :start 3 :end 4 :confidence 0.99}]

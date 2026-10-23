@@ -124,25 +124,51 @@
                            a)]
            (< 0.5 (/ (* 2 (peek row)) (+ (count a) (count b))))))))
 
+(defn- tokens
+  [text]
+  (remove str/blank? (str/split (str text) #"[\s,;]+")))
+
 (defn known
-  "The words of the names and the conversation, as `bare` has them."
-  [& texts]
-  (into #{} (comp (mapcat #(str/split (str %) #"[\s,;]+")) (map bare) (remove str/blank?)) texts))
+  "The names a fix may turn a sure word into, as `bare` has them: every
+   word of `names`, and the words of `conversation` that look like a
+   name (a capital, a digit, an underscore, an @, a dot inside) and that
+   it does not also write in lower case, an ordinary word at the start
+   of a sentence (\"There\" beside \"there\")."
+  [names conversation]
+  (let [said (tokens conversation)
+        ;; ordinary words: letters alone, in lower case
+        plain (into #{} (comp (map bare) (filter #(re-matches #"[a-zäöüßàâçéèêëîïôûùüÿñæœ'’-]+" %))) said)
+        named (->> said
+                   (filter #(re-find #"[A-Z0-9_@]|\w\.\w" %))
+                   (map bare)
+                   ;; the labels of the conversation's text (`rragent.correction/conversation`)
+                   (remove #{"person" "agent"})
+                   (remove plain))]
+    (into #{} (remove str/blank?) (concat (map bare (tokens names)) named))))
 
 (defn- trailing
   "The punctuation at the end of a word."
   [word]
   (or (re-find #"[\"'”)\].,!?;:…]+$" (str word)) ""))
 
+(defn- leading
+  "The punctuation at the start of a word."
+  [word]
+  (or (re-find #"^[\"'„“(\[]+" (str word)) ""))
+
 (defn- replaced
   "The words of `span` replaced by the words of `meant`: as many, each
    keeps its time; else the span's time shared by the words' lengths.
-   The punctuation at the span's end stays when `meant` has none."
+   The punctuation around the span stays when `meant` has none."
   [span meant]
   (let [tokens (str/split (str/trim meant) #"\s+")
         tail (trailing (:word (peek span)))
+        lead (leading (:word (first span)))
         tokens (if (and (seq tail) (= "" (trailing (peek tokens))))
                  (conj (pop tokens) (str (peek tokens) tail))
+                 tokens)
+        tokens (if (and (seq lead) (= "" (leading (first tokens))))
+                 (assoc tokens 0 (str lead (first tokens)))
                  tokens)]
     (if (= (count tokens) (count span))
       (mapv (fn [word token] (assoc word :word token :heard (:word word))) span tokens)
@@ -171,7 +197,9 @@
    `{:words :applied}`; `:applied` is `[{:heard :meant :times}]` of the
    fixes that changed something. A fix applies when it looks like a
    mishearing (`similar?`, more than case and punctuation), at a place
-   where a heard word is unsure or with its meant words all `known`."
+   where a heard word is unsure or with its meant words all `known`. The
+   fixes of more words go first, and a word one fix changed no other
+   changes: \"story to com\" before \"story\", no a → b → c."
   [words fixes & [known]]
   (reduce (fn [{:keys [words applied] :as acc} {:keys [heard meant] :as fix}]
             (let [pattern (mapv bare (str/split heard #"\s+"))
@@ -185,6 +213,7 @@
                 (if (< i (count words))
                   (if (and (<= (+ i n) (count words))
                            (= pattern (mapv (comp bare :word) (subvec words i (+ i n))))
+                           (not-any? :heard (subvec words i (+ i n)))
                            (or named? (some unsure? (subvec words i (+ i n)))))
                     (recur (+ i n) (into out (replaced (subvec words i (+ i n)) meant)) (inc times))
                     (recur (inc i) (conj out (nth words i)) times))
@@ -192,7 +221,7 @@
                    :applied (cond-> applied
                               (pos? times) (conj (assoc fix :times times)))})))))
           {:words (vec words) :applied []}
-          fixes))
+          (sort-by #(- (count (str/split (:heard %) #"\s+"))) fixes)))
 
 (defn request-messages
   "The agent's system prompt, then the conversation and the ask for the
@@ -218,9 +247,10 @@
                                          :headers (clj->js (assoc headers "Content-Type" "application/json"))
                                          :body (js/JSON.stringify (clj->js {:model model-id :messages messages :max_tokens 4000 :temperature 0}))
                                          :signal (js/AbortSignal.timeout timeout-ms)}))
-          body (js->clj (await (.json response)) :keywordize-keys true)]
-      (when-not (.-ok response)
-        (throw (js/Error. (str "OpenRouter answered " (.-status response) ": " (or (get-in body [:error :message]) "no reason")))))
+          text (await (.text response))
+          body (try (js->clj (js/JSON.parse text) :keywordize-keys true) (catch :default _ nil))]
+      (when-not (and (.-ok response) body)
+        (throw (js/Error. (str "OpenRouter answered " (.-status response) ": " (or (get-in body [:error :message]) (subs text 0 (min 200 (count text))) "no reason")))))
       {:text (get-in body [:choices 0 :message :content])
        :cost (or (get-in body [:usage :cost]) 0)})))
 
@@ -231,36 +261,23 @@
    :failed}`: the words with the fixes, the fixes that changed
    something, what the requests cost, and why a piece stayed as it was."
   [complete messages words names]
-  (let [known (known names (correction/conversation messages))]
-    (loop [pieces (partition-all piece-words words)
-           out []
-           applied []
-           cost 0
-           failed nil]
-      (if-let [piece (some-> (first pieces) vec)]
-        (let [{:keys [result cost-of error]}
+  (let [known (known names (correction/conversation messages))
+        one (^:async fn [piece]
               (try
                 (let [{:keys [text cost]} (await (complete (request-messages messages piece names)))
                       found (fixes text)]
-                  {:result (when found (apply-fixes piece found known))
-                   :cost-of cost
+                  {:piece piece
+                   :result (when found (apply-fixes piece found known))
+                   :cost cost
                    :error (when (nil? found) "the answer was no list of fixes")})
                 (catch :default e
-                  {:error (.-message e) :cost-of 0}))]
-          (recur (rest pieces)
-                 (into out (if result (:words result) piece))
-                 (into applied (:applied result))
-                 (+ cost cost-of)
-                 (or failed error)))
-        {:words out :applied applied :cost cost :failed failed}))))
-
-(defn ^:async messages-of
-  "The messages of the tool call's conversation, through the tool's
-   `api` in the call's `context`; none when there is no conversation."
-  [^js api context]
-  (if-let [conversation (await (.conversation api (.-conversationId api) context))]
-    (js->clj (.-messages (await (.context conversation context))) :keywordize-keys true)
-    []))
+                  {:piece piece :error (.-message e) :cost 0})))
+        ;; all pieces at once: a long recording waits for the slowest, not for their sum
+        done (array-seq (await (js/Promise.all (into-array (map (comp one vec) (partition-all piece-words words))))))]
+    {:words (vec (mapcat #(if (:result %) (:words (:result %)) (:piece %)) done))
+     :applied (vec (mapcat (comp :applied :result) done))
+     :cost (reduce + (map #(or (:cost %) 0) done))
+     :failed (some :error done)}))
 
 (defn summary
   "The fixes as one line for the agent: what was heard and what was

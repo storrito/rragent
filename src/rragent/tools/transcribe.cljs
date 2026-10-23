@@ -30,13 +30,15 @@
    With `words`, every word with its start, end and confidence goes
    beside it as `<name>.words.json`, for cutting a video at the
    pauses."
-  (:require ["@earendil-works/pi-ai" :refer [Type]]
+  (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
+            ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             ["node:child_process" :as child]
             ["node:fs" :as fs]
             ["node:os" :as os]
             ["node:path" :as path]
             [clojure.string :as str]
+            [rragent.db :as db]
             [rragent.tools.media :as media]
             [rragent.tools.work :as work]
             [rragent.transcript-correction :as transcript-correction]
@@ -228,27 +230,45 @@
   [out]
   (str (str/replace out #"\.[^./]+$" "") ".words.json"))
 
+(defn ^:async bot-messages
+  "The messages of the bot of the call, as the dictation's correction
+   reads them (`rragent.correction`): from the bot's conversation that
+   the one atom holds (`rragent.db`), which has the whole context; the
+   tool's own handle of a conversation only submits and aborts. None
+   when the bot is not open."
+  [api call-context]
+  (if-let [^js conversation (get-in @db/db (conj (await (work/bot-path api call-context)) :conversation))]
+    (js->clj (.-messages (await (.context conversation BACKGROUND_CONTEXT))) :keywordize-keys true)
+    []))
+
 (defn ^:async corrected
   "`state` with its words corrected (`rragent.transcript-correction`)
-   with the messages of the tool call's conversation, read through the
-   tool's `api` in the call's `context`, by `complete`; and `:fixed`,
-   the line that says what changed or why nothing did. `state` as it
-   is without an `api` or without words that carry their times."
-  [state {:keys [api context names complete]}]
-  (if (and api (usable? (:words state) (:text state)))
+   with the bot's conversation (`messages`, a function of the tool's
+   `api` and the call's `context`, `bot-messages` unless a test gives
+   one; without them the names alone) by `complete`; and `:fixed`, the
+   line that says what changed or why nothing did. `state` as it is
+   without an `api`; without words that carry their times, it says so."
+  [state {:keys [api context names complete messages]}]
+  (cond
+    (not api) state
+    (not (usable? (:words state) (:text state))) (assoc state :fixed "Not corrected: the speech model gave no word times.")
+    :else
     (try
-      (let [messages (await (transcript-correction/messages-of api context))
+      (let [messages (try (await ((or messages bot-messages) api context))
+                          (catch :default error
+                            (js/console.error "[transcribe] the conversation for the correction:" (.-message error))
+                            []))
             {:keys [words applied cost failed]} (await (transcript-correction/correct! complete messages (:words state) names))]
         (assoc state
                :words words
                :cost (+ (:cost state) cost)
                :fixed (cond
+                        (and (seq applied) failed) (str "Corrected: " (transcript-correction/summary applied) ". Some of it not: " failed ".")
                         (seq applied) (str "Corrected: " (transcript-correction/summary applied) ".")
                         failed (str "Not corrected: " failed ".")
                         :else "Nothing to correct.")))
       (catch :default error
-        (assoc state :fixed (str "Not corrected: " (.-message error) "."))))
-    state))
+        (assoc state :fixed (str "Not corrected: " (.-message error) "."))))))
 
 (defn ^:async transcribe!
   "The transcript of `file` written to `out` under `dir`
@@ -278,7 +298,7 @@
                                (conj text (str/trim (str (:text body))))
                                (+ cost (or (some-> body :usage :cost) 0))))
                       {:seconds offset :words words :text (str/join "\n\n" (remove str/blank? text)) :cost cost}))
-            state (await (corrected state {:api api :context context :names names
+            state (await (corrected state {:api api :context context :names names :messages (:messages options)
                                            :complete (or (:complete options) (transcript-correction/openrouter-complete codemode))}))
             paragraphs (paragraphs (:words state) (:text state) 0)
             transcript (transcript-text paragraphs (boolean timestamps?))

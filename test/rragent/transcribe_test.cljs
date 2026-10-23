@@ -147,7 +147,7 @@
                  (let [api #js {:conversationId "c1"
                                 :conversation (fn [_ _] (js/Promise.resolve nil))}
                        answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "talk/fixed.md"
-                                                              :words? true :api api :names "Peace"
+                                                              :words? true :api api :names "Peace" :messages (fn [_ _] (js/Promise.reject (js/Error. "no bot")))
                                                               :complete (fn [_] (js/Promise.resolve {:text "{\"fixes\": [{\"heard\": \"Piece\", \"meant\": \"Peace\"}]}" :cost 0}))}))
                        saved (js->clj (js/JSON.parse (fs/readFileSync (path/join dir "talk" "fixed.words.json") "utf8")) :keywordize-keys true)]
                    (is (str/includes? answer "the words with their times in artifacts/talk/fixed.words.json"))
