@@ -114,12 +114,38 @@
            :text (uploads/without-lines text)
            :media (uploads/attachments text))))
 
+(defn- human-size
+  [bytes]
+  (cond
+    (nil? bytes) nil
+    (< bytes 1024) (str bytes " B")
+    (< bytes (* 1024 1024)) (str (js/Math.round (/ bytes 1024)) " KB")
+    :else (str (.toFixed (/ bytes 1024 1024) 1) " MB")))
+
 (defn- user-item
-  [id label model]
+  [id model]
   (with-media {:kind :user
-               :id id
-               :label label}
+               :id id}
               (:content (first model))))
+
+(defn- hook-label
+  "What a hook's call was: the event's line when the call carried a
+   Storrito integration trigger event (`rragent.hooks/event-line`),
+   else the hook's name."
+  [{:keys [name event]}]
+  (if event
+    [:i18n :chat/hook-event {:event event :name name}]
+    [:i18n :chat/hook-called {:name name}]))
+
+(defn- call-item
+  "A hook's call or a schedule's run: a folded step with `label` on
+   its line and the whole input, as the model got it, behind it."
+  [id label data model]
+  {:kind :call
+   :id id
+   :label label
+   :bytes (:bytes data)
+   :text (text-of (:content (first model)))})
 
 (defn- entry-items
   "An entry of the transcript as the items a person reads about it: a
@@ -128,9 +154,9 @@
    tool results, which the calls show)."
   [{:keys [id kind model data]} results slots]
   (case kind
-    "pi.user" [(user-item id nil model)]
-    "rragent.hook" [(user-item id [:i18n :chat/hook {:name (:name data)}] model)]
-    "rragent.schedule" [(user-item id [:i18n :chat/schedule {:name (:name data)}] model)]
+    "pi.user" [(user-item id model)]
+    "rragent.hook" [(call-item id (hook-label data) data model)]
+    "rragent.schedule" [(call-item id [:i18n :chat/schedule-ran {:name (:name data)}] data model)]
     "pi.assistant" (let [message (first model)]
                      (cons (assistant-item id message)
                            (tool-items message results slots)))
@@ -175,10 +201,10 @@
                 content)))
 
 (defn- person-answer?
-  "A message of the person's, sent or waiting; a hook's or a schedule's
-   carries a label and answers nothing."
-  [{:keys [kind label]}]
-  (and (= :user kind) (nil? label)))
+  "A message of the person's, sent or waiting; a hook's call or a
+   schedule's run is a `:call` and answers nothing."
+  [{:keys [kind]}]
+  (= :user kind))
 
 (defn- answered
   "The answers before the person's last message marked `:answered?`:
@@ -318,18 +344,24 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
+  [{:keys [kind id label text media bytes pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
                      :class (when pending? "pending")}
-     [:div.label (or label [:i18n :chat/you])]
+     [:div.label [:i18n :chat/you]]
      (when (seq text)
        [:p.text text])
      (when (seq media)
        (media-view base media))
      (when pending?
        [:p.hint [:i18n :chat/queued]])]
+
+    :call
+    [:div.item.step {:replicant/key id}
+     [:details.work
+      [:summary label (when bytes (str " · " (human-size bytes)))]
+      [:pre.output (cut 2000 text)]]]
 
     :assistant
     [:div.item.step {:replicant/key id
@@ -645,14 +677,6 @@
                         (text-view kind text base bot)
                         [:div.placeholder [:i18n :artifacts/no-preview]])
     [:div.placeholder [:i18n :artifacts/no-preview]]))
-
-(defn- human-size
-  [bytes]
-  (cond
-    (nil? bytes) nil
-    (< bytes 1024) (str bytes " B")
-    (< bytes (* 1024 1024)) (str (js/Math.round (/ bytes 1024)) " KB")
-    :else (str (.toFixed (/ bytes 1024 1024) 1) " MB")))
 
 (defn- file-actions
   "The menu behind the three dots of a row, as the sidebar's

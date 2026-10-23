@@ -74,7 +74,58 @@
          "Body:\n" (if cut? (str (subs body 0 max-body-chars) "\n(cut at " max-body-chars " characters)") body))))
 
 (def kept-headers
-  ["content-type" "user-agent" "x-github-event" "x-hook-source"])
+  ["content-type" "user-agent" "x-github-event" "x-hook-source" "x-storrito-event"])
+
+(def toolkit-names
+  "The names people know the services by, by Composio toolkit slug;
+   another slug is shown capitalized."
+  {"googledrive" "Google Drive" "googlesheets" "Google Sheets" "googledocs" "Google Docs"
+   "googlecalendar" "Google Calendar" "gmail" "Gmail" "youtube" "YouTube" "github" "GitHub"
+   "hubspot" "HubSpot" "onedrive" "OneDrive" "tiktok" "TikTok" "linkedin" "LinkedIn"})
+
+(defn- subject
+  "What the event is about, when its payload names it: a file's name, a
+   title, a subject."
+  [data]
+  (when (map? data)
+    (some (fn [path]
+            (let [v (get-in data path)]
+              (when (string? v) (not-empty v))))
+          [[:file :name] [:name] [:title] [:subject] [:filename] [:file_name] [:message :subject]])))
+
+(defn- parse-json
+  [text]
+  (try
+    (js->clj (js/JSON.parse (str text)) :keywordize-keys true)
+    (catch :default _
+      nil)))
+
+(defn event-line
+  "The line a person reads about a Storrito integration trigger event
+   in `body`, `Google Drive · file created · 4.txt`: the service and
+   the event from the trigger slug the event names
+   (`metadata.trigger_slug`), what the payload is about after them.
+   nil for a body that is no such event."
+  [body]
+  (let [parsed (parse-json body)
+        slug (when (map? parsed) (get-in parsed [:metadata :trigger_slug]))]
+    (when (and (string? slug) (not (str/blank? slug)))
+      (let [[toolkit & words] (str/split (str/lower-case slug) #"_+")
+            words (cond-> (vec words)
+                    (= "trigger" (last words)) pop)]
+        (str/join " · " (remove str/blank? [(or (toolkit-names toolkit) (str/capitalize toolkit))
+                                           (str/join " " words)
+                                           (subject (:data parsed))]))))))
+
+(defn entry-data
+  "What the page shows of a call without reading its body: the hook's
+   name, the body's size and, for a Storrito integration trigger event,
+   its line (`event-line`)."
+  [name body]
+  (let [body (str body)
+        event (event-line body)]
+    (cond-> {:name name :bytes (count body)}
+      event (assoc :event event))))
 
 (defn ^:async receive!
   "A call of the hook `name` with `secret` on the bot's `conversation`
@@ -91,7 +142,7 @@
             submission (await (.submit conversation #js {:type "input"
                                                   :content (message name (.-purpose hook) kept body)
                                                   :whenBusy "followUp"
-                                                  :entry #js {:kind "rragent.hook" :data #js {:name name}}}
+                                                  :entry #js {:kind "rragent.hook" :data (clj->js (entry-data name body))}}
                                        context))]
         {:ok true :submission (.-id submission)})
       {:ok false})))

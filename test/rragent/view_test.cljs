@@ -20,7 +20,9 @@
              (assistant 3 [{:type "toolCall" :id "c1" :name "fetch" :arguments {:url "https://x.test"}}] "toolUse")
              (tool-result 4 "c1" "HTTP 200" false)
              (assistant 5 [{:type "text" :text "Paris."}])
-             {:id 6 :kind "rragent.hook" :data {:name "deploy"} :model [{:role "user" :content "Hook deploy was called."}]}]
+             {:id 6 :kind "rragent.hook" :data {:name "deploy"} :model [{:role "user" :content "Hook deploy was called."}]}
+             {:id 7 :kind "rragent.hook" :data {:name "drive" :bytes 2458 :event "Google Drive · file created · 4.txt"} :model [{:role "user" :content "Hook \"drive\" (files) was called.\nBody:\n{}"}]}
+             {:id 8 :kind "rragent.schedule" :data {:name "daily" :at 1} :model [{:role "user" :content "Scheduled run \"daily\" (0 9 * * * UTC), due 2026-10-23T09:00:00.000Z:\nLook."}]}]
    :live {:run {:taskId "t"}
           :generation {:message {:role "assistant" :content [{:type "text" :text "Looking"}] :stopReason "stop" :timestamp 99}}}
    :inbox {:items [{:id "s1" :mode "followUp" :content "And Spain?"}]}})
@@ -28,19 +30,25 @@
 (deftest items-test
   (let [items (view/items conversation)
         kinds (map (juxt :kind :id) items)]
-    (is (= [[:user 2] [:assistant 3] [:tool "c1"] [:assistant 5] [:user 6] [:assistant "partial"] [:user "s1"]] kinds))
+    (is (= [[:user 2] [:assistant 3] [:tool "c1"] [:assistant 5] [:call 6] [:call 7] [:call 8] [:assistant "partial"] [:user "s1"]] kinds))
     (testing "a tool call carries its result"
       (let [tool (nth items 2)]
         (is (= "fetch" (:name tool)))
         (is (true? (:done? tool)))
         (is (= "HTTP 200" (:result tool)))
         (is (false? (:error? tool)))))
-    (testing "a hook's input is labelled by its hook"
-      (is (= [:i18n :chat/hook {:name "deploy"}] (:label (nth items 4)))))
+    (testing "a hook's call is a folded step: its hook's name on the line, the whole input behind"
+      (is (= [:i18n :chat/hook-called {:name "deploy"}] (:label (nth items 4))))
+      (is (= "Hook deploy was called." (:text (nth items 4)))))
+    (testing "a call that carried a Storrito integration trigger event says what happened, and how big the body was"
+      (is (= [:i18n :chat/hook-event {:event "Google Drive · file created · 4.txt" :name "drive"}] (:label (nth items 5))))
+      (is (= 2458 (:bytes (nth items 5)))))
+    (testing "a schedule's run is a step of its own too"
+      (is (= [:i18n :chat/schedule-ran {:name "daily"}] (:label (nth items 6)))))
     (testing "the partial streams, the queued input is pending"
-      (is (true? (:streaming? (nth items 5))))
-      (is (= "Looking" (:text (nth items 5))))
-      (is (true? (:pending? (nth items 6)))))))
+      (is (true? (:streaming? (nth items 7))))
+      (is (= "Looking" (:text (nth items 7))))
+      (is (true? (:pending? (nth items 8)))))))
 
 (deftest partial-test
   (testing "a committed answer is no partial any more"
@@ -83,7 +91,10 @@
       (is (contains? text "Capital of France?"))
       (is (contains? text "Paris."))
       (is (contains? text "Fetched a page"))
-      (is (contains? text "Hook deploy"))
+      (is (contains? text "Hook deploy was called") "a hook's call, folded")
+      (is (contains? text "Google Drive · file created · 4.txt · hook drive") "a trigger event's line")
+      (is (contains? text " · 2 KB") "the size of the body it carried")
+      (is (contains? text "Schedule daily ran"))
       (is (contains? text "What the agent makes for you appears here."))
       (is (contains? text "Stop") "a run goes")
       (is (= {:bot nil} (get-in (second (find-tag page :ui/composer)) [:ui/stop 0 1 :command/data])) "Stop is the composer's, with its actions")
