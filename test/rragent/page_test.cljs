@@ -16,6 +16,7 @@
             [rragent.fake-gateway :as fake-gateway]
             [rragent.harness :as harness]
             [rragent.home :as home]
+            [rragent.images-test :as images-test]
             [rragent.machine :as machine]
             [rragent.page :as page]
             [rragent.rframes.http :as http]
@@ -207,8 +208,9 @@
                              (is (contains? tags :pre))
                              (is (contains? tags :code))
                              (is (not (mentions? answer "**")) "no raw markdown on the page"))))
-                       (testing "a picture attached: uploaded under the bot's page, named in the message, seen by the model, a thumbnail on the page"
+                       (testing "a picture attached: uploaded under the bot's page, named in the message, seen by the model as a WebP, a thumbnail on the page"
                          (.setResponses faux #js [(tools-test/answer "A dot.")])
+                         (await (images-test/with-webp-ffmpeg (^:async fn []
                          (let [uploaded (await (js/fetch (str bot-url "/upload") #js {:method "POST"
                                                                                        :headers #js {:cookie cookie
                                                                                                      :content-type "image/png"}
@@ -232,9 +234,9 @@
                              (is (not (mentions? answer "image: uploads/")) "the line is not shown as text")
                              (is (= (str "What is this?\nimage: uploads/" name) (:text (first message))) "the model reads the line")
                              (is (= "image" (:type (second message))) "and sees the picture")
-                             (is (= "image/png" (:mimeType (second message))))
+                             (is (= "image/webp" (:mimeType (second message))) "as rragent.images prepares it")
                              (is (= 200 (.-status (await (js/fetch (str base url) #js {:headers #js {:cookie cookie}})))) "the file is served behind the token")
-                             (is (= 403 (.-status (await (js/fetch (str base url)))))))))
+                             (is (= 403 (.-status (await (js/fetch (str base url))))))))))))
                        (testing "a second bot by one click: made from the assistant's text, shown in this tab as New bot, its chat and its files its own"
                          (is (= {:success? true} (await (command! base cookie :bot/create {:tab "t1"}))))
                          (let [id2 (:id (second (machine/listed)))
