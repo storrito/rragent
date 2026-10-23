@@ -118,8 +118,8 @@
                                  :en)
             text (set (strings page))]
         (is (= "v0.1.2" (last (find-tag page :button.version))))
-        (is (= [[:data/command {:command/kind :update/check}]] (get-in (second (find-tag page :button.version)) [:on :click])))
-        (is (= "Look for a newer rragent" (:title (second (find-tag page :button.version)))))
+        (is (= [[:data/command {:command/kind :settings/open :command/data {:tab :ui/tabid}}]] (get-in (second (find-tag page :button.version)) [:on :click])) "the version opens the settings")
+        (is (= "Look for a newer rragent in the settings" (:title (second (find-tag page :button.version)))))
         (is (contains? text "rragent 0.1.3 is available."))
         (is (contains? text "Subagents"))
         (is (contains? text "Update"))
@@ -291,11 +291,58 @@
       (is (= :div.banner.update.failed (first banner)))
       (is (some #{"Die Aktualisierung auf 0.1.3 hat nicht geklappt: HTTP 404 from x"} (strings banner)))
       (is (= "Noch einmal versuchen" (last (find-tag banner :button.link))))))
-  (testing "the answers of a lookup the person asked for"
-    (is (= [:div.banner.update "rragent 0.1.2 is the newest."]
-           (i18n/translate (view/update-banner {:current "0.1.2" :checked :newest}) :en)))
-    (is (= [:div.banner.update.failed "The newest release could not be looked up."]
-           (i18n/translate (view/update-banner {:current "0.1.2" :checked :failed}) :en)))))
+  (testing "the answers of a lookup the person asked for are the settings', not the banner's"
+    (is (nil? (view/update-banner {:current "0.1.2" :checked :newest})))
+    (is (nil? (view/update-banner {:current "0.1.2" :checked :failed})))))
+
+(deftest settings-test
+  (let [page (fn [update & [locale]]
+               (let [locale (or locale :en)]
+                 (i18n/translate (view/page {:agent {} :conversation nil :locale locale :settings? true :update update}) locale)))]
+    (testing "in place of the chat: the title, the way back, the one section with the version and the button"
+      (let [page (page {:current "0.1.2" :auto? false})
+            text (set (strings page))]
+        (is (contains? text "Settings"))
+        (is (contains? text "Updates"))
+        (is (contains? text "You run rragent 0.1.2."))
+        (is (contains? text "Check for updates"))
+        (is (nil? (find-tag page :ui/composer)) "no chat")
+        (is (nil? (find-tag page :section.feed)))
+        (is (= [[:data/command {:command/kind :update/check}]] (get-in (second (find-tag page :button.link.check)) [:on :click])))
+        (is (false? (:disabled (second (find-tag page :button.link.check)))))
+        (is (= [[:data/command {:command/kind :settings/close :command/data {:tab :ui/tabid}}]] (get-in (second (find-tag page :button.link.close)) [:on :click])))
+        (is (= "current" (:class (second (find-tag page :button.settings)))) "marked in the sidebar")
+        (is (nil? (find-tag page :div.banner.update)))
+        (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
+    (testing "the sidebar's way to the settings, unmarked while the chat shows"
+      (let [chat (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en)
+            button (find-tag chat :button.settings)]
+        (is (= [[:data/command {:command/kind :settings/open :command/data {:tab :ui/tabid}}]] (get-in (second button) [:on :click])))
+        (is (nil? (:class (second button))))
+        (is (= "Settings" (last button)))
+        (is (some? (find-tag chat :ui/composer)))))
+    (testing "what the lookup is doing and what it found"
+      (let [checking (page {:current "0.1.2" :checking? true})]
+        (is (some #{"Checking …"} (strings checking)))
+        (is (true? (:disabled (second (find-tag checking :button.link.check))))))
+      (is (some #{"rragent 0.1.2 is the newest."} (strings (page {:current "0.1.2" :checked :newest}))))
+      (is (some #{"The newest release could not be looked up."} (strings (page {:current "0.1.2" :checked :failed}))))
+      (let [found (page {:current "0.1.2" :version "0.1.3" :notes "Subagents" :state :known :auto? true :checked :found})
+            text (set (strings found))]
+        (is (contains? text "rragent 0.1.3 is available."))
+        (is (contains? text "Subagents"))
+        (is (= "Update" (last (find-tag found :button.link))))
+        (is (contains? text "It installs itself once the agent is idle; the page comes back by itself.")))
+      (is (some #{"Updating to rragent 0.1.3 … the page comes back by itself."} (strings (page {:current "0.1.2" :version "0.1.3" :state :applying}))))
+      (let [failed (page {:current "0.1.2" :version "0.1.3" :state :failed :error "HTTP 404 from x"})]
+        (is (some #{"The update to 0.1.3 did not work: HTTP 404 from x"} (strings failed)))
+        (is (= "Try again" (last (find-tag failed :button.link))))))
+    (testing "in German"
+      (let [text (set (strings (page {:current "0.1.2"} :de)))]
+        (is (contains? text "Einstellungen"))
+        (is (contains? text "Du nutzt rragent 0.1.2."))
+        (is (contains? text "Nach Updates suchen"))
+        (is (contains? text "Zurück zum Chat"))))))
 
 (deftest attachments-test
   (let [text "What is in it?\nimage: uploads/0a0b.png\nvideo: uploads/ab12.mp4\naudio: uploads/ff00.wav"

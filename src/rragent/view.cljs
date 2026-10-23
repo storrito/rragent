@@ -1,7 +1,8 @@
 (ns rragent.view
   "The page as a function of the bots, the conversation of the one
    shown and its artifacts: the sidebar with the bots (name, state, the
-   way to make, rename and delete one), the header, the transcript of
+   way to make, rename and delete one; the settings at its bottom), the
+   header, the transcript of
    pi-durable's view (`rragent.page/conversation` turns the view value
    into the data this namespace reads) as a feed of items, the
    composer, and the pane of the artifacts (the keys of
@@ -410,7 +411,8 @@
 
 (defn header
   "The bot's name and model, the running version of rragent (a click
-   on it looks for a newer release, `rragent.update`), how full the
+   on it opens the settings, `settings`, where a newer release is
+   looked for), how full the
    model's context is (`:ui/context`, a ring that opens the usage,
    `rragent.client`), whether a run goes, and the button that switches
    between the light and the dark theme (`:ui/theme-toggle`, client
@@ -422,8 +424,9 @@
    [:h1 name]
    [:span.model model]
    (when version
-     [:button.version {:title [:i18n :update/check-title]
-                       :on {:click [[:data/command {:command/kind :update/check}]]}}
+     [:button.version {:title [:i18n :settings/version-title]
+                       :on {:click [[:data/command {:command/kind :settings/open
+                                                    :command/data {:tab :ui/tabid}}]]}}
       (str "v" version)])
    (when usage
      [:ui/context {:ui/used (:used usage)
@@ -453,9 +456,9 @@
   "Above the chat when a newer rragent is known (`rragent.update`, the
    `:update` of the db): the version, the first line of its notes and
    the button, then what the update is doing, or why it did not work.
-   After a lookup the person asked for, that there is nothing newer,
-   or that the lookup failed. Nothing otherwise."
-  [{:keys [current version notes state error auto? checked]}]
+   Nothing otherwise; what a lookup the person asked for found is the
+   settings' (`updates-section`)."
+  [{:keys [version notes state error auto?]}]
   (cond
     (= :applying state)
     [:div.banner.update [:i18n :update/applying {:version version}]]
@@ -474,13 +477,70 @@
      " "
      (update-button [:i18n :update/button])
      (when auto?
-       [:span.auto " " [:i18n :update/auto]])]
+       [:span.auto " " [:i18n :update/auto]])]))
 
-    (= :newest checked)
-    [:div.banner.update [:i18n :update/newest {:version current}]]
+(defn updates-section
+  "The Updates section of the settings: the running version, the
+   button that looks the newest release up right now
+   (`rragent.update/check-now!`; the hourly lookup keeps its rhythm),
+   and what the lookup found: the newer release with the Update
+   button, what the update is doing or why it did not work, the newest
+   already, or that the lookup failed."
+  [{:keys [current version notes state error auto? checked checking?]}]
+  [:section.updates
+   [:h2 [:i18n :updates/title]]
+   (when current
+     [:p.explain [:i18n :updates/current {:version current}]])
+   [:p [:i18n :updates/explain]]
+   [:p
+    [:button.link.check {:on {:click [[:data/command {:command/kind :update/check}]]}
+                         :disabled (boolean checking?)}
+     [:i18n :updates/check]]]
+   (cond
+     checking?
+     [:p.result [:i18n :updates/checking]]
 
-    (= :failed checked)
-    [:div.banner.update.failed [:i18n :update/lookup-failed]]))
+     (= :applying state)
+     [:p.result [:i18n :update/applying {:version version}]]
+
+     (= :failed state)
+     [:p.result.failed
+      [:i18n :update/failed {:version version :error (str error)}]
+      " "
+      (update-button [:i18n :update/retry])]
+
+     version
+     [:p.result
+      [:i18n :update/available {:version version}]
+      (when (seq notes)
+        [:span.notes " " notes])
+      " "
+      (update-button [:i18n :update/button])
+      (when auto?
+        [:span.auto " " [:i18n :update/auto]])]
+
+     (= :newest checked)
+     [:p.result [:i18n :update/newest {:version current}]]
+
+     (= :failed checked)
+     [:p.result.failed [:i18n :update/lookup-failed]])])
+
+(defn settings
+  "In place of the bot's chat and pane, for the tab that opened them
+   (`:settings/open`: the button at the bottom of the sidebar, or the
+   version in the header): a bar with the title and the way back
+   (`:settings/close`), and the one section there is, the updates
+   (`updates-section`). More sections follow here."
+  [update]
+  (list
+   [:header.bar
+    [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
+    [:h1 [:i18n :settings/title]]
+    [:button.link.close {:on {:click [[:data/command {:command/kind :settings/close
+                                                      :command/data {:tab :ui/tabid}}]]}}
+     [:i18n :settings/close]]]
+   [:div.settings
+    (updates-section update)]))
 
 (defn phone-words
   "The words of the phone's page (`rragent.client.phone`), translated
@@ -945,8 +1005,9 @@
    (its `:label` when it has none of its own yet: \"New bot\" and when
    it was made) and state, the one shown marked; the way to make one;
    a row being deleted asks, a row being renamed is a field
-   (`:deleting?`, `:renaming?` of the bot)."
-  [bots shown version]
+   (`:deleting?`, `:renaming?` of the bot). At the bottom the way to
+   the settings, marked while this tab shows them (`settings?`)."
+  [bots shown version settings?]
   [:aside.sidebar
    [:div.brand "rragent"
     (when version
@@ -967,7 +1028,12 @@
                          :data-bot id}
                  [:span.name (or label name)]
                  [:span.state (state-label state)]]
-                (bot-actions id (< 1 (count bots)))))])]])
+                (bot-actions id (< 1 (count bots)))))])]
+   [:div.bottom
+    [:button.settings {:class (when settings? "current")
+                       :on {:click [[:data/command {:command/kind :settings/open
+                                                    :command/data {:tab :ui/tabid}}]]}}
+     [:i18n :settings/button]]]])
 
 (defn page
   "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :label
@@ -981,8 +1047,10 @@
    (`rragent.update`); `:note`, a line above the chat when the bot is
    not the one the URL named; `:failed`, why the bot did not open,
    when it did not; `:phone`, the phone paired as a camera while its
-   hello is fresh (`rragent.phone/status`), or nil."
-  [{:keys [bots bot conversation locale onboarding update note failed phone] pane :artifacts}]
+   hello is fresh (`rragent.phone/status`), or nil; `:settings?`,
+   whether this tab shows the settings in place of the bot's chat and
+   pane (`settings`)."
+  [{:keys [bots bot conversation locale onboarding update note failed phone settings?] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -994,30 +1062,34 @@
      ;; the drawer state on a phone, toggled by labels, never rendered
      ;; with :checked so that the person's choice survives a frame
      [:input#nav.toggle {:type "checkbox"}]
-     (sidebar bots id (:current update))
+     (sidebar bots id (:current update) settings?)
      [:label.backdrop {:for "nav"}]
-     ;; keyed by the bot: a switch builds the chat anew, the transcripts
-     ;; of two bots share no element
-     [:div.main {:replicant/key (str "bot-" id)}
-      ;; the view on a phone once there are artifacts, chat or artifacts;
-      ;; never rendered with :checked either, see `views`
-      (when artifacts?
-        (list
-         [:input#view-chat.toggle {:type "radio" :name "view"}]
-         [:input#view-made.toggle {:type "radio" :name "view"}]))
-      (header bot status (:current update) (context-usage conversation))
-      (when artifacts?
-        (views))
-      [:div.body
-       [:div.chat
-        (update-banner update)
-        (when note
-          [:div.banner.note note])
-        (when failed
-          [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
-        (feed items status onboarding {:base base :bot id})
-        (composer id base status (when fresh? (:placeholder onboarding)) phone)]
-       ;; the handle between the chat and the pane, dragged to give one
-       ;; more room (`rragent.client/splitter`); a phone has none
-       [:ui/splitter]
-       (artifacts (assoc pane :base base :bot id))]]]))
+     (if settings?
+       ;; keyed apart from the chat: the two share no element
+       [:div.main.settings-open {:replicant/key "settings"}
+        (settings update)]
+       ;; keyed by the bot: a switch builds the chat anew, the transcripts
+       ;; of two bots share no element
+       [:div.main {:replicant/key (str "bot-" id)}
+        ;; the view on a phone once there are artifacts, chat or artifacts;
+        ;; never rendered with :checked either, see `views`
+        (when artifacts?
+          (list
+           [:input#view-chat.toggle {:type "radio" :name "view"}]
+           [:input#view-made.toggle {:type "radio" :name "view"}]))
+        (header bot status (:current update) (context-usage conversation))
+        (when artifacts?
+          (views))
+        [:div.body
+         [:div.chat
+          (update-banner update)
+          (when note
+            [:div.banner.note note])
+          (when failed
+            [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
+          (feed items status onboarding {:base base :bot id})
+          (composer id base status (when fresh? (:placeholder onboarding)) phone)]
+         ;; the handle between the chat and the pane, dragged to give one
+         ;; more room (`rragent.client/splitter`); a phone has none
+         [:ui/splitter]
+         (artifacts (assoc pane :base base :bot id))]])]))

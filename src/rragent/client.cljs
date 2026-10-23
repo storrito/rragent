@@ -716,8 +716,8 @@
        "click"
        (fn [^js event]
          (close-menus! (.-target event))
-         ;; the new bot opens in this tab with the next frame
-         (when (some-> (.-target event) (.closest ".sidebar button.new"))
+         ;; the new bot, or the settings, open in this tab with the next frame
+         (when (some-> (.-target event) (.closest ".sidebar button.new, .sidebar button.settings"))
            (close-drawer!))
          (when-let [^js link (some-> (.-target event) (.closest "a[data-bot]"))]
            (when (plain-click? event)

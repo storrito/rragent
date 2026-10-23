@@ -30,8 +30,11 @@
    built client under `/app.css` and `/assets/*`; all behind the token
    (`rragent.auth`); `POST /hook/<name>/<secret>` outside it, tried on
    every bot, the hooks' own secrets are their keys (`rragent.hooks`).
-   The commands `:update/apply` and `:update/check` are the banner's
-   and the header's (`rragent.update`)."
+   The commands `:settings/open` and `:settings/close` put the settings
+   in place of the chat for a tab and bring the chat back
+   (`rragent.view/settings`); `:update/check` is the settings' lookup
+   of a newer release, `:update/apply` the Update button's
+   (`rragent.update`)."
   (:require ["node:path" :as path]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
@@ -137,7 +140,7 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs update]} @db/db
+  (let [{:keys [tabs update settings-open]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         locale (i18n/locale (:ring/request w))]
@@ -152,6 +155,7 @@
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
                     :update update
+                    :settings? (contains? settings-open (:tabid w))
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)})
         (i18n/translate locale))))
@@ -170,8 +174,8 @@
 (defn affected
   "What a change of the atom from `old` to `new` refreshes
    (`rragent.rframes.sse/watch!`): every tab when a key of the page's
-   own changed (the version and the banner, the tabs' picks, the
-   machine), when a bot came or went, or when what the sidebar shows
+   own changed (the version and the banner, the tabs' picks and
+   settings, the machine), when a bot came or went, or when what the sidebar shows
    of a bot changed (`sidebar-keys`, a run starting or ending); the
    tabs showing a bot whose other value keys (`bot-value-keys`)
    changed; nil when only handles changed."
@@ -376,8 +380,8 @@
     (command/rejected w :no-updater)))
 
 (defn- update-check-command
-  "The version in the header: the newest release looked up now, its
-   answer in the banner."
+  "Check for updates in the settings: the newest release looked up
+   now, its answer in the settings."
   [w]
   (if-let [handle (:updater @db/db)]
     (do (-> (update/check-now! handle)
@@ -386,16 +390,39 @@
         (command/accepted w))
     (command/rejected w :no-updater)))
 
+(defn- chat-in
+  "The atom's value with the chat in the tab `tab`: its settings
+   closed, when they were open."
+  [value tab]
+  (update value :settings-open (fnil disj #{}) tab))
+
+(defn- settings-open-command
+  "The settings in place of the chat, for the tab `tab` that asked
+   (`rragent.view/settings`)."
+  [w]
+  (if-let [tab (:tab (command/command-data w))]
+    (do (swap! db/db update :settings-open (fnil conj #{}) tab)
+        (command/accepted w))
+    (command/rejected w :no-tab)))
+
+(defn- settings-close-command
+  "Back to the chat in the tab `tab`."
+  [w]
+  (if-let [tab (:tab (command/command-data w))]
+    (do (swap! db/db chat-in tab)
+        (command/accepted w))
+    (command/rejected w :no-tab)))
+
 (defn- show-command
   "The tab `tab` shows the bot `id` from now on, nil whatever its URL
-   names."
+   names; its settings close."
   [w]
   (let [{:keys [id tab]} (command/command-data w)]
     (cond
       (nil? tab) (command/rejected w :no-tab)
-      (nil? id) (do (swap! db/db update :tabs dissoc tab)
+      (nil? id) (do (swap! db/db #(-> (update % :tabs dissoc tab) (chat-in tab)))
                     (command/accepted w))
-      (machine/bot id) (do (swap! db/db assoc-in [:tabs tab] (str id))
+      (machine/bot id) (do (swap! db/db #(-> (assoc-in % [:tabs tab] (str id)) (chat-in tab)))
                            (command/accepted w))
       :else (command/rejected w :no-such-bot))))
 
@@ -408,7 +435,7 @@
     (try
       (let [{:keys [id]} (await (machine/create! {}))]
         (when tab
-          (swap! db/db assoc-in [:tabs tab] id))
+          (swap! db/db #(-> (assoc-in % [:tabs tab] id) (chat-in tab))))
         (command/accepted w))
       (catch :default e
         (js/console.error "[bots]" (str e))
@@ -677,6 +704,10 @@
       :command/fn #'update-apply-command}
      {:command/kind :update/check
       :command/fn #'update-check-command}
+     {:command/kind :settings/open
+      :command/fn #'settings-open-command}
+     {:command/kind :settings/close
+      :command/fn #'settings-close-command}
      {:command/kind :bot/show
       :command/fn #'show-command}
      {:command/kind :bot/create

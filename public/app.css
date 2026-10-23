@@ -223,6 +223,36 @@ body {
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
+/* The bottom of the sidebar: the way to the settings
+   (rragent.view/settings), marked while this tab shows them. */
+.sidebar .bottom {
+  display: flex;
+  flex-direction: column;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.sidebar button.settings {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar button.settings:hover {
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+}
+
+.sidebar button.settings.current {
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
 /* The three dots of a row and their menu, see rragent.view/bot-actions
    and file-actions (the rows of the artifacts list have the same):
    shown on hover, on the current row, and always on a touch screen. */
@@ -1339,6 +1369,7 @@ pre {
   }
 
   .sidebar button.new,
+  .sidebar button.settings,
   .sidebar ul.bots li .row {
     min-height: 44px;
   }
@@ -1484,6 +1515,10 @@ pre {
 @media (max-width: 640px) {
   .feed {
     padding: 12px;
+  }
+
+  .main .settings {
+    padding: 12px 12px 24px;
   }
 
   .composer {
@@ -2430,9 +2465,87 @@ pre {
   content: none;
 }
 
+/* The settings in place of the chat (rragent.view/settings): the bar
+   with the way back, the sections below it; the look follows pchat's
+   settings. */
+.main.settings-open .bar button.close {
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.main.settings-open .bar button.close:hover {
+  border-color: var(--muted);
+}
+
+.main .settings {
+  flex: 1;
+  min-height: 0;
+  padding: 16px 20px 32px;
+  overflow-y: auto;
+}
+
+.main .settings > section {
+  max-width: 720px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.main .settings h2 {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.main .settings p {
+  margin: 0 0 12px;
+}
+
+.main .settings .explain {
+  color: var(--text);
+}
+
+.main .settings .result.failed {
+  color: var(--warn);
+}
+
+.main .settings button.link {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.main .settings button.link:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.main .settings button.link:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.main .settings .result button.link {
+  margin: 0 4px 0 8px;
+  padding: 2px 10px;
+  font-size: 13px;
+}
+
 /* A newer rragent (rragent.update): the banner above the chat with the
    version, the first line of its notes and the button, and the running
-   version in the header, which looks for one on a click. */
+   version in the header, which opens the settings on a click. */
 .banner.update {
   padding: 8px 16px;
   border-bottom: 1px solid var(--line);

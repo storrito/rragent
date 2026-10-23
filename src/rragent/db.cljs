@@ -8,7 +8,10 @@
        :updater  the handle of `rragent.update`, whose `:update` key below
                  is the banner's state
        :update   the running version and a newer release, the banner
+                 and the Updates section of the settings
        :tabs     {tabid bot-id}, the bot each tab picked in the sidebar
+       :settings-open  #{tabid}, the tabs showing the settings in place
+                 of the chat
        :bots     {\"<conversation id>\" bot}, every open bot, by its id as a string
 
    A bot's map holds what the page reads, its value keys, and the

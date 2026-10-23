@@ -1,6 +1,7 @@
 (ns rragent.update
   "A newer rragent, taken from the releases on GitHub. At start, every
-   hour and when the person asks, the newest release is looked up at
+   hour and when the person asks (Check for updates in the settings,
+   `rragent.view/settings`), the newest release is looked up at
    `releases/latest` of GitHub's API, without a token; a release newer
    than the running version (`rragent.version`, the tag's) is noted in
    the db the page renders from, and the page shows a banner with the
@@ -32,9 +33,10 @@
        :update {:current \"0.1.2\" :auto? true
                 :version \"0.1.3\" :tarball-url … :sha256-url … :notes \"…\"
                 :state :known | :applying | :failed, :error \"…\"
-                :checked :found | :newest | :failed}
+                :checking? true, :checked :found | :newest | :failed}
 
-   `:checked` is the answer of a lookup the person asked for."
+   `:checking?` says that a lookup the person asked for runs,
+   `:checked` is its answer."
   (:require ["node:child_process" :as child]
             ["node:crypto" :as crypto]
             ["node:fs" :as fs]
@@ -190,12 +192,14 @@
                 :newest))))
 
 (defn ^:async check-now!
-  "The person asks: `check!`, its answer kept in the db as `:checked`,
-   so that the banner can say that there is nothing newer, or that the
-   lookup failed. Answers what `check!` answers."
+  "The person asks (Check for updates in the settings): `check!`, the
+   db says `:checking?` meanwhile and keeps the answer as `:checked`,
+   so that the settings can say that there is nothing newer, or that
+   the lookup failed. Answers what `check!` answers."
   [{:keys [db] :as handle}]
+  (swap! db update :update assoc :checking? true)
   (let [result (await (check! handle))]
-    (swap! db assoc-in [:update :checked] result)
+    (swap! db update :update #(-> (dissoc % :checking?) (assoc :checked result)))
     result))
 
 (defn- ^:async download!
