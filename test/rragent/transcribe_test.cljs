@@ -143,6 +143,18 @@
                    (is (str/starts-with? answer "artifacts/talk/words.md: "))
                    (is (not (str/includes? answer "[0:00]")))
                    (is (fs/existsSync (path/join dir "talk" "words.md")))))
+               (testing "corrected through the tool's api, the words with their times beside the transcript"
+                 (let [api #js {:conversationId "c1"
+                                :conversation (fn [_ _] (js/Promise.resolve nil))}
+                       answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "talk/fixed.md"
+                                                              :words? true :api api :names "Peace" :messages (fn [_ _] (js/Promise.reject (js/Error. "no bot")))
+                                                              :complete (fn [_] (js/Promise.resolve {:text "{\"fixes\": [{\"heard\": \"Piece\", \"meant\": \"Peace\"}]}" :cost 0}))}))
+                       saved (js->clj (js/JSON.parse (fs/readFileSync (path/join dir "talk" "fixed.words.json") "utf8")) :keywordize-keys true)]
+                   (is (str/includes? answer "the words with their times in artifacts/talk/fixed.words.json"))
+                   (is (re-find #"Corrected: Piece → Peace( \(\d×\))?\." answer))
+                   (is (re-find #"\n\nPeace \d+\." answer))
+                   (is (= "uploads/ab12.wav" (:file saved)))
+                   (is (= {:word "Peace" :start 0.1 :end 0.4 :confidence 0.98 :heard "Piece"} (first (:words saved))))))
                (testing "a file that is not there, a path above the working directory, an out above artifacts/"
                  (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/nope.mp3"}))) "no file uploads/nope.mp3"))
                  (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "../etc/passwd"}))) "path under the working directory"))
