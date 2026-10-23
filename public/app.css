@@ -897,20 +897,21 @@ body {
   border-top: 1px solid var(--line);
 }
 
+/* The text, bare: the card around the row (below) carries the border
+   and the focus ring. A handle pulls it taller on a wide screen. */
 .composer textarea {
   flex: 1;
   min-width: 0;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
   color: var(--text);
   font: inherit;
   resize: vertical;
 }
 
 .composer textarea:focus {
-  outline: 1px solid var(--accent);
+  outline: none;
 }
 
 button {
@@ -1334,8 +1335,7 @@ pre {
     width: min(80vw, 300px);
     padding-top: calc(16px + env(safe-area-inset-top, 0px));
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
-    box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
   }
 
   .sidebar button.new,
@@ -1354,8 +1354,11 @@ pre {
     transition: opacity 0.2s ease;
   }
 
+  /* The shadow only while it is open: off the screen it would still
+     reach 40px into the page, a dark line down the left edge. */
   .rragent #nav:checked ~ .sidebar {
     transform: none;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
   }
 
   .rragent #nav:checked ~ .backdrop {
@@ -1491,8 +1494,8 @@ pre {
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
-  .composer-input .row {
-    gap: 6px;
+  .composer textarea {
+    resize: none;
   }
 
   .composer button,
@@ -1507,7 +1510,7 @@ pre {
 
 /* The composer with its attachments: the chips above the text, a picture
    as a thumbnail, a clip with its name, size and the progress of its
-   upload; the attach button beside the text. */
+   upload. */
 .composer-input {
   display: flex;
   flex: 1;
@@ -1516,22 +1519,36 @@ pre {
   min-width: 0;
 }
 
+/* The row is a card like the Claude app's, on a phone and on a wide
+   screen alike: the text on top across the width, under it the attach
+   button on the left, the screencast and the microphone buttons, Stop
+   while a run goes, and the round send button on the right, each an
+   icon in a circle (rragent.client.icons; Stop keeps its glyph).
+   While a send waits for an upload the button says so in words, as a
+   pill. The card takes the focus ring, not the text. */
 .composer-input .row {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
   align-items: flex-end;
   min-width: 0;
+  padding: 2px 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.composer-input .row:focus-within {
+  border-color: var(--accent);
 }
 
 .composer-input textarea {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
 }
 
 .composer .attach {
-  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
   background: var(--panel);
   cursor: pointer;
   user-select: none;
@@ -1541,103 +1558,61 @@ pre {
   border-color: var(--muted);
 }
 
+.composer .attach,
+.composer button.record,
+.composer button.stop,
+.composer button.send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.composer label.attach {
+  order: 1;
+  margin-right: auto;
+}
+
+.composer button.record {
+  order: 2;
+}
+
+.composer button.dictate {
+  order: 2;
+}
+
+.composer button.stop {
+  order: 3;
+}
+
+.composer button.send {
+  order: 4;
+}
+
 /* Send and Stop carry their word and an icon (rragent.client/composer):
-   the word on a wide screen, the icon on a phone (below). */
-.composer button .icon {
+   the icon in the circle, the word on the pill. */
+.composer button .word {
   display: none;
 }
 
-/* The composer on a phone: a card like the Claude app's, the text on
-   top across the width, under it the attach button on the left, the
-   microphone, Stop while a run goes, and the round send button on the
-   right, each an icon in a circle. While a send waits for an upload the
-   button says so in words, as a pill. The card takes the focus ring,
-   not the text. */
-@media (max-width: 640px) {
-  .composer-input .row {
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 2px 8px 8px 12px;
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    background: var(--panel);
-  }
+.composer button.send.pending {
+  width: auto;
+  padding: 0 14px;
+  border-radius: 20px;
+  font-size: 14px;
+}
 
-  .composer-input .row:focus-within {
-    border-color: var(--accent);
-  }
+.composer button.send.pending .word {
+  display: inline;
+}
 
-  .composer-input textarea {
-    flex: 1 1 100%;
-    padding: 8px 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    resize: none;
-  }
-
-  .composer textarea:focus {
-    outline: none;
-  }
-
-  .composer .attach,
-  .composer button.record,
-  .composer button.stop,
-  .composer button.send {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    padding: 0;
-    border-radius: 50%;
-    font-size: 18px;
-    line-height: 1;
-  }
-
-  .composer label.attach {
-    order: 1;
-    margin-right: auto;
-  }
-
-  .composer button.record {
-    order: 2;
-  }
-
-  .composer button.dictate {
-    order: 2;
-  }
-
-  .composer button.stop {
-    order: 3;
-  }
-
-  .composer button.send {
-    order: 4;
-  }
-
-  .composer button .word {
-    display: none;
-  }
-
-  .composer button .icon {
-    display: inline;
-  }
-
-  .composer button.send.pending {
-    width: auto;
-    padding: 0 14px;
-    border-radius: 20px;
-    font-size: 14px;
-  }
-
-  .composer button.send.pending .word {
-    display: inline;
-  }
-
-  .composer button.send.pending .icon {
-    display: none;
-  }
+.composer button.send.pending .icon {
+  display: none;
 }
 
 /* The microphone button while it records, and the strip above the

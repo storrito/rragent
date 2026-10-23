@@ -34,6 +34,7 @@
             [rframes.client.state :as state]
             [rframes.client.ui :as ui]
             [rragent.client.dictation :as dictation]
+            [rragent.client.icons :as icons]
             [rragent.client.phone :as phone]
             [rragent.client.recorder :as recorder]))
 
@@ -453,9 +454,11 @@
    `:ui/stop`, actions, a Stop button beside Send runs them (a run
    goes). With `:ui/record-url`, where a screencast's pieces go, the
    row has the screencast button and the panel above the text
-   (`rragent.client.recorder`), its words in `:ui/recorder`. Send and Stop carry their word and an icon; the stylesheet
-   shows the word on a wide screen and the icon on a phone, where the
-   row is a card like the Claude app's. The labels are the server's,
+   (`rragent.client.recorder`), its words in `:ui/recorder`. The row is
+   a card like the Claude app's at every width: the text on top, under
+   it the buttons as icons in circles (`rragent.client.icons`); Send
+   and Stop carry their word besides, shown while a send waits for an
+   upload. The labels are the server's,
    translated; the other attributes pass through to the textarea."
   [{:keys [ui/store-key ui/attachments-key ui/upload-url ui/send ui/send-label ui/send-pending-label
            ui/send-cancel-title ui/attach-title ui/remove-title ui/uploading-label ui/failed-label
@@ -548,7 +551,7 @@
                          :transcribing-title transcribing-title
                          :failed-title dictation-failed-title})
       [:label.attach {:title (or attach-title "Attach an image, a video or an audio file")}
-       "📎"
+       icons/paperclip
        [:input {:type "file"
                 :accept "image/*,video/*,audio/*,.mkv,.flac,.m4a"
                 :multiple true
@@ -575,7 +578,7 @@
           (and pending? (dictation/active? state)) (or send-after-dictation-label "Sends once the text is in")
           pending? (or send-pending-label "Sends after the upload")
           :else (or send-label "Send"))]
-       [:span.icon {:aria-hidden "true"} "↑"]]]]))
+       [:span.icon {:aria-hidden "true"} icons/arrow-up]]]]))
 
 (defonce ^:private canvas-node*
   (atom nil))
