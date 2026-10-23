@@ -179,10 +179,13 @@
                       (composio/execute-arguments slug args @(:composio-session handle))))
 
 (defn connections
-  "The organization's connections of services (toolkit slugs such as
-   gmail, googledrive, slack, github), a missing one started: the
-   answer carries a link the person opens to sign in at the service.
-   Give them the link and go on once they say they are connected."
+  "The organization's connections of services, by Composio toolkit
+   slug (googlesheets, gmail, googledrive, googledocs, googlecalendar,
+   slack, notion, github), a missing one started: the answer carries a
+   link the person opens to sign in at the service, good for ten
+   minutes. Call it in the answer in which the person names a service
+   of theirs, give them the link and go on once they say they are
+   connected."
   [handle toolkits]
   (composio/meta-call (partial call handle) @(:discovery handle) "COMPOSIO_MANAGE_CONNECTIONS"
                       (composio/connections-arguments toolkits @(:composio-session handle))))
@@ -220,7 +223,7 @@
    ["(composio/search \"send an email\" [\"gmail\"])" "the tools of the organization's services for a use case: slugs, schemas, what is connected"]
    ["(composio/schemas [\"GMAIL_SEND_EMAIL\"])" "the input schemas of tools by slug"]
    ["(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})" "runs one tool with its arguments"]
-   ["(composio/connections [\"gmail\"])" "the connections of services, a missing one started: a link for the person to sign in"]
+   ["(composio/connections [\"googlesheets\"])" "the connections of services by toolkit slug (googlesheets, gmail, googledrive, slack, notion, github), a missing one started: a sign-in link for the person, good for ten minutes; the answer to give as soon as they name a service of theirs"]
    ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each"]
    ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid of the storrito/ integration procedures"]
    ["(storrito/add-integration-trigger {:agentUuid (storrito/agent-uuid) :toolkit \"googledrive\" :trigger \"GOOGLEDRIVE_GOOGLE_DRIVE_CHANGES\" :config {} :targetUrl \"https://…/hook/<name>/<secret>\"})" "every event of that kind at the connected service posted to one of your hooks (the hook tool makes one) from now on; (storrito/list-integration-trigger-types {:toolkit \"googledrive\"}) lists the events of a service and their config"]

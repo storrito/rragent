@@ -138,6 +138,8 @@
       (let [help (codemode/evaluate handle "(help)")]
         (is (str/starts-with? help "Your REPL: Clojure"))
         (is (str/includes? help "(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})\n    runs one tool with its arguments"))
+        (is (str/includes? help "(composio/connections [\"googlesheets\"])\n    the connections of services by toolkit slug") "the slug of a spreadsheet, and that the link is the answer to give")
+        (is (str/includes? help "good for ten minutes"))
         (is (str/ends-with? help "=> nil")))
       (let [doc (codemode/evaluate handle "(doc call)")]
         (is (str/includes? doc "agent/call\n((which path & [opts]))\n  An HTTP request through the gateway"))))

@@ -47,6 +47,13 @@
     (is (str/includes? text "`name:` line"))
     (is (str/includes? text "`renamed: true`") "the person's rename, which the bot leaves alone")))
 
+(deftest the-definition-offers-the-connection-test
+  (testing "a service the person names is connected in the same answer, through the REPL"
+    (let [text (fs/readFileSync "deploy/agent/AGENT.md" "utf8")]
+      (is (str/includes? text "offer the connection in the same answer"))
+      (is (str/includes? text "`(composio/connections [\"googlesheets\"])`"))
+      (is (str/includes? text "good for ten minutes")))))
+
 (deftest the-definition-names-the-repository-test
   (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-deploy-"))
         copy (path/join dir "AGENT.md")

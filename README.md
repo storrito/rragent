@@ -628,9 +628,12 @@ beside it; `(help)` lists them and `(doc f)` explains each:
   JSON.
 - `(composio/search "send an email" ["gmail"])`, `(composio/schemas
   ["GMAIL_SEND_EMAIL"])`, `(composio/execute "GMAIL_SEND_EMAIL" {:to
-  "a@example.com"})`, `(composio/connections ["gmail"])`: the four meta
-  tools, a completed run's data, a failed one a throw with Composio's
-  error.
+  "a@example.com"})`, `(composio/connections ["googlesheets"])`: the four
+  meta tools, a completed run's data, a failed one a throw with
+  Composio's error; `connections` starts a connection the organization
+  lacks and answers a sign-in link for the person, good for ten
+  minutes, which the agent offers as soon as the person names a
+  service of theirs.
 - `(storrito/procedures)`: the catalog's procedures, each a function
   `storrito/<name>` that takes a map and answers the API's data, a
   failed call a throw with what the API said; a 429 or a 5xx is tried
