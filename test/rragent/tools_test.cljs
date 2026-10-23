@@ -8,8 +8,15 @@
             [rragent.harness :as harness]
             [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
+            [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]
             [rragent.facts :as facts]))
+
+(deftest eval-description-test
+  (testing "the tool every bot has says how a service of the person's is connected, whatever the bot's definition"
+    (is (str/includes? eval-tool/description "(composio/connections [\"googlesheets\"])"))
+    (is (str/includes? eval-tool/description "in the same answer in which they name the service"))
+    (is (str/includes? eval-tool/description "good for ten minutes"))))
 
 (defn faux-models
   "The faux provider playing the model, its answers set with `set-responses!`;
