@@ -45,6 +45,7 @@
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             ["qrcode" :as qrcode]
+            [rragent.client.icons :as icons]
             [rragent.client.usb-screen :as usb]))
 
 (defonce ^:private session*
@@ -1226,4 +1227,4 @@
                                               (nil? status) (open! store (assoc ctx :phone-url (str/replace (:url ctx) #"/record$" "/phone")))
                                               (#{:recording :finishing} status) nil
                                               :else (close! store)))}}
-       "🎥"])))
+       icons/camera])))

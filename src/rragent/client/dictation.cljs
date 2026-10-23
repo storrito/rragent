@@ -37,7 +37,8 @@
    is in `session*`; the level goes to the node directly, twenty times
    a second, not through the store and a render of the page."
   (:require [clojure.string :as str]
-            [cognitect.transit :as t]))
+            [cognitect.transit :as t]
+            [rragent.client.icons :as icons]))
 
 (def silence-ms
   "The pause after which the piece spoken so far is sent."
@@ -547,4 +548,4 @@
                                                (if (= :recording status)
                                                  (stop! store store-key url)
                                                  (start! store store-key url (textarea-of (.-currentTarget event))))))}}
-       "🎤"])))
+       icons/microphone])))
