@@ -226,7 +226,7 @@
       (command/rejected w :empty-message)
 
       :else
-      (let [content (uploads/content uploads text attachments (await (harness/sees-images? (:models (machine/agent)) conversation)))]
+      (let [content (await (uploads/content uploads text attachments (await (harness/sees-images? (:models (machine/agent)) conversation))))]
         (await (harness/submit conversation #js {:type "input" :content (clj->js content)}))
         (command/accepted w)))))
 
