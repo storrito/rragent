@@ -22,9 +22,9 @@
 
    An answer that does not look like the dictation (empty, a tool call,
    far longer or shorter, late) leaves it as the speech model wrote it."
-  (:require ["@earendil-works/pi-durable" :refer [ProviderDoc]]
+  (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
+            ["@earendil-works/pi-durable" :refer [ProviderDoc]]
             [clojure.string :as str]
-            [rragent.harness :as harness]
             [rragent.rframes.transit :as transit]))
 
 (def path
@@ -182,12 +182,12 @@
    `timeout-ms`)."
   [{:keys [harness conversation root models]} words before id]
   (let [conversation (or conversation root)
-        ref (.-model (await (.agent conversation harness/context)))
+        ref (.-model (await (.agent conversation BACKGROUND_CONTEXT)))
         model (when ref (.getModel models (.-provider ref) (or id model-id)))]
     (when-not model
       (throw (js/Error. (str "No model " (or id model-id) " at " (some-> ref .-provider) "."))))
-    (let [view (await (.context conversation harness/context))
-          provider (await (.snapshot harness ProviderDoc (.-id conversation) harness/context))
+    (let [view (await (.context conversation BACKGROUND_CONTEXT))
+          provider (await (.snapshot harness ProviderDoc (.-id conversation) BACKGROUND_CONTEXT))
           messages (request-messages (js->clj (.-messages view) :keywordize-keys true) words before)
           started (js/Date.now)
           message (await (.completeSimple models model #js {:messages (clj->js messages)}

@@ -17,10 +17,19 @@
    model reads goes whole when it is small enough, else the tool says
    that ffmpeg is needed.
 
+   The words are corrected with what the agent knows before anything
+   is written (`rragent.transcript-correction`): the names the speech
+   model wrote the way they sound, by a small model with the
+   conversation and the `names` the agent passes, every word keeping
+   its time; the answer says what changed.
+
    The transcript goes under `artifacts/transcripts/<name>.md`, or
    where `out` says: paragraphs cut at the pauses of the speech
    (`paragraphs`), each with its time when `timestamps` is asked; and
-   the answer carries the text, so the agent works with it at once."
+   the answer carries the text, so the agent works with it at once.
+   With `words`, every word with its start, end and confidence goes
+   beside it as `<name>.words.json`, for cutting a video at the
+   pauses."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             ["node:child_process" :as child]
@@ -30,6 +39,7 @@
             [clojure.string :as str]
             [rragent.tools.media :as media]
             [rragent.tools.work :as work]
+            [rragent.transcript-correction :as transcript-correction]
             [rragent.transcription :as transcription]))
 
 (def piece-seconds
@@ -212,10 +222,41 @@
   (when (and (number? cost) (pos? cost))
     (str ", $" (.toFixed cost 3))))
 
+(defn words-file
+  "Where the words of the transcript `out` go: beside it, `.words.json`
+   for its extension."
+  [out]
+  (str (str/replace out #"\.[^./]+$" "") ".words.json"))
+
+(defn ^:async corrected
+  "`state` with its words corrected (`rragent.transcript-correction`)
+   with the messages of the tool call's conversation, read through the
+   tool's `api` in the call's `context`, by `complete`; and `:fixed`,
+   the line that says what changed or why nothing did. `state` as it
+   is without an `api` or without words that carry their times."
+  [state {:keys [api context names complete]}]
+  (if (and api (usable? (:words state) (:text state)))
+    (try
+      (let [messages (await (transcript-correction/messages-of api context))
+            {:keys [words applied cost failed]} (await (transcript-correction/correct! complete messages (:words state) names))]
+        (assoc state
+               :words words
+               :cost (+ (:cost state) cost)
+               :fixed (cond
+                        (seq applied) (str "Corrected: " (transcript-correction/summary applied) ".")
+                        failed (str "Not corrected: " failed ".")
+                        :else "Nothing to correct.")))
+      (catch :default error
+        (assoc state :fixed (str "Not corrected: " (.-message error) "."))))
+    state))
+
 (defn ^:async transcribe!
   "The transcript of `file` written to `out` under `dir`
-   (`artifacts/`); answers the line for the model with the text."
-  [{:keys [codemode work dir file out timestamps?] :as options}]
+   (`artifacts/`), its words corrected through `api` (the tool's, with
+   the call's `context`) when there is one, by `complete` (OpenRouter's
+   unless a test gives one), and beside it the words with their times
+   when `words?`; answers the line for the model with the text."
+  [{:keys [codemode work dir file out timestamps? words? api context names] :as options}]
   (let [source (source-file work file)
         out (or (not-empty out) (str "transcripts/" (str/replace (path/basename source) #"\.[^.]+$" "") ".md"))
         _ (check-out out)
@@ -237,6 +278,8 @@
                                (conj text (str/trim (str (:text body))))
                                (+ cost (or (some-> body :usage :cost) 0))))
                       {:seconds offset :words words :text (str/join "\n\n" (remove str/blank? text)) :cost cost}))
+            state (await (corrected state {:api api :context context :names names
+                                           :complete (or (:complete options) (transcript-correction/openrouter-complete codemode))}))
             paragraphs (paragraphs (:words state) (:text state) 0)
             transcript (transcript-text paragraphs (boolean timestamps?))
             heading (str "# " (path/basename source) "\n\n"
@@ -245,8 +288,18 @@
           (throw (js/Error. (str "The model heard no words in " (path/relative work source) "."))))
         (fs/mkdirSync (path/dirname target) #js {:recursive true})
         (fs/writeFileSync target (str heading transcript "\n"))
+        (when words?
+          (fs/writeFileSync (path/join dir (words-file out))
+                            (js/JSON.stringify (clj->js {:file (path/relative work source)
+                                                         :model transcription/model
+                                                         :seconds (:seconds state)
+                                                         :words (:words state)})
+                                               nil 1)))
         (str "artifacts/" out ": " (clock (:seconds state)) ", " (count (str/split transcript #"\s+")) " words"
-             (cost-text (:cost state)) ", model " transcription/model "\n\n"
+             (cost-text (:cost state)) ", model " transcription/model
+             (when words? (str "; the words with their times in artifacts/" (words-file out)))
+             (when (:fixed state) (str "\n" (:fixed state)))
+             "\n\n"
              (if (< answer-chars (count transcript))
                (str (subs transcript 0 answer-chars) "\n\n… (the rest is in the file)")
                transcript)))
@@ -261,14 +314,22 @@
         :description (str "The words spoken in an audio or a video file, written down by a speech-to-text model (about a cent a minute), the language detected. "
                           "`file` is a path under the working directory: uploads/<name> for a file the person attached or recorded, artifacts/<path> for one of yours. "
                           "The transcript goes to artifacts/transcripts/<name>.md, or to `out`, and comes back as the answer; with `timestamps` every paragraph starts with its time. "
+                          "Names the model misheard are corrected from our conversation and the `names` you pass (accounts, products, people), every word keeping its time; the answer says what changed. "
+                          "With `words`, every word with its start and end in seconds goes beside the transcript as <name>.words.json, for cutting at the pauses. "
                           "A long file is cut into pieces of ten minutes by ffmpeg, which bash has for cutting, converting and cleaning the audio too (ffmpeg -i in.mp3 -ss 0:30 -to 2:00 out.mp3).")
         :parameters (.Object Type #js {:file (.String Type #js {:description "The audio or video file, uploads/ab12.mp3 or artifacts/talk.m4a"})
                                        :out (.Optional Type (.String Type #js {:description "Where the transcript goes under artifacts/, transcripts/<name>.md by default"}))
-                                       :timestamps (.Optional Type (.Boolean Type #js {:description "True: every paragraph starts with its time, m:ss"}))})
-        :execute (^:async fn [args api _call-context]
+                                       :timestamps (.Optional Type (.Boolean Type #js {:description "True: every paragraph starts with its time, m:ss"}))
+                                       :names (.Optional Type (.String Type #js {:description "Names and terms that may be spoken, comma-separated: accounts, products, people"}))
+                                       :words (.Optional Type (.Boolean Type #js {:description "True: also every word with its times, <name>.words.json"}))})
+        :execute (^:async fn [args api call-context]
                    (work/text (await (transcribe! {:codemode codemode
                                                    :work (work/dir api)
                                                    :dir (work/artifacts-dir api)
                                                    :file (.-file args)
                                                    :out (.-out args)
-                                                   :timestamps? (true? (.-timestamps args))}))))}))
+                                                   :timestamps? (true? (.-timestamps args))
+                                                   :words? (true? (.-words args))
+                                                   :names (.-names args)
+                                                   :api api
+                                                   :context call-context}))))}))
