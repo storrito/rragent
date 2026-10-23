@@ -185,11 +185,14 @@
                        handle (update/handle {:db db :current "0.2.0" :latest-url (latest-path base) :auto? false})]
                    (is (= :newest (await (update/check! handle))))
                    (is (= {:current "0.2.0" :auto? false} (:update @db)))))
-               (testing "the person asks: the answer kept for the banner"
+               (testing "the person asks: the answer kept for the settings"
                  (let [db (atom {})
                        handle (update/handle {:db db :current "0.1.3" :latest-url (latest-path base) :auto? false})]
-                   (is (= :newest (await (update/check-now! handle))))
+                   (let [asked (update/check-now! handle)]
+                     (is (true? (get-in @db [:update :checking?])) "the settings say that it looks meanwhile")
+                     (is (= :newest (await asked))))
                    (is (= :newest (get-in @db [:update :checked])))
+                   (is (nil? (get-in @db [:update :checking?])))
                    (is (= :newest (await (update/check! handle))) "the next lookup on its own")
                    (is (nil? (get-in @db [:update :checked])) "clears the answer")))
                (testing "an API that is down: nothing in the db, one line"
@@ -200,7 +203,7 @@
                    (is (= 1 (count lines)) (pr-str lines))
                    (is (str/starts-with? (first lines) "[update] no lookup of the newest release:"))
                    (is (= 1 (count (await (with-stderr (fn [] (update/check-now! handle)))))) "asked for: one line again")
-                   (is (= :failed (get-in @db [:update :checked])) "and the failure is said in the banner")))
+                   (is (= :failed (get-in @db [:update :checked])) "and the failure is said in the settings")))
                (finally
                  (await (stop)))))
            (testing "an API that answers an error: nothing, one line"
