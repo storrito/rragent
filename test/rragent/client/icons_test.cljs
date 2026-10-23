@@ -7,7 +7,8 @@
 (deftest icons-test
   (doseq [[name icon] {"paperclip" icons/paperclip
                        "camera" icons/camera
-                       "microphone" icons/microphone}]
+                       "microphone" icons/microphone
+                       "arrow-up" icons/arrow-up}]
     (testing name
       (let [[tag attrs & shapes] icon]
         (is (= :svg tag))

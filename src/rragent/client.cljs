@@ -578,7 +578,7 @@
           (and pending? (dictation/active? state)) (or send-after-dictation-label "Sends once the text is in")
           pending? (or send-pending-label "Sends after the upload")
           :else (or send-label "Send"))]
-       [:span.icon {:aria-hidden "true"} "↑"]]]]))
+       [:span.icon {:aria-hidden "true"} icons/arrow-up]]]]))
 
 (defonce ^:private canvas-node*
   (atom nil))

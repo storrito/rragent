@@ -1,6 +1,6 @@
 (ns rragent.client.icons
-  "The icons of the composer's row: a paperclip, a video camera and a
-   microphone, each drawn as paths in the manner of Lucide and Feather,
+  "The icons of the composer's row: a paperclip, a video camera, a
+   microphone and the arrow of Send, each drawn as paths in the manner of Lucide and Feather,
    a 24 by 24 box, strokes of 2 with round caps and joins, no fill. They
    take the button's color through `currentColor`, the same on every
    platform; an emoji is colored and heavy, and looks different on each.
@@ -36,3 +36,8 @@
   (icon [:rect {:x 9 :y 2.5 :width 6 :height 11.5 :rx 3}]
         [:path {:d "M5 11.5a7 7 0 0 0 14 0"}]
         [:path {:d "M12 18.5v3M8.5 21.5h7"}]))
+
+(def arrow-up
+  "The arrow of Send: a line up, the chevron at its tip."
+  (icon [:path {:d "M12 19V5"}]
+        [:path {:d "m5 12 7-7 7 7"}]))

@@ -1523,7 +1523,7 @@ pre {
    screen alike: the text on top across the width, under it the attach
    button on the left, the screencast and the microphone buttons, Stop
    while a run goes, and the round send button on the right, each an
-   icon in a circle (rragent.client.icons; Send and Stop keep a glyph).
+   icon in a circle (rragent.client.icons; Stop keeps its glyph).
    While a send waits for an upload the button says so in words, as a
    pill. The card takes the focus ring, not the text. */
 .composer-input .row {
@@ -1594,8 +1594,8 @@ pre {
   order: 4;
 }
 
-/* Send and Stop carry their word and a glyph (rragent.client/composer):
-   the glyph in the circle, the word on the pill. */
+/* Send and Stop carry their word and an icon (rragent.client/composer):
+   the icon in the circle, the word on the pill. */
 .composer button .word {
   display: none;
 }
