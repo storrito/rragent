@@ -273,6 +273,22 @@ the person holds until the agent writes something newer. A recursive
 watch on the folder reports every change, and the folder is read again
 every two seconds besides.
 
+The person browses the folder as one on their computer, one level at a
+time: the folders of the level first, one row each with how many files
+it holds, then its files, both by name, the way back above them;
+nothing is hidden but the dot files. The agent is told to keep a level short by putting
+what belongs together into a folder, the many small things in one of
+their own, folders within folders as the work calls for them, and no
+rule beyond that. A `README.md` in a folder opens when the person enters
+it, rendered; a relative link in it, `[the video](final.mp4)`, `[the
+drafts](drafts/)`, opens that file or folder in the pane
+(`rragent.markdown`, `data-artifact`). The filter above a long list finds
+a file at any level and names its folder. A recording
+(`artifacts/recordings/<stamp>/`, see [Screencasts](#screencasts)) is a
+folder titled by its time, with its length. The files under `notes/`
+are the agent's working notes: an ordinary folder on the list, but one
+that never takes the screen and gets no card in the chat.
+
 A directory under `artifacts/` with a `package.json` is a project, an
 artifact with a page of its own (`rragent.projects`). The agent makes
 one with the `project` tool from a template (`rragent.templates`, see

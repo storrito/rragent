@@ -804,9 +804,9 @@
 
 (defn- narrow
   "The hiccup with `hidden` on every node that carries a `data-name`
-   (a row of the list, a group of rows) without `query` in it; the
-   group's `data-name` is its rows' together, so that it hides with
-   them."
+   (a row of the list) without `query` in it; without a query, the
+   rows of the other levels (`data-deep`, `rragent.view/file-list`)
+   are the hidden ones."
   [query node]
   (cond
     (vector? node)
@@ -814,7 +814,9 @@
           named? (and (map? attrs) (contains? attrs :data-name))]
       (into (if (map? attrs)
               [tag (cond-> attrs
-                     named? (assoc :hidden (not (str/includes? (str (:data-name attrs)) query))))]
+                     named? (assoc :hidden (if (str/blank? query)
+                                             (boolean (:data-deep attrs))
+                                             (not (str/includes? (str (:data-name attrs)) query)))))]
               [tag])
             (map #(narrow query %) (if (map? attrs) children (rest node)))))
 
@@ -829,8 +831,10 @@
    text lives in the store under `:ui/store-key`, per bot, so that a
    frame does not reset it; a row whose `data-name` (its title and
    path, lowercase) does not have the text is hidden, the rows stay
-   the server's. The field only with `:ui/field?`, a long list."
-  [{:keys [ui/store-key ui/field? ui/placeholder ui/state]} children]
+   the server's; without a text, the rows of the other levels are.
+   The field only with `:ui/field?`, a long list; the way to the
+   folder browsed (`:ui/crumbs`) between the field and the rows."
+  [{:keys [ui/store-key ui/field? ui/placeholder ui/crumbs ui/state]} children]
   (let [text (str (get state store-key ""))
         query (if field? (str/lower-case (str/trim text)) "")]
     [:div.list
@@ -840,6 +844,7 @@
                        :placeholder placeholder
                        :aria-label placeholder
                        :on {:input [[:store/assoc store-key :event/target.value]]}}])
+     crumbs
      (into [:ul.files] (map #(narrow query %) children))]))
 
 (defn- tokens

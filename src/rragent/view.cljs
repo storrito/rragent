@@ -310,8 +310,22 @@
   (str (artifact-url base path) "?rev=" mtime))
 
 (def kind-icons
-  "The icon of an artifact by its kind, in the pane's list and on a card."
-  {:page "🌐" :image "🖼️" :video "🎬" :audio "🎵" :project "🧩" :markdown "📝" :text "📝" :file "📎"})
+  "The icon of an artifact by its kind, in the pane's list and on a card;
+   a folder's and a recording's in the list."
+  {:page "🌐" :image "🖼️" :video "🎬" :audio "🎵" :project "🧩" :markdown "📝" :text "📝" :file "📎"
+   :folder "📁" :recording "🎥"})
+
+(defn clock
+  "Seconds as `m:ss`, `1:02:03` from an hour on."
+  [seconds]
+  (let [total (js/Math.round (or seconds 0))
+        h (quot total 3600)
+        m (quot (rem total 3600) 60)
+        s (rem total 60)
+        two #(if (< % 10) (str "0" %) (str %))]
+    (if (pos? h)
+      (str h ":" (two m) ":" (two s))
+      (str m ":" (two s)))))
 
 (defn- made-path
   "The artifact a tool call made: `artifacts/<path>` in the path it
@@ -684,13 +698,14 @@
   [:i18n :artifacts/rendering {:progress (or (:progress render) "")}])
 
 (defn- text-view
-  "A text file on screen: markdown rendered (`rragent.markdown`), the
-   rest as it is; a note when this is the start of it only
+  "A text file on screen: markdown rendered (`rragent.markdown`, the
+   links in it to the files and folders beside the file, `:folder`),
+   the rest as it is; a note when this is the start of it only
    (`rragent.artifacts/text-of`)."
-  [kind {:keys [text truncated?]} base bot]
+  [kind {:keys [text truncated?]} base bot path]
   [:div.document
    (if (= :markdown kind)
-     (into [:div.markdown] (markdown/hiccup text {:base base :bot bot}))
+     (into [:div.markdown] (markdown/hiccup text {:base base :bot bot :folder (artifacts/folder-of path)}))
      [:pre.plain text])
    (when truncated?
      [:p.hint [:i18n :artifacts/truncated]])])
@@ -734,7 +749,7 @@
                                         :ui/title [:i18n :artifacts/creation]}])
                  :else [:div.placeholder [:i18n :artifacts/starting]]))
     (:markdown :text) (if text
-                        (text-view kind text base bot)
+                        (text-view kind text base bot path)
                         [:div.placeholder [:i18n :artifacts/no-preview]])
     [:div.placeholder [:i18n :artifacts/no-preview]]))
 
@@ -789,24 +804,26 @@
 (defn- file-row
   "A row of the list: the icon of the kind, the title, and what tells
    two files of one title apart: the extension (a project as such),
-   the folder (less `notes/` for a note), the size; the three dots
-   with rename and delete. A click opens the file. The row carries its
-   title and path as `data-name` for the filter above the list
-   (`:ui/files-filter`, `rragent.client`). A row whose delete is armed
-   asks, one being renamed is a field (`deleting`, `renaming`)."
-  [bot {:keys [path kind title ext size] :as artifact} {:keys [current renaming deleting]}]
+   the folder when it is not the one browsed (`folder`), the size; the
+   three dots with rename and delete. A click opens the file. The row
+   carries its title and path as `data-name` for the filter above the
+   list (`:ui/files-filter`, `rragent.client`); a row of a file in
+   another folder is `deep?`: there for the filter alone. A row whose
+   delete is armed asks, one being renamed is a field (`deleting`,
+   `renaming`)."
+  [bot {:keys [path kind title ext size] :as artifact} {:keys [current renaming deleting folder deep?]}]
   (let [project? (= :project kind)
-        folder (when (str/includes? path "/")
-                 (str (subs path 0 (str/last-index-of path "/")) "/"))
-        folder (when folder
-                 (not-empty (str/replace folder (re-pattern (str "^" artifacts/notes-folder "/")) "")))
+        own (artifacts/folder-of path)
         parts (remove nil? [(if project? [:i18n :artifacts/project] ext)
-                            folder
+                            (when (and (seq own) (not= own folder)) (str own "/"))
                             (when-not project? (human-size size))])]
-    [:li {:replicant/key path
+    ;; a deep row keyed apart from the row of the level: a node that
+    ;; changed its place keeps a stale vdom in Replicant, so none moves
+    [:li {:replicant/key (if deep? (str "deep:" path) path)
           :class (cond-> [(clojure.core/name kind)]
                    (= path current) (conj "current"))
-          :data-name (str/lower-case (str title " " path))}
+          :data-name (str/lower-case (str title " " path))
+          :data-deep (when deep? "true")}
      (cond
        (= path deleting) (file-confirm bot artifact)
        (= path renaming) (file-rename bot artifact)
@@ -818,37 +835,69 @@
                (into [:span.meta] (interpose " · " parts))]
               (file-actions bot path)))]))
 
-(defn- notes-group
-  "The working notes at the end of the list (`rragent.artifacts/note?`),
-   folded: a <details> the browser opens and closes, its summary the
-   count. Its `data-name` is its rows' together, so that the filter
-   hides it with them."
-  [bot notes opts]
-  [:li.group {:replicant/key "notes"
-              :data-name (str/join "\n" (map #(str/lower-case (str (:title %) " " (:path %))) notes))}
-   [:details.notes
-    [:summary [:i18n :artifacts/notes {:n (count notes)}]]
-    [:ul
-     (for [file notes]
-       (file-row bot file opts))]]])
+(defn- folder-row
+  "A row of a folder of the level: the icon, its name, how many files
+   it holds and their size; a recording's folder its time, and its
+   length when known. A click opens the folder."
+  [bot {:keys [path name title kind count size duration]}]
+  [:li.folder {:replicant/key path
+               :class [(clojure.core/name kind)]
+               :data-name (str/lower-case (str title " " name " " path))}
+   [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open-folder
+                                              :command/data {:bot bot :path path}}]]}}
+    [:span.icon (get kind-icons kind)]
+    [:span.name title]
+    (into [:span.meta] (interpose " · " (remove nil? [(when duration (clock duration))
+                                                     (if (= 1 count) [:i18n :artifacts/one-file] [:i18n :artifacts/files {:n count}])
+                                                     (human-size size)])))]])
+
+(defn- open-folder
+  [bot path]
+  {:on {:click [[:data/command {:command/kind :artifacts/open-folder
+                                :command/data {:bot bot :path path}}]]}})
+
+(defn- crumbs
+  "The way to the folder browsed, above the rows: the root and every
+   folder on the way as a button, the folder itself as the last word,
+   each named as its row is (`rragent.artifacts/title`); nothing at
+   the root."
+  [bot folder]
+  (when-let [way (artifacts/crumbs folder)]
+    (into [:nav.crumbs
+           [:button.crumb (open-folder bot "") [:i18n :page/artifacts]]]
+          (mapcat (fn [{:keys [path name]} last?]
+                    [[:span.sep "›"]
+                     (if last?
+                       [:span.here (artifacts/title name)]
+                       [:button.crumb (open-folder bot path) (artifacts/title name)])])
+                  way
+                  (concat (repeat (dec (count way)) false) [true])))))
 
 (def filter-from
   "How many rows the list needs for the filter above it."
   8)
 
 (defn- file-list
-  "The rows of the list, the creations newest first and the notes
-   folded at the end, in the filter alias (`:ui/files-filter`,
-   `rragent.client`), whose field shows once the list is long."
-  [bot list opts]
-  (let [notes (filter #(artifacts/note? (:path %)) list)]
+  "The level of the folder browsed (`rragent.artifacts/level`): the way
+   to it, its folders, then its files, in the filter alias
+   (`:ui/files-filter`, `rragent.client`), whose field shows once the
+   list is long; the files of the other levels, by path, as rows the
+   filter alone shows, so that it finds a file wherever it is."
+  [bot list folder durations opts]
+  (let [folder (if (artifacts/folder? list folder) folder "")
+        {:keys [folders files]} (artifacts/level list folder durations)
+        here (set (map :path files))
+        opts (assoc opts :folder folder)]
     [:ui/files-filter {:ui/store-key [:artifacts-filter bot]
                        :ui/field? (< filter-from (count list))
-                       :ui/placeholder [:i18n :artifacts/filter]}
-     (for [file (remove #(artifacts/note? (:path %)) list)]
+                       :ui/placeholder [:i18n :artifacts/filter]
+                       :ui/crumbs (crumbs bot folder)}
+     (for [f folders]
+       (folder-row bot f))
+     (for [file files]
        (file-row bot file opts))
-     (when (seq notes)
-       (notes-group bot notes opts))]))
+     (for [file (sort-by :path artifacts/by-name (remove #(here (:path %)) list))]
+       (file-row bot file (assoc opts :deep? true)))]))
 
 (defn- render-controls
   "The video of the project, made here on a click; its progress and Stop
@@ -890,11 +939,12 @@
    bar; on a phone the list alone, or the one on screen with the way
    back (`.showing`, the stylesheet). `pane` holds the keys of
    `rragent.artifacts` (`:artifacts/list`, `:artifacts/current`, the
-   `:artifacts/text` of a text file on screen, the path of a row being
-   renamed or asked about, `:artifacts/renaming` and
-   `:artifacts/deleting`), `:projects` and `:renders`, and the `:base`
-   of the bot's page with its id as `:bot`."
-  [{:keys [artifacts/list artifacts/current artifacts/text artifacts/renaming artifacts/deleting projects renders base bot] :as pane}]
+   `:artifacts/folder` browsed with the `:artifacts/durations` of the
+   recordings, the `:artifacts/text` of a text file on screen, the
+   path of a row being renamed or asked about, `:artifacts/renaming`
+   and `:artifacts/deleting`), `:projects` and `:renders`, and the
+   `:base` of the bot's page with its id as `:bot`."
+  [{:keys [artifacts/list artifacts/current artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting projects renders base bot] :as pane}]
   (let [artifact (some #(when (= current (:path %)) %) list)
         project? (= :project (:kind artifact))
         render (when artifact
@@ -916,7 +966,7 @@
         (actions base bot artifact render))]
      [:div.split
       (when (seq list)
-        (file-list bot list {:current current :renaming renaming :deleting deleting}))
+        (file-list bot list (str folder) durations {:current current :renaming renaming :deleting deleting}))
       [:div.shown
        (cond
          artifact (content base artifact {:project (get projects (:path artifact))
