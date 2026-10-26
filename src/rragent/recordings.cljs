@@ -19,7 +19,10 @@
    without a word), ends it: the part files become the files, remuxed
    by ffmpeg when there is one, so that they carry their duration and
    seek (a recorder's file has neither), the microphone's encoded to
-   MP3, and the facts are written beside them. The phone's file comes
+   MP3, and the facts are written beside them with the recording's
+   `duration` in seconds (ffprobe, `rragent.tools.media/seconds-of`),
+   which the pane shows on the recording's row
+   (`rragent.artifacts/recording-durations`). The phone's file comes
    from the phone itself (`rragent.phone`)."
   (:require ["node:child_process" :as child-process]
             ["node:fs" :as fs]
@@ -28,6 +31,7 @@
             [rragent.programs :as programs]
             [rragent.rframes.http :as http]
             [rragent.rframes.transit :as transit]
+            [rragent.tools.media :as media]
             [rragent.uploads :as uploads]))
 
 (def path-prefix
@@ -229,7 +233,9 @@
                          (recur (rest files) (conj made (await (finalize! dir stamp name ext))))
                          made))]
             (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
-                              (js/JSON.stringify (clj->js (assoc facts :files made)) nil 2))
+                              (js/JSON.stringify (clj->js (cond-> (assoc facts :files made)
+                                                            (seq made) (assoc :duration (media/seconds-of (path/join (folder dir stamp) (first made))))))
+                                                 nil 2))
             (uploads/respond w 200 {:folder (str "recordings/" stamp)
                                     :files made}))
           (finally

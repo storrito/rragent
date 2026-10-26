@@ -112,6 +112,29 @@
       (is (not (contains? (tags hiccup) :a)))
       (is (some #(str/includes? % "javascript:alert(1)") (strings hiccup))))))
 
+(deftest artifact-links-test
+  (let [opts {:base "/bot/b1" :bot "b1" :folder "youtube"}]
+    (testing "in a file of the artifacts, a relative link leads to a file or a folder beside it, opened in the pane"
+      (is (= {:href "/bot/b1/artifacts/youtube/final.mp4" :data-artifact "youtube/final.mp4" :data-artifact-bot "b1"}
+             (second (find-tag (markdown/parse "[the video](final.mp4)" opts) :a))))
+      (is (= "youtube/drafts" (attribute (markdown/parse "[drafts](drafts/)" opts) :a :data-artifact)))
+      (is (= "other/x.md" (attribute (markdown/parse "[x](../other/x.md)" opts) :a :data-artifact)))
+      (is (= "youtube/my file.mp4" (attribute (markdown/parse "[x](my%20file.mp4)" opts) :a :data-artifact)))
+      (is (= "/bot/b1/artifacts/youtube/frame.png" (attribute (markdown/parse "![f](frame.png)" opts) :img :src)))
+      (is (= "card.html" (attribute (markdown/parse "[c](card.html)" (assoc opts :folder "")) :a :data-artifact)) "the root is a folder too"))
+    (testing "an absolute or an outside link in such a file is a link as anywhere, in a new tab"
+      (is (= "https://x.test/" (attribute (markdown/parse "[x](https://x.test/)" opts) :a :href)))
+      (is (= "_blank" (attribute (markdown/parse "[x](https://x.test/)" opts) :a :target)))
+      (is (= "/bot/b1/artifacts/card.html" (attribute (markdown/parse "[c](/artifacts/card.html)" opts) :a :href)))
+      (is (nil? (attribute (markdown/parse "[c](/artifacts/card.html)" opts) :a :data-artifact)))
+      (is (= "../../x.md" (attribute (markdown/parse "[x](../../x.md)" opts) :a :href)) "one that leads above the artifacts stays as written")
+      (is (= "docs/x.md" (attribute (markdown/parse "[x](docs/x.md)" {:base "/bot/b1"}) :a :href)) "in the chat, no folder, as before"))
+    (testing "the path a relative link names"
+      (is (= "a/x.mp4" (markdown/resolved "a/b" "../x.mp4")))
+      (is (= "drafts" (markdown/resolved "" "drafts/")))
+      (is (= "a/b/c" (markdown/resolved "a/b" "./c?x=1#y")))
+      (is (nil? (markdown/resolved "a" "../../x"))))))
+
 (deftest images-test
   (testing "an upload the agent names is served from /uploads, under the bot's page"
     (is (= [[:p [:img {:src "/uploads/a.png" :alt "a dot"}]]] (markdown/parse "![a dot](uploads/a.png)")))

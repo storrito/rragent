@@ -140,6 +140,81 @@
       (finally
         (fs/rmSync root #js {:recursive true :force true})))))
 
+(deftest level-test
+  (let [listed [{:path "final.mp4" :mtime 50 :size 10}
+                {:path "youtube/README.md" :mtime 10 :size 1}
+                {:path "youtube/cut.mp4" :mtime 40 :size 100}
+                {:path "youtube/drafts/v1.mp4" :mtime 30 :size 50}
+                {:path "youtube/drafts/v2.mp4" :mtime 45 :size 60}
+                {:path "recordings/2026-10-21T11-56-03/screen.webm" :mtime 20 :size 1000}
+                {:path "recordings/2026-10-21T11-56-03/recording.json" :mtime 21 :size 5}
+                {:path "clip" :kind :project :mtime 5 :size 0}]]
+    (testing "the root: the folders by their newest file, then the files newest first"
+      (let [{:keys [folders files]} (artifacts/level listed "")]
+        (is (= [{:path "youtube" :name "youtube" :title "Youtube" :kind :folder :count 4 :mtime 45 :size 211}
+                {:path "recordings" :name "recordings" :title "Recordings" :kind :folder :count 2 :mtime 21 :size 1005}]
+               folders))
+        (is (= ["final.mp4" "clip"] (map :path files)))))
+    (testing "a folder: its README first, its subfolders as rows"
+      (let [{:keys [folders files]} (artifacts/level listed "youtube")]
+        (is (= ["youtube/drafts"] (map :path folders)))
+        (is (= [2 45 110] ((juxt :count :mtime :size) (first folders))))
+        (is (= ["youtube/README.md" "youtube/cut.mp4"] (map :path files)))))
+    (testing "a recording's folder is titled by its time, with its length when known"
+      (is (= {:path "recordings/2026-10-21T11-56-03" :name "2026-10-21T11-56-03" :title "2026-10-21 11:56" :kind :recording :count 2 :mtime 21 :size 1005 :duration 83.4}
+             (first (:folders (artifacts/level listed "recordings" {"recordings/2026-10-21T11-56-03" 83.4})))))
+      (is (nil? (:duration (first (:folders (artifacts/level listed "recordings")))))))
+    (testing "a folder that is none lists nothing"
+      (is (= {:folders [] :files []} (artifacts/level listed "nope"))))
+    (testing "the way to a folder, the folder of a path, what is a folder, the README"
+      (is (nil? (artifacts/crumbs "")))
+      (is (= [{:path "youtube" :name "youtube"} {:path "youtube/drafts" :name "drafts"}] (artifacts/crumbs "youtube/drafts")))
+      (is (= "" (artifacts/folder-of "final.mp4")))
+      (is (= "youtube/drafts" (artifacts/folder-of "youtube/drafts/v1.mp4")))
+      (is (artifacts/folder? listed ""))
+      (is (artifacts/folder? listed "youtube/drafts"))
+      (is (not (artifacts/folder? listed "youtube/dra")))
+      (is (not (artifacts/folder? listed "final.mp4")))
+      (is (= "youtube/README.md" (artifacts/readme listed "youtube")))
+      (is (nil? (artifacts/readme listed "")))
+      (is (artifacts/readme? "a/readme.md"))
+      (is (not (artifacts/readme? "a/readme.txt"))))
+    (testing "the clock of a length"
+      (is (= "0:05" (view/clock 5.2)))
+      (is (= "1:23" (view/clock 83.4)))
+      (is (= "1:02:03" (view/clock 3723))))))
+
+(deftest browse-test
+  (let [root (temp-dir "rragent-browse-")
+        dir (path/join root "artifacts")
+        db (atom {})]
+    (try
+      (touch! dir "a/one.md" 1000)
+      (artifacts/refresh! db dir)
+      (is (= ["a/one.md" "a"] [(:artifacts/current @db) (:artifacts/folder @db)]) "the newest file takes the screen, the list its folder")
+      (artifacts/browse! db "")
+      (is (= "" (:artifacts/folder @db)))
+      (artifacts/refresh! db dir)
+      (is (= "" (:artifacts/folder @db)) "nothing new: the person's browsing stays")
+      (touch! dir "b/two.md" (+ (js/Date.now) 5000))
+      (artifacts/refresh! db dir)
+      (is (= ["b/two.md" "b"] [(:artifacts/current @db) (:artifacts/folder @db)]))
+      (artifacts/pick! db "a/one.md")
+      (is (= "a" (:artifacts/folder @db)) "a pick browses its folder")
+      (artifacts/pick! db nil)
+      (is (= "a" (:artifacts/folder @db)) "back to the list, in the same folder")
+      (testing "the recordings' lengths, from their recording.json"
+        (let [with (path/join dir "recordings" "2026-10-21T11-56-03")
+              without (path/join dir "recordings" "2026-10-21T11-57-00")]
+          (fs/mkdirSync with #js {:recursive true})
+          (fs/mkdirSync without #js {:recursive true})
+          (fs/writeFileSync (path/join with "recording.json") "{\"files\":[\"screen.webm\"],\"duration\":12.5}")
+          (fs/writeFileSync (path/join without "recording.json") "{\"files\":[\"screen.webm\"]}")
+          (fs/writeFileSync (path/join dir "recording.json") "{\"duration\":99}")
+          (is (= {"recordings/2026-10-21T11-56-03" 12.5} (:artifacts/durations (artifacts/facts dir))))))
+      (finally
+        (fs/rmSync root #js {:recursive true :force true})))))
+
 (deftest rename-and-trash-test
   (let [root (temp-dir "rragent-rename-")
         dir (path/join root "artifacts")
@@ -257,24 +332,60 @@
         (is (= ["page" "current"] (:class (second (first rows)))))
         (is (= "card card.html" (:data-name (second (first rows)))) "the title and the path for the filter")
         (is (= ["html" " · " "1 KB"] (rest (find-tag (first rows) :span.meta))) "the extension and the size tell files apart")
-        (is (= ["md" " · " "40 B"] (rest (find-tag (nth rows 4) :span.meta))) "a note's folder goes without saying")
+        (is (= ["md" " · " "notes/" " · " "40 B"] (rest (find-tag (nth rows 4) :span.meta))) "a file of another level names its folder")
+        (is (= "true" (:data-deep (second (nth rows 4)))) "a row of another level is there for the filter alone")
+        (is (nil? (:data-deep (second (first rows)))))
         (is (some #{[:i18n :artifacts/project]} (nodes (nth rows 3))) "a project is named as such")
         (is (= {:bot "b1" :path "pool.png"} (get-in (second (find-tag (second rows) :button.row)) [:on :click 0 1 :command/data])))
         (is (= {:bot "b1" :path nil} (get-in (second (find-tag v :button.link.back)) [:on :click 0 1 :command/data])) "the way back to the list")
         (is (= ["showing"] (:class (second v))))
         (is (= "/artifacts/card.html" (:ui/src (second (find-tag v :ui/canvas)))))
         (is (= 3 (:ui/rev (second (find-tag v :ui/canvas)))))))
-    (testing "the notes are folded at the end of the list, the creations before them"
+    (testing "the folders of the level come first, one row each, the files of the other levels last, for the filter"
       (let [v (pane "card.html")
-            files (find-tag v :ui/files-filter)
-            group (find-tag v :li.group)]
-        (is (= ["card.html" "pool.png" "story.mp4" "clip"]
-               (map #(:replicant/key (second %)) (filter #(and (vector? %) (= :li (first %))) (nodes (nth files 2))))))
-        (is (= [:i18n :artifacts/notes {:n 1}] (last (find-tag group :summary))))
-        (is (= "plan notes/plan.md" (:data-name (second group))) "the group hides with its rows")
-        (is (= "notes/plan.md" (:replicant/key (second (find-tag group :li)))))
-        (is (contains? (strings (i18n/translate v :de)) "Notizen · 1"))
-        (is (nil? (find-tag (pane "card.html" {:artifacts/list (take 4 listed)}) :li.group)) "no group without notes")))
+            keys-of (fn [v] (map #(:replicant/key (second %)) (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))))
+            folder (find-tag v :li.folder)]
+        (is (= ["notes" "card.html" "pool.png" "story.mp4" "clip" "deep:notes/plan.md"] (keys-of v)) "a row of another level keyed apart, so that no node moves between the two")
+        (is (= ["folder"] (:class (second folder))))
+        (is (= "notes notes notes" (:data-name (second folder))) "the folder's title, name and path for the filter")
+        (is (= {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path "notes"}}
+               (get-in (second (find-tag folder :button.row)) [:on :click 0 1])))
+        (is (= ["📁"] (rest (find-tag folder :span.icon))))
+        (is (= [[:i18n :artifacts/one-file] " · " "40 B"] (rest (find-tag folder :span.meta))))
+        (is (nil? (:ui/crumbs (second (find-tag v :ui/files-filter)))) "no way to show at the root")
+        (is (contains? (strings (i18n/translate v :de)) "1 Datei"))
+        (is (nil? (find-tag (pane "card.html" {:artifacts/list (take 4 listed)}) :li.folder)) "no folder row without a folder")))
+    (testing "inside a folder: its files, the way back above them, the rest of the list behind the filter"
+      (let [v (pane "notes/plan.md" {:artifacts/folder "notes"})
+            filter-alias (find-tag v :ui/files-filter)
+            lis (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))]
+        (is (= ["notes/plan.md" "deep:card.html" "deep:pool.png" "deep:story.mp4" "deep:clip"] (map #(:replicant/key (second %)) lis)))
+        (is (= [nil "true" "true" "true" "true"] (map #(:data-deep (second %)) lis)))
+        (is (= ["md" " · " "40 B"] (rest (find-tag (first lis) :span.meta))) "a file of the folder browsed goes without it")
+        (is (= [:nav.crumbs
+                [:button.crumb {:on {:click [[:data/command {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path ""}}]]}} [:i18n :page/artifacts]]
+                [:span.sep "›"]
+                [:span.here "Notes"]]
+               (:ui/crumbs (second filter-alias))))
+        (is (= [:span.here "Drafts"]
+               (last (:ui/crumbs (second (find-tag (pane nil {:artifacts/folder "youtube/drafts" :artifacts/list [{:path "youtube/drafts/v1.mp4" :kind :video :title "V1" :ext "mp4" :mtime 1 :size 1}]}) :ui/files-filter)))))
+            "the folder itself is the last word")
+        (is (= "youtube" (get-in (nth (:ui/crumbs (second (find-tag (pane nil {:artifacts/folder "youtube/drafts" :artifacts/list [{:path "youtube/drafts/v1.mp4" :kind :video :title "V1" :ext "mp4" :mtime 1 :size 1}]}) :ui/files-filter))) 3) [1 :on :click 0 1 :command/data :path]))
+            "the folders on the way are buttons")))
+    (testing "a folder that is gone shows the root"
+      (let [v (pane nil {:artifacts/folder "gone"})]
+        (is (nil? (:ui/crumbs (second (find-tag v :ui/files-filter)))))
+        (is (some? (find-tag v :li.folder)))))
+    (testing "a recording's folder: its time and its length"
+      (let [v (pane nil {:artifacts/list [{:path "recordings/2026-10-21T11-56-03/screen.webm" :kind :video :title "Screen" :ext "webm" :mtime 2 :size 2048}
+                                          {:path "recordings/2026-10-21T11-56-03/recording.json" :kind :text :title "Recording" :ext "json" :mtime 3 :size 100}]
+                         :artifacts/folder "recordings"
+                         :artifacts/durations {"recordings/2026-10-21T11-56-03" 83.4}})
+            row (find-tag v :li.folder)]
+        (is (= ["recording"] (:class (second row))))
+        (is (= ["🎥"] (rest (find-tag row :span.icon))))
+        (is (= ["2026-10-21 11:56"] (rest (find-tag row :span.name))))
+        (is (= ["1:23" " · " [:i18n :artifacts/files {:n 2}] " · " "2 KB"] (rest (find-tag row :span.meta))))))
     (testing "the filter above the list once it is long, its text the bot's in the store"
       (let [short (second (find-tag (pane "card.html") :ui/files-filter))
             long (second (find-tag (pane "card.html" {:artifacts/list (concat listed (for [i (range 4)] {:path (str "more" i ".md") :kind :markdown :title (str "More " i) :ext "md" :mtime i :size 1}))})

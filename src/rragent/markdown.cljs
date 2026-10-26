@@ -63,16 +63,50 @@
     (str base "/" file)
     url))
 
+(defn- relative?
+  "Whether `url` is a relative path: no scheme, not absolute, no
+   fragment or query alone."
+  [url]
+  (let [url (str url)]
+    (and (seq url)
+         (not (re-find #"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|/|#|\?)" url)))))
+
+(defn resolved
+  "A relative `url` in a file of `folder` under artifacts/, as the path
+   under artifacts/ it names: `../x.mp4` in `a/b` is `a/x.mp4`,
+   `drafts/` in the root is `drafts`; nil when it leads above
+   artifacts/."
+  [folder url]
+  (let [url (try (js/decodeURIComponent (str url)) (catch :default _ (str url)))
+        parts (concat (str/split (str folder) #"/")
+                      (str/split (str/replace url #"[?#].*$" "") #"/"))
+        stack (reduce (fn [stack part]
+                        (cond
+                          (or (str/blank? part) (= "." part)) stack
+                          (= ".." part) (if (seq stack) (pop stack) (reduced nil))
+                          :else (conj stack part)))
+                      []
+                      parts)]
+    (when stack
+      (str/join "/" stack))))
+
 (defn- open-attrs
   "The attributes of an opening token: a link opens in a new tab,
    without a referrer; a link to a file of the bot points at the page's
-   path for it (`served`), any other href stays as the model wrote it."
-  [^js token base]
+   path for it (`served`), any other href stays as the model wrote it.
+   In a file of the artifacts (`:folder`, where it lies), a relative
+   link leads to a file or a folder beside it: the page's path for it,
+   and `data-artifact` with the bot (`rragent.client` opens it in the
+   pane)."
+  [^js token {:keys [base bot folder]}]
   (let [given (attrs token)]
     (if (= "link_open" (.-type token))
-      (-> given
-          (update :href #(served base %))
-          (assoc :target "_blank" :rel "noopener noreferrer"))
+      (if-let [p (when (and folder (relative? (:href given)))
+                   (resolved folder (:href given)))]
+        (assoc given :href (str base "/artifacts/" p) :data-artifact p :data-artifact-bot bot)
+        (-> given
+            (update :href #(served base %))
+            (assoc :target "_blank" :rel "noopener noreferrer")))
       given)))
 
 (declare plain-text)
@@ -91,9 +125,12 @@
   (apply str (map token-text (array-seq (or tokens #js [])))))
 
 (defn- image
-  [^js token base]
-  (let [{:keys [src title]} (attrs token)]
-    [:img (cond-> {:src (served base src)
+  "A picture; one named by a relative path in a file of the artifacts
+   (`:folder`) from beside the file."
+  [^js token {:keys [base folder]}]
+  (let [{:keys [src title]} (attrs token)
+        beside (when (and folder (relative? src)) (resolved folder src))]
+    [:img (cond-> {:src (if beside (str base "/artifacts/" beside) (served base src))
                    :alt (plain-text (.-children token))}
             (seq title) (assoc :title title))]))
 
@@ -132,12 +169,12 @@
    and attributes the closing token completes, and the children so far.
    A hidden token (the paragraph of a tight list item) opens a frame
    without a tag, whose children go to the parent."
-  [^js token base]
+  [^js token opts]
   (let [tag (str (.-tag token))]
     (if (or (.-hidden token) (str/blank? tag))
       {:children []}
       {:tag (keyword tag)
-       :attrs (open-attrs token base)
+       :attrs (open-attrs token opts)
        :children []})))
 
 (defn- push-child
@@ -199,7 +236,7 @@
 (defn- leaf
   "A token that is no opening or closing one, as a child of the frame on
    top of the stack."
-  [stack ^js token {:keys [base] :as opts}]
+  [stack ^js token opts]
   (case (.-type token)
     "inline" (inline stack token opts)
     ("text" "text_special") (push-text stack (.-content token))
@@ -208,13 +245,13 @@
     "code_block" (push-child stack [:pre [:code (.-content token)]])
     "hr" (push-child stack [:hr])
     ("softbreak" "hardbreak") (push-child stack [:br])
-    "image" (push-child stack (image token base))
+    "image" (push-child stack (image token opts))
     (push-text stack (str (.-content token)))))
 
 (defn- step
   [opts stack ^js token]
   (case (.-nesting token)
-    1 (conj stack (frame token (:base opts)))
+    1 (conj stack (frame token opts))
     -1 (close stack)
     (leaf stack token opts)))
 
@@ -299,7 +336,7 @@
    block."
   ([text]
    (hiccup text {}))
-  ([text {:keys [streaming? answered? base] :as opts}]
+  ([text {:keys [streaming? answered? base folder] :as opts}]
    (let [text (str text)
          ^js cache (cond
                      streaming? streaming-cache
@@ -308,7 +345,7 @@
          ;; an answer still streaming may be answered meanwhile (a message
          ;; waits in the inbox) with its text unchanged; another bot's page
          ;; serves its files elsewhere
-         k (str base "\n" (if streaming? (str (boolean answered?) "\n" text) text))]
+         k (str base "\n" folder "\n" (if streaming? (str (boolean answered?) "\n" text) text))]
      (or (.get cache k)
          (let [result (parse text opts)]
            (when (<= cache-size (.-size cache))

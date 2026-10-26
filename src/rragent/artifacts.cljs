@@ -9,12 +9,23 @@
    another one since; a pick of nil is the list alone. The port of pchat.artifacts to one folder: an
    agent has one conversation and one pane, no chats.
 
+   The person browses the folder as one on their computer, one level
+   at a time (`level`, `crumbs`): the folders of a level first, then
+   its files, a folder as one row until it is opened. Nothing is
+   hidden but the dot files: the agent keeps a level short by putting
+   what belongs together into folders. A `README.md` in a folder is
+   its first file and opens when the person enters the folder
+   (`readme`); the links in it lead to the files and folders beside it
+   (`rragent.markdown`). A recording (`rragent.recordings`,
+   `recordings/<stamp>/`) is a folder titled by its time, with the
+   length its `recording.json` says (`recording-durations`).
+
    A directory with a package.json is a project, an artifact with a
    process of its own whose page is shown through `rragent.projects`.
    The files under `notes/` are the agent's working notes (`note?`):
-   listed apart, and never the newest change that takes the screen.
-   The person renames a file from its row (`rename!`, the extension
-   stays) or deletes it (`trash!`, into the bot's trash).
+   never the newest change that takes the screen, and no card in the
+   chat. The person renames a file from its row (`rename!`, the
+   extension stays) or deletes it (`trash!`, into the bot's trash).
 
    The keys this namespace owns in the bot's map of the db
    (`rragent.db`, under the bot's `path`; the map itself for a test's
@@ -22,8 +33,10 @@
 
        :artifacts/list       [{:path :kind :title :ext :mtime :size} ...], newest first
        :artifacts/rev        the newest modification time
+       :artifacts/durations  {\"recordings/<stamp>\" seconds}, the recordings' lengths
        :artifacts/current    the path on screen
        :artifacts/picked-at  when the person picked it, to know what is newer
+       :artifacts/folder     the folder the person browses, \"\" the root
 
    It reads `:working?` (`rragent.machine`): while a run goes the
    screen stays put, see `follow`.
@@ -122,6 +135,59 @@
   [p]
   (str/starts-with? (str p) (str notes-folder "/")))
 
+(defn folder-of
+  "The folder of a path, `card` of `card/pool.png`; \"\" at the root."
+  [p]
+  (let [p (str p)]
+    (if-let [i (str/last-index-of p "/")]
+      (subs p 0 i)
+      "")))
+
+(defn in-folder?
+  "Whether `p` lies below `folder` (\"\" is the root), at any depth."
+  [folder p]
+  (or (str/blank? folder)
+      (str/starts-with? (str p) (str folder "/"))))
+
+(defn folder?
+  "Whether `folder` is one of the list's: the root, or a folder some
+   artifact lies below."
+  [listed folder]
+  (or (str/blank? folder)
+      (boolean (some #(in-folder? folder (:path %)) listed))))
+
+(defn readme?
+  "Whether the path is a folder's README, `README.md` in any case."
+  [p]
+  (= "readme.md" (str/lower-case (last (str/split (str p) #"/")))))
+
+(defn readme
+  "The README of `folder` among the list, its path; nil without one."
+  [listed folder]
+  (some #(when (and (readme? (:path %)) (= folder (folder-of (:path %)))) (:path %))
+        listed))
+
+(def recording-pattern
+  "A recording's folder, `recordings/<stamp>` as `rragent.recordings`
+   names it (its `stamp-pattern`): the date and the time of day in it."
+  #"^recordings/(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-\d{2}$")
+
+(defn recording-title
+  "`2026-10-21 11:56` for `recordings/2026-10-21T11-56-03`; nil for
+   another folder."
+  [folder]
+  (when-let [[_ date hh mm] (re-matches recording-pattern (str folder))]
+    (str date " " hh ":" mm)))
+
+(defn crumbs
+  "The way to `folder`, each folder on it with its name:
+   `[{:path \"a\" :name \"a\"} {:path \"a/b\" :name \"b\"}]`; nil at
+   the root."
+  [folder]
+  (when-not (str/blank? folder)
+    (let [parts (str/split folder #"/")]
+      (vec (map-indexed (fn [i name] {:path (str/join "/" (take (inc i) parts)) :name name}) parts)))))
+
 (defn inside?
   "Whether `relative` names something inside `dir`: not blank, no
    hidden part, and resolving below the folder, not beside or above it."
@@ -207,11 +273,66 @@
            (vec)))
     []))
 
+(defn level
+  "What is in `folder` of the list (\"\" the root): `{:folders :files}`.
+   The folders by their newest file, each `{:path :name :title :kind
+   :count :mtime :size}`, `:kind :folder`, or `:recording` for a
+   recording's, titled by its time, with the `:duration` `durations`
+   (path to seconds) knows; the files newest first, the folder's
+   README first of all."
+  [listed folder & [durations]]
+  (let [prefix (if (str/blank? folder) "" (str folder "/"))
+        below (filter #(str/starts-with? (:path %) prefix) listed)
+        {files false deeper true} (group-by #(str/includes? (subs (:path %) (count prefix)) "/") below)
+        folders (->> (group-by #(first (str/split (subs (:path %) (count prefix)) #"/")) deeper)
+                     (map (fn [[name entries]]
+                            (let [path (str prefix name)
+                                  recording (recording-title path)]
+                              (cond-> {:path path
+                                       :name name
+                                       :title (or recording (title name))
+                                       :kind (if recording :recording :folder)
+                                       :count (count entries)
+                                       :mtime (reduce max 0 (map :mtime entries))
+                                       :size (reduce + 0 (map :size entries))}
+                                (get durations path) (assoc :duration (get durations path))))))
+                     (sort-by :mtime >)
+                     (vec))]
+    {:folders folders
+     :files (vec (sort-by (fn [{:keys [path mtime]}] [(if (readme? path) 0 1) (- mtime)]) files))}))
+
+(defonce ^:private duration-cache
+  (atom {}))
+
+(defn recording-durations
+  "The length of every recording of the list, seconds by its folder:
+   the `duration` of its `recording.json`, which `rragent.recordings`
+   writes at the end (an older recording has none); a file read once
+   per change."
+  [dir listed]
+  (into {}
+        (keep (fn [{:keys [path mtime]}]
+                (let [folder (folder-of path)]
+                  (when (and (str/ends-with? path "/recording.json") (re-matches recording-pattern folder))
+                    (let [key [dir path mtime]
+                          seconds (or (get @duration-cache key)
+                                      (let [read (try
+                                                   (let [d (aget (js/JSON.parse (fs/readFileSync (path/join dir path) "utf8")) "duration")]
+                                                     (if (number? d) d :none))
+                                                   (catch :default _
+                                                     :none))]
+                                        (swap! duration-cache (fn [cache] (assoc (if (< (count cache) 64) cache {}) key read)))
+                                        read))]
+                      (when (number? seconds)
+                        [folder seconds]))))))
+        listed))
+
 (defn facts
   [dir]
   (let [listed (list-files dir)]
     {:artifacts/list listed
-     :artifacts/rev (reduce max 0 (map :mtime listed))}))
+     :artifacts/rev (reduce max 0 (map :mtime listed))
+     :artifacts/durations (recording-durations dir listed)}))
 
 (defn render-name
   "The project whose render writes the file: `story.mp4` is `story`'s
@@ -256,6 +377,15 @@
       (and (nil? current) picked-at) nil
       :else (:path newest))))
 
+(defn- showing
+  "`value` with `current` on screen; the list browsing its folder when
+   it is another artifact than before, so that the row of what is on
+   screen is in sight (the person's own browsing stays while the
+   screen does not change)."
+  [value current]
+  (cond-> (assoc value :artifacts/current current)
+    (and current (not= current (:artifacts/current value))) (assoc :artifacts/folder (folder-of current))))
+
 (defn refresh!
   "Puts the facts of the folder into the bot's map at `path` of the db
    when they changed, and moves the screen to the newest change."
@@ -267,7 +397,7 @@
        (swap! db db/update-at path
               (fn [value]
                 (let [value (merge value new-facts)]
-                  (assoc value :artifacts/current (follow value new-facts))))))
+                  (showing value (follow value new-facts))))))
      new-facts)))
 
 (defn refollow!
@@ -277,15 +407,25 @@
   ([db]
    (refollow! db []))
   ([db path]
-   (swap! db db/update-at path (fn [value] (assoc value :artifacts/current (follow value value))))))
+   (swap! db db/update-at path (fn [value] (showing value (follow value value))))))
 
 (defn pick!
+  "The person picked `p`, or went back to the list (nil); the list
+   browses the folder of the pick."
   ([db p]
    (pick! db [] p))
   ([db path p]
-   (swap! db db/update-at path assoc
-          :artifacts/current p
-          :artifacts/picked-at (js/Date.now))))
+   (swap! db db/update-at path
+          (fn [value]
+            (-> (showing value p)
+                (assoc :artifacts/picked-at (js/Date.now)))))))
+
+(defn browse!
+  "The person opened `folder` in the list (\"\" the root)."
+  ([db folder]
+   (browse! db [] folder))
+  ([db path folder]
+   (swap! db db/update-at path assoc :artifacts/folder (str folder))))
 
 (defn base-name
   "What the person edits when renaming: the name of the file without

@@ -77,7 +77,7 @@
    the page, so the watch (`affected`) leaves them out of its
    comparison: a change of one pushes no frame."
   #{:value :definition :schedules/next :failed
-    :artifacts/list :artifacts/rev :artifacts/current :artifacts/picked-at :projects :renders
+    :artifacts/list :artifacts/rev :artifacts/durations :artifacts/current :artifacts/picked-at :artifacts/folder :projects :renders
     :artifacts/renaming :artifacts/deleting
     :deleting? :renaming? :phone})
 
@@ -129,7 +129,7 @@
   "The keys of the pane (`rragent.view/artifacts`), with the text of
    the artifact on screen when it is a text file."
   [{:keys [dir] :as bot}]
-  (let [pane (select-keys bot [:artifacts/list :artifacts/current :artifacts/renaming :artifacts/deleting :projects :renders])
+  (let [pane (select-keys bot [:artifacts/list :artifacts/current :artifacts/folder :artifacts/durations :artifacts/renaming :artifacts/deleting :projects :renders])
         current (some #(when (= (:artifacts/current bot) (:path %)) %) (:artifacts/list bot))]
     (cond-> pane
       current (assoc :artifacts/text (artifacts/text-of dir current)))))
@@ -249,16 +249,43 @@
   [bot path]
   (some #(when (= path (:path %)) %) (:artifacts/list bot)))
 
+(defn- open-folder!
+  "The list browses `folder` of the bot; its README, when it has one,
+   takes the screen (`rragent.artifacts/readme`)."
+  [bot folder]
+  (let [bot-path (db/bot-path (:id bot))]
+    (artifacts/browse! db/db bot-path folder)
+    (when-let [readme (artifacts/readme (:artifacts/list bot) folder)]
+      (artifacts/pick! db/db bot-path readme))))
+
 (defn- open-artifact-command
   "The person picked an artifact in the list or on a card, or went back
-   to the list (a nil path)."
+   to the list (a nil path); a path that is a folder's, a link in a
+   README, opens the folder."
   [w]
   (let [{:keys [path]} (command/command-data w)
-        bot (bot-of-command w)]
-    (if (and bot (or (nil? path) (artifact-of bot path)))
-      (do (artifacts/pick! db/db (db/bot-path (:id bot)) path)
-          (command/accepted w))
-      (command/rejected w :no-such-artifact))))
+        bot (bot-of-command w)
+        path (some-> path (str/replace #"/+$" ""))]
+    (cond
+      (nil? bot) (command/rejected w :no-such-bot)
+      (or (nil? path) (artifact-of bot path)) (do (artifacts/pick! db/db (db/bot-path (:id bot)) path)
+                                                  (command/accepted w))
+      (artifacts/folder? (:artifacts/list bot) path) (do (open-folder! bot path)
+                                                         (command/accepted w))
+      :else (command/rejected w :no-such-artifact))))
+
+(defn- open-folder-command
+  "The person opened a folder in the list, or a crumb of the way to it;
+   the root for a blank path."
+  [w]
+  (let [{:keys [path]} (command/command-data w)
+        bot (bot-of-command w)
+        folder (str/replace (str path) #"/+$" "")]
+    (cond
+      (nil? bot) (command/rejected w :no-such-bot)
+      (artifacts/folder? (:artifacts/list bot) folder) (do (open-folder! bot folder)
+                                                           (command/accepted w))
+      :else (command/rejected w :no-such-folder))))
 
 (defn- clear-artifact-flags
   "The bot's map without a rename or a delete under way in a row of
@@ -688,6 +715,8 @@
       :command/fn #'stop-command}
      {:command/kind :artifacts/open
       :command/fn #'open-artifact-command}
+     {:command/kind :artifacts/open-folder
+      :command/fn #'open-folder-command}
      {:command/kind :artifacts/rename-start
       :command/fn #'rename-start-artifact-command}
      {:command/kind :artifacts/rename

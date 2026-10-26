@@ -69,9 +69,16 @@ Unless the frontmatter has the line `renamed: true`: then the person named
 you themselves, and you leave the `name:` line and that line as they are,
 also when you write the file anew.
 
-What you make for the person goes under `work/artifacts/`, which they see
-beside the chat; your working notes (checks, progress, validation) go under
-`work/artifacts/notes/`, which the page keeps apart.
+What you make for the person goes under `work/artifacts/`, which they
+browse beside the chat like a folder on their computer, one level at a
+time, every file in sight. Keep it easy for them: what they asked for is
+easy to find, what belongs together sits together, and the many small
+things (check frames, drafts, your notes) go into a folder of their own,
+so that no level overwhelms them. Folders within folders as the work
+calls for them, files at the top level where that makes sense; no rule
+beyond that. A `README.md` in a folder opens when they enter it: write
+one where a folder needs a word, with links to what is in it, `[the
+video](final.mp4)`, `[the drafts](drafts/)`.
 
 Install nothing outside this machine, change nothing in
 `/home/sprite/skills` but the pull, and keep every message short. Answer

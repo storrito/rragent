@@ -25,7 +25,8 @@
    :artifacts/project "project"
    :artifacts/pick "Pick a file on the left."
    :artifacts/truncated "The file is longer than this; download it from above for all of it."
-   :artifacts/notes [:fn/str "Notes · {{:n}}"]
+   :artifacts/files [:fn/str "{{:n}} files"]
+   :artifacts/one-file "1 file"
    :artifacts/filter "Filter the list"
    :artifacts/actions "More"
    :artifacts/rename "Rename"
@@ -226,7 +227,8 @@
    :artifacts/project "Projekt"
    :artifacts/pick "Wähle links eine Datei."
    :artifacts/truncated "Die Datei ist länger als das hier; oben lässt sie sich ganz herunterladen."
-   :artifacts/notes [:fn/str "Notizen · {{:n}}"]
+   :artifacts/files [:fn/str "{{:n}} Dateien"]
+   :artifacts/one-file "1 Datei"
    :artifacts/filter "Liste filtern"
    :artifacts/actions "Mehr"
    :artifacts/rename "Umbenennen"

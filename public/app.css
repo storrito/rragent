@@ -750,26 +750,39 @@ body {
   cursor: pointer;
 }
 
-/* The working notes at the end of the list, folded (see
-   rragent.view/notes-group): the summary a muted row, the notes
-   below it as rows of their own. */
-.artifacts ul.files li.group {
-  display: block;
-}
-
-.artifacts ul.files details.notes > summary {
-  padding: 8px 10px;
+/* The way to the folder browsed, above the rows (see
+   rragent.view/crumbs): the folders on the way as links, the folder
+   itself as the last word. */
+.artifacts .list nav.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  padding: 0 2px;
   color: var(--muted);
   font-size: 13px;
-  cursor: pointer;
-  user-select: none;
 }
 
-.artifacts ul.files details.notes > ul {
-  margin: 0;
+.artifacts .list nav.crumbs button.crumb {
   padding: 0;
-  border-top: 1px solid var(--line);
-  list-style: none;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.artifacts .list nav.crumbs button.crumb:hover {
+  text-decoration: underline;
+}
+
+.artifacts .list nav.crumbs .here {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.artifacts ul.files li.folder .name {
+  font-weight: 600;
 }
 
 .artifacts ul.files button.row:hover {
