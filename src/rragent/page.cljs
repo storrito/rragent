@@ -29,7 +29,9 @@
    project's page goes to the project, any other to the page), the
    built client under `/app.css` and `/assets/*`; all behind the token
    (`rragent.auth`); `POST /hook/<name>/<secret>` outside it, tried on
-   every bot, the hooks' own secrets are their keys (`rragent.hooks`).
+   every bot, the hooks' own secrets are their keys (`rragent.hooks`),
+   and `POST /composio/event` outside it too, Composio's deliveries,
+   their signatures their keys (`rragent.composio-events`).
    The commands `:settings/open` and `:settings/close` put the settings
    in place of the chat for a tab and bring the chat back
    (`rragent.view/settings`); `:update/check` is the settings' lookup
@@ -42,6 +44,8 @@
             [rragent.auth :as auth]
             [rragent.bots :as bots]
             [rragent.codemode :as codemode]
+            [rragent.composio-events :as composio-events]
+            [rragent.composio-setup :as composio-setup]
             [rragent.correction :as correction]
             [rragent.db :as db]
             [rragent.dictation :as dictation]
@@ -62,6 +66,7 @@
             [rragent.rframes.replicant :as replicant]
             [rragent.rframes.sse :as sse]
             [rragent.rframes.transit :as transit]
+            [rragent.sprite :as sprite]
             [rragent.starting :as starting]
             [rragent.templates :as templates]
             [rragent.update :as update]
@@ -754,12 +759,34 @@
   []
   (concat (register) command/register))
 
+(defn- ^:async composio-event-handler
+  "`POST /composio/event`: a delivery of Composio's, verified with the
+   subscription's secret, told again by its id, submitted to the bot
+   that owns its trigger (`rragent.composio-events`)."
+  [w]
+  (let [request (:ring/request w)
+        body (await (transit/read-body (:body request)))
+        {:keys [status body]} (await (composio-events/receive! {:harness (:harness (machine/agent))
+                                                                :context harness/context
+                                                                :bots (machine/bots)
+                                                                :default-id machine/default-id
+                                                                :now js/Date.now}
+                                                               (:headers request) body))]
+    (assoc w
+           :ring/response
+           {:status status
+            :headers {"Content-Type" "application/json"}
+            :body (js/JSON.stringify (clj->js body))})))
+
 (defn open-register
-  "The routes outside the token: the hooks, and the pairing of a phone
-   (`rragent.phone`), which lets the phone in with the token's cookie."
+  "The routes outside the token: the hooks, Composio's events, and the
+   pairing of a phone (`rragent.phone`), which lets the phone in with
+   the token's cookie."
   [token]
   [{:ring/route [:post "/hook/*"]
     :ring/handler #'hook-handler}
+   {:ring/route [:post composio-setup/event-path]
+    :ring/handler #'composio-event-handler}
    {:ring/route [:get (str phone/pair-prefix "/*")]
     :ring/handler (fn [w] (phone/pair-handler token w))}])
 
@@ -819,6 +846,16 @@
       (catch :default error
         (.close server)
         (throw error)))
+    ;; the agent's own session and the webhook of its Composio project,
+    ;; made or found in the background: the page is up already
+    (-> (composio-setup/setup! {:harness (:harness (machine/agent))
+                                :context harness/context
+                                :discovery (codemode/discovery (machine/codemode))
+                                :url (env "RRAGENT_URL")
+                                :user-id (or (sprite/label (:labels (sprite/discover)) "agent")
+                                             (env "COMPOSIO_USER_ID")
+                                             "rragent")})
+        (.catch (fn [error] (js/console.error "[composio]" error))))
     ;; a bot's run, a connected page and a render on its way keep the
     ;; machine awake, and hold a known update back
     (await (lifecycle/start! [(fn [] (machine/busy?))

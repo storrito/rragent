@@ -196,8 +196,8 @@
             (testing "without the session"
               (with-env "COMPOSIO_SESSION_ID" nil
                 (fn []
-                  (is (str/includes? (failure #(codemode/evaluate handle "(composio/search \"x\")")) "COMPOSIO_SESSION_ID is not set"))
-                  (is (str/includes? (codemode/evaluate handle "(help)") "COMPOSIO_SESSION_ID is not set")))))))
+                  (is (str/includes? (failure #(codemode/evaluate handle "(composio/search \"x\")")) "No Composio session"))
+                  (is (str/includes? (codemode/evaluate handle "(help)") "Composio: no session yet")))))))
         (.finally done))))
 
 (deftest no-composio-test
@@ -242,7 +242,7 @@
             (testing "help names it and the trigger recipe"
               (let [help (codemode/evaluate handle "(help)")]
                 (is (str/includes? help "(storrito/agent-uuid)"))
-                (is (str/includes? help "(storrito/add-integration-trigger {:agentUuid (storrito/agent-uuid)"))))))
+                (is (str/includes? help "(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\" {})"))))))
         (.finally done))))
 
 (deftest no-storrito-test
@@ -252,4 +252,35 @@
             (is (str/includes? (failure #(codemode/evaluate handle "(storrito/procedures)")) "No Storrito among the connections"))
             (is (str/includes? (failure #(codemode/evaluate handle "(storrito/generate-uuid)")) "Unable to resolve symbol: storrito/generate-uuid"))
             (is (str/includes? (codemode/evaluate handle "(help)") "Storrito: no connection with a catalog"))))
+        (.finally done))))
+
+(deftest composio-triggers-test
+  (async done
+    (-> (with-fake nil
+          (fn [_url handle]
+            (with-env "COMPOSIO_SESSION_ID" "trs_1"
+              (fn []
+                (with-env "COMPOSIO_USER_ID" "agent-1"
+                  (fn []
+                    (testing "the accounts and the trigger types of the agent's user id, through the Composio connection"
+                      (is (= "=> [{:id \"ca_1\", :toolkit \"googledrive\", :status \"ACTIVE\"}]"
+                             (codemode/evaluate handle "(composio/accounts)")))
+                      (is (= "=> [\"GOOGLEDRIVE_FILE_CREATED_TRIGGER\"]"
+                             (codemode/evaluate handle "(mapv :slug (composio/trigger-types \"googledrive\"))"))))
+                    (testing "a trigger added is noted as a fact, with the user id named for Composio, and listed; deleted it is noted too"
+                      (codemode/begin! handle [])
+                      (is (= "=> \"ti_1\"" (codemode/evaluate handle "(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\")")))
+                      (is (= [{:event "composio-trigger" :id "ti_1" :slug "GOOGLEDRIVE_FILE_CREATED_TRIGGER" :account "ca_1"}]
+                             (mapv #(dissoc % :at) (codemode/pending handle))))
+                      (is (= "=> [{:id \"ti_1\", :slug \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\", :connected-account \"ca_1\", :state \"active\"}]"
+                             (codemode/evaluate handle "(composio/triggers)")))
+                      (is (= "=> \"Deleted ti_1\"" (codemode/evaluate handle "(composio/delete-trigger \"ti_1\")")))
+                      (is (= ["composio-trigger" "composio-trigger-deleted"] (mapv :event (codemode/pending handle))))
+                      (is (= "=> []" (codemode/evaluate handle "(composio/triggers)"))))
+                    (testing "help names the session and the user id"
+                      (is (str/includes? (codemode/evaluate handle "(help)") "session trs_1, your accounts and triggers under agent-1")))))
+                (testing "without a user id a trigger cannot be added: Composio wants the account's owner"
+                  (with-env "COMPOSIO_USER_ID" nil
+                    (fn []
+                      (is (str/includes? (failure #(codemode/evaluate handle "(composio/add-trigger \"X\" \"ca_1\")")) "No Composio user id")))))))))
         (.finally done))))
