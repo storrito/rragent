@@ -45,7 +45,7 @@
                  (is (= {:text "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" :pending []} (await (run worker "(storrito/generate-uuid)")))))
                (testing "the environment the bindings read comes with the program"
                  (is (= "=> \"trs_9\"" (:text (await (run worker "(get-in (composio/search \"x\") [:echo :session])" {:env {"COMPOSIO_SESSION_ID" "trs_9"}})))))
-                 (is (str/includes? (:error (await (run worker "(composio/search \"x\")" {:env {"COMPOSIO_SESSION_ID" nil}}))) "COMPOSIO_SESSION_ID is not set")))
+                 (is (str/includes? (:error (await (run worker "(composio/search \"x\")" {:env {"COMPOSIO_SESSION_ID" nil}}))) "No Composio session")))
                (testing "an error is the program's, with what it printed before"
                  (let [{:keys [error pending]} (await (run worker "(remember \"half\" {}) (println \"so far\") (undefined-fn)"))]
                    (is (str/includes? error "Unable to resolve symbol: undefined-fn"))

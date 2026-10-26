@@ -610,15 +610,24 @@ try); `rragent serve` says how many tries it took when more than one.
   first, at most every ten seconds, so the first model call,
   dictation or picture after the gateway came up goes through it, and
   the REPL's `(connectors)` has the list from then on.
-- Composio, the organization's third-party services (Google Drive,
-  Gmail, Notion, Slack and the like through Composio's managed OAuth):
-  a `custom_api` connection whose base is `backend.composio.dev`. The
-  agent reaches them through the four meta tools of a tool-router
-  session (`rragent.composio`), each one `POST
+- Composio, the agent's third-party services (Google Drive, Gmail,
+  Notion, Slack and the like through Composio's managed OAuth): a
+  `custom_api` connection whose base is `backend.composio.dev`, with
+  the key of the agent's own Composio project. The agent reaches the
+  services through the four meta tools of a tool-router session
+  (`rragent.composio`), each one `POST
   /api/v3/tool_router/session/<id>/execute_meta` through that
-  connection, the one path its policy allows. The session is
-  `COMPOSIO_SESSION_ID`, made for the agent by whoever provisions it;
-  rragent never makes one.
+  connection. The session is the agent's own, made when it starts
+  for its user id, the machine's `agent:` label
+  (`rragent.composio-setup`; `COMPOSIO_SESSION_ID` names one made
+  elsewhere instead), and so are its connected accounts and its
+  triggers, managed from the REPL. The setup also subscribes the
+  project's webhook to the page, `POST /composio/event`, outside the
+  token: every event of the agent's triggers comes straight to the
+  machine, which wakes it, verified by its Standard Webhooks
+  signature, told again by its id (Composio delivers each several
+  times), and submitted to the bot that added the trigger
+  (`rragent.composio-events`).
 - Storrito, the organization's own API: a `custom_api` connection whose
   base is the organization's host (`https://acme.storrito.com`, or
   `/api/v1` of it), found among the custom API connections by the
@@ -654,6 +663,12 @@ beside it; `(help)` lists them and `(doc f)` explains each:
   lacks and answers a sign-in link for the person, good for ten
   minutes, which the agent offers as soon as the person names a
   service of theirs.
+- `(composio/accounts)`, `(composio/trigger-types "googledrive")`,
+  `(composio/add-trigger "GOOGLEDRIVE_FILE_CREATED_TRIGGER" "ca_1" {})`,
+  `(composio/triggers)`, `(composio/delete-trigger "ti_1")`: the agent's
+  connected accounts and triggers at Composio, its own; a trigger added
+  is noted as a fact (`composio-trigger`), and its events arrive in the
+  conversation of the bot that added it.
 - `(storrito/procedures)`: the catalog's procedures, each a function
   `storrito/<name>` that takes a map and answers the API's data, a
   failed call a throw with what the API said; a 429 or a 5xx is tried
@@ -688,9 +703,11 @@ the tests of the bindings evaluate in their own thread
 
 Three variables: `RRAGENT_GATEWAY`, the gateway's base
 (`http://sprite.internal`, which answers only inside a sprite; elsewhere
-the list is empty and says why), `COMPOSIO_SESSION_ID`, the session
-of the Composio functions, and `RRAGENT_PROGRAM_TIMEOUT_MIN`, how long
-a program may run.
+the list is empty and says why), `COMPOSIO_SESSION_ID` and
+`COMPOSIO_USER_ID`, the session and the user id of the Composio
+functions (the setup at start fills them in, an environment that
+names a session made elsewhere keeps it), and
+`RRAGENT_PROGRAM_TIMEOUT_MIN`, how long a program may run.
 
 ## Releases
 
@@ -783,7 +800,8 @@ writes into it is the contract between the two:
   named it; once the bot has taken a skill or a job, the name in its
   `AGENT.md` wins, and a name given in the sidebar or by the `bot` tool
   wins over both.
-- `COMPOSIO_SESSION_ID`, when the agent has a Composio session.
+- `COMPOSIO_SESSION_ID`, only for a Composio session made elsewhere;
+  the agent makes its own at start (`rragent.composio-setup`).
 - `OPENROUTER_API_KEY`, only when no OpenRouter connector of the
   organization covers the sprite: the models, dictation and the media
   tools all go through the connector, and all fall back to the key

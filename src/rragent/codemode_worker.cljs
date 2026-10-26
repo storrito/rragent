@@ -53,9 +53,11 @@
 
 (defn environment
   "What the bindings read from the environment, as the main thread
-   has it, for the worker: the Composio session."
+   has it, for the worker: the Composio session and the agent's user
+   id there (`rragent.composio-setup` sets them at start)."
   []
-  {"COMPOSIO_SESSION_ID" (composio/session-id)})
+  {"COMPOSIO_SESSION_ID" (composio/session-id)
+   "COMPOSIO_USER_ID" (composio/user-id)})
 
 (defn worker-thread?
   "Whether this thread is a worker of this namespace: started with the

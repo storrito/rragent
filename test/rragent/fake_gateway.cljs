@@ -89,6 +89,8 @@ let list = null;
 const catalog = JSON.parse(workerData.catalog);
 const plan = JSON.parse(workerData.plan);
 let flaky = 0;
+let subscriptions = [];
+let triggers = [];
 const json = (res, status, value) => { res.setHeader('content-type', 'application/json'); res.writeHead(status); res.end(JSON.stringify(value)); };
 const read = (req) => new Promise((resolve) => { let body = ''; req.on('data', (c) => body += c); req.on('end', () => resolve(body)); });
 const server = http.createServer(async (req, res) => {
@@ -120,6 +122,22 @@ const server = http.createServer(async (req, res) => {
     return echo(status);
   }
   if (provider === 'custom_api' && id === 'conn_composio') {
+    if (rest === '/api/v3.1/tool_router/session' && req.method === 'POST') return json(res, 201, { session_id: 'trs_made_' + (parsed.user_id || 'anon'), config: parsed });
+    if (rest === '/api/v3.1/webhook_subscriptions' && req.method === 'GET') return json(res, 200, { items: subscriptions });
+    if (rest === '/api/v3.1/webhook_subscriptions' && req.method === 'POST') { const made = { id: 'ws_' + (subscriptions.length + 1), webhook_url: parsed.webhook_url, enabled_events: parsed.enabled_events, version: parsed.version, secret: 'secret_' + (subscriptions.length + 1) }; subscriptions.push(made); return json(res, 201, made); }
+    const ws = rest.match(/^\\/api\\/v3.1\\/webhook_subscriptions\\/([^/]+)$/);
+    if (ws && req.method === 'PATCH') { const found = subscriptions.find((x) => x.id === ws[1]); if (!found) return json(res, 404, { error: { message: 'not found' } }); Object.assign(found, parsed); return json(res, 200, found); }
+    if (rest === '/api/v3/trigger_instances/active' && req.method === 'GET') return json(res, 200, { items: triggers });
+    const up = rest.match(/^\\/api\\/v3\\/trigger_instances\\/([^/]+)\\/upsert$/);
+    if (up && req.method === 'POST') {
+      if (!parsed.user_id) return json(res, 400, { error: { message: '2FA is enabled for this project: user_id is required to create or update a trigger.', code: 1221 } });
+      const made = { id: 'ti_' + (triggers.length + 1), trigger_name: up[1], connected_account_id: parsed.connected_account_id, state: 'active', user_id: parsed.user_id, trigger_config: parsed.trigger_config };
+      triggers.push(made); return json(res, 201, { trigger_id: made.id });
+    }
+    const del = rest.match(/^\\/api\\/v3\\/trigger_instances\\/manage\\/([^/]+)$/);
+    if (del && req.method === 'DELETE') { const i = triggers.findIndex((t) => t.id === del[1]); if (i < 0) return json(res, 404, { error: { message: 'trigger not found' } }); triggers.splice(i, 1); return json(res, 200, { status: 'success' }); }
+    if (rest === '/api/v3/triggers_types' && req.method === 'GET') return json(res, 200, { items: [{ slug: 'GOOGLEDRIVE_FILE_CREATED_TRIGGER', name: 'File Created', type: 'poll', config: { properties: {}, required: [] }, toolkit: { slug: url.searchParams.get('toolkit_slugs') } }] });
+    if (rest === '/api/v3/connected_accounts' && req.method === 'GET') return json(res, 200, { items: [{ id: 'ca_1', toolkit: { slug: 'googledrive' }, status: 'ACTIVE', user_id: url.searchParams.get('user_ids') }] });
     const s = rest.match(/^\\/api\\/v3\\/tool_router\\/session\\/([^/]+)\\/execute_meta$/);
     if (!s || req.method !== 'POST') return json(res, 403, { error: 'forbidden: endpoint not allowed' });
     const session = s[1];

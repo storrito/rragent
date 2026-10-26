@@ -233,3 +233,26 @@
                                                            :timeout-ms call-timeout-ms
                                                            :retry retry})]
     {:status status :headers headers :body (parse text)}))
+
+(defn ^:async fetch!
+  "`call` for the main thread: the same request through the gateway,
+   awaited instead of blocking (`js/fetch`), `{:status :body}`, the
+   body as data when it is JSON; a throw when there is no such
+   connection. For what the agent sets up at start
+   (`rragent.composio-setup`), where a blocked thread would stall the
+   page. `opts` as `call` takes them, without `:retry`."
+  [discovery which path {:keys [method body headers query]}]
+  (let [connection (or (connection discovery which)
+                       (throw (js/Error. (no-connector-message discovery which))))
+        controller (js/AbortController.)
+        timer (js/setTimeout #(.abort controller) call-timeout-ms)]
+    (try
+      (let [response (await (js/fetch (url discovery connection path query)
+                                      #js {:method (str/upper-case (key-name (or method "GET")))
+                                           :headers (clj->js (request-headers headers body))
+                                           :body (or (request-body body) js/undefined)
+                                           :signal (.-signal controller)}))
+            text (await (.text response))]
+        {:status (.-status response) :body (parse text)})
+      (finally
+        (js/clearTimeout timer)))))

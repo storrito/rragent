@@ -190,6 +190,52 @@
   (composio/meta-call (partial call handle) @(:discovery handle) "COMPOSIO_MANAGE_CONNECTIONS"
                       (composio/connections-arguments toolkits @(:composio-session handle))))
 
+(defn accounts
+  "Your connected accounts at Composio, {:id :toolkit :status} each:
+   what connections made, by service."
+  [handle]
+  (composio/account-list
+   (composio/rest-call (partial call handle) @(:discovery handle) "GET" composio/accounts-path
+                       {:query (composio/accounts-query (composio/user-id!))})))
+
+(defn trigger-types
+  "The events a service offers, {:slug :name :type :config} each, the
+   config the schema of what add-trigger takes for it:
+   (composio/trigger-types \"googledrive\")."
+  [handle toolkit]
+  (composio/trigger-type-list
+   (composio/rest-call (partial call handle) @(:discovery handle) "GET" composio/trigger-types-path
+                       {:query (composio/trigger-types-query toolkit)})))
+
+(defn triggers
+  "Your triggers at Composio, {:id :slug :connected-account :state}
+   each: every event of a trigger comes to you as a message, with the
+   service's payload."
+  [handle]
+  (composio/trigger-list
+   (composio/rest-call (partial call handle) @(:discovery handle) "GET" composio/triggers-path {})))
+
+(defn add-trigger
+  "A trigger of the kind `slug` on the connected account
+   `connected-account-id` (one of accounts), with `config` as its type
+   asks: from now on every event of it is posted to this machine and
+   arrives in your conversation. Answers the trigger's id, which is
+   noted as a fact so that the events find you:
+   (composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\")."
+  [handle slug connected-account-id & [config]]
+  (let [body (composio/rest-call (partial call handle) @(:discovery handle) "POST" (composio/upsert-trigger-path slug)
+                                 {:body (composio/upsert-trigger-body connected-account-id (composio/user-id!) config)})
+        id (or (:trigger_id body) (:id body))]
+    (remember handle composio/trigger-fact {:id id :slug (str slug) :account (str connected-account-id)})
+    id))
+
+(defn delete-trigger
+  "The trigger `id` deleted at Composio; its events stop."
+  [handle id]
+  (composio/rest-call (partial call handle) @(:discovery handle) "DELETE" (composio/delete-trigger-path id) {})
+  (remember handle composio/trigger-deleted-fact {:id (str id)})
+  (str "Deleted " id))
+
 (defn procedures
   "The procedures of the organization's Storrito API, {:name :doc}
    each, every one a function storrito/<name> that takes a map:
@@ -224,9 +270,12 @@
    ["(composio/schemas [\"GMAIL_SEND_EMAIL\"])" "the input schemas of tools by slug"]
    ["(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})" "runs one tool with its arguments"]
    ["(composio/connections [\"googlesheets\"])" "the connections of services by toolkit slug (googlesheets, gmail, googledrive, slack, notion, github), a missing one started: a sign-in link for the person, good for ten minutes; the answer to give as soon as they name a service of theirs"]
+   ["(composio/accounts)" "your connected accounts, by service: {:id :toolkit :status}"]
+   ["(composio/trigger-types \"googledrive\")" "the events a service offers and the config each takes"]
+   ["(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\" {})" "every event of that kind on the connected account arrives in your conversation from now on; answers the trigger's id"]
+   ["(composio/triggers)" "your triggers: {:id :slug :connected-account :state}; (composio/delete-trigger \"ti_1\") ends one"]
    ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each"]
-   ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid of the storrito/ integration procedures"]
-   ["(storrito/add-integration-trigger {:agentUuid (storrito/agent-uuid) :toolkit \"googledrive\" :trigger \"GOOGLEDRIVE_GOOGLE_DRIVE_CHANGES\" :config {} :targetUrl \"https://…/hook/<name>/<secret>\"})" "every event of that kind at the connected service posted to one of your hooks (the hook tool makes one) from now on; (storrito/list-integration-trigger-types {:toolkit \"googledrive\"}) lists the events of a service and their config"]
+   ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid some storrito/ procedures take"]
    ["(remember \"review-posted\" {:id 4711})" "a fact for later runs, kept through every summary"]
    ["(recall {:event \"review-posted\"})" "your facts, oldest first; :since narrows them"]])
 
@@ -246,8 +295,9 @@
            "\nStorrito: no connection with a catalog, the storrito/ functions are not here.")
          (cond
            (not (composio/connection discovery)) "\nComposio: no connection, the composio/ functions will say so."
-           (not (composio/session-id)) "\nComposio: COMPOSIO_SESSION_ID is not set, the composio/ functions will say so."
-           :else (str "\nComposio: through " (:id (composio/connection discovery)) ".")))))
+           (not (composio/session-id)) "\nComposio: no session yet (it is made when the agent starts), the composio/ functions will say so."
+           :else (str "\nComposio: through " (:id (composio/connection discovery)) ", session " (composio/session-id)
+                      (when-let [user (composio/user-id)] (str ", your accounts and triggers under " user)) ".")))))
 
 (defn help-text
   [handle]
@@ -288,7 +338,7 @@
         ctx (sci/init {:features #{:cljs}
                        :namespaces {'clojure.core denied-core
                                     'agent (vars agent-ns handle [#'connectors #'connector #'call #'remember #'recall #'help])
-                                    'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections])
+                                    'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections #'accounts #'trigger-types #'triggers #'add-trigger #'delete-trigger])
                                     'storrito (cond-> (vars storrito-ns handle [#'procedures #'agent-uuid])
                                                 catalog (merge (storrito-vars (partial call handle) connection catalog)))}})]
     (sci/eval-string* ctx preamble)
