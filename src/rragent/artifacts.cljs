@@ -11,7 +11,9 @@
 
    The person browses the folder as one on their computer, one level
    at a time (`level`, `crumbs`): the folders of a level first, then
-   its files, a folder as one row until it is opened. Nothing is
+   its files, both by name, a folder as one row until it is opened
+   (the newest change takes the screen, so the list need not say what
+   is new). Nothing is
    hidden but the dot files: the agent keeps a level short by putting
    what belongs together into folders. A `README.md` in a folder is
    its first file and opens when the person enters the folder
@@ -273,13 +275,23 @@
            (vec)))
     []))
 
+(defn by-name
+  "The order of a folder on a computer: by name, case aside, a number
+   in a name as a number (`frame-2` before `frame-10`)."
+  [a b]
+  (.localeCompare (str a) (str b) js/undefined #js {:numeric true :sensitivity "base"}))
+
+(defn file-name
+  [p]
+  (last (str/split (str p) #"/")))
+
 (defn level
   "What is in `folder` of the list (\"\" the root): `{:folders :files}`.
-   The folders by their newest file, each `{:path :name :title :kind
-   :count :mtime :size}`, `:kind :folder`, or `:recording` for a
-   recording's, titled by its time, with the `:duration` `durations`
-   (path to seconds) knows; the files newest first, the folder's
-   README first of all."
+   The folders by name, each `{:path :name :title :kind :count :mtime
+   :size}`, `:kind :folder`, or `:recording` for a recording's, titled
+   by its time, with the `:duration` `durations` (path to seconds)
+   knows; the files by name (`by-name`), the folder's README first of
+   all."
   [listed folder & [durations]]
   (let [prefix (if (str/blank? folder) "" (str folder "/"))
         below (filter #(str/starts-with? (:path %) prefix) listed)
@@ -296,10 +308,16 @@
                                        :mtime (reduce max 0 (map :mtime entries))
                                        :size (reduce + 0 (map :size entries))}
                                 (get durations path) (assoc :duration (get durations path))))))
-                     (sort-by :mtime >)
+                     (sort-by :name by-name)
                      (vec))]
     {:folders folders
-     :files (vec (sort-by (fn [{:keys [path mtime]}] [(if (readme? path) 0 1) (- mtime)]) files))}))
+     :files (vec (sort (fn [a b]
+                         (let [ra (if (readme? (:path a)) 0 1)
+                               rb (if (readme? (:path b)) 0 1)]
+                           (if (= ra rb)
+                             (by-name (file-name (:path a)) (file-name (:path b)))
+                             (- ra rb))))
+                       files))}))
 
 (defonce ^:private duration-cache
   (atom {}))

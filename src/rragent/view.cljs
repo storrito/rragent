@@ -881,8 +881,8 @@
   "The level of the folder browsed (`rragent.artifacts/level`): the way
    to it, its folders, then its files, in the filter alias
    (`:ui/files-filter`, `rragent.client`), whose field shows once the
-   list is long; the files of the other levels as rows the filter
-   alone shows, so that it finds a file wherever it is."
+   list is long; the files of the other levels, by path, as rows the
+   filter alone shows, so that it finds a file wherever it is."
   [bot list folder durations opts]
   (let [folder (if (artifacts/folder? list folder) folder "")
         {:keys [folders files]} (artifacts/level list folder durations)
@@ -896,7 +896,7 @@
        (folder-row bot f))
      (for [file files]
        (file-row bot file opts))
-     (for [file (remove #(here (:path %)) list)]
+     (for [file (sort-by :path artifacts/by-name (remove #(here (:path %)) list))]
        (file-row bot file (assoc opts :deep? true)))]))
 
 (defn- render-controls

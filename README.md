@@ -275,8 +275,8 @@ every two seconds besides.
 
 The person browses the folder as one on their computer, one level at a
 time: the folders of the level first, one row each with how many files
-it holds, then its files, the way back above them; nothing is hidden
-but the dot files. The agent is told to keep a level short by putting
+it holds, then its files, both by name, the way back above them;
+nothing is hidden but the dot files. The agent is told to keep a level short by putting
 what belongs together into a folder, the many small things in one of
 their own, folders within folders as the work calls for them, and no
 rule beyond that. A `README.md` in a folder opens when the person enters

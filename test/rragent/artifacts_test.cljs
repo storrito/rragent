@@ -149,17 +149,23 @@
                 {:path "recordings/2026-10-21T11-56-03/screen.webm" :mtime 20 :size 1000}
                 {:path "recordings/2026-10-21T11-56-03/recording.json" :mtime 21 :size 5}
                 {:path "clip" :kind :project :mtime 5 :size 0}]]
-    (testing "the root: the folders by their newest file, then the files newest first"
+    (testing "the root: the folders by name, then the files by name"
       (let [{:keys [folders files]} (artifacts/level listed "")]
-        (is (= [{:path "youtube" :name "youtube" :title "Youtube" :kind :folder :count 4 :mtime 45 :size 211}
-                {:path "recordings" :name "recordings" :title "Recordings" :kind :folder :count 2 :mtime 21 :size 1005}]
+        (is (= [{:path "recordings" :name "recordings" :title "Recordings" :kind :folder :count 2 :mtime 21 :size 1005}
+                {:path "youtube" :name "youtube" :title "Youtube" :kind :folder :count 4 :mtime 45 :size 211}]
                folders))
-        (is (= ["final.mp4" "clip"] (map :path files)))))
+        (is (= ["clip" "final.mp4"] (map :path files)))))
+    (testing "the order of a folder on a computer: case aside, numbers as numbers"
+      (is (= ["frame-2.png" "frame-10.png" "Thumb.png" "zebra.md"]
+             (sort artifacts/by-name ["zebra.md" "frame-10.png" "Thumb.png" "frame-2.png"])))
+      (is (= ["a/README.md" "a/Final.mp4" "a/frame-2.png" "a/frame-10.png"]
+             (map :path (:files (artifacts/level [{:path "a/frame-10.png" :mtime 9} {:path "a/Final.mp4" :mtime 1}
+                                                  {:path "a/README.md" :mtime 0} {:path "a/frame-2.png" :mtime 5}] "a"))))))
     (testing "a folder: its README first, its subfolders as rows"
       (let [{:keys [folders files]} (artifacts/level listed "youtube")]
         (is (= ["youtube/drafts"] (map :path folders)))
         (is (= [2 45 110] ((juxt :count :mtime :size) (first folders))))
-        (is (= ["youtube/README.md" "youtube/cut.mp4"] (map :path files)))))
+        (is (= ["youtube/README.md" "youtube/cut.mp4"] (map :path files)) "the README first, whatever its time")))
     (testing "a recording's folder is titled by its time, with its length when known"
       (is (= {:path "recordings/2026-10-21T11-56-03" :name "2026-10-21T11-56-03" :title "2026-10-21 11:56" :kind :recording :count 2 :mtime 21 :size 1005 :duration 83.4}
              (first (:folders (artifacts/level listed "recordings" {"recordings/2026-10-21T11-56-03" 83.4})))))
@@ -329,14 +335,15 @@
             rows (filter #(and (vector? %) (= :li (first %))) (nodes v))]
         (is (some #{:ui/canvas} (tags v)))
         (is (= 5 (count rows)))
+        (is (= ["card.html" "clip" "pool.png" "story.mp4" "deep:notes/plan.md"] (map #(:replicant/key (second %)) rows)) "by name, the file of another level last")
         (is (= ["page" "current"] (:class (second (first rows)))))
         (is (= "card card.html" (:data-name (second (first rows)))) "the title and the path for the filter")
         (is (= ["html" " · " "1 KB"] (rest (find-tag (first rows) :span.meta))) "the extension and the size tell files apart")
         (is (= ["md" " · " "notes/" " · " "40 B"] (rest (find-tag (nth rows 4) :span.meta))) "a file of another level names its folder")
         (is (= "true" (:data-deep (second (nth rows 4)))) "a row of another level is there for the filter alone")
         (is (nil? (:data-deep (second (first rows)))))
-        (is (some #{[:i18n :artifacts/project]} (nodes (nth rows 3))) "a project is named as such")
-        (is (= {:bot "b1" :path "pool.png"} (get-in (second (find-tag (second rows) :button.row)) [:on :click 0 1 :command/data])))
+        (is (some #{[:i18n :artifacts/project]} (nodes (second rows))) "a project is named as such")
+        (is (= {:bot "b1" :path "pool.png"} (get-in (second (find-tag (nth rows 2) :button.row)) [:on :click 0 1 :command/data])))
         (is (= {:bot "b1" :path nil} (get-in (second (find-tag v :button.link.back)) [:on :click 0 1 :command/data])) "the way back to the list")
         (is (= ["showing"] (:class (second v))))
         (is (= "/artifacts/card.html" (:ui/src (second (find-tag v :ui/canvas)))))
@@ -345,7 +352,7 @@
       (let [v (pane "card.html")
             keys-of (fn [v] (map #(:replicant/key (second %)) (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))))
             folder (find-tag v :li.folder)]
-        (is (= ["notes" "card.html" "pool.png" "story.mp4" "clip" "deep:notes/plan.md"] (keys-of v)) "a row of another level keyed apart, so that no node moves between the two")
+        (is (= ["notes" "card.html" "clip" "pool.png" "story.mp4" "deep:notes/plan.md"] (keys-of v)) "a row of another level keyed apart, so that no node moves between the two")
         (is (= ["folder"] (:class (second folder))))
         (is (= "notes notes notes" (:data-name (second folder))) "the folder's title, name and path for the filter")
         (is (= {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path "notes"}}
@@ -359,7 +366,7 @@
       (let [v (pane "notes/plan.md" {:artifacts/folder "notes"})
             filter-alias (find-tag v :ui/files-filter)
             lis (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))]
-        (is (= ["notes/plan.md" "deep:card.html" "deep:pool.png" "deep:story.mp4" "deep:clip"] (map #(:replicant/key (second %)) lis)))
+        (is (= ["notes/plan.md" "deep:card.html" "deep:clip" "deep:pool.png" "deep:story.mp4"] (map #(:replicant/key (second %)) lis)))
         (is (= [nil "true" "true" "true" "true"] (map #(:data-deep (second %)) lis)))
         (is (= ["md" " · " "40 B"] (rest (find-tag (first lis) :span.meta))) "a file of the folder browsed goes without it")
         (is (= [:nav.crumbs
@@ -407,7 +414,7 @@
         (is (contains? (strings (i18n/translate v :en)) "Delete Pool? It goes to the trash."))
         (is (= {:bot "b1" :path "pool.png"} (get-in (second (find-tag row :button.link.danger)) [:on :click 0 1 :command/data])))
         (is (= :artifacts/keep (get-in (second (find-tag row :button.link)) [:on :click 0 1 :command/kind])))
-        (is (nil? (find-tag (second (filter #(and (vector? %) (= :li (first %))) (nodes v))) :button.row)) "the row asks instead"))
+        (is (nil? (find-tag (nth (filter #(and (vector? %) (= :li (first %))) (nodes v)) 2) :button.row)) "the row asks instead"))
       (let [v (pane "card.html" {:artifacts/renaming "pool.png"})
             field (find-tag v :input.name)]
         (is (= "pool" (:value (second field))) "the file's name less the extension, not its title")
