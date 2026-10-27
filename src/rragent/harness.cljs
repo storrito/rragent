@@ -36,6 +36,7 @@
             [rragent.gateway :as gateway]
             [rragent.home :as home]
             [rragent.images :as images]
+            [rragent.mcp :as mcp]
             [rragent.model-requests :as model-requests]
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
@@ -184,7 +185,9 @@
    first (`rragent.bots/migrate!`, `:migrated` says so) and a home
    without a definition for the first bot gets the assistant's. The
    gateway's connectors are discovered here, tried again while the
-   gateway comes up, for the REPL (`rragent.codemode`), whose programs
+   gateway comes up, for the REPL (`rragent.codemode`), with the MCP
+   servers of `mcp.json` in `home` (`rragent.mcp`, connected at the
+   first program), whose programs
    run in a worker thread per bot started at the first one
    (`rragent.codemode-worker`), and for the route to OpenRouter of the
    models and the media tools (`rragent.openrouter`), which asks the
@@ -202,7 +205,8 @@
             (bots/write-definition! home bots/root-id (bots/assistant-text home)))
         storage (or storage (await (openNodeSqliteStorage (home/database home))))
         base (gateway/base gateway)
-        codemode (codemode/handle base (await (gateway/discover-at-start base retry)))
+        codemode (assoc (codemode/handle base (await (gateway/discover-at-start base retry)))
+                        :mcp (mcp/registry {:file (mcp/file home) :home home}))
         models (or models (openrouter-models codemode))
         harness (await (.open Harness storage
                               #js {:models models
@@ -275,10 +279,12 @@
 
 (defn ^:async close
   "The harness closed, which aborts a running program with its call,
-   every REPL worker ended and every bot taken out of the one atom."
-  [{:keys [harness]}]
+   every REPL worker ended, the MCP servers closed (`rragent.mcp`) and
+   every bot taken out of the one atom."
+  [{:keys [harness codemode]}]
   (await (.close harness context))
   (codemode-worker/stop-all! "The agent closed.")
+  (await (mcp/close! (:mcp codemode)))
   (swap! db/db assoc :bots {}))
 
 (def memory-storage

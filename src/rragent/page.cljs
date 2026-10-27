@@ -54,6 +54,7 @@
             [rragent.i18n :as i18n]
             [rragent.lifecycle :as lifecycle]
             [rragent.machine :as machine]
+            [rragent.mcp :as mcp]
             [rragent.onboarding :as onboarding]
             [rragent.openrouter :as openrouter]
             [rragent.phone :as phone]
@@ -864,6 +865,8 @@
     (println (update/report (:updater @db/db)))
     (println (programs/report (templates/all)))
     (println (codemode/report (machine/codemode)))
+    (when-let [line (mcp/report (:mcp (machine/codemode)))]
+      (println line))
     (println (openrouter/report (codemode/discovery (machine/codemode))))
     (println (machine/report))
     (println (str "rragent on "

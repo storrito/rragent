@@ -32,24 +32,47 @@
     (str (subs printed 0 max-chars) " … (cut at " max-chars " characters)")
     printed))
 
+(def max-images
+  "The pictures of one program's MCP calls that reach the model."
+  8)
+
+(defn output
+  "The tool's result for the program's `text` and the `images` its MCP
+   calls answered: the text, then the pictures, at most `max-images`."
+  [text images]
+  #js {:output (clj->js (into [{:type "text" :text (str text)}]
+                              (map (fn [{:keys [data mime-type]}] {:type "image" :data data :mimeType mime-type}))
+                              (take max-images images)))})
+
+(defn- progress!
+  "A line of progress of an MCP call as the running output of the call,
+   for the page while the program runs."
+  [api line]
+  (try
+    (.output api (str line "\n"))
+    (catch :default _ nil)))
+
 (defn ^:async evaluate
   "`code` run in the `worker` of the REPL for the tool's conversation:
    the facts read first, what the program remembered committed after
    it, in order, also when it failed after remembering; a program the
-   call's abort (Stop) or the timeout ended remembered nothing."
+   call's abort (Stop) or the timeout ended remembered nothing.
+   Answers the tool's result: the text, and the pictures of its MCP
+   calls (`output`)."
   [worker api call-context code]
   (let [facts (await (facts/facts (facts/from-tool api call-context)))
-        {:keys [text error pending]} (await (codemode-worker/evaluate! worker {:code code
-                                                                          :facts facts
-                                                                          :env (codemode-worker/environment)
-                                                                          :signal (.-abortSignal call-context)}))]
+        {:keys [text error pending images]} (await (codemode-worker/evaluate! worker {:code code
+                                                                                 :facts facts
+                                                                                 :env (codemode-worker/environment)
+                                                                                 :signal (.-abortSignal call-context)
+                                                                                 :on-progress (partial progress! api)}))]
     (loop [[fact & more] pending]
       (when fact
         (await (facts/remember! api (:event fact) (dissoc fact :event :at) (:at fact) call-context))
         (recur more)))
     (if error
       (throw (js/Error. error))
-      text)))
+      (output text images))))
 
 (defn ^:async evaluate-in-project
   "`code` evaluated by the project's process; its answer, or a throw
@@ -65,7 +88,8 @@
 (def description
   (str "Your REPL: run a Clojure program (SCI) in your own process. Start with (help): it lists the functions that reach "
        "the organization's connectors through the Sprites gateway, (connectors), (call provider path opts), composio/search, "
-       "composio/execute, storrito/<procedure>, remember and recall, and (doc f) explains any of them. "
+       "composio/execute, storrito/<procedure>, the tools of the machine's MCP servers as mcp.<server>/<tool> (mcp/servers lists them), "
+       "remember and recall, and (doc f) explains any of them. "
        "A service of the person's that is not connected yet (a Google spreadsheet, Gmail, Drive, Slack, Notion, GitHub) is connected with "
        "(composio/connections [\"googlesheets\"]), by its slug at Composio: a sign-in link for the person, good for ten minutes, which you "
        "give them in the same answer in which they name the service, before you ask anything else about it. "
@@ -90,7 +114,7 @@
                                        :project (.Optional Type (.String Type #js {:description "An artifact project's name: evaluate in its process"}))})
         :execute (^:async fn [args api call-context]
                    (let [project (not-empty (.-project args))]
-                     (work/text (if project
-                                  (await (evaluate-in-project api call-context project (.-code args)))
-                                  (await (evaluate (codemode-worker/of codemode (await (work/bot-id api call-context)))
-                                                   api call-context (.-code args)))))))}))
+                     (if project
+                       (work/text (await (evaluate-in-project api call-context project (.-code args))))
+                       (await (evaluate (codemode-worker/of codemode (await (work/bot-id api call-context)))
+                                        api call-context (.-code args))))))}))
