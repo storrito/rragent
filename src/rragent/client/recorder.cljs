@@ -178,6 +178,13 @@
   [seconds]
   (str (quot (or seconds 0) 60) ":" (.padStart (str (rem (or seconds 0) 60)) 2 "0")))
 
+(defn- device-gone?
+  "Whether the browser could not give the devices asked for: none, or
+   not the ones remembered (their ids change when the person revokes
+   and allows the site again)."
+  [^js error]
+  (contains? #{"NotFoundError" "OverconstrainedError" "NotReadableError"} (some-> error .-name)))
+
 (defn- ^:async devices
   "The microphones and the cameras with their labels: the browser gives
    the labels once it was allowed the devices, so it is asked once, for
@@ -252,13 +259,6 @@
       (let [seconds (js/Math.floor (/ (- (js/performance.now) since) 1000))]
         (when (not= seconds (:seconds (:ui/recorder @store)))
           (update! store assoc :seconds seconds))))))
-
-(defn- device-gone?
-  "Whether the browser could not give the devices asked for: none, or
-   not the ones remembered (their ids change when the person revokes
-   and allows the site again)."
-  [^js error]
-  (contains? #{"NotFoundError" "OverconstrainedError" "NotReadableError"} (some-> error .-name)))
 
 (defn- ^:async user-media
   "The camera and the microphone, the ones chosen when the browser has
