@@ -503,7 +503,12 @@ when each recorder started (remuxed by ffmpeg when the machine has one,
 so that the files carry their duration). When the recording ends the
 draft names the files; the person tells the agent how the two go
 together, and the agent aligns them by their waveforms and composes the
-video. Chrome on a desktop only.
+video. Chrome on a desktop only. A laptop without a microphone, or
+without a camera, is asked for the one it has and records without the
+other: the panel says so in the device's place, the source cannot be
+ticked, and without a microphone the draft says the files have no
+sound; with neither, the screen alone records.
+
 
 The webcam's picture can go through effects on the laptop
 (`rragent.client.effects`, remembered in the browser): *Background*

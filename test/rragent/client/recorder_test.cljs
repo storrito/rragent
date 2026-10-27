@@ -28,7 +28,11 @@
                                   "artifacts/recordings/s" ["webcam.webm"] {:background :green :auto-light? false}))))
     (testing "a blurred background is the webcam as ever"
       (is (= "New recording in artifacts/recordings/s: webcam.webm (the webcam); every file carries a microphone. "
-             (recorder/draft-line labels "artifacts/recordings/s" ["webcam.webm"] {:background :blur}))))))
+             (recorder/draft-line labels "artifacts/recordings/s" ["webcam.webm"] {:background :blur}))))
+    (testing "recorded without a microphone: the files have no sound, the draft says so"
+      (is (= "New recording in artifacts/recordings/s: screen.webm (the screen), webcam.webm (the webcam); no sound. "
+             (recorder/draft-line (assoc labels :draft-no-mic "New recording in {folder}: {files}; no sound. ")
+                                  "artifacts/recordings/s" ["screen.webm" "webcam.webm"] nil true))))))
 
 (def labels
   {:title "Record a screencast"
@@ -45,7 +49,11 @@
    :auto-light "Light and colour automatic"
    :effects-loading "Loading the model …"
    :effects-failed "The background effect did not load: {error}."
-   :green-hint "Only you stay in the picture."})
+   :green-hint "Only you stay in the picture."
+   :no-mic "No microphone: no sound."
+   :no-camera "No camera"
+   :source-webcam "Webcam"
+   :source-mic "Microphone alone"})
 
 (defn- render
   [state]
@@ -79,7 +87,24 @@
                                               :effects {:background :green} :effects-status :on}})
                        "Only you stay in the picture.")))
 
+  (testing "without a microphone: a word in its place, no meter, the microphone alone cannot be ticked"
+    (let [html (render {:ui/recorder {:status :ready
+                                      :sources #{:screen :webcam}
+                                      :devices {:mics [] :cameras [{:id "c" :label "Cam"}]}}})]
+      (is (str/includes? html "No microphone: no sound."))
+      (is (not (str/includes? html ":span.meter")))
+      (is (str/includes? html ":video.camera"))
+      (is (re-find #":checked false, :disabled true, :on \{:change #object\[[^\]]*\]\}\}\] \"Microphone alone\"" html))))
+
+  (testing "without a camera: no camera live, a word in its place"
+    (let [html (render {:ui/recorder {:status :ready
+                                      :sources #{:screen}
+                                      :devices {:mics [{:id "m" :label "Mic"}] :cameras []}}})]
+      (is (str/includes? html "No camera"))
+      (is (not (str/includes? html ":video.camera")))
+      (is (str/includes? html ":span.meter"))))
   (testing "while it records: the time, when it started, Stop and the live views"
+
     (let [started (.getTime (js/Date. 2026 9 22 15 25 22))
           html (render {:ui/recorder {:status :recording
                                       :sources #{:screen :webcam}

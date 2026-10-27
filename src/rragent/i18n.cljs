@@ -168,6 +168,9 @@
    :record/green-hint "Only you stay in the picture, on plain green: the agent keys the green out when it lays the webcam over the screen."
    :record/file-webcam-green "the webcam, the person cut out on plain green #00ff00 for the agent to key out"
    :record/file-webcam-black "the webcam, the person cut out on black"
+   :record/no-mic "No microphone: what is recorded here has no sound."
+   :record/no-camera "No camera"
+   :record/draft-no-mic "New recording in {folder}: {files}; recorded without a microphone, the files have no sound. "
 
    :phone/title "Camera for a screencast"
    :phone/connecting "Asking for the camera …"
@@ -382,6 +385,10 @@
    :record/green-hint "Nur du bleibst im Bild, auf reinem Grün: der Agent keyt das Grün heraus, wenn er die Webcam über den Bildschirm legt."
    :record/file-webcam-green "die Webcam, die Person freigestellt auf reinem Grün #00ff00, das der Agent herauskeyt"
    :record/file-webcam-black "die Webcam, die Person freigestellt auf Schwarz"
+   :record/no-mic "Kein Mikrofon: was hier aufgenommen wird, hat keinen Ton."
+   :record/no-camera "Keine Kamera"
+   :record/draft-no-mic "Neue Aufnahme in {folder}: {files}; ohne Mikrofon aufgenommen, die Dateien haben keinen Ton. "
+
 
    :phone/title "Kamera für einen Screencast"
    :phone/connecting "Frage nach der Kamera …"

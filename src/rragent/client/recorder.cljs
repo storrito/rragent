@@ -116,6 +116,16 @@
   [^js stream]
   (js/MediaStream. #js [(.clone ^js (first (array-seq (.getAudioTracks stream))))]))
 
+(defn- has-audio?
+  "Whether `stream` carries a microphone: a laptop may have none."
+  [^js stream]
+  (boolean (some-> stream .getAudioTracks .-length pos?)))
+
+(defn- has-video?
+  "Whether `stream` carries a camera: a laptop may have none."
+  [^js stream]
+  (boolean (some-> stream .getVideoTracks .-length pos?)))
+
 (defn- remembered
   [kind]
   (try
@@ -170,9 +180,22 @@
 
 (defn- ^:async devices
   "The microphones and the cameras with their labels: the browser gives
-   the labels once it was allowed the devices, so it is asked once."
+   the labels once it was allowed the devices, so it is asked once, for
+   the kinds it lists: a laptop without a microphone, or without a
+   camera, is asked for the other alone, one with neither for nothing
+   (the screen alone records still). A kind listed but not to be had
+   (held by another program) does not stop the panel either."
   []
-  (stop-tracks! (await (js/navigator.mediaDevices.getUserMedia #js {:audio true :video true})))
+  (let [kinds (set (map #(.-kind ^js %) (array-seq (await (js/navigator.mediaDevices.enumerateDevices)))))
+        wanted (cond-> {}
+                 (contains? kinds "audioinput") (assoc :audio true)
+                 (contains? kinds "videoinput") (assoc :video true))]
+    (when (seq wanted)
+      (try
+        (stop-tracks! (await (js/navigator.mediaDevices.getUserMedia (clj->js wanted))))
+        (catch :default error
+          (when-not (device-gone? error)
+            (throw error))))))
   (let [all (array-seq (await (js/navigator.mediaDevices.enumerateDevices)))
         of (fn [kind word]
              (->> all
@@ -203,10 +226,13 @@
   (get-in @session* [:ctx :phone-url]))
 
 (defn- with-mic
-  "`track`, a picture, with a copy of the microphone of `preview`: what
-   the screen's and the phone's screen's files record."
+  "`track`, a picture, with a copy of the microphone of `preview` when
+   there is one: what the screen's and the phone's screen's files
+   record; without a microphone, the picture alone."
   [^js track ^js preview]
-  (js/MediaStream. #js [track (.clone ^js (first (array-seq (.getAudioTracks preview))))]))
+  (js/MediaStream. (if-let [^js audio (some-> preview .getAudioTracks array-seq first)]
+                     #js [track (.clone audio)]
+                     #js [track])))
 
 (defn- stop-audio!
   "The microphone's copy in `stream` let go."
@@ -236,20 +262,31 @@
 
 (defn- ^:async user-media
   "The camera and the microphone, the ones chosen when the browser has
-   them, any otherwise: a remembered id that is gone does not stop the
-   panel."
-  [mic camera]
-  (let [chosen (clj->js {:audio (if mic {:deviceId {:ideal mic}} true)
-                         :video (cond-> {:width {:ideal 1920}
-                                         :height {:ideal 1080}
-                                         :frameRate {:ideal 30}}
-                                  camera (assoc :deviceId {:ideal camera}))})]
-    (try
-      (await (js/navigator.mediaDevices.getUserMedia chosen))
-      (catch :default error
-        (if (device-gone? error)
-          (await (js/navigator.mediaDevices.getUserMedia #js {:audio true :video true}))
-          (throw error))))))
+   them, any otherwise, and only the kinds the laptop has (`devices`):
+   a remembered id that is gone, or one kind that cannot be had, does
+   not stop the panel; the other alone is asked for then. Without
+   either, an empty stream: the screen alone records still."
+  [mic camera {:keys [mics cameras]}]
+  (let [picture {:width {:ideal 1920}
+                 :height {:ideal 1080}
+                 :frameRate {:ideal 30}}
+        chosen (cond-> {}
+                 (seq mics) (assoc :audio (if mic {:deviceId {:ideal mic}} true))
+                 (seq cameras) (assoc :video (cond-> picture camera (assoc :deviceId {:ideal camera}))))
+        any (cond-> {}
+              (seq mics) (assoc :audio true)
+              (seq cameras) (assoc :video true))
+        tries (distinct (remove empty? [chosen any (when (seq cameras) {:video true}) (when (seq mics) {:audio true})]))]
+    (loop [tries tries]
+      (if-let [constraints (first tries)]
+        (let [stream (try
+                       (await (js/navigator.mediaDevices.getUserMedia (clj->js constraints)))
+                       (catch :default error
+                         (if (and (device-gone? error) (next tries))
+                           nil
+                           (throw error))))]
+          (or stream (recur (rest tries))))
+        (js/MediaStream.)))))
 
 (defn- effects-settings
   [store]
@@ -266,7 +303,7 @@
         gone (:effects @session*)]
     (some-> gone effects/stop!)
     (let [failed (atom nil)
-          handle (when (and raw (effects/supported?) (effects/active? settings))
+          handle (when (and (has-video? raw) (effects/supported?) (effects/active? settings))
                    (try
                      (effects/start! raw settings
                                      {:on-ready (fn [] (update! store assoc :effects-status :on))
@@ -292,20 +329,22 @@
    the webcam file records (`pipeline!`), with the meter on its
    microphone."
   [store]
-  (let [{:keys [mic camera]} (:ui/recorder @store)]
+  (let [{:keys [mic camera devices]} (:ui/recorder @store)]
     (some-> (:effects @session*) effects/stop!)
     (stop-tracks! (:raw @session*))
-    (swap! session* dissoc :effects :raw :preview)
-    (let [raw (await (user-media mic camera))
-          audio-context (or (:audio-context @session*) (js/AudioContext.))
-          analyser (.createAnalyser audio-context)]
-      (set! (.-fftSize analyser) 2048)
-      (.connect (.createMediaStreamSource audio-context raw) analyser)
-      (swap! session* assoc
-             :raw raw
-             :audio-context audio-context
-             :analyser analyser
-             :samples (js/Float32Array. (.-fftSize analyser)))
+    (swap! session* dissoc :effects :raw :preview :analyser :samples)
+    (let [raw (await (user-media mic camera devices))
+          ;; the meter, when there is a microphone
+          audio-context (when (has-audio? raw) (or (:audio-context @session*) (js/AudioContext.)))
+          analyser (when audio-context (.createAnalyser audio-context))]
+      (when analyser
+        (set! (.-fftSize analyser) 2048)
+        (.connect (.createMediaStreamSource audio-context raw) analyser)
+        (swap! session* assoc
+               :audio-context audio-context
+               :analyser analyser
+               :samples (js/Float32Array. (.-fftSize analyser))))
+      (swap! session* assoc :raw raw)
       (pipeline! store))))
 
 (defn set-effect!
@@ -355,7 +394,10 @@
                           :devices found
                           :mic (pick :mic mics)
                           :camera (pick :camera cameras)
-                          :sources (remembered-sources)
+                          ;; a laptop without a camera, or a microphone, records without
+                          :sources (cond-> (remembered-sources)
+                                     (empty? cameras) (disj :webcam)
+                                     (empty? mics) (disj :mic))
                           :effects (effects/remembered)
                           :effects-supported? (effects/supported?)
                           :minimized? (= "1" (remembered :minimized)))
@@ -629,8 +671,8 @@
       (await (js/Promise.all
               (clj->js (cond-> []
                          display (conj (took :screen (picture-clip (first (array-seq (.getVideoTracks display))))))
-                         (contains? wanted :webcam) (conj (took :webcam (clip preview webcam-bits)))
-                         (contains? wanted :mic) (conj (took :mic (clip (audio-only preview) nil)))
+                         (and (contains? wanted :webcam) (has-video? preview)) (conj (took :webcam (clip preview webcam-bits)))
+                         (and (contains? wanted :mic) (has-audio? preview)) (conj (took :mic (clip (audio-only preview) nil)))
                          (contains? wanted :phone-screen) (conj (took :phone-screen (picture-clip (usb-track))))
                          (contains? wanted :phone) (conj (took :phone (phone-clip asked-at))))))))))
 
@@ -765,10 +807,13 @@
   "What the draft says of the recording: its folder and every file
    with what it is; the microphone alone in its own words; the webcam
    with the background it was recorded on (`effects`), so that the
-   agent knows the green is to key out."
+   agent knows the green is to key out; recorded without a microphone
+   (`silent?`), the files have no sound, and the draft says so."
   ([labels folder files]
    (draft-line labels folder files nil))
   ([labels folder files effects]
+   (draft-line labels folder files effects false))
+  ([labels folder files effects silent?]
    (let [what {"screen" (or (:file-screen labels) "the screen")
                "webcam" (effects/file-label labels effects)
                "phone" (or (:file-phone labels) "the phone's camera")
@@ -778,9 +823,10 @@
                                      (str file " (" (get what (first (str/split file #"\.")) file) ")"))
                                    files))
          audio-only? (every? #(str/starts-with? % "audio.") files)]
-     (-> (if audio-only?
-           (or (:draft-audio labels) "New recording in {folder}: {files}. ")
-           (or (:draft labels) "New recording in {folder}: {files}; every file carries a microphone. "))
+     (-> (cond
+           audio-only? (or (:draft-audio labels) "New recording in {folder}: {files}. ")
+           silent? (or (:draft-no-mic labels) "New recording in {folder}: {files}; recorded without a microphone, the files have no sound. ")
+           :else (or (:draft labels) "New recording in {folder}: {files}; every file carries a microphone. "))
          (str/replace "{folder}" folder)
          (str/replace "{files}" named)))))
 
@@ -849,7 +895,8 @@
                                                     :mime mime
                                                     :files files}
                                              effects (assoc :effects (effects/facts effects)))))
-            line (draft-line labels (str "artifacts/" (:folder value)) (:files value) effects)]
+            line (draft-line labels (str "artifacts/" (:folder value)) (:files value) effects
+                             (not (has-audio? (:raw @session*))))]
         (swap! store update store-key (fn [draft]
                                         (str (when (seq (str draft)) (str draft "\n\n")) line)))
         (update! store assoc :status :ready :phone-waiting? false)
@@ -908,14 +955,14 @@
       (let [^js preview (:preview @session*)
             ^js screen-track (when display (first (array-seq (.getVideoTracks display))))
             ^js with-screen (when display (with-mic screen-track preview))
-            ^js alone (when (contains? wanted :mic) (audio-only preview))
+            ^js alone (when (and (contains? wanted :mic) (has-audio? preview)) (audio-only preview))
             phone-track (when (contains? wanted :phone-screen) (usb-track))
             ^js with-phone (when phone-track (with-mic phone-track preview))
             base (str (get-in @session* [:ctx :url]) "/" the-stamp)
             mime (mime-type)
             recorders (cond-> {}
                         display (assoc "screen" (recorder-of store base mime with-screen "screen" screen-bits))
-                        (contains? wanted :webcam) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits))
+                        (and (contains? wanted :webcam) (has-video? preview)) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits))
                         alone (assoc "audio" (recorder-of store base (audio-mime-type) alone "audio" nil))
                         with-phone (assoc "phone-screen" (recorder-of store base mime with-phone "phone-screen" screen-bits)))]
         (swap! session* assoc
@@ -1129,12 +1176,13 @@
    stills, the phone's screen over USB; the same before and while it
    records. `ready?` lets the buttons to choose a screen and connect a
    phone work."
-  [store labels {:keys [screen? usb] :as recorder} phone ready?]
+  [store labels {:keys [screen? usb devices] :as recorder} phone ready?]
   (let [ticked (or (:sources recorder) default-sources)]
     [:div.preview {:replicant/key "preview"}
-     [:video.camera {:autoplay true
-                     :playsinline true
-                     :replicant/on-mount preview-mount}]
+     (when (seq (:cameras devices))
+       [:video.camera {:autoplay true
+                       :playsinline true
+                       :replicant/on-mount preview-mount}])
      (when (contains? ticked :screen)
        (screen-preview store labels screen? ready?))
      (when (and phone (contains? ticked :phone))
@@ -1188,8 +1236,11 @@
 (defn- phone-section
   "What records, the phone connected or the way to pair one, its QR
    while shown."
-  [store labels phone {:keys [pair]}]
-  (let [ticked (sources store)]
+  [store labels phone {:keys [pair devices]}]
+  (let [ticked (sources store)
+        ;; without the device, the source cannot be ticked
+        missing? {:webcam (empty? (:cameras devices))
+                  :mic (empty? (:mics devices))}]
     [:div.phone-camera
      [:div.modes
       [:span.label (:camera-choice labels)]
@@ -1201,6 +1252,7 @@
         [:label {:replicant/key source}
          [:input {:type "checkbox"
                   :checked (contains? ticked source)
+                  :disabled (boolean (missing? source))
                   :on {:change (fn [_] (toggle! store source phone))}}]
          word])]
    (if phone
@@ -1274,15 +1326,20 @@
             (list
              [:div.devices
               [:label (:mic labels)
-               [:span.mic
-                (device-select store :mic mic (:mics devices))
-                [:span.meter {:replicant/on-mount (fn [{:keys [replicant/node]}]
-                                                    (swap! session* #(some-> % (assoc :meter node))))
-                              :replicant/on-unmount (fn [_]
-                                                      (swap! session* #(some-> % (dissoc :meter))))}
-                 [:span] [:span] [:span] [:span] [:span]]]]
+               (if (seq (:mics devices))
+                 [:span.mic
+                  (device-select store :mic mic (:mics devices))
+                  [:span.meter {:replicant/on-mount (fn [{:keys [replicant/node]}]
+                                                      (swap! session* #(some-> % (assoc :meter node))))
+                                :replicant/on-unmount (fn [_]
+                                                        (swap! session* #(some-> % (dissoc :meter))))}
+                   [:span] [:span] [:span] [:span] [:span]]]
+                 [:span.none (:no-mic labels)])]
               [:label (:camera labels)
-               (device-select store :camera camera (:cameras devices))]]
+               (if (seq (:cameras devices))
+                 (device-select store :camera camera (:cameras devices))
+                 [:span.none (:no-camera labels)])]]
+
              (effects-section store labels recorder (= :ready status))
              (previews store labels recorder phone (= :ready status))
 

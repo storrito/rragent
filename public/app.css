@@ -1824,7 +1824,15 @@ pre {
   flex: 1;
 }
 
+/* A laptop without a microphone, or a camera: a word in the device's place. */
+.recorder .devices .none {
+  padding: 6px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .recorder .devices select {
+
   min-width: 0;
   padding: 6px 8px;
   border: 1px solid var(--line);
