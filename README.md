@@ -719,8 +719,10 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   change the servers; a token is typed by the person into a password
   field the bot asks for (`[:secret …]`), saved in `secrets.json`,
   never seen by the model, and replaced by its name in any tool output.
-  Settings → MCP servers lists them and opens a bot that connects a
-  service. See [docs/mcp.md](docs/mcp.md).
+  A server that signs in with OAuth (`:oauth true`) gets a Sign in
+  link in the settings, or `[:sign-in …]` in a bot's answer; its
+  tokens are kept and refreshed by the machine. Settings → MCP servers
+  lists them and opens a bot that connects a service. See [docs/mcp.md](docs/mcp.md).
 - `(remember "review-posted" {:id 4711})` and `(recall {:event
   "review-posted"})`: the facts (`rragent.facts`), the same entries the
   `remember` and `recall` tools make; a program sees the facts as they
