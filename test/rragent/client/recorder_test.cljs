@@ -21,7 +21,18 @@
              (recorder/draft-line labels "artifacts/recordings/s" ["audio.mp3"]))))
     (testing "the microphone beside the screen"
       (is (= "New recording in artifacts/recordings/s: audio.mp3 (the microphone), screen.webm (the screen); every file carries a microphone. "
-             (recorder/draft-line labels "artifacts/recordings/s" ["audio.mp3" "screen.webm"]))))))
+             (recorder/draft-line labels "artifacts/recordings/s" ["audio.mp3" "screen.webm"]))))
+    (testing "the webcam recorded on green says so, for the agent to key it out"
+      (is (= "New recording in artifacts/recordings/s: webcam.webm (the webcam on green); every file carries a microphone. "
+             (recorder/draft-line (assoc labels :file-webcam-green "the webcam on green")
+                                  "artifacts/recordings/s" ["webcam.webm"] {:background :green :auto-light? false}))))
+    (testing "a blurred background is the webcam as ever"
+      (is (= "New recording in artifacts/recordings/s: webcam.webm (the webcam); every file carries a microphone. "
+             (recorder/draft-line labels "artifacts/recordings/s" ["webcam.webm"] {:background :blur}))))
+    (testing "recorded without a microphone: the files have no sound, the draft says so"
+      (is (= "New recording in artifacts/recordings/s: screen.webm (the screen), webcam.webm (the webcam); no sound. "
+             (recorder/draft-line (assoc labels :draft-no-mic "New recording in {folder}: {files}; no sound. ")
+                                  "artifacts/recordings/s" ["screen.webm" "webcam.webm"] nil true))))))
 
 (def labels
   {:title "Record a screencast"
@@ -29,7 +40,20 @@
    :hide-live "Hide live views"
    :show-live "Show live views"
    :stop "Stop"
-   :start "Start recording"})
+   :start "Start recording"
+   :background "Background"
+   :background-off "As it is"
+   :background-blur "Blurred"
+   :background-green "Removed: green"
+   :background-black "Removed: black"
+   :auto-light "Light and colour automatic"
+   :effects-loading "Loading the model …"
+   :effects-failed "The background effect did not load: {error}."
+   :green-hint "Only you stay in the picture."
+   :no-mic "No microphone: no sound."
+   :no-camera "No camera"
+   :source-webcam "Webcam"
+   :source-mic "Microphone alone"})
 
 (defn- render
   [state]
@@ -41,8 +65,55 @@
                                       :sources #{:screen :webcam}
                                       :devices {:mics [] :cameras []}}})]
       (is (str/includes? html "Start recording"))
-      (is (str/includes? html ":div.preview"))))
+      (is (str/includes? html ":div.preview"))
+      (is (not (str/includes? html ":div.effects")) "no effects in a browser without them")))
+  (testing "the effects in a browser that has them: the background chosen, the light, the model loading"
+    (let [html (render {:ui/recorder {:status :ready
+                                      :sources #{:screen :webcam}
+                                      :devices {:mics [] :cameras []}
+                                      :effects-supported? true
+                                      :effects {:background :green :auto-light? true}
+                                      :effects-status :loading}})]
+      (is (str/includes? html ":div.effects"))
+      (is (str/includes? html "Removed: green"))
+      (is (str/includes? html "Light and colour automatic"))
+      (is (str/includes? html "Loading the model …"))
+      (is (re-find #":value \"green\", :selected true" html) "the background recorded is the one chosen")))
+  (testing "the model that did not load says why, the green hint shows once it is on"
+    (is (str/includes? (render {:ui/recorder {:status :ready :devices {} :effects-supported? true
+                                              :effects {:background :blur} :effects-status {:failed "no wasm"}}})
+                       "did not load: no wasm."))
+    (is (str/includes? (render {:ui/recorder {:status :ready :devices {} :effects-supported? true
+                                              :effects {:background :green} :effects-status :on}})
+                       "Only you stay in the picture.")))
+
+  (testing "without a microphone: a word in its place, no meter, the microphone alone cannot be ticked"
+    (let [html (render {:ui/recorder {:status :ready
+                                      :sources #{:screen :webcam}
+                                      :devices {:mics [] :cameras [{:id "c" :label "Cam"}]}}})]
+      (is (str/includes? html "No microphone: no sound."))
+      (is (not (str/includes? html ":span.meter")))
+      (is (str/includes? html ":video.camera"))
+      (is (re-find #":checked false, :disabled true, :on \{:change #object\[[^\]]*\]\}\}\] \"Microphone alone\"" html))))
+
+  (testing "the webcam unticked: no camera live, no effects, though there is a camera"
+    (let [html (render {:ui/recorder {:status :ready
+                                      :sources #{:screen}
+                                      :effects-supported? true
+                                      :devices {:mics [] :cameras [{:id "c" :label "Cam"}]}}})]
+      (is (not (str/includes? html ":video.camera")))
+      (is (not (str/includes? html ":div.effects")))
+      (is (str/includes? html "Cam") "the camera can still be chosen for later")))
+  (testing "without a camera: no camera live, a word in its place"
+
+    (let [html (render {:ui/recorder {:status :ready
+                                      :sources #{:screen}
+                                      :devices {:mics [{:id "m" :label "Mic"}] :cameras []}}})]
+      (is (str/includes? html "No camera"))
+      (is (not (str/includes? html ":video.camera")))
+      (is (str/includes? html ":span.meter"))))
   (testing "while it records: the time, when it started, Stop and the live views"
+
     (let [started (.getTime (js/Date. 2026 9 22 15 25 22))
           html (render {:ui/recorder {:status :recording
                                       :sources #{:screen :webcam}

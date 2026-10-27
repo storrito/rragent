@@ -890,6 +890,13 @@
      (http/files "/assets/*" (path/join dir "assets"))
      ;; the scrcpy server the page pushes to a phone over USB
      (http/files "/scrcpy/*" (path/join dir "scrcpy"))
+     ;; the webcam's effects (rragent.client.effects): the worker, the
+     ;; model and MediaPipe's bundle and wasm, built into public/effects;
+     ;; under the dev server from the sources and node_modules
+     (http/files "/effects/*" [(path/join dir "effects")
+                               (path/resolve "public/effects")
+                               (path/resolve "node_modules/@mediapipe/tasks-vision")])
+
      {:ring/route [:get "/"]
       :ring/handler #'root-handler}
      {:ring/route [:get "/bot/*"]

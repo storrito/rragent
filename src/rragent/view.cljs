@@ -793,7 +793,23 @@
                                 :screen-choose [:i18n :record/screen-choose]
                                 :screen-change [:i18n :record/screen-change]
                                 :phone-none [:i18n :record/phone-none]
-                                :phone-waiting [:i18n :record/phone-waiting]}
+                                :phone-waiting [:i18n :record/phone-waiting]
+                                :background [:i18n :record/background]
+                                :background-off [:i18n :record/background-off]
+                                :background-blur [:i18n :record/background-blur]
+                                :background-green [:i18n :record/background-green]
+                                :background-black [:i18n :record/background-black]
+                                :auto-light [:i18n :record/auto-light]
+                                :effects-loading [:i18n :record/effects-loading]
+                                :effects-failed [:i18n :record/effects-failed]
+                                :green-hint [:i18n :record/green-hint]
+                                :file-webcam-green [:i18n :record/file-webcam-green]
+                                :file-webcam-black [:i18n :record/file-webcam-black]
+                                :no-mic [:i18n :record/no-mic]
+                                :no-camera [:i18n :record/no-camera]
+                                :draft-no-mic [:i18n :record/draft-no-mic]}
+
+
                   :ui/dictate-title [:i18n :composer/dictate]
                   :ui/dictate-stop-title [:i18n :composer/dictate-stop]
                   :ui/transcribing-title [:i18n :composer/transcribing]

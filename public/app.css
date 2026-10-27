@@ -1824,7 +1824,15 @@ pre {
   flex: 1;
 }
 
+/* A laptop without a microphone, or a camera: a word in the device's place. */
+.recorder .devices .none {
+  padding: 6px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .recorder .devices select {
+
   min-width: 0;
   padding: 6px 8px;
   border: 1px solid var(--line);
@@ -1835,11 +1843,52 @@ pre {
   font-size: 14px;
 }
 
+/* The webcam's effects (rragent.client.effects): the background behind
+   the person and the automatic light, a row under the devices; a word
+   on the model loading, or why it did not, under it. */
+.recorder .effects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.recorder .effects label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.recorder .effects select {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.recorder .effects input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.recorder .effects .hint,
+.recorder .effects .error {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
 .recorder .preview {
   display: flex;
   align-items: flex-start;
   gap: 12px;
 }
+
 
 /* The screen chosen, live, and the phone's last still beside the
    camera, in one row that narrows rather than wraps; the button to

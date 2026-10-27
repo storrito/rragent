@@ -90,6 +90,20 @@ beyond that. A `README.md` in a folder opens when they enter it: write
 one where a folder needs a word, with links to what is in it, `[the
 video](final.mp4)`, `[the drafts](drafts/)`.
 
+A recording the person makes on the page lands in
+`work/artifacts/recordings/<stamp>/`: `screen.webm` and `webcam.webm`
+(or `phone.webm`, `audio.mp3`), each with the microphone, and
+`recording.json` with the devices, when each file started and its
+`duration`. The files carry no layout: align them by their waveforms
+and compose the video with ffmpeg. When `recording.json` has `effects`
+with a `key`, the webcam was recorded with the person cut out on that
+plain colour (`"key": "#00ff00"`): key it out when you lay the webcam
+over the screen, with ffmpeg's `chromakey` on the webcam before the
+`overlay`, for instance
+`[1:v]chromakey=0x00ff00:0.25:0.08[cam];[0:v][cam]overlay=W-w-40:H-h-40`;
+with `"background": "blur"` the webcam is a picture like any other.
+
+
 Install nothing outside this machine, change nothing in
 `/home/sprite/skills` but the pull, and keep every message short. Answer
 in the language the person writes, German included.
