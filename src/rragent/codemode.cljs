@@ -284,6 +284,20 @@
       (swap! (:images handle) into images)
       value)))
 
+(defn- admin
+  "A change of the MCP servers made by the main thread, which owns
+   `mcp.json` and the connections (`rragent.mcp`): `request` is
+   `{:admin :add|:test|:enable|:remove …}`; the answer's value, or
+   its error thrown."
+  [handle request]
+  (let [rpc @(:mcp-rpc handle)]
+    (when-not rpc
+      (throw (js/Error. "The MCP servers are not reachable from this REPL.")))
+    (let [{:keys [value error]} (rpc request)]
+      (when error
+        (throw (js/Error. error)))
+      value)))
+
 (defn- param-line
   [required [k schema]]
   (let [{:strs [type description enum]} (when (map? schema) schema)]
@@ -349,15 +363,16 @@
         (throw (js/Error. (str "There is no MCP server " server-name "; (mcp/servers) lists them."))))))
 
 (defn mcp-servers
-  "The MCP servers of the machine, as the last program found them:
-   {:name :ns :tools :connected :error :instructions} each, :tools how
-   many there are, :ns the namespace of their functions,
-   :instructions what the server says about using it."
+  "The MCP servers of the machine, as they were when this program
+   started: {:name :ns :tools :connected :needs :error :instructions}
+   each, :tools how many there are, :ns the namespace of their
+   functions, :needs the secrets not saved yet, :instructions what the
+   server says about using it."
   [handle]
   (mapv (fn [server]
           (-> server
               (update :tools count)
-              (select-keys [:name :ns :tools :connected :connecting :off :error :instructions])))
+              (select-keys [:name :ns :tools :connected :connecting :off :needs :error :instructions])))
         (:servers @(:mcp-catalog handle))))
 
 (defn mcp-tools
@@ -387,6 +402,40 @@
   [handle server tool & [args]]
   (invoke handle (str server) (str tool) args))
 
+(defn mcp-add!
+  "Adds the MCP server `server` to the machine, or replaces its entry,
+   and connects it right away. `opts`: {:url \"https://…/mcp\"} for a
+   Streamable HTTP server, :token \"NAME\" when it takes a bearer
+   token (the header Authorization: Bearer ${NAME}), :headers {\"X-Api-Key\"
+   \"${NAME}\"} for another header; or {:command \"npx\" :args [...]
+   :env {...} :cwd \"folder\"} for a program; :timeout-ms, :enabled.
+   A credential is always a ${NAME}, never its value: the value is
+   typed by the person into a field, [:secret {:name \"NAME\"}] in a
+   ```hiccup block of your answer, and you never see it. Answers
+   {:name :connected :tools [names] :needs [secret names not saved yet]
+   :error}; its functions mcp.<server>/<tool> are there from the next
+   program on, (mcp/call …) reaches them now."
+  [handle server opts]
+  (admin handle {:admin :add :name (str server) :opts opts}))
+
+(defn mcp-test
+  "Connects the MCP server `server` anew: {:name :connected :tools
+   [names] :needs :error}, the tools it has or why it failed."
+  [handle server]
+  (admin handle {:admin :test :name (str server)}))
+
+(defn mcp-enable!
+  "Switches the MCP server `server` on (true, connected right away) or
+   off (false, closed, its entry kept)."
+  [handle server on?]
+  (admin handle {:admin :enable :name (str server) :on? (boolean on?)}))
+
+(defn mcp-remove!
+  "Removes the MCP server `server` from the machine. Its secrets stay
+   saved; the person removes them in the settings."
+  [handle server]
+  (admin handle {:admin :remove :name (str server)}))
+
 (def help-lines
   "The bindings, one form and one line each."
   [["(help)" "this text"]
@@ -406,6 +455,7 @@
    ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid some storrito/ procedures take"]
    ["(mcp/servers)" "the MCP servers of the machine: their namespaces, how many tools, whether connected, their instructions"]
    ["(mcp/tools \"github\")" "the tools of one server: {:name :fn :description}, (doc mcp.github/<tool>) says its arguments"]
+   ["(mcp/add! \"github\" {:url \"https://…/mcp\" :token \"GITHUB_TOKEN\"})" "connects an MCP server for the machine; :needs names the secrets the person types into a [:secret {:name \"GITHUB_TOKEN\"}] field of a ```hiccup block in your answer, never into the chat; (mcp/test \"github\") tries it again, (mcp/enable! \"github\" false), (mcp/remove! \"github\")"]
    ["(mcp.github/search_issues {:query \"bug\"})" "one tool of a server, a map of arguments: its structured content, else its text (JSON as data); pictures are shown to you after the answer; (mcp/call \"github\" \"search_issues\" {...}) the same by name"]
    ["(remember \"review-posted\" {:id 4711})" "a fact for later runs, kept through every summary"]
    ["(recall {:event \"review-posted\"})" "your facts, oldest first; :since narrows them"]])
@@ -425,7 +475,7 @@
                                            :else " (no tools)")))
                              servers))
          ".")
-    "\nMCP: no servers (mcp.json of the machine's folder names them)."))
+    "\nMCP: no servers yet; (mcp/add! …) connects one."))
 
 (defn- status-text
   "What is connected now, for help."
@@ -502,7 +552,8 @@
                                      'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections #'accounts #'trigger-types #'triggers #'add-trigger #'delete-trigger])
                                      'storrito (cond-> (vars storrito-ns handle [#'procedures #'agent-uuid])
                                                  catalog (merge (storrito-vars (partial call handle) connection catalog)))
-                                     'mcp (named-vars mcp-ns handle {'servers #'mcp-servers 'tools #'mcp-tools 'call #'mcp-call})}
+                                     'mcp (named-vars mcp-ns handle {'servers #'mcp-servers 'tools #'mcp-tools 'call #'mcp-call
+                                                                    'add! #'mcp-add! 'test #'mcp-test 'enable! #'mcp-enable! 'remove! #'mcp-remove!})}
                                     (mcp-namespaces handle @(:mcp-catalog handle)))})]
     (sci/eval-string* ctx preamble)
     ctx))

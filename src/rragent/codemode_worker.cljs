@@ -182,23 +182,42 @@
         (js/clearTimeout timer)
         (resolve {:error reason :pending []})))))
 
+(defn- admin!
+  "A change of the MCP servers a program asked for (`mcp/add!`,
+   `mcp/test`, `mcp/enable!`, `mcp/remove!`): a promise of
+   `{:value}`."
+  [registry {:keys [admin name opts on?]}]
+  (-> (js/Promise.resolve nil)
+      (.then (fn []
+               (case admin
+                 :add (mcp/add! registry name opts)
+                 :test (mcp/test! registry name)
+                 :enable (mcp/enable! registry name on?)
+                 :remove (mcp/remove! registry name))))
+      (.then (fn [value] {:value value}))))
+
 (defn- answer-mcp!
-  "The main thread's half of an MCP call of `worker`: the tool called
-   (`rragent.mcp/call!`), the answer posted on `port` and the flag
-   raised, unless the worker ended meanwhile; its AbortController kept
-   under `:calls` while it runs."
+  "The main thread's half of an MCP request of `worker`: a tool called
+   (`rragent.mcp/call!`), or the servers changed (`admin!`), the
+   answer posted on `port` and the flag raised, unless the worker
+   ended meanwhile; a call's AbortController kept under `:calls` while
+   it runs."
   [{:keys [codemode state]} worker port view message]
-  (let [{:keys [server tool args]} (transit/read-str message)
+  (let [{:keys [server tool args admin] :as request} (transit/read-str message)
+        registry (:mcp codemode)
         controller (js/AbortController.)
         id (str (gensym "call"))
         on-progress (fn [line]
                       (when-let [f (:on-progress @state)]
                         (f line)))]
     (swap! state assoc-in [:calls id] controller)
-    (-> (if-let [registry (:mcp codemode)]
-          (mcp/call! registry server tool args {:signal (.-signal controller) :on-progress on-progress})
-          (js/Promise.resolve {:error "There are no MCP servers here."}))
-        (.catch (fn [e] {:error (str "mcp." server "/" tool ": " (ex-message e))}))
+    (-> (cond
+          (nil? registry) (js/Promise.resolve {:error "There are no MCP servers here."})
+          admin (admin! registry request)
+          :else (mcp/call! registry server tool args {:signal (.-signal controller) :on-progress on-progress}))
+        (.catch (fn [e] {:error (if admin
+                                  (ex-message e)
+                                  (str "mcp." server "/" tool ": " (ex-message e)))}))
         (.then (fn [answer]
                  (swap! state update :calls dissoc id)
                  (when (identical? worker (:worker @state))

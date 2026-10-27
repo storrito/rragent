@@ -306,9 +306,15 @@
   [calls]
   (let [handle (codemode/handle "http://127.0.0.1:1")]
     (reset! (:mcp-rpc handle)
-            (fn [{:keys [tool args] :as request}]
+            (fn [{:keys [tool args admin] :as request}]
               (swap! calls conj request)
-              (case tool
+              (case (or admin tool)
+                :add (if (:token (:opts request))
+                       {:value {:name (:name request) :connected false :tools [] :needs [(:token (:opts request))]}}
+                       {:error "mcp/add! takes either :url (a Streamable HTTP server) or :command (a program over stdio)"})
+                :test {:value {:name (:name request) :connected true :tools ["echo"]}}
+                :enable {:value {:name (:name request) :off (not (:on? request))}}
+                :remove {:value true}
                 "echo" {:value (str "echo: " (:text args)) :images []}
                 "files.read" {:value {:read true} :images []}
                 "picture" {:value ["a dot" "[picture, image/png, shown to you after the program's answer]"]
@@ -354,6 +360,17 @@
     (testing "help names the servers"
       (is (str/includes? (codemode/help-text handle) "MCP: fake as mcp.fake/<tool>, 4 tools, down (failed: connection refused)."))
       (is (str/includes? (codemode/help-text handle) "(mcp/servers)")))
+    (testing "mcp/add!, mcp/test, mcp/enable! and mcp/remove! go to the main thread, its errors thrown"
+      (is (= "=> {:name \"gh\", :connected false, :tools [], :needs [\"GH_TOKEN\"]}"
+             (codemode/evaluate handle "(mcp/add! \"gh\" {:url \"https://gh.example/mcp\" :token \"GH_TOKEN\"})")))
+      (is (= {:admin :add :name "gh" :opts {:url "https://gh.example/mcp" :token "GH_TOKEN"}} (last @calls)))
+      (is (str/includes? (failure #(codemode/evaluate handle "(mcp/add! \"gh\" {})")) "either :url"))
+      (is (= "=> [\"echo\"]" (codemode/evaluate handle "(:tools (mcp/test 'gh))")))
+      (is (= {:admin :test :name "gh"} (last @calls)))
+      (is (= "=> {:name \"gh\", :off true}" (codemode/evaluate handle "(mcp/enable! \"gh\" false)")))
+      (is (= {:admin :enable :name "gh" :on? false} (last @calls)))
+      (is (= "=> true" (codemode/evaluate handle "(mcp/remove! \"gh\")")))
+      (is (str/includes? (codemode/evaluate handle "(doc mcp/add!)") "[:secret {:name")))
     (testing "servers installed after the context was made are there for the next program"
       (codemode/install-mcp! handle {:version 2 :servers [{:name "late" :ns "mcp.late" :tools [{:name "echo" :input-schema {}}]}]})
       (is (= "=> \"echo: late\"" (codemode/evaluate handle "(mcp.late/echo {:text \"late\"})")))
@@ -362,5 +379,5 @@
 (deftest no-mcp-test
   (let [handle (codemode/handle "http://127.0.0.1:1")]
     (is (= "=> []" (codemode/evaluate handle "(mcp/servers)")))
-    (is (str/includes? (codemode/help-text handle) "MCP: no servers (mcp.json of the machine's folder names them)."))
+    (is (str/includes? (codemode/help-text handle) "MCP: no servers yet; (mcp/add! …) connects one."))
     (is (str/includes? (failure #(codemode/evaluate handle "(mcp/call \"x\" \"y\" {})")) "The MCP servers are not reachable from this REPL."))))

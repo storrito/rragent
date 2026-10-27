@@ -162,6 +162,16 @@
                  (is (= {:text (str codemode-worker/restart-note "\n=> \"echo: again\"") :pending []}
                         (await (run worker "(mcp.fake/echo {:text \"again\"})"))))
                  (is (= 1 (count (filter #{"initialize"} @(:requests fake))))))
+               (testing "mcp/add! from a program: the main thread writes the file and connects, the next program has the tools"
+                 (is (= {:text "=> [true 9]" :pending []}
+                        (await (run worker "(let [{:keys [connected tools]} (mcp/add! \"second\" {:url \"https://second.example/mcp\"})] [connected (count tools)])"))))
+                 (is (contains? (mcp/read-servers (:file registry)) "second"))
+                 (is (= {:text "=> \"echo: two\"" :pending []} (await (run worker "(mcp.second/echo {:text \"two\"})"))))
+                 (is (= {:text "=> \"needs the secret NOPE_TOKEN\"" :pending []}
+                        (await (run worker "(let [{:keys [needs]} (mcp/add! \"third\" {:url \"https://third.example/mcp\" :token \"NOPE_TOKEN\"})] (str \"needs the secret \" (first needs)))"))))
+                 (is (= {:text "=> true" :pending []} (await (run worker "(mcp/remove! \"third\")"))))
+                 (is (str/includes? (:text (await (run worker "(try (mcp/remove! \"third\") (catch :default e (ex-message e)))")))
+                                    "There is no MCP server third")))
                (finally
                  (codemode-worker/stop! worker "over")
                  (await (mcp/close! registry)))))))
