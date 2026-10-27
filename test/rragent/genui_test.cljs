@@ -180,3 +180,14 @@
   (testing "the block says so"
     (is (= :div.genui.answered (first (genui/block "[:button {:send \"A\"} \"A\"]" {:answered? true}))))
     (is (= :div.genui (first (genui/block "[:button {:send \"A\"} \"A\"]"))))))
+
+(deftest secret-test
+  (testing "[:secret …] is the client's password field, for the bot of the block"
+    (let [[_ part] (genui/block "[:div [:p \"Your token:\"] [:secret {:name \"GH_TOKEN\" :label \"GitHub token\"}]]" {:bot "7"})
+          field (some #(when (and (vector? %) (= :ui/secret-field (first %))) %) (tree-seq coll? seq part))]
+      (is (= {:ui/name "GH_TOKEN" :ui/label "GitHub token" :ui/bot "7"}
+             (select-keys (second field) [:ui/name :ui/label :ui/bot])))))
+  (testing "a name ${NAME} could not name is no field"
+    (is (not (str/includes? (pr-str (genui/block "[:secret {:name \"a b\"}]")) ":ui/secret-field"))))
+  (testing "it stays usable once the message is answered, to replace the secret"
+    (is (str/includes? (pr-str (genui/block "[:secret {:name \"GH_TOKEN\"}]" {:answered? true})) ":ui/secret-field"))))

@@ -8,8 +8,10 @@
    but Clojure's own namespaces, no reading of the environment; what a
    program reaches, it reaches through the namespace `agent`, referred
    in `user`: `connectors`, `connector`, `call`, `remember`, `recall`
-   and `help`, with `composio/*` and `storrito/*` beside them
-   (`rragent.gateway`, `rragent.composio`, `rragent.storrito`). A call
+   and `help`, with `composio/*`, `storrito/*` and `mcp/*` beside them
+   (`rragent.gateway`, `rragent.composio`, `rragent.storrito`), and a
+   namespace `mcp.<server>` per MCP server with its tools as functions
+   (`rragent.mcp`). A call
    blocks its thread until it is answered (`rragent.sync-fetch`), so
    a program loops over calls as over anything else; the agent runs
    its programs in a worker thread for that (`rragent.codemode-worker`,
@@ -21,6 +23,7 @@
             [rragent.composio :as composio]
             [rragent.facts :as facts]
             [rragent.gateway :as gateway]
+            [rragent.mcp :as mcp]
             [rragent.sprite :as sprite]
             [rragent.storrito :as storrito]
             [sci.core :as sci]))
@@ -57,6 +60,9 @@
 
 (def storrito-ns
   (sci/create-ns 'storrito))
+
+(def mcp-ns
+  (sci/create-ns 'mcp))
 
 (defn- out!
   "`text` printed where the program's output goes."
@@ -259,6 +265,177 @@
   (or (sprite/label (:labels (sprite/discover)) "agent")
       (throw (js/Error. "No agent uuid: this machine has no `agent:` label, it is no Sprite that Storrito made for an agent."))))
 
+;;; MCP
+
+(defn- invoke
+  "The tool `tool` of the MCP server `server` called with `args`
+   through the handle's `:mcp-rpc`, which blocks until the main thread
+   answered (`rragent.codemode-worker`): the value, its pictures kept
+   for the answer of the program; an error thrown."
+  [handle server tool args]
+  (when-not (or (nil? args) (map? args))
+    (throw (js/Error. (str "mcp." server "/" tool " takes a map of arguments, such as {:query \"x\"}"))))
+  (let [rpc @(:mcp-rpc handle)]
+    (when-not rpc
+      (throw (js/Error. "The MCP servers are not reachable from this REPL.")))
+    (let [{:keys [value images error]} (rpc {:server server :tool tool :args args})]
+      (when error
+        (throw (js/Error. error)))
+      (swap! (:images handle) into images)
+      value)))
+
+(defn- admin
+  "A change of the MCP servers made by the main thread, which owns
+   `mcp.json` and the connections (`rragent.mcp`): `request` is
+   `{:admin :add|:test|:enable|:remove …}`; the answer's value, or
+   its error thrown."
+  [handle request]
+  (let [rpc @(:mcp-rpc handle)]
+    (when-not rpc
+      (throw (js/Error. "The MCP servers are not reachable from this REPL.")))
+    (let [{:keys [value error]} (rpc request)]
+      (when error
+        (throw (js/Error. error)))
+      value)))
+
+(defn- param-line
+  [required [k schema]]
+  (let [{:strs [type description enum]} (when (map? schema) schema)]
+    (str "  :" k
+         " (" (cond (string? type) type (sequential? type) (str/join "|" type) :else "any")
+         (when (contains? required k) ", required")
+         (when (seq enum) (str ", one of " (str/join " " (map pr-str enum))))
+         ")"
+         (when (seq description) (str " " description)))))
+
+(defn tool-doc
+  "The docstring of a tool's function: its description and its
+   arguments from the input schema."
+  [server {:keys [name title description input-schema]}]
+  (let [{:strs [properties required]} input-schema
+        required (set required)]
+    (str (when title (str title "\n"))
+         (if (str/blank? description) (str "The tool " name " of " server ".") description)
+         "\n\nThe tool " name " of the MCP server " server ". "
+         (if (seq properties)
+           (str "It takes a map:\n" (str/join "\n" (map (partial param-line required) properties)))
+           "It takes no arguments."))))
+
+(defn- tool-vars
+  "The functions of the tools of one server, in its namespace; of two
+   tools with the same symbol, the first (mcp/call reaches the other)."
+  [handle {server :name ns-name :ns tools :tools}]
+  (let [sci-ns (sci/create-ns (symbol ns-name))]
+    (reduce (fn [vars {tool :name :as t}]
+              (let [sym (symbol (mcp/symbol-name tool))
+                    takes (seq (get-in t [:input-schema "properties"]))]
+                (if (contains? vars sym)
+                  vars
+                  (assoc vars sym (sci/new-var sym
+                                               (fn [& [args]] (invoke handle server tool args))
+                                               {:ns sci-ns :name sym :doc (tool-doc server t)
+                                                :arglists (if takes '([args]) '([] [args]))})))))
+            {}
+            tools)))
+
+(defn- mcp-namespaces
+  "`{mcp.<server> {tool var}}` of `catalog`."
+  [handle catalog]
+  (into {}
+        (keep (fn [{:keys [ns tools] :as server}]
+                (when (seq tools)
+                  [(symbol ns) (tool-vars handle server)])))
+        (:servers catalog)))
+
+(defn install-mcp!
+  "`catalog` (`rragent.mcp/snapshot`) as the MCP servers of the
+   handle: into the context when there is one already; else the
+   context takes them when it is made."
+  [handle catalog]
+  (reset! (:mcp-catalog handle) catalog)
+  (when @(:context handle)
+    (swap! (:context handle) sci/merge-opts {:namespaces (mcp-namespaces handle catalog)})))
+
+(defn- catalog-server
+  [server-name]
+  (fn [handle]
+    (or (some #(when (= (str server-name) (:name %)) %) (:servers @(:mcp-catalog handle)))
+        (throw (js/Error. (str "There is no MCP server " server-name "; (mcp/servers) lists them."))))))
+
+(defn mcp-servers
+  "The MCP servers of the machine, as they were when this program
+   started: {:name :ns :tools :connected :needs :error :instructions}
+   each, :tools how many there are, :ns the namespace of their
+   functions, :needs the secrets not saved yet, :instructions what the
+   server says about using it."
+  [handle]
+  (mapv (fn [server]
+          (-> server
+              (update :tools count)
+              (select-keys [:name :ns :tools :connected :connecting :off :needs :error :instructions])))
+        (:servers @(:mcp-catalog handle))))
+
+(defn mcp-tools
+  "The tools of the MCP server `server`: {:name :fn :description}
+   each, :fn the function that calls it, nil for a name whose symbol
+   an earlier tool has (mcp/call reaches it); (doc <fn>) says its
+   arguments."
+  [handle server]
+  (let [{:keys [ns tools]} ((catalog-server server) handle)]
+    (first
+     (reduce (fn [[out seen] {:keys [name description]}]
+               (let [sym-name (mcp/symbol-name name)]
+                 [(conj out {:name name
+                             :fn (when-not (seen sym-name) (symbol ns sym-name))
+                             :description description})
+                  (conj seen sym-name)]))
+             [[] #{}]
+             tools))))
+
+(defn mcp-call
+  "The tool `tool` of the MCP server `server` called with the map
+   `args`: what (mcp.<server>/<tool> args) answers, for a name that
+   is no symbol. The structured content when the tool gives one, else
+   its text, as data when it is JSON; pictures are shown to you after
+   the program's answer; a failed call throws with what the server
+   said."
+  [handle server tool & [args]]
+  (invoke handle (str server) (str tool) args))
+
+(defn mcp-add!
+  "Adds the MCP server `server` to the machine, or replaces its entry,
+   and connects it right away. `opts`: {:url \"https://…/mcp\"} for a
+   Streamable HTTP server, :token \"NAME\" when it takes a bearer
+   token (the header Authorization: Bearer ${NAME}), :headers {\"X-Api-Key\"
+   \"${NAME}\"} for another header; or {:command \"npx\" :args [...]
+   :env {...} :cwd \"folder\"} for a program; :timeout-ms, :enabled.
+   A credential is always a ${NAME}, never its value: the value is
+   typed by the person into a field, [:secret {:name \"NAME\"}] in a
+   ```hiccup block of your answer, and you never see it. Answers
+   {:name :connected :tools [names] :needs [secret names not saved yet]
+   :error}; its functions mcp.<server>/<tool> are there from the next
+   program on, (mcp/call …) reaches them now."
+  [handle server opts]
+  (admin handle {:admin :add :name (str server) :opts opts}))
+
+(defn mcp-test
+  "Connects the MCP server `server` anew: {:name :connected :tools
+   [names] :needs :error}, the tools it has or why it failed."
+  [handle server]
+  (admin handle {:admin :test :name (str server)}))
+
+(defn mcp-enable!
+  "Switches the MCP server `server` on (true, connected right away) or
+   off (false, closed, its entry kept)."
+  [handle server on?]
+  (admin handle {:admin :enable :name (str server) :on? (boolean on?)}))
+
+(defn mcp-remove!
+  "Removes the MCP server `server` from the machine. Its secrets stay
+   saved; the person removes them in the settings."
+  [handle server]
+  (admin handle {:admin :remove :name (str server)}))
+
 (def help-lines
   "The bindings, one form and one line each."
   [["(help)" "this text"]
@@ -276,8 +453,29 @@
    ["(composio/triggers)" "your triggers: {:id :slug :connected-account :state}; (composio/delete-trigger \"ti_1\") ends one"]
    ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each"]
    ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid some storrito/ procedures take"]
+   ["(mcp/servers)" "the MCP servers of the machine: their namespaces, how many tools, whether connected, their instructions"]
+   ["(mcp/tools \"github\")" "the tools of one server: {:name :fn :description}, (doc mcp.github/<tool>) says its arguments"]
+   ["(mcp/add! \"github\" {:url \"https://…/mcp\" :token \"GITHUB_TOKEN\"})" "connects an MCP server for the machine; :needs names the secrets the person types into a [:secret {:name \"GITHUB_TOKEN\"}] field of a ```hiccup block in your answer, never into the chat; (mcp/test \"github\") tries it again, (mcp/enable! \"github\" false), (mcp/remove! \"github\")"]
+   ["(mcp.github/search_issues {:query \"bug\"})" "one tool of a server, a map of arguments: its structured content, else its text (JSON as data); pictures are shown to you after the answer; (mcp/call \"github\" \"search_issues\" {...}) the same by name"]
    ["(remember \"review-posted\" {:id 4711})" "a fact for later runs, kept through every summary"]
    ["(recall {:event \"review-posted\"})" "your facts, oldest first; :since narrows them"]])
+
+(defn- mcp-status
+  "The MCP servers, for help."
+  [servers]
+  (if (seq servers)
+    (str "\nMCP: "
+         (str/join ", " (map (fn [{:keys [name ns tools error off connecting]}]
+                               (str name (cond
+                                           off " (off)"
+                                           (seq tools) (str " as " ns "/<tool>, " (count tools) " tools"
+                                                            (when error (str ", now failing: " error)))
+                                           error (str " (failed: " error ")")
+                                           connecting " (still connecting)"
+                                           :else " (no tools)")))
+                             servers))
+         ".")
+    "\nMCP: no servers yet; (mcp/add! …) connects one."))
 
 (defn- status-text
   "What is connected now, for help."
@@ -297,7 +495,8 @@
            (not (composio/connection discovery)) "\nComposio: no connection, the composio/ functions will say so."
            (not (composio/session-id)) "\nComposio: no session yet (it is made when the agent starts), the composio/ functions will say so."
            :else (str "\nComposio: through " (:id (composio/connection discovery)) ", session " (composio/session-id)
-                      (when-let [user (composio/user-id)] (str ", your accounts and triggers under " user)) ".")))))
+                      (when-let [user (composio/user-id)] (str ", your accounts and triggers under " user)) "."))
+         (mcp-status (:servers @(:mcp-catalog handle))))))
 
 (defn help-text
   [handle]
@@ -330,17 +529,32 @@
   [ns handle fns]
   (into {} (map (fn [v] [(:name (meta v)) (binding-var ns handle v)])) fns))
 
+(defn- named-vars
+  "As `vars`, under the names of `named`, `{sym var}`: the mcp/
+   functions, whose names the agent namespace has already."
+  [ns handle named]
+  (into {}
+        (map (fn [[sym v]]
+               (let [{:keys [doc] :as m} (meta v)]
+                 [sym (sci/new-var sym (partial @v handle) {:ns ns :name sym :doc doc :arglists (map rest (arglists m))})])))
+        named))
+
 (defn- context
   "The closed SCI context with the namespaces of `handle`, the
-   storrito/ functions of the catalog found by now among them."
+   storrito/ functions of the catalog found by now among them, and the
+   tools of the MCP servers the last program knew of."
   [handle]
   (let [{:keys [connection catalog]} @(:storrito handle)
         ctx (sci/init {:features #{:cljs}
-                       :namespaces {'clojure.core denied-core
-                                    'agent (vars agent-ns handle [#'connectors #'connector #'call #'remember #'recall #'help])
-                                    'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections #'accounts #'trigger-types #'triggers #'add-trigger #'delete-trigger])
-                                    'storrito (cond-> (vars storrito-ns handle [#'procedures #'agent-uuid])
-                                                catalog (merge (storrito-vars (partial call handle) connection catalog)))}})]
+                       :namespaces (merge
+                                    {'clojure.core denied-core
+                                     'agent (vars agent-ns handle [#'connectors #'connector #'call #'remember #'recall #'help])
+                                     'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections #'accounts #'trigger-types #'triggers #'add-trigger #'delete-trigger])
+                                     'storrito (cond-> (vars storrito-ns handle [#'procedures #'agent-uuid])
+                                                 catalog (merge (storrito-vars (partial call handle) connection catalog)))
+                                     'mcp (named-vars mcp-ns handle {'servers #'mcp-servers 'tools #'mcp-tools 'call #'mcp-call
+                                                                    'add! #'mcp-add! 'test #'mcp-test 'enable! #'mcp-enable! 'remove! #'mcp-remove!})}
+                                    (mcp-namespaces handle @(:mcp-catalog handle)))})]
     (sci/eval-string* ctx preamble)
     ctx))
 
@@ -362,6 +576,9 @@
    :storrito (atom storrito)
    :composio-session (atom nil)
    :facts (atom {:known [] :pending []})
+   :images (atom [])
+   :mcp-catalog (atom nil)
+   :mcp-rpc (atom nil)
    :context (atom nil)
    :asked (atom 0)})
 
@@ -400,9 +617,16 @@
 
 (defn begin!
   "The facts a program sees: `known`, the conversation's as they are
-   now; nothing pending."
+   now; nothing pending, no pictures."
   [handle known]
+  (reset! (:images handle) [])
   (reset! (:facts handle) {:known (vec known) :pending []}))
+
+(defn images
+  "The pictures the program's MCP calls answered, `{:data :mime-type}`
+   each, for the model after the program's answer."
+  [handle]
+  @(:images handle))
 
 (defn pending
   "What the program remembered, oldest first, for the commit."

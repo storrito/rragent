@@ -424,3 +424,64 @@
                                              :conversation {:entries [(user 1 "Go") (assistant 2 [{:type "text" :text block}]) (user 3 "A")]}})
                                  :en)]
         (is (:disabled (second (find-tag page :button))))))))
+
+(deftest settings-mcp-test
+  (let [find-tag (fn [tree tag] (some #(when (and (vector? %) (= tag (first %))) %) (tree-seq coll? seq tree)))
+        texts (fn [tree] (str/join " " (filter string? (tree-seq coll? seq tree))))]
+    (testing "the updates without a section picked, the MCP servers as a tab"
+      (let [page (i18n/translate (view/settings {:current "1.0.0"} nil nil) :en)]
+        (is (str/includes? (texts page) "Check for updates"))
+        (is (str/includes? (texts page) "MCP servers"))))
+    (testing "the MCP section: a row per server with its state, a field per missing secret, the setup button"
+      (let [page (i18n/translate (view/settings nil :mcp {:servers [{:name "gh" :address "https://gh.example/mcp" :tools 0 :needs ["GH_TOKEN"]}
+                                                                         {:name "files" :address "npx" :tools 12 :connected true}
+                                                                         {:name "old" :tools 0 :off true}]
+                                                               :secrets ["OTHER_TOKEN"]}) :en)
+            text (texts page)]
+        (is (str/includes? text "Waiting for GH_TOKEN"))
+        (is (str/includes? text "Connected, 12 tools"))
+        (is (str/includes? text "Turn on"))
+        (is (str/includes? text "Connect a service"))
+        (is (str/includes? text "OTHER_TOKEN"))
+        (is (= "GH_TOKEN" (:ui/name (second (find-tag page :ui/secret-field)))))
+        (is (nil? (:ui/bot (second (find-tag page :ui/secret-field)))) "no bot is told of a secret saved in the settings")))
+    (testing "a remove asks in the row first"
+      (let [page (i18n/translate (view/settings nil :mcp {:servers [{:name "gh" :tools 0}] :removing "gh"}) :en)]
+        (is (str/includes? (texts page) "Remove gh? Your bots lose its tools."))))
+    (testing "no servers"
+      (is (str/includes? (texts (i18n/translate (view/settings nil :mcp {:servers []}) :en)) "No MCP server is connected yet.")))))
+
+(deftest mcp-section-test
+  (let [servers [{:name "github" :address "https://api.githubcopilot.com/mcp/" :tools 40 :connected true}
+                 {:name "storrito" :address "https://acme.storrito.com/mcp" :tools 0 :needs ["STORRITO_TOKEN"] :error "needs …"}
+                 {:name "old" :tools 0 :off true}]
+        section (view/mcp-section {:servers servers :secrets ["GITHUB_TOKEN"]})
+        text (str/join " " (filter string? (tree-seq coll? seq (i18n/translate section :en))))]
+    (testing "every server with where it is and its state"
+      (is (str/includes? text "Connected, 40 tools"))
+      (is (str/includes? text "Waiting for STORRITO_TOKEN"))
+      (is (str/includes? text "Off"))
+      (is (str/includes? text "https://acme.storrito.com/mcp")))
+    (testing "a field for the secret a server waits for, the setup button, the saved secrets"
+      (is (some #(and (vector? %) (= :ui/secret-field (first %)) (= "STORRITO_TOKEN" (:ui/name (second %)))) (tree-seq coll? seq section)))
+      (is (str/includes? text "Connect a service …"))
+      (is (str/includes? text "GITHUB_TOKEN"))))
+  (testing "what the last test found, or that it runs"
+    (let [text (fn [test] (str/join " " (filter string? (tree-seq coll? seq (i18n/translate (view/mcp-section {:servers [{:name "gh" :tools 2 :connected true}] :tests {"gh" test}}) :en)))))]
+      (is (str/includes? (text {:running? true}) "Testing …"))
+      (is (some #(= [:ui/time {:ui/ms 1700000000000}] %)
+                (tree-seq coll? seq (view/mcp-section {:servers [{:name "gh" :tools 2 :connected true}] :tests {"gh" {:ok? true :tools 2 :ms 7 :at 1700000000000}}})))
+          "the time of the test, in the browser's time zone")
+      (is (str/includes? (text {:ok? true :tools 2 :ms 7}) "Test passed: reconnected, 2 tools, answered in 7 ms."))
+      (is (str/includes? (text {:ok? false :error "MCP server requires authentication" :ms 9}) "Test failed after 9 ms: MCP server requires authentication"))))
+  (testing "a remove asks in the row first"
+    (let [section (view/mcp-section {:servers [{:name "github" :tools 1 :connected true}] :removing "github"})]
+      (is (some #(= [:i18n :mcp/remove-confirm {:name "github"}] %) (tree-seq coll? seq section)))))
+  (testing "nothing yet"
+    (is (some #(= [:i18n :mcp/none] %) (tree-seq coll? seq (view/mcp-section {}))))))
+
+(deftest settings-tabs-test
+  (let [tree (view/settings {:current "1.0"} :mcp {:servers []})]
+    (is (some #(= [:i18n :mcp/title] %) (tree-seq coll? seq tree)) "the MCP section when the tab picked it")
+    (is (not (some #(= [:i18n :updates/title] %) (tree-seq coll? seq tree)))))
+  (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil))) "the updates without a pick"))

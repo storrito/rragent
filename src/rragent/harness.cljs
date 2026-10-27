@@ -24,7 +24,7 @@
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai/models" :refer [createModels]]
             ["@earendil-works/pi-ai/providers/openrouter" :refer [openrouterProvider]]
-            ["@earendil-works/pi-durable" :refer [AssistantEntry Harness MemoryStorage createRegistry defineExtension]]
+            ["@earendil-works/pi-durable" :refer [AssistantEntry Harness MemoryStorage ToolTask createRegistry defineExtension hook]]
             ["@earendil-works/pi-durable/env/node" :refer [NodeExecutionEnv]]
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
             ["@earendil-works/pi-durable/tools" :refer [createCodingTools]]
@@ -36,10 +36,12 @@
             [rragent.gateway :as gateway]
             [rragent.home :as home]
             [rragent.images :as images]
+            [rragent.mcp :as mcp]
             [rragent.model-requests :as model-requests]
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
             [rragent.schedule :as schedule]
+            [rragent.secrets :as secrets]
             [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]
             [rragent.tools.hook :as hook-tool]
@@ -66,6 +68,42 @@
                                     (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)
                                     (transcribe-tool/tool codemode)]
                         :tasks #js [schedule/Task]}))
+
+(def redacted-keys
+  "The parts of a tool's result that reach the model, a program or the
+   page: what it said, its value for programs, its details and its
+   diagnostics."
+  ["output" "structuredOutput" "details" "diagnostics"])
+
+(defn redact-result
+  "The tool's `result` with every secret value of `pairs`
+   (`rragent.secrets/redactions`) replaced by its name; nil when there
+   was none in it."
+  [pairs result]
+  (when (seq pairs)
+    (let [changed (into {}
+                        (keep (fn [k]
+                                (let [v (aget result k)]
+                                  (when (some? v)
+                                    (let [data (js->clj v)
+                                          clean (secrets/redact pairs data)]
+                                      (when (not= data clean)
+                                        [k (clj->js clean)]))))))
+                        redacted-keys)]
+      (when (seq changed)
+        (js/Object.assign #js {} result (clj->js changed))))))
+
+(defn redaction
+  "The extension that keeps the machine's secrets from the model: after
+   every tool call, a secret's value in its result (`secrets.json` of
+   `home`, the environment's tokens and keys, `rragent.secrets`) is
+   replaced by its name before the result is committed."
+  [home]
+  (let [source (secrets/source (secrets/file home))]
+    (defineExtension #js {:name "rragent-redaction"
+                          :hooks #js [(hook ToolTask #js {:afterTool (fn [_call result _api _context]
+                                                                        (or (redact-result (secrets/current source) result)
+                                                                            js/undefined))})]})))
 
 (defn gateway-auth
   "The resolved auth of a request through the gateway's `connection`:
@@ -123,13 +161,14 @@
 (defn registry
   "The registry: pi-durable's coding tools, rragent's own over the
    REPL `codemode`, the subagent tool in an extension of its own,
-   which a subagent's agent leaves out, and `extensions` the caller
-   brings."
-  [codemode extensions]
+   which a subagent's agent leaves out, the redaction of the secrets
+   of `home`, and `extensions` the caller brings."
+  [codemode home extensions]
   (let [registry (doto (createRegistry)
                    (.install (createCodingTools #js {:images images/processor}))
                    (.install (extension codemode))
-                   (.install subagent-tool/extension))]
+                   (.install subagent-tool/extension)
+                   (.install (redaction home)))]
     (doseq [e extensions]
       (.install registry e))
     registry))
@@ -184,7 +223,9 @@
    first (`rragent.bots/migrate!`, `:migrated` says so) and a home
    without a definition for the first bot gets the assistant's. The
    gateway's connectors are discovered here, tried again while the
-   gateway comes up, for the REPL (`rragent.codemode`), whose programs
+   gateway comes up, for the REPL (`rragent.codemode`), with the MCP
+   servers of `mcp.json` in `home` (`rragent.mcp`, connected at the
+   first program), whose programs
    run in a worker thread per bot started at the first one
    (`rragent.codemode-worker`), and for the route to OpenRouter of the
    models and the media tools (`rragent.openrouter`), which asks the
@@ -202,11 +243,12 @@
             (bots/write-definition! home bots/root-id (bots/assistant-text home)))
         storage (or storage (await (openNodeSqliteStorage (home/database home))))
         base (gateway/base gateway)
-        codemode (codemode/handle base (await (gateway/discover-at-start base retry)))
+        codemode (assoc (codemode/handle base (await (gateway/discover-at-start base retry)))
+                        :mcp (mcp/registry {:file (mcp/file home) :home home}))
         models (or models (openrouter-models codemode))
         harness (await (.open Harness storage
                               #js {:models models
-                                   :registry (registry codemode extensions)
+                                   :registry (registry codemode home extensions)
                                    ;; the conversation's own cwd, the bot's work/ once it is
                                    ;; configured; the folder of its id before
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) (work-of home (.-conversationId target)))}))
@@ -275,10 +317,12 @@
 
 (defn ^:async close
   "The harness closed, which aborts a running program with its call,
-   every REPL worker ended and every bot taken out of the one atom."
-  [{:keys [harness]}]
+   every REPL worker ended, the MCP servers closed (`rragent.mcp`) and
+   every bot taken out of the one atom."
+  [{:keys [harness codemode]}]
   (await (.close harness context))
   (codemode-worker/stop-all! "The agent closed.")
+  (await (mcp/close! (:mcp codemode)))
   (swap! db/db assoc :bots {}))
 
 (def memory-storage

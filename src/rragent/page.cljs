@@ -36,7 +36,12 @@
    in place of the chat for a tab and bring the chat back
    (`rragent.view/settings`); `:update/check` is the settings' lookup
    of a newer release, `:update/apply` the Update button's
-   (`rragent.update`)."
+   (`rragent.update`); `:settings/section` picks the tab's section.
+   The MCP section's commands (`:mcp/test`, `:mcp/enable`,
+   `:mcp/remove`, `:mcp/keep`, `:mcp/setup`) change the machine's
+   servers (`rragent.mcp`), whose overview the atom follows (`:mcp`);
+   `:secret/save` and `:secret/remove` its secrets (`rragent.secrets`),
+   from the settings or from a bot's field, which tells the bot."
   (:require ["node:path" :as path]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
@@ -54,6 +59,8 @@
             [rragent.i18n :as i18n]
             [rragent.lifecycle :as lifecycle]
             [rragent.machine :as machine]
+            [rragent.mcp :as mcp]
+            [rragent.mcp-setup :as mcp-setup]
             [rragent.onboarding :as onboarding]
             [rragent.openrouter :as openrouter]
             [rragent.phone :as phone]
@@ -66,6 +73,7 @@
             [rragent.rframes.replicant :as replicant]
             [rragent.rframes.sse :as sse]
             [rragent.rframes.transit :as transit]
+            [rragent.secrets :as secrets]
             [rragent.sprite :as sprite]
             [rragent.starting :as starting]
             [rragent.templates :as templates]
@@ -145,7 +153,7 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs update settings-open]} @db/db
+  (let [{:keys [tabs update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         locale (i18n/locale (:ring/request w))]
@@ -161,6 +169,8 @@
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
                     :update update
                     :settings? (contains? settings-open (:tabid w))
+                    :settings-section (get settings-section (:tabid w))
+                    :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)})
         (i18n/translate locale))))
@@ -444,6 +454,181 @@
     (do (swap! db/db chat-in tab)
         (command/accepted w))
     (command/rejected w :no-tab)))
+
+(defn- registry
+  "The machine's MCP servers (`rragent.mcp`)."
+  []
+  (:mcp (machine/codemode)))
+
+(defn- secrets-file
+  []
+  (secrets/file (machine/home)))
+
+(defn follow-mcp!
+  "The atom's `:mcp`, the servers' overview, and `:secret-names`, the
+   saved secrets, kept as the registry's state changes."
+  []
+  (when-let [r (registry)]
+    (let [refresh (fn []
+                    (swap! db/db assoc
+                           :mcp (mcp/overview r)
+                           :secret-names (secrets/names (secrets-file))))]
+      (add-watch (:state r) ::page (fn [_ _ old new]
+                                     (when-not (identical? old new)
+                                       (refresh))))
+      (mcp/reload! r)
+      (refresh))))
+
+(defn- in-background
+  "A promise of the servers' work, its failure logged: the frames show
+   how it goes."
+  [what promise]
+  (-> (js/Promise.resolve promise)
+      (.catch (fn [error]
+                (js/console.error "[mcp]" what (ex-message error))))))
+
+(defn- settings-section-command
+  "The tab `tab` shows the section `section` of the settings; the MCP
+   servers read again when it is theirs."
+  [w]
+  (let [{:keys [tab section]} (command/command-data w)]
+    (cond
+      (nil? tab) (command/rejected w :no-tab)
+      (not (some #{section} view/settings-sections)) (command/rejected w :no-such-section)
+      :else (do (when (and (= :mcp section) (registry))
+                  (mcp/reload! (registry)))
+                (swap! db/db assoc-in [:settings-section tab] section)
+                (command/accepted w)))))
+
+(def min-testing-ms
+  "How long a row says \"Testing …\" at least."
+  500)
+
+(defn- mcp-test-command
+  "Test connection: the server connected anew (`rragent.mcp/test!`);
+   its row says that the test runs, then how it went and how long it
+   took (`:mcp-tests` of the atom, by name), so that even a server that
+   answers at once shows the click had an effect."
+  [w]
+  (let [{:keys [name]} (command/command-data w)
+        name (str name)
+        started (js/Date.now)
+        result! (fn [result]
+                  (let [now (js/Date.now)
+                        ms (- now started)]
+                    ;; "Testing …" stays long enough to be seen, so a
+                    ;; second click visibly does something
+                    (js/setTimeout #(swap! db/db assoc-in [:mcp-tests name] (assoc result :ms ms :at (js/Date.now)))
+                                   (max 0 (- min-testing-ms ms)))))]
+    (if-let [r (registry)]
+      (do (swap! db/db assoc-in [:mcp-tests name] {:running? true})
+          (-> (js/Promise.resolve nil)
+              (.then #(mcp/test! r name))
+              (.then (fn [{:keys [connected tools error needs]}]
+                       (result! (if connected
+                                  {:ok? true :tools (count tools)}
+                                  {:ok? false :error (or error (when (seq needs) (str "needs " (str/join ", " needs))) "not connected")}))))
+              (.catch (fn [e] (result! {:ok? false :error (ex-message e)}))))
+          (command/accepted w))
+      (command/rejected w :no-mcp))))
+
+(defn- mcp-enable-command
+  [w]
+  (let [{:keys [name on?]} (command/command-data w)]
+    (if-let [r (registry)]
+      (do (in-background (str "enable " name) (mcp/enable! r (str name) (boolean on?)))
+          (command/accepted w))
+      (command/rejected w :no-mcp))))
+
+(defn- mcp-remove-command
+  "The first click asks in the server's row, the second removes it."
+  [w]
+  (let [{:keys [name]} (command/command-data w)
+        name (str name)
+        r (registry)]
+    (cond
+      (nil? r) (command/rejected w :no-mcp)
+      (not= name (:mcp-removing @db/db)) (do (swap! db/db assoc :mcp-removing name)
+                                             (command/accepted w))
+      :else (do (swap! db/db #(-> % (dissoc :mcp-removing) (update :mcp-tests dissoc name)))
+                (try
+                  (mcp/remove! r name)
+                  (command/accepted w)
+                  (catch :default e
+                    (js/console.error "[mcp] remove" name (ex-message e))
+                    (command/rejected w :not-removed)))))))
+
+(defn- mcp-keep-command
+  [w]
+  (swap! db/db dissoc :mcp-removing)
+  (command/accepted w))
+
+(defn- ^:async mcp-setup-command
+  "Connect a service: a new bot made for that (`rragent.mcp-setup`),
+   shown in the tab that asked, its settings closed."
+  [w]
+  (let [{:keys [tab]} (command/command-data w)]
+    (try
+      (let [{:keys [id]} (await (machine/create! {:text (mcp-setup/definition-text (bots/assistant-text (machine/home)))}))]
+        (when tab
+          (swap! db/db #(-> (assoc-in % [:tabs tab] id) (chat-in tab))))
+        (command/accepted w))
+      (catch :default e
+        (js/console.error "[mcp] setup bot" (str e))
+        (command/rejected w :not-created)))))
+
+(defn- retry-waiting!
+  "The servers that use the secret `secret-name` connected anew now
+   that it is saved or replaced."
+  [secret-name]
+  (when-let [r (registry)]
+    (mcp/reload! r)
+    (doseq [server-name (mcp/using r secret-name)]
+      (in-background (str "connect " server-name) (mcp/test! r server-name)))))
+
+(defn saved-message
+  "What the bot whose field saved a secret is told: the name, never
+   the value."
+  [secret-name]
+  (str "I saved the secret " secret-name " in the field. (A message of the page: the value is in secrets.json of the machine; you do not see it.)"))
+
+(defn- ^:async secret-save-command
+  "A secret typed into a field (`[:secret …]` of a bot's answer, or the
+   MCP settings) saved in `secrets.json`, the servers waiting for it
+   connected; the bot of the field, when there is one, told that it is
+   saved, which lets it go on. The value is in no message and no log."
+  [w]
+  (let [{:keys [bot name value]} (command/command-data w)
+        bot-map (when bot (machine/bot bot))]
+    (cond
+      (not (secrets/valid-name? name)) (command/rejected w :bad-secret-name)
+      (str/blank? (str value)) (command/rejected w :empty-secret)
+      (and bot (nil? bot-map)) (command/rejected w :no-such-bot)
+      :else
+      (let [saved? (try
+                     (secrets/save! (secrets-file) name value)
+                     true
+                     (catch :default e
+                       (js/console.error "[secrets] could not save" name (ex-message e))
+                       false))]
+        (if-not saved?
+          (command/rejected w :not-saved)
+          (do (swap! db/db assoc :secret-names (secrets/names (secrets-file)))
+              (retry-waiting! name)
+              (when-let [{:keys [conversation]} bot-map]
+                (await (harness/submit conversation #js {:type "input" :content (saved-message name)})))
+              (command/accepted w)))))))
+
+(defn- secret-remove-command
+  [w]
+  (let [{:keys [name]} (command/command-data w)]
+    (if (secrets/valid-name? name)
+      (do (secrets/save! (secrets-file) name "")
+          (swap! db/db assoc :secret-names (secrets/names (secrets-file)))
+          (when-let [r (registry)]
+            (mcp/reload! r))
+          (command/accepted w))
+      (command/rejected w :bad-secret-name))))
 
 (defn- show-command
   "The tab `tab` shows the bot `id` from now on, nil whatever its URL
@@ -749,6 +934,22 @@
       :command/fn #'settings-open-command}
      {:command/kind :settings/close
       :command/fn #'settings-close-command}
+     {:command/kind :settings/section
+      :command/fn #'settings-section-command}
+     {:command/kind :mcp/test
+      :command/fn #'mcp-test-command}
+     {:command/kind :mcp/enable
+      :command/fn #'mcp-enable-command}
+     {:command/kind :mcp/remove
+      :command/fn #'mcp-remove-command}
+     {:command/kind :mcp/keep
+      :command/fn #'mcp-keep-command}
+     {:command/kind :mcp/setup
+      :command/fn #'mcp-setup-command}
+     {:command/kind :secret/save
+      :command/fn #'secret-save-command}
+     {:command/kind :secret/remove
+      :command/fn #'secret-remove-command}
      {:command/kind :bot/show
       :command/fn #'show-command}
      {:command/kind :bot/create
@@ -847,6 +1048,7 @@
     ;; would keep it alive, answering "starting" for ever
     (try
       (await (machine/open! {}))
+      (follow-mcp!)
       (let [page-handler (handler token)]
         (reset! handler* page-handler)
         (@opened! page-handler))
@@ -871,6 +1073,8 @@
     (println (update/report (:updater @db/db)))
     (println (programs/report (templates/all)))
     (println (codemode/report (machine/codemode)))
+    (when-let [line (mcp/report (:mcp (machine/codemode)))]
+      (println line))
     (println (openrouter/report (codemode/discovery (machine/codemode))))
     (println (machine/report))
     (println (str "rragent on "

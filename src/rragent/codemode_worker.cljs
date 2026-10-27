@@ -18,12 +18,23 @@
    and the timeout (`RRAGENT_PROGRAM_TIMEOUT_MIN` minutes, ten) end
    the worker: the program is answered with the reason, the next
    program starts a new worker with a fresh context, and its answer
-   says first that the defs are gone."
+   says first that the defs are gone.
+
+   A call of an MCP tool (`mcp.<server>/<tool>`) is answered by the
+   main thread, which holds the connections (`rragent.mcp`): the
+   worker posts it on a port of its own and waits on a shared flag, as
+   `rragent.sync-fetch` waits for its helper, and the main thread
+   calls the tool, posts the answer and raises the flag. A worker that
+   ends aborts the calls it waits for, which the servers are told; the
+   servers and their tools go with a program when they changed since
+   the worker last had them, and the progress the servers report goes
+   to the program's `on-progress`."
   (:require ["node:url" :as url]
-            ["node:worker_threads" :refer [Worker isMainThread parentPort workerData]]
+            ["node:worker_threads" :refer [MessageChannel Worker isMainThread parentPort receiveMessageOnPort workerData]]
             [rragent.codemode :as codemode]
             [rragent.composio :as composio]
             [rragent.db :as db]
+            [rragent.mcp :as mcp]
             [rragent.rframes.transit :as transit]))
 
 (def mark
@@ -77,17 +88,39 @@
       (aset (.-env js/process) k v))))
 
 (defn run-program
-  "One program in `handle`: the environment set, the facts begun, the
-   program evaluated. `{:text}` or `{:error}`, with `:pending`, what it
-   remembered, either way."
-  [handle {:keys [code facts env]}]
+  "One program in `handle`: the environment set, the MCP servers
+   installed when they came with it, the facts begun, the program
+   evaluated. `{:text}` or `{:error}`, with `:pending`, what it
+   remembered, and `:images`, the pictures its MCP calls answered,
+   when there are any, either way."
+  [handle {:keys [code facts env mcp]}]
   (set-env! env)
+  (when mcp
+    (codemode/install-mcp! handle mcp))
   (codemode/begin! handle facts)
   (let [answer (try
                  {:text (codemode/evaluate handle code)}
                  (catch :default e
                    {:error (.-message e)}))]
-    (assoc answer :pending (codemode/pending handle))))
+    (cond-> (assoc answer :pending (codemode/pending handle))
+      (seq (codemode/images handle)) (assoc :images (codemode/images handle)))))
+
+(defn rpc
+  "The worker's half of an MCP call: `request` posted on `port`, the
+   thread blocked on the shared `flag` until the main thread answered,
+   the answer taken off the port. No deadline of its own: the main
+   thread answers every call, its timeout is the server's, and the
+   program's timeout ends the worker."
+  [port flag]
+  (let [view (js/Int32Array. flag)]
+    (fn [request]
+      (js/Atomics.store view 0 0)
+      (.postMessage port (transit/write-str request))
+      (loop []
+        (js/Atomics.wait view 0 0 1000)
+        (if-let [message (receiveMessageOnPort port)]
+          (transit/read-str (.-message message))
+          (recur))))))
 
 (defn serve!
   "The worker's loop: the REPL over what the main thread discovered
@@ -95,6 +128,7 @@
    port, by its id."
   []
   (let [handle (codemode/handle-of (transit/read-str (.-data workerData)))]
+    (reset! (:mcp-rpc handle) (rpc (.-mcpPort workerData) (.-mcpFlag workerData)))
     (.on parentPort "message"
          (fn [message]
            (let [{:keys [id] :as program} (transit/read-str message)]
@@ -103,11 +137,15 @@
 (defn handle
   "The worker of the REPL `codemode`, for the eval tool: `{:codemode
    :state}`, the state an atom with the worker while there is one, the
-   programs in it by id, and the note the next answer carries after a
-   stop."
+   programs in it by id, the note the next answer carries after a
+   stop, the MCP calls it waits for (their AbortControllers by id),
+   the version of the MCP servers it has (`rragent.mcp/snapshot`) and
+   where the progress of the running program goes. The MCP servers
+   are the registry under `:mcp` of `codemode`, when there is one."
   [codemode]
   {:codemode codemode
-   :state (atom {:worker nil :running {} :next-id 0 :note nil})})
+   :state (atom {:worker nil :running {} :next-id 0 :note nil
+                 :calls {} :mcp-version nil :on-progress nil})})
 
 (defn- module
   "The module a worker runs: this namespace's own, the bundle in
@@ -134,18 +172,75 @@
    replaced already."
   [{:keys [state]} worker reason]
   (when (identical? worker (:worker @state))
-    (let [running (:running @state)]
-      (swap! state assoc :worker nil :running {} :note restart-note)
+    (let [{:keys [running calls mcp-port]} @state]
+      (swap! state assoc :worker nil :running {} :note restart-note :calls {} :mcp-version nil :mcp-port nil)
+      (doseq [controller (vals calls)]
+        (.abort controller reason))
+      (when mcp-port
+        (.close mcp-port))
       (doseq [{:keys [resolve timer]} (vals running)]
         (js/clearTimeout timer)
         (resolve {:error reason :pending []})))))
 
+(defn- admin!
+  "A change of the MCP servers a program asked for (`mcp/add!`,
+   `mcp/test`, `mcp/enable!`, `mcp/remove!`): a promise of
+   `{:value}`."
+  [registry {:keys [admin name opts on?]}]
+  (-> (js/Promise.resolve nil)
+      (.then (fn []
+               (case admin
+                 :add (mcp/add! registry name opts)
+                 :test (mcp/test! registry name)
+                 :enable (mcp/enable! registry name on?)
+                 :remove (mcp/remove! registry name))))
+      (.then (fn [value] {:value value}))))
+
+(defn- answer-mcp!
+  "The main thread's half of an MCP request of `worker`: a tool called
+   (`rragent.mcp/call!`), or the servers changed (`admin!`), the
+   answer posted on `port` and the flag raised, unless the worker
+   ended meanwhile; a call's AbortController kept under `:calls` while
+   it runs."
+  [{:keys [codemode state]} worker port view message]
+  (let [{:keys [server tool args admin] :as request} (transit/read-str message)
+        registry (:mcp codemode)
+        controller (js/AbortController.)
+        id (str (gensym "call"))
+        on-progress (fn [line]
+                      (when-let [f (:on-progress @state)]
+                        (f line)))]
+    (swap! state assoc-in [:calls id] controller)
+    (-> (cond
+          (nil? registry) (js/Promise.resolve {:error "There are no MCP servers here."})
+          admin (admin! registry request)
+          :else (mcp/call! registry server tool args {:signal (.-signal controller) :on-progress on-progress}))
+        (.catch (fn [e] {:error (if admin
+                                  (ex-message e)
+                                  (str "mcp." server "/" tool ": " (ex-message e)))}))
+        (.then (fn [answer]
+                 (swap! state update :calls dissoc id)
+                 (when (identical? worker (:worker @state))
+                   (.postMessage port (transit/write-str answer))
+                   (js/Atomics.store view 0 1)
+                   (js/Atomics.notify view 0)))))))
+
 (defn- start!
-  "A worker over the REPL's discovery, its answers taken; one that
-   ends by itself (a crash) answers the programs in it with the reason."
+  "A worker over the REPL's discovery, its answers taken, the MCP calls
+   it makes answered on a port of its own; one that ends by itself (a
+   crash) answers the programs in it with the reason."
   [{:keys [codemode state] :as handle}]
-  (let [worker (Worker. (module) #js {:workerData #js {:rragent mark
-                                                       :data (transit/write-str (codemode/snapshot codemode))}})]
+  (let [channel (MessageChannel.)
+        flag (js/SharedArrayBuffer. 4)
+        port (.-port1 channel)
+        worker (Worker. (module) #js {:workerData #js {:rragent mark
+                                                       :data (transit/write-str (codemode/snapshot codemode))
+                                                       :mcpPort (.-port2 channel)
+                                                       :mcpFlag flag}
+                                      :transferList #js [(.-port2 channel)]})]
+    (.on port "message" (fn [message] (answer-mcp! handle worker port (js/Int32Array. flag) message)))
+    (.unref port)
+    (swap! state assoc :mcp-port port)
     (.on worker "message" (fn [message] (answered! handle (transit/read-str message))))
     (.on worker "error" (fn [error] (ended! handle worker (str "The REPL's worker failed: " (or (.-message error) error)))))
     (.on worker "exit" (fn [code] (ended! handle worker (str "The REPL's worker ended with exit " code "."))))
@@ -193,13 +288,10 @@
     (update answer (if (:error answer) :error :text) #(str note "\n" %))
     answer))
 
-(defn evaluate!
-  "`{:code :facts :env :signal}` run in the worker, started when there
-   is none: a promise of `{:text :pending}` or `{:error :pending}`, the
-   error the program's, the stop's when `signal` (an AbortSignal, the
-   call's) is aborted meanwhile, or the timeout's. The first answer
-   after a stop carries the note of the restart in front."
-  [{:keys [state] :as handle} {:keys [code facts env signal]}]
+(defn- post!
+  "The program posted to the worker, started when there is none: a
+   promise of its answer (see `evaluate!`)."
+  [{:keys [state] :as handle} {:keys [code facts env signal catalog on-progress]}]
   (js/Promise.
    (fn [resolve]
      (if (and signal (.-aborted signal))
@@ -209,17 +301,38 @@
              note (:note @state)
              minutes (timeout-minutes)
              timer (js/setTimeout #(stop! handle (timeout-message minutes)) (* 60000 minutes))
-             on-abort (fn [] (stop! handle stopped-message))]
+             on-abort (fn [] (stop! handle stopped-message))
+             mcp (when (and catalog (not= (:version catalog) (:mcp-version @state)))
+                   catalog)]
          (when signal
            (.addEventListener signal "abort" on-abort #js {:once true}))
-         (swap! state assoc :note nil)
+         (swap! state assoc :note nil :on-progress on-progress)
+         (when mcp
+           (swap! state assoc :mcp-version (:version mcp)))
          (swap! state assoc-in [:running id] {:timer timer
                                               :resolve (fn [answer]
                                                          (when signal
                                                            (.removeEventListener signal "abort" on-abort))
+                                                         (swap! state assoc :on-progress nil)
                                                          (resolve (noted note answer)))})
          (.ref worker)
-         (.postMessage worker (transit/write-str {:id id :code code :facts facts :env env})))))))
+         (.postMessage worker (transit/write-str (cond-> {:id id :code code :facts facts :env env}
+                                                   mcp (assoc :mcp mcp)))))))))
+
+(defn ^:async evaluate!
+  "`{:code :facts :env :signal :on-progress}` run in the worker,
+   started when there is none: a promise of `{:text :pending}` or
+   `{:error :pending}`, with `:images` when MCP calls answered
+   pictures; the error the program's, the stop's
+   when `signal` (an AbortSignal, the call's) is aborted meanwhile, or
+   the timeout's. The MCP servers of the REPL are connected first and
+   go with the program when they changed (`rragent.mcp/catalog`); the
+   progress of its MCP calls goes to `on-progress`, a line each. The
+   first answer after a stop carries the note of the restart in front."
+  [{:keys [codemode] :as handle} program]
+  (let [catalog (when-let [registry (:mcp codemode)]
+                  (await (mcp/catalog registry)))]
+    (await (post! handle (assoc program :catalog catalog)))))
 
 (when (worker-thread?)
   (serve!))

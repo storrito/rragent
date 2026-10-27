@@ -2580,6 +2580,199 @@ pre {
   font-size: 13px;
 }
 
+/* The tabs of the settings' sections (rragent.view/settings). */
+.main .settings nav.tabs {
+  display: flex;
+  gap: 4px;
+  max-width: 720px;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.main .settings nav.tabs button.tab {
+  margin-bottom: -1px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.main .settings nav.tabs button.tab:hover {
+  color: var(--text);
+}
+
+.main .settings nav.tabs button.tab.current {
+  border-color: var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The MCP servers (rragent.view/mcp-section): a row each with its
+   state and buttons, the button that opens the setup bot, the saved
+   secrets. */
+.main .settings ul.mcp-servers,
+.main .settings ul.secrets {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.main .settings li.mcp-server {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.main .settings li.mcp-server .head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.main .settings li.mcp-server .name {
+  color: var(--text);
+}
+
+.main .settings li.mcp-server .address {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.main .settings li.mcp-server .state {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.main .settings li.mcp-server .state.connected {
+  color: var(--ok);
+}
+
+.main .settings li.mcp-server .state.failed,
+.main .settings li.mcp-server .state.needs {
+  color: var(--warn);
+}
+
+.main .settings li.mcp-server .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.main .settings li.mcp-server .actions button.link,
+.main .settings ul.secrets button.link {
+  padding: 2px 10px;
+  font-size: 13px;
+}
+
+.main .settings li.mcp-server .actions.confirm span {
+  color: var(--text);
+}
+
+.main .settings button.link.danger {
+  color: var(--accent);
+}
+
+.main .settings li.mcp-server p.tested {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.main .settings li.mcp-server p.tested.ok {
+  color: var(--ok);
+}
+
+.main .settings li.mcp-server p.tested.failed {
+  color: var(--warn);
+}
+
+.main .settings li.mcp-server .secret {
+  margin-top: 8px;
+}
+
+.main .settings h3 {
+  margin: 20px 0 6px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.main .settings ul.secrets li {
+  margin: 0 0 6px;
+}
+
+.main .settings p.setup button.primary {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* The password field of a secret (the client's :ui/secret-field), in a
+   bot's answer or in the MCP settings. */
+form.secret-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 8px;
+  margin: 8px 0;
+}
+
+form.secret-field label {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+form.secret-field input {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+form.secret-field input:focus {
+  border-color: var(--muted);
+  outline: none;
+}
+
+form.secret-field button {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+form.secret-field .note {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* A newer rragent (rragent.update): the banner above the chat with the
    version, the first line of its notes and the button, and the running
    version in the header, which opens the settings on a click. */

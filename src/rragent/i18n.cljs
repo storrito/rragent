@@ -204,6 +204,35 @@
    :update/failed [:fn/str "The update to {{:version}} did not work: {{:error}}"]
    :update/newest [:fn/str "rragent {{:version}} is the newest."]
    :update/lookup-failed "The newest release could not be looked up."
+   :settings/tabs "Sections of the settings"
+   :settings/updates "Updates"
+   :settings/mcp "MCP servers"
+   :mcp/title "MCP servers"
+   :mcp/explain "Services your bots use over MCP. Every bot of this machine has their tools."
+   :mcp/none "No MCP server is connected yet."
+   :mcp/setup "Connect a service …"
+   :mcp/setup-explain "Opens a bot that finds out how the service connects and asks you for what it needs."
+   :mcp/connected [:fn/str "Connected, {{:count}} tools"]
+   :mcp/connecting "Connecting …"
+   :mcp/off "Off"
+   :mcp/needs [:fn/str "Waiting for {{:names}}"]
+   :mcp/failed [:fn/str "Failed: {{:error}}"]
+   :mcp/idle "Not connected yet"
+   :mcp/test "Test connection"
+   :mcp/testing "Testing …"
+   :mcp/test-ok [:fn/str "Test passed: reconnected, {{:count}} tools, answered in {{:ms}} ms."]
+   :mcp/test-failed [:fn/str "Test failed after {{:ms}} ms: {{:error}}"]
+   :mcp/turn-off "Turn off"
+   :mcp/turn-on "Turn on"
+   :mcp/remove "Remove"
+   :mcp/remove-confirm [:fn/str "Remove {{:name}}? Your bots lose its tools."]
+   :mcp/keep "Keep it"
+   :mcp/secrets "Saved secrets"
+   :mcp/secrets-explain "Tokens the servers use, saved on this machine only. The bots never see them."
+   :mcp/secret-remove "Remove"
+   :secret/save "Save"
+   :secret/placeholder "Paste it here"
+   :secret/note "Saved on this machine only; the bot never sees it."
 
    :bots/title "Bots"
    :bots/menu "The bots"
@@ -422,6 +451,35 @@
    :update/failed [:fn/str "Die Aktualisierung auf {{:version}} hat nicht geklappt: {{:error}}"]
    :update/newest [:fn/str "rragent {{:version}} ist die neueste Version."]
    :update/lookup-failed "Die neueste Version ließ sich nicht nachsehen."
+   :settings/tabs "Bereiche der Einstellungen"
+   :settings/updates "Updates"
+   :settings/mcp "MCP-Server"
+   :mcp/title "MCP-Server"
+   :mcp/explain "Dienste, die deine Bots über MCP nutzen. Jeder Bot dieser Maschine hat ihre Werkzeuge."
+   :mcp/none "Noch ist kein MCP-Server verbunden."
+   :mcp/setup "Einen Dienst verbinden …"
+   :mcp/setup-explain "Öffnet einen Bot, der herausfindet, wie sich der Dienst verbindet, und dich nach dem fragt, was er braucht."
+   :mcp/connected [:fn/str "Verbunden, {{:count}} Werkzeuge"]
+   :mcp/connecting "Verbindet …"
+   :mcp/off "Aus"
+   :mcp/needs [:fn/str "Wartet auf {{:names}}"]
+   :mcp/failed [:fn/str "Fehlgeschlagen: {{:error}}"]
+   :mcp/idle "Noch nicht verbunden"
+   :mcp/test "Verbindung testen"
+   :mcp/testing "Teste …"
+   :mcp/test-ok [:fn/str "Test bestanden: neu verbunden, {{:count}} Werkzeuge, Antwort in {{:ms}} ms."]
+   :mcp/test-failed [:fn/str "Test fehlgeschlagen nach {{:ms}} ms: {{:error}}"]
+   :mcp/turn-off "Ausschalten"
+   :mcp/turn-on "Einschalten"
+   :mcp/remove "Entfernen"
+   :mcp/remove-confirm [:fn/str "{{:name}} entfernen? Deine Bots verlieren seine Werkzeuge."]
+   :mcp/keep "Behalten"
+   :mcp/secrets "Gespeicherte Geheimnisse"
+   :mcp/secrets-explain "Tokens, die die Server nutzen, nur auf dieser Maschine gespeichert. Die Bots sehen sie nie."
+   :mcp/secret-remove "Entfernen"
+   :secret/save "Speichern"
+   :secret/placeholder "Hier einfügen"
+   :secret/note "Nur auf dieser Maschine gespeichert; der Bot sieht es nie."
 
    :bots/title "Bots"
    :bots/menu "Die Bots"

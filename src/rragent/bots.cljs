@@ -227,10 +227,11 @@
 
 (def machine-files
   "What stays at the top of the home when the old layout moves into
-   `bots/1/`: the storage with its WAL and journal, and the folders and
-   files of the new layout."
+   `bots/1/`: the storage with its WAL and journal, the folders and
+   files of the new layout, and the machine's MCP servers and secrets
+   (`rragent.mcp`, `rragent.secrets`)."
   #{"agent.sqlite" "agent.sqlite-wal" "agent.sqlite-shm" "agent.sqlite-journal"
-    "bots" "shared" "trash" "assistant.md"})
+    "bots" "shared" "trash" "assistant.md" "mcp.json" "secrets.json"})
 
 (defn agent-files
   "What of the home's top is the old agent's: everything but the

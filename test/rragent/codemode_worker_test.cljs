@@ -3,12 +3,17 @@
    the environment that go with a program, a call through the gateway
    from the worker, Stop and the timeout ending a program with the
    worker within a second, and the next program in a fresh context
-   that says so."
-  (:require [clojure.string :as str]
+   that says so; the tools of an MCP server called from the worker,
+   answered by the main thread, a call in flight cancelled by Stop."
+  (:require ["node:fs" :as fs]
+            [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.codemode :as codemode]
             [rragent.codemode-worker :as codemode-worker]
             [rragent.fake-gateway :as fake-gateway]
+            [rragent.fake-mcp :as fake-mcp]
+            [rragent.mcp :as mcp]
+            [rragent.test-home :as test-home]
             [rragent.sync-fetch :as sync-fetch]))
 
 (defn- ^:async run
@@ -113,5 +118,62 @@
                  (if (nil? before) (js-delete env "RRAGENT_PROGRAM_TIMEOUT_MIN") (aset env "RRAGENT_PROGRAM_TIMEOUT_MIN" before))
                  (codemode-worker/stop! worker "over")
                  (sync-fetch/stop!))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(defn- mcp-worker
+  "A worker over a REPL whose MCP servers are the fake's one server
+   `fake`, and the registry."
+  [fake]
+  (let [home (test-home/make)
+        _ (fs/writeFileSync (mcp/file home) (js/JSON.stringify (clj->js {:mcpServers {:fake {:url "https://fake.example/mcp"}}})))
+        registry (mcp/registry {:file (mcp/file home) :home home :transport (:transport-fn fake)})]
+    {:registry registry
+     :worker (codemode-worker/handle (assoc (codemode/handle "http://127.0.0.1:1") :mcp registry))}))
+
+(deftest mcp-test
+  (async done
+    (-> ((^:async fn []
+           (let [fake (fake-mcp/fake)
+                 {:keys [registry worker]} (mcp-worker fake)]
+             (try
+               (testing "a tool called from the worker, answered by the main thread"
+                 (is (= {:text "=> \"echo: hi\"" :pending []} (await (run worker "(mcp.fake/echo {:text \"hi\"})"))))
+                 (is (= {:text "=> [\"echo: a\" \"echo: b\"]" :pending []}
+                        (await (run worker "(mapv #(mcp.fake/echo {:text %}) [\"a\" \"b\"])")))
+                     "calls in a loop"))
+               (testing "a failure is the program's to catch"
+                 (is (= {:text "=> \"mcp.fake/fail failed: it broke\"" :pending []}
+                        (await (run worker "(try (mcp.fake/fail {}) (catch :default e (ex-message e)))")))))
+               (testing "pictures come with the answer"
+                 (is (= [{:data fake-mcp/png :mime-type "image/png"}] (:images (await (run worker "(mcp.fake/picture)")))))
+                 (is (nil? (:images (await (run worker "1")))) "the next program has none"))
+               (testing "progress goes to the program's on-progress"
+                 (let [lines (atom [])]
+                   (is (= "=> \"done\"" (:text (await (run worker "(mcp.fake/slow {:ms 60})" {:on-progress #(swap! lines conj %)})))))
+                   (is (= ["mcp.fake/slow: 1/2 halfway" "mcp.fake/slow: 2/2"] @lines))))
+               (testing "Stop ends a program blocked in a call within a second, the server told"
+                 (let [{:keys [answer took]} (await (stopped-within worker "(mcp.fake/hang {})" 300))]
+                   (is (= {:error "The program was stopped." :pending []} answer))
+                   (is (< took 1300) (str "took " took " ms"))
+                   (await (js/Promise. (fn [resolve] (js/setTimeout resolve 20))))
+                   (is (= 1 (count @(:cancelled fake))))))
+               (testing "the next worker has the tools again, over the same connection"
+                 (is (= {:text (str codemode-worker/restart-note "\n=> \"echo: again\"") :pending []}
+                        (await (run worker "(mcp.fake/echo {:text \"again\"})"))))
+                 (is (= 1 (count (filter #{"initialize"} @(:requests fake))))))
+               (testing "mcp/add! from a program: the main thread writes the file and connects, the next program has the tools"
+                 (is (= {:text "=> [true 9]" :pending []}
+                        (await (run worker "(let [{:keys [connected tools]} (mcp/add! \"second\" {:url \"https://second.example/mcp\"})] [connected (count tools)])"))))
+                 (is (contains? (mcp/read-servers (:file registry)) "second"))
+                 (is (= {:text "=> \"echo: two\"" :pending []} (await (run worker "(mcp.second/echo {:text \"two\"})"))))
+                 (is (= {:text "=> \"needs the secret NOPE_TOKEN\"" :pending []}
+                        (await (run worker "(let [{:keys [needs]} (mcp/add! \"third\" {:url \"https://third.example/mcp\" :token \"NOPE_TOKEN\"})] (str \"needs the secret \" (first needs)))"))))
+                 (is (= {:text "=> true" :pending []} (await (run worker "(mcp/remove! \"third\")"))))
+                 (is (str/includes? (:text (await (run worker "(try (mcp/remove! \"third\") (catch :default e (ex-message e)))")))
+                                    "There is no MCP server third")))
+               (finally
+                 (codemode-worker/stop! worker "over")
+                 (await (mcp/close! registry)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

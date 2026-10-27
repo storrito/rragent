@@ -146,9 +146,12 @@
         (fs/writeFileSync (path/join home "README.md") "# best-takes")
         (fs/writeFileSync (path/join home ".gitignore") "node_modules/")
         (fs/writeFileSync (path/join home "agent.sqlite-shm") "shm")
+        (fs/writeFileSync (path/join home "mcp.json") "{}")
+        (fs/writeFileSync (path/join home "secrets.json") "{}")
         (is (= [".gitignore" "README.md" "SKILL.md" "tools" "work"] (bots/agent-files home)))
         (let [dir (home/bot-dir home (bots/migrate! home))]
-          (is (= ["agent.sqlite" "agent.sqlite-shm" "agent.sqlite-wal" "bots"] (top-level home)) "the storage stays, with its WAL and shared memory")
+          (is (= ["agent.sqlite" "agent.sqlite-shm" "agent.sqlite-wal" "bots" "mcp.json" "secrets.json"] (top-level home))
+              "the storage stays, with its WAL and shared memory, and so do the machine's MCP servers and secrets")
           (is (= "// takes" (fs/readFileSync (path/join dir "tools" "takes.mjs") "utf8")))
           (is (= "// cut" (fs/readFileSync (path/join dir "tools" "lib" "cut.mjs") "utf8")))
           (is (= "# best-takes" (fs/readFileSync (path/join dir "README.md") "utf8")))
