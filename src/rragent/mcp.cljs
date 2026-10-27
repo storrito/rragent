@@ -38,10 +38,12 @@
    (`isError` in its result) and a failure of the protocol are both
    `{:error}`, which the REPL throws."
   (:require ["@earendil-works/pi-mcp" :refer [McpAbortError McpClient McpSessionExpiredError McpTimeoutError StdioTransport StreamableHttpTransport toLlmContent]]
+            ["@earendil-works/pi-mcp/oauth" :refer [McpOAuthAuthorizationRequiredError adaptOAuthProvider authorizeMcp]]
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
             [rragent.gateway :as gateway]
+            [rragent.mcp-oauth :as oauth]
             [rragent.secrets :as secrets]
             [rragent.version :as version]))
 
@@ -96,8 +98,23 @@
 
 (defn- entry-strings
   "The strings of `entry` that `${NAME}` is filled into."
-  [{:strs [url headers command args env cwd]}]
-  (filter string? (concat [url command cwd] (vals headers) args (vals env))))
+  [{:strs [url headers command args env cwd oauth]}]
+  (filter string? (concat [url command cwd] (vals headers) args (vals env)
+                          (when (map? oauth) (vals oauth)))))
+
+(defn oauth-of
+  "What `\"oauth\"` of an entry says, `${NAME}` filled in by `fill`:
+   nil for none, `{}` for `true` (the service registers rragent itself),
+   else `{:client-id :client-secret :scope}`."
+  [oauth fill]
+  (cond
+    (true? oauth) {}
+    (map? oauth) (let [{:strs [clientId clientSecret scope]} oauth]
+                   (cond-> {}
+                     (string? clientId) (assoc :client-id (fill clientId))
+                     (string? clientSecret) (assoc :client-secret (fill clientSecret))
+                     (string? scope) (assoc :scope scope)))
+    :else nil))
 
 (defn vars-of
   "The names of the `${NAME}`s of `entry`, in order, each once."
@@ -130,7 +147,7 @@
   ([entry home]
    (transport-spec entry home env-lookup))
   ([entry home lookup]
-   (let [{:strs [url headers command args env cwd type]} entry
+   (let [{:strs [url headers command args env cwd type oauth]} entry
          missing (vec (remove #(some? (lookup %)) (vars-of entry)))
          fill (partial substitute lookup)]
      (cond
@@ -138,9 +155,15 @@
        (seq missing) {:error (str "needs the secret" (when (next missing) "s") " " (str/join ", " missing)
                                   ", not saved yet (a field in the chat or the MCP settings takes it)")
                       :needs missing}
-       (and (string? url) (re-find #"^https?://" url)) {:kind :http
-                                                        :url (fill url)
-                                                        :headers (substitute-map fill headers)}
+       (and (some? oauth) (not (or (true? oauth) (false? oauth) (map? oauth))))
+       {:error "\"oauth\" is true, or an object with clientId, clientSecret and scope"}
+
+       (and (string? url) (re-find #"^https?://" url)) (cond-> {:kind :http
+                                                                :url (fill url)
+                                                                :headers (substitute-map fill headers)}
+                                                         (oauth-of oauth fill) (assoc :oauth (oauth-of oauth fill)))
+
+       (and oauth (not (false? oauth))) {:error "OAuth is for a server with a url, not for a program"}
        (and (string? command) (not (str/blank? command))) {:kind :stdio
                                                            :command (fill command)
                                                            :args (mapv fill args)
@@ -194,10 +217,14 @@
    `servers` by name `{:entry :spec :timeout :client :connecting
    :tools :instructions :error :failed-at}`; `version` counts the
    changes of what the REPL sees."
-  [{:keys [file home transport secrets-file]}]
+  [{:keys [file home transport secrets-file oauth-file]}]
   {:file file
    :home (or home (some-> file path/dirname))
    :secrets-file (or secrets-file (some-> file path/dirname secrets/file))
+   :oauth-file (or oauth-file (some-> file path/dirname oauth/file))
+   ;; the page's address, which the services of an OAuth sign-in send
+   ;; the browser back to: RRAGENT_URL, else what a sign-in was started at
+   :base (atom (not-empty (aget (.-env js/process) "RRAGENT_URL")))
    :transport transport
    :state (atom {:mtime ::unread :servers {} :version 0})})
 
@@ -205,11 +232,33 @@
   [state]
   (update state :version inc))
 
+(defn redirect-of
+  "Where the services send the browser back after a sign-in: the
+   callback under the page's address (`:base`), else the address the
+   server's client was registered with, else localhost's."
+  [{:keys [base oauth-file]} server-name]
+  (or (some-> @base oauth/redirect-url)
+      (first (get-in (oauth/state-of oauth-file server-name) ["clientInformation" "redirect_uris"]))
+      (oauth/redirect-url "http://localhost:8080")))
+
+(defn oauth-provider
+  "pi-mcp's OAuth provider of the server of `spec`; `on-redirect` gets
+   the service's sign-in address."
+  [{:keys [oauth-file] :as registry} server-name {:keys [url oauth]} & [on-redirect]]
+  (oauth/provider (assoc oauth
+                         :file oauth-file
+                         :server-name server-name
+                         :server-url url
+                         :redirect (redirect-of registry server-name)
+                         :on-redirect on-redirect)))
+
 (defn- make-transport
-  [{:keys [transport]} server-name {:keys [kind url headers command args env cwd] :as spec}]
+  [{:keys [transport] :as registry} server-name {:keys [kind url headers command args env cwd oauth] :as spec}]
   (cond
-    transport (transport server-name spec)
-    (= :http kind) (StreamableHttpTransport. #js {:url url :headers (clj->js headers)})
+    transport (transport server-name (cond-> spec
+                                       oauth (assoc :auth-provider (adaptOAuthProvider (oauth-provider registry server-name spec)))))
+    (= :http kind) (StreamableHttpTransport. (clj->js (cond-> {:url url :headers headers}
+                                                        oauth (assoc :authProvider (adaptOAuthProvider (oauth-provider registry server-name spec))))))
     :else (StdioTransport. #js {:command command
                                 :args (clj->js args)
                                 :env (clj->js env)
@@ -284,17 +333,22 @@
                                           :tools tools
                                           :instructions (.-instructions client)
                                           :error nil
+                                          :sign-in false
                                           :failed-at nil))))
           ;; the entry was changed or removed meanwhile
           (close-client! client)))
       (catch :default e
         (close-client! client)
         (when (same-entry? registry server-name entry spec)
-          (swap! state (fn [s]
-                         (bump (update-in s [:servers server-name] assoc
-                                          :client nil
-                                          :error (str (ex-message e) (stderr-tail transport))
-                                          :failed-at (js/Date.now))))))))))
+          (let [sign-in? (instance? McpOAuthAuthorizationRequiredError e)]
+            (swap! state (fn [s]
+                           (bump (update-in s [:servers server-name] assoc
+                                            :client nil
+                                            :sign-in sign-in?
+                                            :error (if sign-in?
+                                                     "needs a sign-in at the service (OAuth): the person signs in with the link the MCP settings or a [:sign-in …] in your answer give"
+                                                     (str (ex-message e) (stderr-tail transport)))
+                                            :failed-at (js/Date.now)))))))))))
 
 (defn- connect!
   "The server connected, once for every caller that asks meanwhile: a
@@ -315,8 +369,9 @@
 (defn- wants-connection?
   "Whether the server should be connected now: on, reachable by its
    entry, not connected, and not failed within `retry-ms`."
-  [{:keys [spec client failed-at off]} now]
+  [{:keys [spec client failed-at off sign-in]} now]
   (and (not off)
+       (not sign-in)
        (not (:error spec))
        (nil? client)
        (or (nil? failed-at) (< retry-ms (- now failed-at)))))
@@ -377,11 +432,13 @@
         true))))
 
 (defn- server-catalog
-  [server-name {:keys [spec tools error instructions off client connecting]}]
+  [server-name {:keys [spec tools error instructions off client connecting sign-in]}]
   (cond-> {:name server-name
            :ns (ns-name-of server-name)
            :tools (vec tools)}
     off (assoc :off true)
+    (:oauth spec) (assoc :oauth true)
+    sign-in (assoc :sign-in true)
     (:error spec) (assoc :error (:error spec))
     (:needs spec) (assoc :needs (:needs spec))
     (and error (not (:error spec))) (assoc :error error)
@@ -535,7 +592,7 @@
 
 (def entry-keys
   "What `mcp/add!` takes, and the key of each in the file."
-  {:url "url" :headers "headers" :token nil :command "command" :args "args"
+  {:url "url" :headers "headers" :token nil :oauth "oauth" :command "command" :args "args"
    :env "env" :cwd "cwd" :timeout-ms "timeoutMs" :enabled "enabled"})
 
 (def secret-header-pattern
@@ -560,7 +617,7 @@
    a value, not as a `${NAME}`, is refused: the person saves the value
    in a field of the page, the file names it."
   [opts]
-  (let [{:keys [url headers token command args env cwd timeout-ms enabled]} opts
+  (let [{:keys [url headers token oauth command args env cwd timeout-ms enabled]} opts
         unknown (remove (set (keys entry-keys)) (keys opts))
         headers (into {} (map (fn [[k v]] [(name k) v])) headers)
         env (into {} (map (fn [[k v]] [(name k) v])) env)]
@@ -578,6 +635,13 @@
       (not (or (nil? cwd) (string? cwd))) {:error ":cwd is a folder, relative to the machine's"}
       (not (or (nil? timeout-ms) (and (number? timeout-ms) (pos? timeout-ms)))) {:error ":timeout-ms is a number of milliseconds"}
       (not (or (nil? enabled) (boolean? enabled))) {:error ":enabled is true or false"}
+      (and oauth command) {:error ":oauth is for a server with a :url"}
+      (and oauth token) {:error "either :oauth (the person signs in) or :token, not both"}
+      (not (or (nil? oauth) (true? oauth)
+               (and (map? oauth) (every? #{:client-id :client-secret :scope} (keys oauth)) (every? string? (vals oauth)))))
+      {:error ":oauth is true, or {:client-id \"…\" :client-secret \"${NAME}\" :scope \"…\"} for a service that does not register clients itself"}
+      (and (map? oauth) (literal-secret? (:client-secret oauth)))
+      {:error "the :client-secret of :oauth goes in as ${NAME}, never as the value itself"}
       (some (fn [[k v]] (and (re-find secret-header-pattern k) (literal-secret? v))) headers)
       {:error "a credential in a header goes in as ${NAME}, as :token \"NAME\" does, never as the value itself: the person types the value into the field that (mcp/add! …) asks for"}
       (some (fn [[k v]] (and (re-find secrets/secret-env-pattern k) (literal-secret? v))) env)
@@ -593,6 +657,11 @@
                 (seq args) (assoc "args" (vec args))
                 (seq env) (assoc "env" env)
                 cwd (assoc "cwd" cwd)
+                (true? oauth) (assoc "oauth" true)
+                (map? oauth) (assoc "oauth" (cond-> {}
+                                              (:client-id oauth) (assoc "clientId" (:client-id oauth))
+                                              (:client-secret oauth) (assoc "clientSecret" (:client-secret oauth))
+                                              (:scope oauth) (assoc "scope" (:scope oauth))))
                 timeout-ms (assoc "timeoutMs" timeout-ms)
                 (false? enabled) (assoc "enabled" false))})))
 
@@ -654,7 +723,7 @@
   (let [{:keys [off spec connecting client]} (get-in @state [:servers server-name])]
     (when-not (or off (:error spec))
       (when-not connecting
-        (swap! state (fn [s] (bump (update-in s [:servers server-name] assoc :client nil :failed-at nil :error nil))))
+        (swap! state (fn [s] (bump (update-in s [:servers server-name] assoc :client nil :failed-at nil :error nil :sign-in false))))
         (close-client! client))
       (await (connect! registry server-name)))
     (status registry server-name)))
@@ -687,12 +756,76 @@
     (status registry server-name)))
 
 (defn remove!
-  "The server taken out of the file and closed. True."
-  [registry server-name]
+  "The server taken out of the file and closed, its OAuth sign-in
+   forgotten. True."
+  [{:keys [oauth-file] :as registry} server-name]
   (reload! registry)
   (known! registry server-name)
   (change-servers! registry #(dissoc % server-name))
+  (when oauth-file
+    (oauth/forget! oauth-file server-name))
   true)
+
+;;; OAuth: the person signs in at the service
+
+(defn- oauth-spec!
+  "The spec of an OAuth server, or a throw that says why it is none."
+  [{:keys [state] :as registry} server-name]
+  (reload! registry)
+  (known! registry server-name)
+  (let [{:keys [spec]} (get-in @state [:servers server-name])]
+    (cond
+      (:error spec) (throw (js/Error. (str "The MCP server " server-name " cannot be reached: " (:error spec))))
+      (not (:oauth spec)) (throw (js/Error. (str "The MCP server " server-name " does not sign in with OAuth (\"oauth\": true in its entry).")))
+      :else spec)))
+
+(defn ^:async sign-in!
+  "The start of a sign-in at the service of `server-name`, `base` the
+   page's address the service sends the browser back to: `{:url}`, the
+   service's sign-in page for the person's browser, with a state of its
+   own. pi-mcp discovers the service's authorization server and
+   registers rragent there the first time."
+  [{:keys [base oauth-file] :as registry} server-name page-base]
+  (let [spec (oauth-spec! registry server-name)]
+    (when (seq (str page-base))
+      (when-not @base
+        (reset! base page-base)))
+    (oauth/fresh-attempt! oauth-file server-name (redirect-of registry server-name))
+    (let [url (atom nil)
+          provider (oauth-provider registry server-name spec #(reset! url %))
+          result (await (authorizeMcp provider #js {:serverUrl (:url spec) :skipRefresh true}))]
+      (if (and (= "REDIRECT" result) @url)
+        {:url @url}
+        (throw (js/Error. (str "The service of " server-name " started no sign-in.")))))))
+
+(defn ^:async signed-in!
+  "The end of a sign-in: the `code` the service sent the browser back
+   with, for the sign-in whose `oauth-state` it carries, exchanged for
+   tokens, and the server connected (`test!`). Answers the server's
+   name and its `status`, `{:server :status}`; throws for a state no
+   sign-in waits for."
+  [{:keys [oauth-file] :as registry} oauth-state code & [iss]]
+  (let [server-name (or (oauth/server-by-state oauth-file oauth-state)
+                        (throw (js/Error. "No sign-in waits for this answer; start it again.")))
+        spec (oauth-spec! registry server-name)
+        provider (oauth-provider registry server-name spec)]
+    (await (authorizeMcp provider (clj->js (cond-> {:serverUrl (:url spec) :authorizationCode code}
+                                             (seq iss) (assoc :iss iss)))))
+    (oauth/update-state! oauth-file server-name #(dissoc % "oauthState" "codeVerifier"))
+    {:server server-name
+     :status (await (test! registry server-name))}))
+
+(defn sign-out!
+  "The tokens and the registration of `server-name` forgotten, its
+   connection closed: the next connection needs a sign-in again."
+  [{:keys [oauth-file state] :as registry} server-name]
+  (oauth-spec! registry server-name)
+  (oauth/forget! oauth-file server-name)
+  (let [client (get-in @state [:servers server-name :client])]
+    (swap! state (fn [s] (bump (update-in s [:servers server-name] assoc :client nil :tools [] :sign-in true
+                                          :error "signed out: the person signs in again with the link of the MCP settings"))))
+    (close-client! client))
+  (status registry server-name))
 
 (defn- address
   "Where the server is, for the page: the URL without its query and

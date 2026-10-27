@@ -137,18 +137,20 @@
 
 (defn source
   "What `current` reads the redactions from: the secrets of `file`
-   and of `env` (`js/process.env` without). The file is read again
-   only when it changed."
-  [file & [env]]
+   and of `env` (`js/process.env` without), and `{label value}` that
+   `extra` answers (the OAuth tokens). The file is read again only when
+   it changed."
+  [file & [env extra]]
   {:file file
    :env (or env (.-env js/process))
+   :extra extra
    :cache (atom nil)})
 
 (defn current
   "The redactions of `source` as they are now."
-  [{:keys [file env cache]}]
+  [{:keys [file env extra cache]}]
   (let [mtime (try (let [stat (fs/statSync file)] [(.-mtimeMs stat) (.-ino stat) (.-size stat)]) (catch :default _ nil))
-        env-map (env-secrets env)
+        env-map (merge (env-secrets env) (when extra (extra)))
         {cached-mtime :mtime cached-env :env pairs :pairs} @cache]
     (if (and pairs (= mtime cached-mtime) (= env-map cached-env))
       pairs
