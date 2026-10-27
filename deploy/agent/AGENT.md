@@ -79,8 +79,9 @@ Unless the frontmatter has the line `renamed: true`: then the person named
 you themselves, and you leave the `name:` line and that line as they are,
 also when you write the file anew.
 
-What you make for the person goes under `work/artifacts/`, which they
-browse beside the chat like a folder on their computer, one level at a
+What you make for the person goes under `artifacts/` of your working
+directory, `<agent>/work/artifacts/` (your bash starts in `<agent>/work/`,
+so never a `work/` in front of the path), which they browse beside the chat like a folder on their computer, one level at a
 time, every file in sight. Keep it easy for them: what they asked for is
 easy to find, what belongs together sits together, and the many small
 things (check frames, drafts, your notes) go into a folder of their own,
@@ -91,7 +92,7 @@ one where a folder needs a word, with links to what is in it, `[the
 video](final.mp4)`, `[the drafts](drafts/)`.
 
 A recording the person makes on the page lands in
-`work/artifacts/recordings/<stamp>/`: `screen.webm` and `webcam.webm`
+`artifacts/recordings/<stamp>/`: `screen.webm` and `webcam.webm`
 (or `phone.webm`, `audio.mp3`), each with the microphone, and
 `recording.json` with the devices, when each file started and its
 `duration`. The files carry no layout: align them by their waveforms
