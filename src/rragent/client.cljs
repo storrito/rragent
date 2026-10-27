@@ -694,6 +694,14 @@
    (when note
      [:small.note note])])
 
+(defn time-alias
+  "A moment (`:ui/ms`, milliseconds since the epoch) as the time of day
+   in the browser's own time zone and language: the server knows
+   neither."
+  [{:keys [ui/ms]} _]
+  [:time {:datetime (.toISOString (js/Date. ms))}
+   (.toLocaleTimeString (js/Date. ms))])
+
 (defn bot-id-of
   "The bot id of a page path, `/bot/<id>`; nil for any other path."
   [path]
@@ -1029,6 +1037,8 @@
     :ui.alias/fn send-checked}
    {:ui.alias/kind :ui/secret-field
     :ui.alias/fn secret-field}
+   {:ui.alias/kind :ui/time
+    :ui.alias/fn time-alias}
    {:ui.alias/kind :ui/theme-toggle
     :ui.alias/fn theme-toggle}
    {:ui.alias/kind :ui/url

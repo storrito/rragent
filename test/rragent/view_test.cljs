@@ -469,7 +469,10 @@
   (testing "what the last test found, or that it runs"
     (let [text (fn [test] (str/join " " (filter string? (tree-seq coll? seq (i18n/translate (view/mcp-section {:servers [{:name "gh" :tools 2 :connected true}] :tests {"gh" test}}) :en)))))]
       (is (str/includes? (text {:running? true}) "Testing …"))
-      (is (str/includes? (text {:ok? true :tools 2 :ms 7}) "Test passed: connected anew, 2 tools, in 7 ms."))
+      (is (some #(= [:ui/time {:ui/ms 1700000000000}] %)
+                (tree-seq coll? seq (view/mcp-section {:servers [{:name "gh" :tools 2 :connected true}] :tests {"gh" {:ok? true :tools 2 :ms 7 :at 1700000000000}}})))
+          "the time of the test, in the browser's time zone")
+      (is (str/includes? (text {:ok? true :tools 2 :ms 7}) "Test passed: reconnected, 2 tools, answered in 7 ms."))
       (is (str/includes? (text {:ok? false :error "MCP server requires authentication" :ms 9}) "Test failed after 9 ms: MCP server requires authentication"))))
   (testing "a remove asks in the row first"
     (let [section (view/mcp-section {:servers [{:name "github" :tools 1 :connected true}] :removing "github"})]

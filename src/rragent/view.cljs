@@ -564,11 +564,12 @@
 
 (defn- test-line
   "What the last Test connection of a server found, or that it runs."
-  [{:keys [running? ok? tools error ms]}]
-  (cond
-    running? [:p.tested [:i18n :mcp/testing]]
-    ok? [:p.tested.ok [:i18n :mcp/test-ok {:count tools :ms ms}]]
-    (some? ok?) [:p.tested.failed [:i18n :mcp/test-failed {:error (str error) :ms ms}]]))
+  [{:keys [running? ok? tools error ms at]}]
+  (let [time (when at (list [:ui/time {:ui/ms at}] " · "))]
+    (cond
+      running? [:p.tested [:i18n :mcp/testing]]
+      ok? [:p.tested.ok time [:i18n :mcp/test-ok {:count tools :ms ms}]]
+      (some? ok?) [:p.tested.failed time [:i18n :mcp/test-failed {:error (str error) :ms ms}]])))
 
 (defn- mcp-row
   "One server: its name, where it is, its state, what its last test

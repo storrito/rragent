@@ -500,6 +500,10 @@
                 (swap! db/db assoc-in [:settings-section tab] section)
                 (command/accepted w)))))
 
+(def min-testing-ms
+  "How long a row says \"Testing …\" at least."
+  500)
+
 (defn- mcp-test-command
   "Test connection: the server connected anew (`rragent.mcp/test!`);
    its row says that the test runs, then how it went and how long it
@@ -510,7 +514,12 @@
         name (str name)
         started (js/Date.now)
         result! (fn [result]
-                  (swap! db/db assoc-in [:mcp-tests name] (assoc result :ms (- (js/Date.now) started))))]
+                  (let [now (js/Date.now)
+                        ms (- now started)]
+                    ;; "Testing …" stays long enough to be seen, so a
+                    ;; second click visibly does something
+                    (js/setTimeout #(swap! db/db assoc-in [:mcp-tests name] (assoc result :ms ms :at (js/Date.now)))
+                                   (max 0 (- min-testing-ms ms)))))]
     (if-let [r (registry)]
       (do (swap! db/db assoc-in [:mcp-tests name] {:running? true})
           (-> (js/Promise.resolve nil)
