@@ -284,3 +284,83 @@
                     (fn []
                       (is (str/includes? (failure #(codemode/evaluate handle "(composio/add-trigger \"X\" \"ca_1\")")) "No Composio user id")))))))))
         (.finally done))))
+
+(def mcp-catalog
+  "Two MCP servers as `rragent.mcp/snapshot` answers them: one with
+   tools, one that failed."
+  {:version 1
+   :servers [{:name "fake" :ns "mcp.fake" :connected true :instructions "Use echo to test."
+              :tools [{:name "echo" :description "Answers with the text it was given."
+                       :input-schema {"type" "object"
+                                      "properties" {"text" {"type" "string" "description" "The text to echo"}
+                                                    "mode" {"type" "string" "enum" ["loud" "soft"]}}
+                                      "required" ["text"]}}
+                      {:name "files.read" :description "A dotted name." :input-schema {"type" "object"}}
+                      {:name "picture" :title "A picture" :description "" :input-schema {"type" "object"}}
+                      {:name "fail" :description "Fails." :input-schema {"type" "object"}}]}
+             {:name "down" :ns "mcp.down" :tools [] :error "connection refused"}]})
+
+(defn- mcp-handle
+  "A REPL with the catalog above, its calls answered by a fake of the
+   main thread's half, which notes them in `calls`."
+  [calls]
+  (let [handle (codemode/handle "http://127.0.0.1:1")]
+    (reset! (:mcp-rpc handle)
+            (fn [{:keys [tool args] :as request}]
+              (swap! calls conj request)
+              (case tool
+                "echo" {:value (str "echo: " (:text args)) :images []}
+                "files.read" {:value {:read true} :images []}
+                "picture" {:value ["a dot" "[picture, image/png, shown to you after the program's answer]"]
+                           :images [{:data "iVBO" :mime-type "image/png"}]}
+                {:error (str "mcp.fake/" tool " failed: it broke")})))
+    (codemode/install-mcp! handle mcp-catalog)
+    (codemode/begin! handle [])
+    handle))
+
+(deftest mcp-test
+  (let [calls (atom [])
+        handle (mcp-handle calls)]
+    (testing "a tool is a function of its server's namespace, a map of arguments in, its value out"
+      (is (= "=> \"echo: hi\"" (codemode/evaluate handle "(mcp.fake/echo {:text \"hi\"})")))
+      (is (= {:server "fake" :tool "echo" :args {:text "hi"}} (last @calls))))
+    (testing "a name that is no symbol: its symbol, or mcp/call by the name itself"
+      (is (= "=> {:read true}" (codemode/evaluate handle "(mcp.fake/files-read)")))
+      (is (= {:server "fake" :tool "files.read" :args nil} (last @calls)))
+      (is (= "=> {:read true}" (codemode/evaluate handle "(mcp/call \"fake\" \"files.read\" {})")))
+      (is (= {:server "fake" :tool "files.read" :args {}} (last @calls))))
+    (testing "a failure throws with what the server said, which a program can catch"
+      (is (str/includes? (failure #(codemode/evaluate handle "(mcp.fake/fail {})")) "mcp.fake/fail failed: it broke"))
+      (is (= "=> \"mcp.fake/fail failed: it broke\"" (codemode/evaluate handle "(try (mcp.fake/fail {}) (catch :default e (ex-message e)))"))))
+    (testing "arguments that are no map are refused before the call"
+      (let [before (count @calls)]
+        (is (str/includes? (failure #(codemode/evaluate handle "(mcp.fake/echo \"hi\")")) "takes a map of arguments"))
+        (is (= before (count @calls)))))
+    (testing "the pictures of a program's calls are kept for its answer, begin! forgets them"
+      (codemode/evaluate handle "(mcp.fake/picture)")
+      (is (= [{:data "iVBO" :mime-type "image/png"}] (codemode/images handle)))
+      (codemode/begin! handle [])
+      (is (= [] (codemode/images handle))))
+    (testing "doc says the tool's arguments from its schema"
+      (let [doc (codemode/evaluate handle "(doc mcp.fake/echo)")]
+        (is (str/includes? doc "mcp.fake/echo\n([args])\n  Answers with the text it was given.\n\nThe tool echo of the MCP server fake. It takes a map:\n  :text (string, required) The text to echo\n  :mode (string, one of \"loud\" \"soft\")")))
+      (is (str/includes? (codemode/evaluate handle "(doc mcp.fake/picture)") "A picture\nThe tool picture of fake.")))
+    (testing "mcp/servers and mcp/tools say what there is"
+      (is (= "=> [{:name \"fake\", :ns \"mcp.fake\", :tools 4, :connected true, :instructions \"Use echo to test.\"} {:name \"down\", :ns \"mcp.down\", :tools 0, :error \"connection refused\"}]"
+             (codemode/evaluate handle "(mcp/servers)")))
+      (is (= "=> {:name \"files.read\", :fn mcp.fake/files-read, :description \"A dotted name.\"}"
+             (codemode/evaluate handle "(second (mcp/tools \"fake\"))")))
+      (is (str/includes? (failure #(codemode/evaluate handle "(mcp/tools \"ghost\")")) "There is no MCP server ghost")))
+    (testing "help names the servers"
+      (is (str/includes? (codemode/help-text handle) "MCP: fake as mcp.fake/<tool>, 4 tools, down (failed: connection refused)."))
+      (is (str/includes? (codemode/help-text handle) "(mcp/servers)")))
+    (testing "servers installed after the context was made are there for the next program"
+      (codemode/install-mcp! handle {:version 2 :servers [{:name "late" :ns "mcp.late" :tools [{:name "echo" :input-schema {}}]}]})
+      (is (= "=> \"echo: late\"" (codemode/evaluate handle "(mcp.late/echo {:text \"late\"})")))
+      (is (= {:server "late" :tool "echo" :args {:text "late"}} (last @calls))))))
+
+(deftest no-mcp-test
+  (let [handle (codemode/handle "http://127.0.0.1:1")]
+    (is (= "=> []" (codemode/evaluate handle "(mcp/servers)")))
+    (is (str/includes? (codemode/help-text handle) "MCP: no servers (mcp.json of the machine's folder names them)."))
+    (is (str/includes? (failure #(codemode/evaluate handle "(mcp/call \"x\" \"y\" {})")) "The MCP servers are not reachable from this REPL."))))
