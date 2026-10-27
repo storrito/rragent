@@ -694,7 +694,11 @@
                                 :effects-failed [:i18n :record/effects-failed]
                                 :green-hint [:i18n :record/green-hint]
                                 :file-webcam-green [:i18n :record/file-webcam-green]
-                                :file-webcam-black [:i18n :record/file-webcam-black]}
+                                :file-webcam-black [:i18n :record/file-webcam-black]
+                                :no-mic [:i18n :record/no-mic]
+                                :no-camera [:i18n :record/no-camera]
+                                :draft-no-mic [:i18n :record/draft-no-mic]}
+
 
                   :ui/dictate-title [:i18n :composer/dictate]
                   :ui/dictate-stop-title [:i18n :composer/dictate-stop]
