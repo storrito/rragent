@@ -18,7 +18,9 @@
             [rragent.home :as home]
             [rragent.images-test :as images-test]
             [rragent.machine :as machine]
+            [rragent.fake-oauth :as fake-oauth]
             [rragent.mcp :as mcp]
+            [rragent.mcp-oauth :as mcp-oauth]
             [rragent.secrets :as secrets]
             [rragent.mcp :as mcp]
             [rragent.secrets :as secrets]
@@ -542,6 +544,58 @@
                    (.abort controller)
                    (swap! db/db dissoc :settings-section :mcp :mcp-removing :mcp-tests :secret-names)
                    (await (stop!))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest oauth-page-test
+  (async done
+    (-> ((^:async fn []
+           (let [service (await (fake-oauth/start!))
+                 home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (.setResponses faux #js [(tools-test/answer "Connected, good.")])
+             (fs/writeFileSync (mcp/file home) (js/JSON.stringify (clj->js {:mcpServers {:linear {:url (:url service) :oauth true}}})))
+             (let [{:keys [id base stop!]} (await (start! home models))
+                   cookie (await (login base "s3cret"))
+                   get! (fn [path] (js/fetch (str base path) #js {:headers #js {:cookie cookie} :redirect "manual"}))]
+               (try
+                 (testing "behind the token like the rest of the page"
+                   (is (= 403 (.-status (await (js/fetch (str base "/mcp/oauth/start/linear") #js {:redirect "manual"})))))
+                   (is (= 403 (.-status (await (js/fetch (str base "/mcp/oauth/callback?code=x&state=y") #js {:redirect "manual"}))))))
+                 (testing "start: the browser sent to the service, which sends it back to the page's callback"
+                   (let [start (await (get! (str "/mcp/oauth/start/linear?bot=" id)))
+                         location (.get (.-headers start) "location")
+                         _ (is (= 302 (.-status start)))
+                         _ (is (str/starts-with? location (str (:base service) "/authorize")))
+                         back (js/URL. (.get (.-headers (await (js/fetch location #js {:redirect "manual"}))) "location"))]
+                     (is (= (str base "/mcp/oauth/callback") (str (.-origin back) (.-pathname back))))
+                     (testing "the callback: signed in, connected, the bot told"
+                       (let [page (await (get! (str (.-pathname back) (.-search back))))
+                             text (await (.text page))]
+                         (is (= 200 (.-status page)))
+                         (is (str/includes? text "Signed in to linear"))
+                         (is (str/includes? text "with 1 tools"))
+                         (is (mcp-oauth/signed-in? (mcp-oauth/file (machine/home)) "linear"))
+                         (let [said (await (eventually 5000 #(some (fn [entry] (when (= "pi.user" (:kind entry)) (js/JSON.stringify (clj->js (:model entry)))))
+                                                                     (:entries (page/conversation (:value (machine/bot id)))))))]
+                           (is (str/includes? (str said) "I signed in to linear"))
+                           (is (not (re-find #"at\d|rt\d" (str said))) "no token in the message"))))))
+                 (testing "a used or forged answer and the service's refusal say so on a page of their own"
+                   (let [page (await (get! "/mcp/oauth/callback?code=code-1&state=forged"))]
+                     (is (= 400 (.-status page)))
+                     (is (str/includes? (await (.text page)) "No sign-in waits for this answer")))
+                   (let [page (await (get! "/mcp/oauth/callback?error=access_denied&error_description=No%20thanks"))]
+                     (is (= 400 (.-status page)))
+                     (is (str/includes? (await (.text page)) "No thanks"))))
+                 (testing "a server that does not exist"
+                   (is (= 502 (.-status (await (get! "/mcp/oauth/start/ghost"))))))
+                 (testing "sign out from the settings"
+                   (is (= {:success? true} (await (command! base cookie :mcp/sign-out {:name "linear"}))))
+                   (is (not (mcp-oauth/signed-in? (mcp-oauth/file (machine/home)) "linear"))))
+                 (finally
+                   (await (stop!))
+                   (await ((:stop! service)))
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

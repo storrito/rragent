@@ -191,3 +191,11 @@
     (is (not (str/includes? (pr-str (genui/block "[:secret {:name \"a b\"}]")) ":ui/secret-field"))))
   (testing "it stays usable once the message is answered, to replace the secret"
     (is (str/includes? (pr-str (genui/block "[:secret {:name \"GH_TOKEN\"}]" {:answered? true})) ":ui/secret-field"))))
+
+(deftest sign-in-test
+  (testing "[:sign-in …] is the link to the page's start of the sign-in, in a tab of its own, for the bot of the block"
+    (let [link (some #(when (and (vector? %) (= :a.sign-in (first %))) %)
+                     (tree-seq coll? seq (genui/block "[:sign-in {:server \"linear\" :label \"Sign in to Linear\"}]" {:bot "7"})))]
+      (is (= [:a.sign-in {:href "/mcp/oauth/start/linear?bot=7" :target "_blank" :rel "noopener"} "Sign in to Linear"] link))))
+  (testing "a name no server could have is no link"
+    (is (not (str/includes? (pr-str (genui/block "[:sign-in {:server \"../x\"}]")) "sign-in")))))

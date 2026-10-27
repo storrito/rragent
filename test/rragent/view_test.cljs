@@ -474,6 +474,12 @@
           "the time of the test, in the browser's time zone")
       (is (str/includes? (text {:ok? true :tools 2 :ms 7}) "Test passed: reconnected, 2 tools, answered in 7 ms."))
       (is (str/includes? (text {:ok? false :error "MCP server requires authentication" :ms 9}) "Test failed after 9 ms: MCP server requires authentication"))))
+  (testing "an OAuth server: Sign in while it waits for one, Sign out once connected"
+    (let [waiting (view/mcp-section {:servers [{:name "linear" :tools 0 :oauth true :sign-in true}]})
+          connected (view/mcp-section {:servers [{:name "linear" :tools 3 :oauth true :connected true}]})]
+      (is (some #(and (vector? %) (= :a.link.sign-in (first %)) (= "/mcp/oauth/start/linear" (:href (second %)))) (tree-seq coll? seq waiting)))
+      (is (some #(= [:i18n :mcp/needs-sign-in] %) (tree-seq coll? seq waiting)))
+      (is (some #(= [:i18n :mcp/sign-out] %) (tree-seq coll? seq connected)))))
   (testing "a remove asks in the row first"
     (let [section (view/mcp-section {:servers [{:name "github" :tools 1 :connected true}] :removing "github"})]
       (is (some #(= [:i18n :mcp/remove-confirm {:name "github"}] %) (tree-seq coll? seq section)))))

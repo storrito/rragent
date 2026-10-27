@@ -37,6 +37,7 @@
             [rragent.home :as home]
             [rragent.images :as images]
             [rragent.mcp :as mcp]
+            [rragent.mcp-oauth :as mcp-oauth]
             [rragent.model-requests :as model-requests]
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
@@ -96,10 +97,11 @@
 (defn redaction
   "The extension that keeps the machine's secrets from the model: after
    every tool call, a secret's value in its result (`secrets.json` of
-   `home`, the environment's tokens and keys, `rragent.secrets`) is
+   `home`, the environment's tokens and keys, the MCP servers' OAuth
+   tokens, `rragent.secrets`) is
    replaced by its name before the result is committed."
   [home]
-  (let [source (secrets/source (secrets/file home))]
+  (let [source (secrets/source (secrets/file home) nil #(mcp-oauth/token-values (mcp-oauth/file home)))]
     (defineExtension #js {:name "rragent-redaction"
                           :hooks #js [(hook ToolTask #js {:afterTool (fn [_call result _api _context]
                                                                         (or (redact-result (secrets/current source) result)

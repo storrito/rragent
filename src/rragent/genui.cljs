@@ -30,7 +30,10 @@
    is a password field for a secret of the machine (`rragent.secrets`):
    what the person types there is saved by the page, never sent as a
    message, so the model never sees it; the bot learns that it was
-   saved. It stays usable once answered, to replace the secret."
+   saved. It stays usable once answered, to replace the secret.
+   `[:sign-in {:server \"github\"}]` is the link that signs the person in
+   at an OAuth server's service, in a tab of its own; the bot is told
+   when they are back."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]))
 
@@ -214,6 +217,20 @@
                                  :ui/note [:i18n :secret/note]}
                           bot (assoc :ui/bot bot))])))
 
+(defn- sign-in-link
+  "The sign-in of `[:sign-in {:server :label}]`: a link to the page's
+   start of the OAuth sign-in at the server's service, in a tab of its
+   own, the bot of the block told when it is done; nil for a name no
+   server could have."
+  [m bot]
+  (let [server-name (:server m)
+        label (:label m)]
+    (when (and (string? server-name) (re-matches #"[A-Za-z0-9_-]+" server-name))
+      [:a.sign-in {:href (str "/mcp/oauth/start/" server-name (when bot (str "?bot=" (js/encodeURIComponent (str bot)))))
+                   :target "_blank"
+                   :rel "noopener"}
+       (if (string? label) label [:i18n :mcp/sign-in-to {:name server-name}])])))
+
 (defn- send-checked?
   "A button whose `:send` waits for the values ticked in its block."
   [base m]
@@ -257,6 +274,9 @@
          (cond
            (and (nil? (namespace tag)) (= :secret base) (not in-label?))
            (secret-field m (:bot opts))
+
+           (and (nil? (namespace tag)) (= :sign-in base) (not in-label?))
+           (sign-in-link m (:bot opts))
 
            (and allowed? (= :input base) (not (input-types (:type m))))
            nil

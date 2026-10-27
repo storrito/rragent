@@ -12,6 +12,8 @@
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.fake-mcp :as fake-mcp]
+            [rragent.fake-oauth :as fake-oauth]
+            [rragent.mcp-oauth :as mcp-oauth]
             [rragent.mcp :as mcp]
             [rragent.secrets :as secrets]
             [rragent.test-home :as test-home]
@@ -467,3 +469,92 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
                (is (thrown? js/Error (await (mcp/add! registry "y" {:url "https://y.example/mcp"}))))
                (is (= "{broken" (fs/readFileSync file "utf8"))))
              registry)))))
+
+(defn- ^:async approve!
+  "What the person's browser does at the service: the sign-in page
+   opened, the answer's code and state read off the redirect back."
+  [url]
+  (let [response (await (js/fetch url #js {:redirect "manual"}))
+        back (js/URL. (.get (.-headers response) "location"))]
+    {:callback (str (.-origin back) (.-pathname back))
+     :code (.get (.-searchParams back) "code")
+     :state (.get (.-searchParams back) "state")}))
+
+(deftest oauth-test
+  (async done
+    (-> ((^:async fn []
+           (let [service (await (fake-oauth/start!))
+                 home (test-home/make)
+                 _ (write-servers! home {:linear {:url (:url service) :oauth true}})
+                 registry (mcp/registry {:file (mcp/file home) :home home})
+                 file (mcp-oauth/file home)]
+             (try
+               (testing "a server that signs in with OAuth waits for the sign-in, and is not tried again by itself"
+                 (let [[server] (:servers (await (mcp/catalog registry)))]
+                   (is (:oauth server))
+                   (is (:sign-in server))
+                   (is (str/includes? (:error server) "needs a sign-in")))
+                 (let [calls (count @(:calls service))]
+                   (await (mcp/catalog registry))
+                   (is (= calls (count @(:calls service))))))
+               (testing "the sign-in: registered with the page's callback, PKCE, a state of its own"
+                 (let [{:keys [url]} (await (mcp/sign-in! registry "linear" "https://agent.example"))
+                       params (.-searchParams (js/URL. url))]
+                   (is (str/starts-with? url (str (:base service) "/authorize")))
+                   (is (= "https://agent.example/mcp/oauth/callback" (.get params "redirect_uri")))
+                   (is (= "S256" (.get params "code_challenge_method")))
+                   (is (seq (.get params "state")))
+                   (is (= 0600 (bit-and 0777 (.-mode (fs/statSync file)))))))
+               (testing "a second start has a state of its own"
+                 (let [first-state (get (mcp-oauth/state-of file "linear") "oauthState")
+                       {:keys [url]} (await (mcp/sign-in! registry "linear" "https://agent.example"))]
+                   (is (not= first-state (.get (.-searchParams (js/URL. url)) "state")))))
+               (testing "the service's answer: tokens kept, the server connected, a call takes the token"
+                 (let [{:keys [url]} (await (mcp/sign-in! registry "linear" "https://agent.example"))
+                       {:keys [callback code state]} (await (approve! url))
+                       _ (is (= "https://agent.example/mcp/oauth/callback" callback))
+                       {:keys [server status]} (await (mcp/signed-in! registry state code))]
+                   (is (= "linear" server))
+                   (is (:connected status))
+                   (is (= ["whoami"] (:tools status)))
+                   (is (mcp-oauth/signed-in? file "linear"))
+                   (is (nil? (get (mcp-oauth/state-of file "linear") "oauthState")) "the state is used up")
+                   (is (str/starts-with? (:value (await (mcp/call! registry "linear" "whoami" {}))) "you are at"))
+                   (is (= #{"linear access token" "linear refresh token"} (set (keys (mcp-oauth/token-values file)))))))
+               (testing "an answer for no sign-in is refused"
+                 (is (thrown? js/Error (await (mcp/signed-in! registry "forged" "code-1")))))
+               (testing "an access token that expired is refreshed, the call goes through"
+                 (let [before (get-in (mcp-oauth/state-of file "linear") ["tokens" "access_token"])]
+                   (swap! (:tokens service) disj before)
+                   (mcp/close! registry)
+                   (is (str/starts-with? (:value (await (mcp/call! registry "linear" "whoami" {}))) "you are at"))
+                   (is (not= before (get-in (mcp-oauth/state-of file "linear") ["tokens" "access_token"])))))
+               (testing "sign out: tokens forgotten, the server waits for a sign-in again"
+                 (let [status (mcp/sign-out! registry "linear")]
+                   (is (:sign-in status))
+                   (is (not (:connected status)))
+                   (is (not (mcp-oauth/signed-in? file "linear")))))
+               (testing "a server without OAuth has no sign-in"
+                 (write-servers! home {:linear {:url (:url service) :oauth true} :plain {:url "https://plain.example/mcp"}})
+                 (is (thrown? js/Error (await (mcp/sign-in! registry "plain" "https://agent.example")))))
+               (testing "remove forgets the sign-in"
+                 (mcp-oauth/update-state! file "linear" (constantly {"serverUrl" (:url service)}))
+                 (mcp/remove! registry "linear")
+                 (is (nil? (mcp-oauth/state-of file "linear"))))
+               (finally
+                 (await (mcp/close! registry))
+                 (await ((:stop! service)))
+                 (test-home/remove! home)))))
+         )
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest oauth-entry-test
+  (is (= {:entry {"url" "https://mcp.linear.app/mcp" "oauth" true}} (mcp/entry-of {:url "https://mcp.linear.app/mcp" :oauth true})))
+  (is (= {:entry {"url" "https://a.b/mcp" "oauth" {"clientId" "c1" "clientSecret" "${A_SECRET}" "scope" "read"}}}
+         (mcp/entry-of {:url "https://a.b/mcp" :oauth {:client-id "c1" :client-secret "${A_SECRET}" :scope "read"}})))
+  (is (str/includes? (:error (mcp/entry-of {:url "https://a.b/mcp" :oauth {:client-secret "s3cret"}})) "${NAME}"))
+  (is (str/includes? (:error (mcp/entry-of {:command "x" :oauth true})) ":url"))
+  (is (str/includes? (:error (mcp/entry-of {:url "https://a.b/mcp" :oauth true :token "T"})) "not both"))
+  (is (= {:client-id "c1" :client-secret "v"} (:oauth (mcp/transport-spec {"url" "https://a.b/mcp" "oauth" {"clientId" "c1" "clientSecret" "${S}"}} "/h" {"S" "v"}))))
+  (is (str/includes? (:error (mcp/transport-spec {"command" "x" "oauth" true} "/h")) "not for a program")))

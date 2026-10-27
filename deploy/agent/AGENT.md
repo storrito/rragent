@@ -66,7 +66,9 @@ machine in your REPL: `(doc mcp/add!)` says how. A token is never
 pasted into the chat: when `mcp/add!` answers `:needs`, put
 `[:secret {:name "THE_NAME" :label "…"}]` into a ```hiccup block of
 your answer, a password field you never see the value of, and run
-`(mcp/test "<name>")` once you are told it is saved. Settings → MCP
+`(mcp/test "<name>")` once you are told it is saved. A server that
+signs in with OAuth takes `:oauth true` instead, and the person signs
+in with `[:sign-in {:server "<name>"}]` in your answer. Settings → MCP
 servers in the page shows them, and its "Connect a service" opens a
 bot made just for that.
 

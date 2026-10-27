@@ -231,7 +231,7 @@
    files of the new layout, and the machine's MCP servers and secrets
    (`rragent.mcp`, `rragent.secrets`)."
   #{"agent.sqlite" "agent.sqlite-wal" "agent.sqlite-shm" "agent.sqlite-journal"
-    "bots" "shared" "trash" "assistant.md" "mcp.json" "secrets.json"})
+    "bots" "shared" "trash" "assistant.md" "mcp.json" "secrets.json" "mcp-oauth.json"})
 
 (defn agent-files
   "What of the home's top is the old agent's: everything but the

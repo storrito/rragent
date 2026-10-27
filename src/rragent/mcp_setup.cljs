@@ -47,6 +47,25 @@ language.
    a message tells you it was saved. If they paste a token into the
    chat anyway, ask them to use the field, and never repeat or use
    the pasted text.
+
+   A server that signs in with OAuth (the docs speak of OAuth or of
+   signing in with the service's account, and offer no token to copy;
+   most hosted servers, Notion, Linear, Atlassian, Sentry) is added
+   with `:oauth true` instead of a token:
+
+       (mcp/add! \"linear\" {:url \"https://mcp.linear.app/mcp\" :oauth true})
+
+   The answer has `:sign-in true`: put the sign-in link into your
+   answer and ask them to sign in in the tab it opens:
+
+   ```hiccup
+   [:sign-in {:server \"linear\" :label \"Sign in to Linear\"}]
+   ```
+
+   A message tells you when they are back, and whether the server is
+   connected. When a service wants a client registered by hand, the
+   docs give a client id and secret: the secret goes into a field like
+   a token, then `:oauth {:client-id \"…\" :client-secret \"${NAME}\"}`.
 5. Then `(mcp/test \"github\")`. Connected: tell the person in a
    sentence or two what they can do now, from `(mcp/tools \"github\")`,
    the main things, not every tool. An `:error`: say plainly what went
@@ -55,8 +74,7 @@ language.
 6. Say that every bot of the machine has the service now, and that
    the MCP settings show it.
 
-A server that only signs in with OAuth (a browser login, no token to
-copy) cannot be connected yet: say so plainly. `(mcp/servers)` lists
+`(mcp/servers)` lists
 what is connected; `(mcp/enable! \"x\" false)` switches one off,
 `(mcp/remove! \"x\")` removes it: only when the person asks. Do not read
 `secrets.json` or the environment; a token in a tool's output shows as

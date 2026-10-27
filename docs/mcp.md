@@ -43,6 +43,50 @@ that echoes its token shows the model nothing. That stops accidents,
 not a bot set on it: the bots' bash runs as the same user and could
 still encode a value.
 
+## Signing in with OAuth
+
+Most hosted MCP servers (Linear, Notion, Atlassian, Sentry …) have no
+token to copy: the person signs in with their account at the service.
+Such an entry says `"oauth": true`:
+
+```json
+{ "mcpServers": { "linear": { "url": "https://mcp.linear.app/mcp", "oauth": true } } }
+```
+
+(`(mcp/add! "linear" {:url "https://mcp.linear.app/mcp" :oauth true})`
+from the REPL.) Until the person signed in, the server waits for it
+(`:sign-in true`, "Waiting for a sign-in" in the settings) and is not
+tried by itself. The sign-in:
+
+1. The person clicks **Sign in …** in the MCP settings, or the link a
+   bot puts in its answer, `[:sign-in {:server "linear"}]` in a
+   ```` ```hiccup ```` block. Both open `/mcp/oauth/start/<server>` of
+   the page in a new tab.
+2. rragent discovers the service's authorization server, registers
+   itself there the first time (dynamic client registration) and sends
+   the browser to the service's sign-in page, with PKCE and a state of
+   its own (`rragent.mcp/sign-in!`, pi-mcp's `authorizeMcp`).
+3. The service sends the browser back to `/mcp/oauth/callback` of the
+   page: the code is exchanged for tokens, the server connected, and
+   the bot whose link it was is told "I signed in to linear"; the tab
+   says how it went.
+
+Both routes are behind the page's token: the redirect back from the
+service carries the cookie (`SameSite=Lax`). The service sends the
+browser back to `RRAGENT_URL`, else to the address the sign-in was
+started at. The tokens, the client registration and the state of a
+sign-in under way are kept per server in `mcp-oauth.json` of the
+machine's folder (mode 600); an access token that expires is refreshed
+by itself, a service that refuses the refresh makes the server wait for
+a sign-in again. **Sign out** in the settings forgets the server's
+tokens, Remove forgets them with the server. The access and refresh
+tokens are redacted from tool results like the secrets.
+
+A service that does not register clients by itself gives a client id
+and secret in its docs: `"oauth": {"clientId": "…", "clientSecret":
+"${LINEAR_CLIENT_SECRET}", "scope": "read"}`, the secret saved like a
+token (`:oauth {:client-id … :client-secret "${NAME}"}` in `mcp/add!`).
+
 ## Configuring
 
 The servers are named in `mcp.json` in the machine's folder
@@ -79,6 +123,7 @@ pchat and most MCP clients read. Every bot of the machine has them.
 | `env` | More environment for the program; it has the agent's environment besides. |
 | `cwd` | The program's working directory, relative to the machine's folder; the machine's folder without. |
 | `enabled` | `false` keeps the entry without connecting it. |
+| `oauth` | `true` when the person signs in at the service (OAuth), or `{clientId, clientSecret, scope}`; see above. |
 | `timeoutMs` | How long one request may take, 60000 without; every progress the server reports starts it over. |
 
 A name has letters, digits, `-` and `_`. `${NAME}` in `url`, `headers`,
@@ -92,8 +137,7 @@ needs no token at all: its gateway URL as `url`
 (`http://sprite.internal/v1/gateway/<provider>/<connection id>/mcp`),
 no `headers`, and the gateway adds the credential, as for `call`.
 
-OAuth is not wired up: pi-mcp has it (`@earendil-works/pi-mcp/oauth`),
-rragent passes static headers only.
+A server can also sign in with OAuth, `"oauth": true` (see above).
 
 The file and `secrets.json` are read again before every program when
 one changed: a new server is there for the next program, one whose
@@ -166,8 +210,10 @@ the calls it waited for are aborted, and pi-mcp tells the server
 
 ## Tests
 
-`test/rragent/mcp_test.cljs` (with the secrets, the redaction and
-`add!`/`test!`/`enable!`/`remove!`), `tools_test.cljs`'s redaction of a
+`test/rragent/mcp_test.cljs` (with the secrets, the redaction,
+`add!`/`test!`/`enable!`/`remove!` and the OAuth sign-in, refresh and
+sign-out against a fake service with a real authorization server,
+`test/rragent/fake_oauth.cljs`), `tools_test.cljs`'s redaction of a
 real bash call, `page_test.cljs`'s MCP settings and secret field, and
 the MCP tests of
 `codemode_test.cljs` and `codemode_worker_test.cljs` run against a fake

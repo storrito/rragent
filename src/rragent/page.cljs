@@ -60,6 +60,7 @@
             [rragent.lifecycle :as lifecycle]
             [rragent.machine :as machine]
             [rragent.mcp :as mcp]
+            [rragent.mcp-oauth :as mcp-oauth]
             [rragent.mcp-setup :as mcp-setup]
             [rragent.onboarding :as onboarding]
             [rragent.openrouter :as openrouter]
@@ -619,6 +620,102 @@
                 (await (harness/submit conversation #js {:type "input" :content (saved-message name)})))
               (command/accepted w)))))))
 
+(defn- mcp-sign-out-command
+  "Sign out of an OAuth server: its tokens forgotten, its connection
+   closed (`rragent.mcp/sign-out!`)."
+  [w]
+  (let [{:keys [name]} (command/command-data w)]
+    (if-let [r (registry)]
+      (try
+        (mcp/sign-out! r (str name))
+        (swap! db/db update :mcp-tests dissoc (str name))
+        (command/accepted w)
+        (catch :default e
+          (js/console.error "[mcp] sign out" name (ex-message e))
+          (command/rejected w :not-signed-out)))
+      (command/rejected w :no-mcp))))
+
+(defn- html-escape
+  [s]
+  (-> (str s)
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")
+      (str/replace "\"" "&quot;")))
+
+(defn- small-page
+  "A page of its own for the end of a sign-in, in the tab the service
+   came back to: a title, a line, the way back to the bots."
+  [w status title line]
+  (assoc w :ring/response
+         {:status status
+          :headers {"Content-Type" "text/html; charset=utf-8"
+                    "Cache-Control" "no-store"}
+          :body (str "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
+                     "<title>" (html-escape title) "</title>"
+                     "<style>body{font:16px/1.5 system-ui,sans-serif;max-width:36rem;margin:15vh auto;padding:0 1.5rem;color:#1f2328;background:#faf9f7}"
+                     "@media (prefers-color-scheme:dark){body{color:#e8eaed;background:#111315}a{color:#8ab4f8}}</style></head><body>"
+                     "<h1>" (html-escape title) "</h1><p>" (html-escape line) "</p>"
+                     "<p><a href=\"/\">Back to the bots</a></p></body></html>")}))
+
+(defn- page-base
+  "The page's address: RRAGENT_URL, else the one the request came to."
+  [request]
+  (or (not-empty (str/replace (str (aget (.-env js/process) "RRAGENT_URL")) #"/+$" ""))
+      (phone/origin request)))
+
+(def sign-in-bots
+  "The bot that asked for a sign-in, by the server it is for: told once
+   the person is back."
+  (atom {}))
+
+(defn- ^:async oauth-start-handler
+  "GET /mcp/oauth/start/<server>?bot=<id>: a sign-in at the server's
+   service started (`rragent.mcp/sign-in!`), the browser sent there;
+   the bot of `bot` is told when it is done."
+  [w]
+  (let [request (:ring/request w)
+        server-name (js/decodeURIComponent (str (get-in w [:ring/route-params :*])))
+        bot (get (auth/query-params request) "bot")]
+    (try
+      (let [r (or (registry) (throw (js/Error. "There are no MCP servers here.")))
+            {:keys [url]} (await (mcp/sign-in! r server-name (page-base request)))]
+        (if (and bot (machine/bot bot))
+          (swap! sign-in-bots assoc server-name bot)
+          (swap! sign-in-bots dissoc server-name))
+        (assoc w :ring/response {:status 302
+                                 :headers {"Location" url "Cache-Control" "no-store"}
+                                 :body ""}))
+      (catch :default e
+        (js/console.error "[mcp] sign-in" server-name (ex-message e))
+        (small-page w 502 (str "No sign-in for " server-name) (ex-message e))))))
+
+(defn- ^:async oauth-callback-handler
+  "GET /mcp/oauth/callback?code&state: the service's answer, the code
+   exchanged for tokens (`rragent.mcp/signed-in!`), the server
+   connected, the bot that asked told; a page that says how it went."
+  [w]
+  (let [{:strs [code state iss error error_description]} (auth/query-params (:ring/request w))]
+    (if (seq error)
+      (small-page w 400 "The sign-in did not work" (str "The service said: " (or (not-empty error_description) error)))
+      (try
+        (let [r (or (registry) (throw (js/Error. "There are no MCP servers here.")))
+              {:keys [server status]} (await (mcp/signed-in! r state code iss))
+              bot (get @sign-in-bots server)
+              line (if (:connected status)
+                     (str "rragent is connected to " server " now, with " (count (:tools status)) " tools. You can close this tab.")
+                     (str "Signed in, but the connection failed: " (:error status)))]
+          (swap! sign-in-bots dissoc server)
+          (when-let [{:keys [conversation]} (some-> bot machine/bot)]
+            (await (harness/submit conversation #js {:type "input"
+                                                     :content (str "I signed in to " server " at the service. (A message of the page: "
+                                                                   (if (:connected status) "the server is connected now" (str "the connection failed: " (:error status)))
+                                                                   ".)")})))
+          (small-page w 200 (str "Signed in to " server) line))
+        (catch :default e
+          (js/console.error "[mcp] sign-in callback" (ex-message e))
+          (small-page w 400 "The sign-in did not work" (ex-message e)))))))
+
 (defn- secret-remove-command
   [w]
   (let [{:keys [name]} (command/command-data w)]
@@ -946,6 +1043,12 @@
       :command/fn #'mcp-keep-command}
      {:command/kind :mcp/setup
       :command/fn #'mcp-setup-command}
+     {:ring/route [:get (str mcp-oauth/start-prefix "/*")]
+      :ring/handler #'oauth-start-handler}
+     {:ring/route [:get mcp-oauth/callback-path]
+      :ring/handler #'oauth-callback-handler}
+     {:command/kind :mcp/sign-out
+      :command/fn #'mcp-sign-out-command}
      {:command/kind :secret/save
       :command/fn #'secret-save-command}
      {:command/kind :secret/remove

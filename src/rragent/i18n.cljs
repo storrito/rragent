@@ -219,6 +219,10 @@
    :mcp/failed [:fn/str "Failed: {{:error}}"]
    :mcp/idle "Not connected yet"
    :mcp/test "Test connection"
+   :mcp/needs-sign-in "Waiting for a sign-in"
+   :mcp/sign-in "Sign in …"
+   :mcp/sign-in-to [:fn/str "Sign in to {{:name}} …"]
+   :mcp/sign-out "Sign out"
    :mcp/testing "Testing …"
    :mcp/test-ok [:fn/str "Test passed: reconnected, {{:count}} tools, answered in {{:ms}} ms."]
    :mcp/test-failed [:fn/str "Test failed after {{:ms}} ms: {{:error}}"]
@@ -466,6 +470,10 @@
    :mcp/failed [:fn/str "Fehlgeschlagen: {{:error}}"]
    :mcp/idle "Noch nicht verbunden"
    :mcp/test "Verbindung testen"
+   :mcp/needs-sign-in "Wartet auf eine Anmeldung"
+   :mcp/sign-in "Anmelden …"
+   :mcp/sign-in-to [:fn/str "Bei {{:name}} anmelden …"]
+   :mcp/sign-out "Abmelden"
    :mcp/testing "Teste …"
    :mcp/test-ok [:fn/str "Test bestanden: neu verbunden, {{:count}} Werkzeuge, Antwort in {{:ms}} ms."]
    :mcp/test-failed [:fn/str "Test fehlgeschlagen nach {{:ms}} ms: {{:error}}"]
