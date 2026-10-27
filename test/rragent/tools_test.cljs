@@ -6,6 +6,7 @@
             [clojure.test :refer [async deftest is testing]]
             [rragent.fake-gateway :as fake-gateway]
             [rragent.harness :as harness]
+            [rragent.secrets :as secrets]
             [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
             [rragent.tools.eval :as eval-tool]
@@ -138,5 +139,34 @@
                    (test-home/remove! home)
                    (stop)
                    (sync-fetch/stop!)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest redaction-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (faux-models)
+                 file (secrets/file home)]
+             (secrets/save! file "STORRITO_TOKEN" "sk_live_0123456789")
+             (.setResponses faux #js [(tool-call "bash" {:command (str "cat " file "; echo; echo plain")} "b1")
+                                      (tool-call "bash" {:command "echo sk_live_0123456789 >&2; exit 3"} "b2")
+                                      (answer "Done.")])
+             (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
+               (try
+                 (is (= "Done." (await (harness/ask agent "Show me the secrets."))))
+                 (let [results (await (tool-results agent))
+                       read (result-text (get results "b1"))
+                       failed (result-text (get results "b2"))]
+                   (testing "a secret's value in a tool's output reaches the model as its name"
+                     (is (str/includes? read "\"STORRITO_TOKEN\": \"«STORRITO_TOKEN»\""))
+                     (is (str/includes? read "plain"))
+                     (is (not (str/includes? read "sk_live_0123456789"))))
+                   (testing "a failing call's output too"
+                     (is (str/includes? failed "«STORRITO_TOKEN»"))
+                     (is (not (str/includes? failed "sk_live_0123456789")))))
+                 (finally
+                   (await (harness/close agent))
+                   (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

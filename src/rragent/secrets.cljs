@@ -94,9 +94,13 @@
 (defn env-secrets
   "`{name value}` of the environment variables named like secrets."
   [env]
+  ;; process.env is no plain object, js->clj leaves it as it is
   (into {}
-        (filter (fn [[k v]] (and (re-find secret-env-pattern k) (string? v))))
-        (js->clj env)))
+        (keep (fn [k]
+                (let [v (aget env k)]
+                  (when (and (re-find secret-env-pattern k) (string? v))
+                    [k v]))))
+        (js/Object.keys env)))
 
 (defn redactions
   "`[[value name] …]` of `secrets`, a value at least `min-length` long,
