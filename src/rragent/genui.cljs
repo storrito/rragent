@@ -24,7 +24,13 @@
    choices are made: its buttons that send and its inputs are disabled,
    a button that opens an artifact still does. A block that does not
    read is shown as code with what went wrong. The contract the skills write against is pchat's
-   (`pchat.genui`) with the inputs added."
+   (`pchat.genui`) with the inputs added.
+
+   `[:secret {:name \"STORRITO_TOKEN\" :label \"Storrito API token\"}]`
+   is a password field for a secret of the machine (`rragent.secrets`):
+   what the person types there is saved by the page, never sent as a
+   message, so the model never sees it; the bot learns that it was
+   saved. It stays usable once answered, to replace the secret."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]))
 
@@ -193,6 +199,21 @@
           {}
           m))
 
+(defn- secret-field
+  "The password field of `[:secret {:name :label}]`: the client's alias
+   `:ui/secret-field`, which saves what is typed (`:secret/save`) for
+   the `bot` of the block; nil for a name `${NAME}` could not name."
+  [m bot]
+  (let [secret-name (:name m)
+        label (:label m)]
+    (when (and (string? secret-name) (re-matches #"[A-Za-z_][A-Za-z0-9_]*" secret-name))
+      [:ui/secret-field (cond-> {:ui/name secret-name
+                                 :ui/label (if (string? label) label secret-name)
+                                 :ui/button [:i18n :secret/save]
+                                 :ui/placeholder [:i18n :secret/placeholder]
+                                 :ui/note [:i18n :secret/note]}
+                          bot (assoc :ui/bot bot))])))
+
 (defn- send-checked?
   "A button whose `:send` waits for the values ticked in its block."
   [base m]
@@ -234,6 +255,9 @@
              allowed? (and allowed? (not (and in-label? (= :button base))))
              children (map #(sanitize % (cond-> deeper (= :label base) (assoc :in-label? true))) body)]
          (cond
+           (and (nil? (namespace tag)) (= :secret base) (not in-label?))
+           (secret-field m (:bot opts))
+
            (and allowed? (= :input base) (not (input-types (:type m))))
            nil
 

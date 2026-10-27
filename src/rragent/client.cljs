@@ -664,6 +664,36 @@
                                                                               :command/data {:bot bot :text text}}]])))}))]
         children))
 
+(defn secret-field
+  "The password field a bot asks for a secret with (`[:secret …]` of a
+   ```hiccup block, `rragent.genui`; the MCP settings have one per
+   secret a server needs): what is typed goes to the server as
+   `:secret/save` with the secret's name and the bot (`:ui/bot`, none
+   in the settings), never as a message; the field is emptied then.
+   The input has no value of the frame's, so a frame keeps what is
+   being typed."
+  [{:keys [ui/name ui/label ui/bot ui/button ui/placeholder ui/note]} _]
+  [:form.secret-field
+   {:autocomplete "off"
+    :on {:submit (fn [^js event]
+                   (.preventDefault event)
+                   (let [input (.querySelector (.-currentTarget event) "input")
+                         value (.-value input)]
+                     (when-not (str/blank? value)
+                       (state/dispatch! [[:data/command {:command/kind :secret/save
+                                                         :command/data (cond-> {:name name :value value}
+                                                                         bot (assoc :bot bot))}]])
+                       (set! (.-value input) ""))))}}
+   [:label
+    [:span.label label]
+    [:input {:type "password"
+             :autocomplete "off"
+             :spellcheck false
+             :placeholder placeholder}]]
+   [:button {:type "submit"} button]
+   (when note
+     [:small.note note])])
+
 (defn bot-id-of
   "The bot id of a page path, `/bot/<id>`; nil for any other path."
   [path]
@@ -997,6 +1027,8 @@
     :ui.alias/fn canvas}
    {:ui.alias/kind :ui/send-checked
     :ui.alias/fn send-checked}
+   {:ui.alias/kind :ui/secret-field
+    :ui.alias/fn secret-field}
    {:ui.alias/kind :ui/theme-toggle
     :ui.alias/fn theme-toggle}
    {:ui.alias/kind :ui/url
