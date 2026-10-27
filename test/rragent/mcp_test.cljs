@@ -4,8 +4,10 @@
    call's value for text, JSON, structured content, pictures and a
    failure, progress, cancellation and the timeout, a session the
    server forgot, a connection that closed, tools that changed, and
-   a file that changed."
+   a file that changed; and pi-mcp's own transports: a program over
+   stdio, a server over HTTP with a token from the environment."
   (:require ["node:fs" :as fs]
+            ["node:http" :as http]
             ["node:path" :as path]
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
@@ -211,3 +213,105 @@
              (is (= {:version 1 :servers []} (await (mcp/catalog registry))))
              (is (nil? (mcp/report registry)))
              registry)))))
+
+(def stdio-server
+  "An MCP server as a program, JSON lines on stdin and stdout: one
+   tool `whoami` that answers its pid, the variable FAKE_TOKEN and its
+   working directory as JSON."
+  "import readline from 'node:readline';
+const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n');
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.method === 'initialize') send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'stdio-fake', version: '1' } } });
+  else if (m.method === 'tools/list') send({ jsonrpc: '2.0', id: m.id, result: { tools: [{ name: 'whoami', inputSchema: { type: 'object' } }] } });
+  else if (m.method === 'tools/call') send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: JSON.stringify({ pid: process.pid, token: process.env.FAKE_TOKEN, cwd: process.cwd() }) }] } });
+  else if (m.id !== undefined) send({ jsonrpc: '2.0', id: m.id, result: {} });
+});
+")
+
+(defn- alive?
+  [pid]
+  (try (js/process.kill pid 0) true (catch :default _ false)))
+
+(deftest stdio-test
+  (async done
+    (run done
+         (^:async fn []
+           (let [home (test-home/make)
+                 _ (fs/writeFileSync (path/join home "server.mjs") stdio-server)
+                 _ (aset (.-env js/process) "RRAGENT_TEST_STDIO" "s3cret")
+                 _ (write-servers! home {:local {:command "node" :args ["server.mjs"] :env {:FAKE_TOKEN "${RRAGENT_TEST_STDIO}"}}})
+                 registry (mcp/registry {:file (mcp/file home) :home home})]
+             (try
+               (is (= ["whoami"] (mapv :name (:tools (first (:servers (await (mcp/catalog registry))))))))
+               (let [{:keys [pid token cwd]} (:value (await (mcp/call! registry "local" "whoami" {})))]
+                 (is (= "s3cret" token) "${NAME} filled in from the environment")
+                 (is (= (fs/realpathSync home) (fs/realpathSync cwd)) "the program runs in the machine's folder")
+                 (is (alive? pid))
+                 (await (mcp/close! registry))
+                 (await (sleep 100))
+                 (is (not (alive? pid)) "closed, the program is gone"))
+               (finally
+                 (js-delete (.-env js/process) "RRAGENT_TEST_STDIO")
+                 (test-home/remove! home)))
+             nil)))))
+
+(defn- ^:async http-server
+  "An MCP server over Streamable HTTP that takes only `Bearer <token>`:
+   `{:url :seen :close}`, `seen` an atom of the Authorization headers."
+  [token]
+  (let [seen (atom [])
+        server (http/createServer
+                (fn [req res]
+                  (swap! seen conj (.. req -headers -authorization))
+                  (let [chunks #js []]
+                    (.on req "data" #(.push chunks %))
+                    (.on req "end"
+                         (fn []
+                           (cond
+                             (not= (str "Bearer " token) (.. req -headers -authorization))
+                             (do (.writeHead res 401) (.end res "no"))
+                             (not= "POST" (.-method req))
+                             (do (.writeHead res 405) (.end res))
+                             :else
+                             (let [m (js->clj (js/JSON.parse (.toString (js/Buffer.concat chunks))) :keywordize-keys true)
+                                   result (case (:method m)
+                                            "initialize" {:protocolVersion (get-in m [:params :protocolVersion])
+                                                          :capabilities {:tools {}}
+                                                          :serverInfo {:name "http-fake" :version "1"}}
+                                            "tools/list" {:tools [{:name "add" :inputSchema {:type "object"}}]}
+                                            "tools/call" {:content [{:type "text" :text (str (+ (get-in m [:params :arguments :a])
+                                                                                                 (get-in m [:params :arguments :b])))}]}
+                                            {})]
+                               (if (nil? (:id m))
+                                 (do (.writeHead res 202) (.end res))
+                                 (do (.writeHead res 200 #js {"Content-Type" "application/json" "Mcp-Session-Id" "s1"})
+                                     (.end res (js/JSON.stringify (clj->js {:jsonrpc "2.0" :id (:id m) :result result}))))))))))))]
+    (await (js/Promise. (fn [resolve] (.listen server 0 "127.0.0.1" resolve))))
+    {:url (str "http://127.0.0.1:" (.-port (.address server)) "/mcp")
+     :seen seen
+     :close (fn [] (.closeAllConnections server) (.close server))}))
+
+(deftest http-test
+  (async done
+    (run done
+         (^:async fn []
+           (let [{:keys [url seen close]} (await (http-server "t0k"))
+                 home (test-home/make)
+                 _ (aset (.-env js/process) "RRAGENT_TEST_HTTP" "t0k")
+                 _ (write-servers! home {:remote {:url url :headers {:Authorization "Bearer ${RRAGENT_TEST_HTTP}"}}
+                                         :wrong {:url url :headers {:Authorization "Bearer nope"}}})
+                 registry (mcp/registry {:file (mcp/file home) :home home})]
+             (try
+               (let [{:keys [servers]} (await (mcp/catalog registry))
+                     by-name (into {} (map (juxt :name identity)) servers)]
+                 (is (= ["add"] (mapv :name (:tools (by-name "remote")))))
+                 (is (str/includes? (:error (by-name "wrong")) "requires authentication")))
+               (is (= {:value "5" :images []} (await (mcp/call! registry "remote" "add" {:a 2 :b 3}))) "a text that is no JSON object or array stays text")
+               (is (some #{"Bearer t0k"} @seen))
+               (finally
+                 (await (mcp/close! registry))
+                 (close)
+                 (js-delete (.-env js/process) "RRAGENT_TEST_HTTP")
+                 (test-home/remove! home)))
+             nil)))))
