@@ -42,6 +42,7 @@
             ["node:path" :as path]
             [clojure.string :as str]
             [rragent.gateway :as gateway]
+            [rragent.secrets :as secrets]
             [rragent.version :as version]))
 
 (def file-name
@@ -90,43 +91,63 @@
 
 ;;; The file
 
+(def var-pattern
+  #"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+(defn- entry-strings
+  "The strings of `entry` that `${NAME}` is filled into."
+  [{:strs [url headers command args env cwd]}]
+  (filter string? (concat [url command cwd] (vals headers) args (vals env))))
+
+(defn vars-of
+  "The names of the `${NAME}`s of `entry`, in order, each once."
+  [entry]
+  (vec (distinct (for [s (entry-strings entry)
+                       [_ var-name] (re-seq var-pattern s)]
+                   var-name))))
+
 (defn- substitute
-  "`${NAME}` in `s` as the environment variable; a variable that is not
-   set is an error that names it."
-  [s]
-  (str/replace (str s) #"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
-               (fn [[_ var-name]]
-                 (let [value (aget (.-env js/process) var-name)]
-                   (if (some? value)
-                     value
-                     (throw (js/Error. (str "the environment variable " var-name " is not set"))))))))
+  "`${NAME}` in `s` as `lookup` answers it."
+  [lookup s]
+  (str/replace (str s) var-pattern (fn [[_ var-name]] (lookup var-name))))
 
 (defn- substitute-map
-  [m]
-  (into {} (map (fn [[k v]] [(name k) (substitute v)])) m))
+  [fill m]
+  (into {} (map (fn [[k v]] [(name k) (fill v)])) m))
+
+(defn env-lookup
+  "A `${NAME}` as the environment has it; nil when it is not set."
+  [var-name]
+  (aget (.-env js/process) var-name))
 
 (defn transport-spec
   "How to reach the server of `entry`, the file's map with string keys:
    `{:kind :http :url :headers}` or `{:kind :stdio :command :args :env
-   :cwd}`, `${NAME}` filled in; `{:error}` when the entry says
-   neither or a variable is missing."
-  [entry home]
-  (try
-    (let [{:strs [url headers command args env cwd type]} entry]
-      (cond
-        (= "sse" type) {:error "the legacy HTTP+SSE transport is not supported, only Streamable HTTP"}
-        (and (string? url) (re-find #"^https?://" url)) {:kind :http
-                                                         :url (substitute url)
-                                                         :headers (substitute-map headers)}
-        (and (string? command) (not (str/blank? command))) {:kind :stdio
-                                                            :command (substitute command)
-                                                            :args (mapv substitute args)
-                                                            :env (substitute-map env)
-                                                            :cwd (if cwd (path/resolve home (substitute cwd)) home)}
-        url {:error "the url must start with https:// or http://"}
-        :else {:error "the entry has neither a url nor a command"}))
-    (catch :default e
-      {:error (ex-message e)})))
+   :cwd}`, `${NAME}` filled in by `lookup` (the secrets, then the
+   environment; the environment without); `{:error}` when the entry
+   says neither, `{:error :needs}` when a `${NAME}` has no value, the
+   names under `:needs`."
+  ([entry home]
+   (transport-spec entry home env-lookup))
+  ([entry home lookup]
+   (let [{:strs [url headers command args env cwd type]} entry
+         missing (vec (remove #(some? (lookup %)) (vars-of entry)))
+         fill (partial substitute lookup)]
+     (cond
+       (= "sse" type) {:error "the legacy HTTP+SSE transport is not supported, only Streamable HTTP"}
+       (seq missing) {:error (str "needs the secret" (when (next missing) "s") " " (str/join ", " missing)
+                                  ", not saved yet (a field in the chat or the MCP settings takes it)")
+                      :needs missing}
+       (and (string? url) (re-find #"^https?://" url)) {:kind :http
+                                                        :url (fill url)
+                                                        :headers (substitute-map fill headers)}
+       (and (string? command) (not (str/blank? command))) {:kind :stdio
+                                                           :command (fill command)
+                                                           :args (mapv fill args)
+                                                           :env (substitute-map fill env)
+                                                           :cwd (if cwd (path/resolve home (fill cwd)) home)}
+       url {:error "the url must start with https:// or http://"}
+       :else {:error "the entry has neither a url nor a command"}))))
 
 (defn timeout-of
   [entry]
@@ -159,16 +180,20 @@
 
 (defn registry
   "The MCP servers of `file` (`rragent.mcp/file` of the machine's
-   folder), nothing connected yet: `{:file :home :transport :state}`.
+   folder), nothing connected yet: `{:file :home :secrets-file
+   :transport :state}`. `secrets-file` holds the values of the
+   `${NAME}`s (`rragent.secrets`, `secrets.json` beside `file`
+   without); a name it lacks is looked up in the environment.
    `transport`, a test's, makes the transport of a server from its
    name and `transport-spec` instead of pi-mcp's stdio and HTTP
    transports. `state` is an atom of `{:mtime :servers :version}`,
    `servers` by name `{:entry :spec :timeout :client :connecting
    :tools :instructions :error :failed-at}`; `version` counts the
    changes of what the REPL sees."
-  [{:keys [file home transport]}]
+  [{:keys [file home transport secrets-file]}]
   {:file file
    :home (or home (some-> file path/dirname))
+   :secrets-file (or secrets-file (some-> file path/dirname secrets/file))
    :transport transport
    :state (atom {:mtime ::unread :servers {} :version 0})})
 
@@ -225,11 +250,12 @@
       (js/console.error "[mcp]" server-name "tools/list after a change failed:" (ex-message e)))))
 
 (defn- same-entry?
-  "Whether the server still has `entry`: an attempt made for an entry
-   the file changed meanwhile, or removed, must not touch the state."
-  [{:keys [state]} server-name entry]
+  "Whether the server still has `entry` and `spec`: an attempt made for
+   an entry the file changed meanwhile, or removed, or for a secret
+   replaced since, must not touch the state."
+  [{:keys [state]} server-name entry spec]
   (let [s (get-in @state [:servers server-name])]
-    (and s (= entry (:entry s)))))
+    (and s (= entry (:entry s)) (= spec (:spec s)))))
 
 (defn- ^:async open!
   "One connection to the server: initialize, its tools listed. Answers
@@ -247,7 +273,7 @@
         (.onNotification client "notifications/tools/list_changed"
                          (fn [_] (refresh-tools! registry server-name client)))
         (.onError client (fn [e] (js/console.error "[mcp]" server-name (ex-message e))))
-        (if (same-entry? registry server-name entry)
+        (if (same-entry? registry server-name entry spec)
           (swap! state (fn [s]
                          (bump (update-in s [:servers server-name] assoc
                                           :client client
@@ -259,7 +285,7 @@
           (close-client! client)))
       (catch :default e
         (close-client! client)
-        (when (same-entry? registry server-name entry)
+        (when (same-entry? registry server-name entry spec)
           (swap! state (fn [s]
                          (bump (update-in s [:servers server-name] assoc
                                           :client nil
@@ -291,37 +317,56 @@
        (nil? client)
        (or (nil? failed-at) (< retry-ms (- now failed-at)))))
 
+(defn- lookup-of
+  "The `${NAME}` lookup of the registry now: its secrets, then the
+   environment."
+  [{:keys [secrets-file]}]
+  (let [saved (if secrets-file (secrets/read-all secrets-file) {})]
+    (fn [var-name]
+      (or (get saved var-name) (env-lookup var-name)))))
+
 (defn- server-state
-  "The state of the server `server-name` of `entry`, nothing connected."
-  [registry server-name entry]
+  "The state of the server `server-name` of `entry`, nothing connected;
+   `lookup` fills in its `${NAME}`s."
+  [registry lookup server-name entry]
   (cond
     (and (map? entry) (contains? entry :error)) {:entry entry :spec entry}
     (not (map? entry)) {:entry entry :spec {:error "the entry is no object"}}
     (not (re-matches name-pattern server-name)) {:entry entry :spec {:error "the name may have letters, digits, - and _ only"}}
     :else {:entry entry
            :off (false? (get entry "enabled"))
-           :spec (transport-spec entry (:home registry))
+           :spec (transport-spec entry (:home registry) lookup)
            :timeout (timeout-of entry)}))
 
 (defn reload!
-  "The file read again when it changed since the last reading: a new
-   or changed entry gets a new state (its old client closed), a
-   removed one is closed. True when something changed."
-  [{:keys [file state] :as registry}]
-  (let [now-mtime (mtime file)]
+  "The file and the secrets read again when one changed since the last
+   reading: a new entry, or one whose entry or filled-in spec changed
+   (a secret saved, replaced or removed), gets a new state, its old
+   client closed; a removed one is closed. True when something
+   changed."
+  [{:keys [file secrets-file state] :as registry}]
+  (let [now-mtime [(mtime file) (some-> secrets-file mtime)]]
     (when (not= now-mtime (:mtime @state))
       (let [entries (read-servers file)
+            lookup (lookup-of registry)
             old (:servers @state)
-            closing (for [[server-name {:keys [entry client]}] old
-                          :when (not= entry (get entries server-name ::gone))]
+            fresh (into {}
+                        (map (fn [[server-name entry]]
+                               [server-name (server-state registry lookup server-name entry)]))
+                        entries)
+            kept? (fn [server-name]
+                    (let [before (get old server-name)
+                          now (get fresh server-name)]
+                      (and before now
+                           (= (:entry before) (:entry now))
+                           (= (:spec before) (:spec now)))))
+            closing (for [[server-name {:keys [client]}] old
+                          :when (not (kept? server-name))]
                       client)
             servers (into {}
-                          (map (fn [[server-name entry]]
-                                 (let [before (get old server-name)]
-                                   [server-name (if (and before (= entry (:entry before)))
-                                                  before
-                                                  (server-state registry server-name entry))])))
-                          entries)]
+                          (map (fn [[server-name s]]
+                                 [server-name (if (kept? server-name) (get old server-name) s)]))
+                          fresh)]
         (swap! state (fn [s] (bump (assoc s :mtime now-mtime :servers servers))))
         (doseq [client closing]
           (close-client! client))
@@ -334,6 +379,7 @@
            :tools (vec tools)}
     off (assoc :off true)
     (:error spec) (assoc :error (:error spec))
+    (:needs spec) (assoc :needs (:needs spec))
     (and error (not (:error spec))) (assoc :error error)
     instructions (assoc :instructions instructions)
     client (assoc :connected true)
@@ -478,6 +524,195 @@
                        (instance? McpAbortError e) "the call was stopped"
                        (instance? McpTimeoutError e) (str "no answer within " (:timeout opts) " ms (\"timeoutMs\" in " file-name " sets it)")
                        :else (ex-message e)))}))))
+
+
+;;; Changing the file: what mcp/add!, mcp/test, mcp/enable! and
+;;; mcp/remove! of the REPL and the MCP settings of the page do
+
+(def entry-keys
+  "What `mcp/add!` takes, and the key of each in the file."
+  {:url "url" :headers "headers" :token nil :command "command" :args "args"
+   :env "env" :cwd "cwd" :timeout-ms "timeoutMs" :enabled "enabled"})
+
+(def secret-header-pattern
+  "Headers whose values are credentials."
+  #"(?i)auth|key|token|secret|password|cookie")
+
+(defn- literal-secret?
+  "A value given for a credential that is not a `${NAME}`: the token
+   itself, which has no place in the file, nor in the conversation it
+   came from."
+  [v]
+  (and (string? v) (not (str/blank? v)) (not (re-find var-pattern v))))
+
+(defn- string-map?
+  [m]
+  (and (map? m) (every? (fn [[k v]] (and (or (keyword? k) (string? k)) (string? v))) m)))
+
+(defn entry-of
+  "The file's entry for what the REPL gives `mcp/add!`: `{:entry}`, the
+   map with the file's string keys, or `{:error}`. `:token \"NAME\"`
+   is the header `Authorization: Bearer ${NAME}`. A credential given as
+   a value, not as a `${NAME}`, is refused: the person saves the value
+   in a field of the page, the file names it."
+  [opts]
+  (let [{:keys [url headers token command args env cwd timeout-ms enabled]} opts
+        unknown (remove (set (keys entry-keys)) (keys opts))
+        headers (into {} (map (fn [[k v]] [(name k) v])) headers)
+        env (into {} (map (fn [[k v]] [(name k) v])) env)]
+    (cond
+      (not (map? opts)) {:error "mcp/add! takes a map: {:url \"https://…/mcp\" :token \"NAME\"} or {:command \"npx\" :args [...]}"}
+      (seq unknown) {:error (str "mcp/add! does not know " (str/join ", " unknown) "; it takes " (str/join ", " (keys entry-keys)))}
+      (= (some? url) (some? command)) {:error "mcp/add! takes either :url (a Streamable HTTP server) or :command (a program over stdio)"}
+      (and url (not (and (string? url) (re-find #"^https?://" url)))) {:error "the :url must start with https:// or http://"}
+      (and command (not (and (string? command) (not (str/blank? command))))) {:error "the :command is a program's name or path"}
+      (and token (not (secrets/valid-name? token))) {:error (str ":token is the name of a secret, such as \"STORRITO_TOKEN\", not the token itself")}
+      (and token (contains? headers "Authorization")) {:error "either :token or an Authorization header, not both"}
+      (not (or (nil? (:headers opts)) (string-map? (:headers opts)))) {:error ":headers is a map of strings"}
+      (not (or (nil? (:env opts)) (string-map? (:env opts)))) {:error ":env is a map of strings"}
+      (not (or (nil? args) (and (sequential? args) (every? string? args)))) {:error ":args is a vector of strings"}
+      (not (or (nil? cwd) (string? cwd))) {:error ":cwd is a folder, relative to the machine's"}
+      (not (or (nil? timeout-ms) (and (number? timeout-ms) (pos? timeout-ms)))) {:error ":timeout-ms is a number of milliseconds"}
+      (not (or (nil? enabled) (boolean? enabled))) {:error ":enabled is true or false"}
+      (some (fn [[k v]] (and (re-find secret-header-pattern k) (literal-secret? v))) headers)
+      {:error "a credential in a header goes in as ${NAME}, as :token \"NAME\" does, never as the value itself: the person types the value into the field that (mcp/add! …) asks for"}
+      (some (fn [[k v]] (and (re-find secrets/secret-env-pattern k) (literal-secret? v))) env)
+      {:error "a credential in :env goes in as ${NAME}, never as the value itself: the person types the value into the field that (mcp/add! …) asks for"}
+      (some (fn [s] (and (string? s) (re-find #"(?i)[?&][a-z_]*(key|token|secret)=[^$&]" s))) [url])
+      {:error "a credential in the url goes in as ${NAME}, never as the value itself"}
+      :else
+      {:entry (cond-> {}
+                url (assoc "url" url)
+                (or token (seq headers)) (assoc "headers" (cond-> headers
+                                                            token (assoc "Authorization" (str "Bearer ${" token "}"))))
+                command (assoc "command" command)
+                (seq args) (assoc "args" (vec args))
+                (seq env) (assoc "env" env)
+                cwd (assoc "cwd" cwd)
+                timeout-ms (assoc "timeoutMs" timeout-ms)
+                (false? enabled) (assoc "enabled" false))})))
+
+(defn- read-config
+  "The whole file as data, string keys, `{}` without it; throws when
+   it is no JSON object, which is the person's to fix, not to be
+   written over."
+  [file]
+  (if-not (fs/existsSync file)
+    {}
+    (let [config (try
+                   (js->clj (js/JSON.parse (fs/readFileSync file "utf8")))
+                   (catch :default e
+                     (throw (js/Error. (str file " is not JSON (" (ex-message e) "); fix it or remove it first")))))]
+      (if (map? config)
+        config
+        (throw (js/Error. (str file " is no JSON object; fix it or remove it first")))))))
+
+(defn- write-config!
+  "The file written whole, beside it and renamed over it, readable by
+   its owner only."
+  [file config]
+  (let [tmp (str file ".tmp-" (.-pid js/process) "-" (js/Date.now))]
+    (fs/mkdirSync (path/dirname file) #js {:recursive true})
+    (fs/writeFileSync tmp (str (js/JSON.stringify (clj->js config) nil 2) "\n") #js {:mode 384})
+    (fs/renameSync tmp file)))
+
+(defn- change-servers!
+  "The `mcpServers` of the file through `f`, the other keys kept, and
+   the file read again at once."
+  [{:keys [file state] :as registry} f]
+  (let [config (read-config file)
+        servers (get config "mcpServers")]
+    (write-config! file (assoc config "mcpServers" (f (if (map? servers) servers {}))))
+    (swap! state assoc :mtime ::unread)
+    (reload! registry)))
+
+(defn status
+  "What the REPL learns of one server: `{:name :ns :connected
+   :connecting :off :tools :needs :error :instructions}`, `:tools` the
+   names of its tools; nil for a server that is not there."
+  [{:keys [state]} server-name]
+  (when-let [s (get-in @state [:servers server-name])]
+    (-> (server-catalog server-name s)
+        (update :tools #(mapv :name %)))))
+
+(defn- known!
+  [{:keys [state file]} server-name]
+  (when-not (get-in @state [:servers server-name])
+    (throw (js/Error. (str "There is no MCP server " server-name " in " file "; (mcp/servers) lists them.")))))
+
+(defn ^:async test!
+  "The server connected anew, the old connection closed: its `status`
+   once the attempt is over, the tools it has or why it failed. A
+   server that is off or lacks a secret says so without an attempt."
+  [{:keys [state] :as registry} server-name]
+  (reload! registry)
+  (known! registry server-name)
+  (let [{:keys [off spec connecting client]} (get-in @state [:servers server-name])]
+    (when-not (or off (:error spec))
+      (when-not connecting
+        (swap! state (fn [s] (bump (update-in s [:servers server-name] assoc :client nil :failed-at nil :error nil))))
+        (close-client! client))
+      (await (connect! registry server-name)))
+    (status registry server-name)))
+
+(defn ^:async add!
+  "The server `server-name` added to the file, or its entry replaced,
+   from `opts` (`entry-of`), and connected right away (`test!`): its
+   `status`, with `:needs` the secrets the person still has to save."
+  [registry server-name opts]
+  (when-not (and (string? server-name) (re-matches name-pattern server-name))
+    (throw (js/Error. (str "A server's name has letters, digits, - and _: " (pr-str server-name)))))
+  (let [{:keys [entry error]} (entry-of opts)]
+    (when error
+      (throw (js/Error. error)))
+    (change-servers! registry #(assoc % server-name entry))
+    (await (test! registry server-name))))
+
+(defn ^:async enable!
+  "The server switched on (connected right away) or off (closed),
+   `enabled: false` in its entry or not: its `status`."
+  [registry server-name on?]
+  (reload! registry)
+  (known! registry server-name)
+  (change-servers! registry (fn [servers]
+                              (if (map? (get servers server-name))
+                                (update servers server-name #(if on? (dissoc % "enabled") (assoc % "enabled" false)))
+                                servers)))
+  (if on?
+    (await (test! registry server-name))
+    (status registry server-name)))
+
+(defn remove!
+  "The server taken out of the file and closed. True."
+  [registry server-name]
+  (reload! registry)
+  (known! registry server-name)
+  (change-servers! registry #(dissoc % server-name))
+  true)
+
+(defn- address
+  "Where the server is, for the page: the URL without its query and
+   credentials, or the program's name; never a filled-in `${NAME}`."
+  [entry]
+  (let [{:strs [url command]} (when (map? entry) entry)]
+    (cond
+      (string? url) (try
+                      (let [u (js/URL. url)]
+                        (str (.-protocol u) "//" (.-host u) (.-pathname u)))
+                      (catch :default _ url))
+      (string? command) (path/basename command)
+      :else nil)))
+
+(defn overview
+  "The servers for the MCP settings of the page, by name:
+   `{:name :address :connected :connecting :off :tools :needs :error}`,
+   `:tools` how many."
+  [{:keys [state]}]
+  (vec (for [[server-name {:keys [entry] :as s}] (sort-by key (:servers @state))]
+         (-> (server-catalog server-name s)
+             (update :tools count)
+             (dissoc :ns :instructions)
+             (assoc :address (address entry))))))
 
 (defn ^:async close!
   "Every connection closed, a program ended; the file is read again at

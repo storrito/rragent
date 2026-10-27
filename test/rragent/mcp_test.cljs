@@ -13,6 +13,7 @@
             [clojure.test :refer [async deftest is testing]]
             [rragent.fake-mcp :as fake-mcp]
             [rragent.mcp :as mcp]
+            [rragent.secrets :as secrets]
             [rragent.test-home :as test-home]
             [rragent.tools.eval :as eval-tool]))
 
@@ -61,8 +62,10 @@
                (mcp/transport-spec {"command" "npx" "args" ["-y" "server" "${RRAGENT_TEST_TOKEN}"] "env" {"KEY" "${RRAGENT_TEST_TOKEN}"}} "/home")))
         (is (= "/home/srv" (:cwd (mcp/transport-spec {"command" "x" "cwd" "srv"} "/home")))))
       (testing "what cannot be reached says why"
-        (is (= {:error "the environment variable RRAGENT_TEST_MISSING is not set"}
+        (is (= {:error "needs the secret RRAGENT_TEST_MISSING, not saved yet (a field in the chat or the MCP settings takes it)"
+                :needs ["RRAGENT_TEST_MISSING"]}
                (mcp/transport-spec {"url" "https://a.b/mcp" "headers" {"X" "${RRAGENT_TEST_MISSING}"}} "/home")))
+        (is (= ["A" "B"] (:needs (mcp/transport-spec {"url" "https://${A}/mcp" "headers" {"X" "${B} ${A}"}} "/home" (constantly nil)))))
         (is (= {:error "the entry has neither a url nor a command"} (mcp/transport-spec {} "/home")))
         (is (= {:error "the url must start with https:// or http://"} (mcp/transport-spec {"url" "ftp://x"} "/home")))
         (is (str/includes? (:error (mcp/transport-spec {"url" "https://a.b/sse" "type" "sse"} "/home")) "legacy")))
@@ -347,3 +350,120 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     (let [output (js->clj (.-output (eval-tool/output "=> 1" (repeat 10 {:data "iVBO" :mime-type "image/png"}))) :keywordize-keys true)]
       (is (= 9 (count output)))
       (is (= {:type "image" :data "iVBO" :mimeType "image/png"} (second output))))))
+
+(deftest secrets-test
+  (async done
+    (run done
+         (^:async fn []
+           (let [fake (fake-mcp/fake)
+                 registry (registry fake {:fake {:url "https://fake.example/mcp"
+                                                 :headers {:Authorization "Bearer ${FAKE_TOKEN}"}}})
+                 file (:secrets-file registry)]
+             (testing "a secret that is not saved: the server needs it, nothing is connected"
+               (let [{:keys [servers]} (await (mcp/catalog registry))]
+                 (is (= ["FAKE_TOKEN"] (:needs (first servers))))
+                 (is (empty? @(:specs fake)))))
+             (testing "saved, the next catalog connects with it, the file is the owner's only"
+               (secrets/save! file "FAKE_TOKEN" "  s3cret-value  ")
+               (is (= {"FAKE_TOKEN" "s3cret-value"} (secrets/read-all file)))
+               (is (= 0600 (bit-and 0777 (.-mode (fs/statSync file)))))
+               (is (:connected (first (:servers (await (mcp/catalog registry))))))
+               (is (= {"Authorization" "Bearer s3cret-value"} (:headers (second (first @(:specs fake)))))))
+             (testing "replaced, the server is connected anew with the new one"
+               (secrets/save! file "FAKE_TOKEN" "an0ther-value")
+               (await (mcp/catalog registry))
+               (is (= 2 (count @(:specs fake))))
+               (is (= {"Authorization" "Bearer an0ther-value"} (:headers (second (last @(:specs fake)))))))
+             (testing "no name a ${NAME} could not name"
+               (is (thrown? js/Error (secrets/save! file "1-bad" "x"))))
+             (testing "a blank value removes it"
+               (secrets/save! file "FAKE_TOKEN" "")
+               (is (= {} (secrets/read-all file))))
+             registry)))))
+
+(deftest redact-test
+  (let [pairs (secrets/redactions {"A_TOKEN" "abcdefgh12" "LONG" "xxabcdefgh12yy" "SHORT" "1"})]
+    (testing "the longest value first, short values left alone"
+      (is (= [["xxabcdefgh12yy" "LONG"] ["abcdefgh12" "A_TOKEN"]] pairs))
+      (is (= "«LONG» and «A_TOKEN» and 1" (secrets/redact-text pairs "xxabcdefgh12yy and abcdefgh12 and 1"))))
+    (testing "every string of the data"
+      (is (= {"output" [{"type" "text" "text" "Bearer «A_TOKEN»"}] "n" 1}
+             (secrets/redact pairs {"output" [{"type" "text" "text" "Bearer abcdefgh12"}] "n" 1}))))
+    (testing "a $ in a value is no pattern"
+      (is (= "«D»!" (secrets/redact-text (secrets/redactions {"D" "pa$$word99"}) "pa$$word99!")))))
+  (testing "the file and the environment's secret-looking variables"
+    (let [home (test-home/make)
+          file (secrets/file home)
+          source (secrets/source file #js {"MY_API_KEY" "key-123456" "HOME" "/home/someone" "RRAGENT_TOKEN" "tok-123456"})]
+      (try
+        (is (= #{"MY_API_KEY" "RRAGENT_TOKEN"} (set (map second (secrets/current source)))))
+        (secrets/save! file "SAVED" "saved-123456")
+        (is (= #{"MY_API_KEY" "RRAGENT_TOKEN" "SAVED"} (set (map second (secrets/current source)))))
+        (finally
+          (test-home/remove! home))))))
+
+(deftest entry-of-test
+  (is (= {:entry {"url" "https://a.b/mcp" "headers" {"Authorization" "Bearer ${A_TOKEN}"}}}
+         (mcp/entry-of {:url "https://a.b/mcp" :token "A_TOKEN"})))
+  (is (= {:entry {"command" "npx" "args" ["-y" "x"] "env" {"API_KEY" "${X_KEY}" "MODE" "fast"} "cwd" "srv" "timeoutMs" 5000 "enabled" false}}
+         (mcp/entry-of {:command "npx" :args ["-y" "x"] :env {:API_KEY "${X_KEY}" :MODE "fast"} :cwd "srv" :timeout-ms 5000 :enabled false})))
+  (testing "a credential given as its value is refused, wherever it is"
+    (is (str/includes? (:error (mcp/entry-of {:url "https://a.b/mcp" :headers {"Authorization" "Bearer sk_live_1"}})) "${NAME}"))
+    (is (str/includes? (:error (mcp/entry-of {:url "https://a.b/mcp" :headers {"X-Api-Key" "abc"}})) "${NAME}"))
+    (is (str/includes? (:error (mcp/entry-of {:command "x" :env {"GITHUB_TOKEN" "ghp_1"}})) "${NAME}"))
+    (is (str/includes? (:error (mcp/entry-of {:url "https://a.b/mcp?api_key=abc"})) "${NAME}"))
+    (is (str/includes? (:error (mcp/entry-of {:url "https://a.b/mcp" :token "sk_live_1 2"})) "the name of a secret")))
+  (testing "what is no entry says why"
+    (is (str/includes? (:error (mcp/entry-of {})) "either :url"))
+    (is (str/includes? (:error (mcp/entry-of {:url "https://a" :command "x"})) "either :url"))
+    (is (str/includes? (:error (mcp/entry-of {:url "https://a" :bogus 1})) "does not know :bogus"))
+    (is (str/includes? (:error (mcp/entry-of {:url "ftp://a"})) "https://"))))
+
+(deftest change-test
+  (async done
+    (run done
+         (^:async fn []
+           (let [fake (fake-mcp/fake)
+                 registry (registry fake {:other {:url "https://other.example/mcp" :enabled false}})
+                 file (:file registry)]
+             (testing "add!: into the file, the other entries kept, connected at once"
+               (let [{:keys [connected tools]} (await (mcp/add! registry "fake" {:url "https://fake.example/mcp"}))]
+                 (is connected)
+                 (is (= (mapv :name fake-mcp/tools) tools)))
+               (is (= #{"other" "fake"} (set (keys (mcp/read-servers file)))))
+               (is (= 0600 (bit-and 0777 (.-mode (fs/statSync file))))))
+             (testing "add! with a token not saved: in the file, waiting for it"
+               (let [{:keys [connected needs]} (await (mcp/add! registry "locked" {:url "https://locked.example/mcp" :token "LOCKED_TOKEN"}))]
+                 (is (not connected))
+                 (is (= ["LOCKED_TOKEN"] needs)))
+               (is (= {"url" "https://locked.example/mcp" "headers" {"Authorization" "Bearer ${LOCKED_TOKEN}"}}
+                      (get (mcp/read-servers file) "locked"))))
+             (testing "add! refuses what is no entry and a bad name, the file untouched"
+               (is (thrown? js/Error (await (mcp/add! registry "x" {:url "https://a.b" :headers {"Authorization" "Bearer abc"}}))))
+               (is (thrown? js/Error (await (mcp/add! registry "a b" {:url "https://a.b"}))))
+               (is (= #{"other" "fake" "locked"} (set (keys (mcp/read-servers file))))))
+             (testing "test!: a new connection"
+               (let [before (count @(:specs fake))]
+                 (is (:connected (await (mcp/test! registry "fake"))))
+                 (is (= (inc before) (count @(:specs fake))))))
+             (testing "enable!: off closes and writes enabled false, on connects"
+               (is (:off (await (mcp/enable! registry "fake" false))))
+               (is (false? (get-in (mcp/read-servers file) ["fake" "enabled"])))
+               (is (:connected (await (mcp/enable! registry "fake" true))))
+               (is (not (contains? (get (mcp/read-servers file) "fake") "enabled"))))
+             (testing "the page's overview: no secret, only where and how it is"
+               (is (= [{:name "fake" :address "https://fake.example/mcp" :tools (count fake-mcp/tools) :connected true}
+                       {:name "locked" :address "https://locked.example/mcp" :tools 0 :needs ["LOCKED_TOKEN"]
+                        :error "needs the secret LOCKED_TOKEN, not saved yet (a field in the chat or the MCP settings takes it)"}
+                       {:name "other" :address "https://other.example/mcp" :tools 0 :off true}]
+                      (mcp/overview registry))))
+             (testing "remove!: out of the file, unknown afterwards"
+               (is (true? (mcp/remove! registry "fake")))
+               (is (not (contains? (mcp/read-servers file) "fake")))
+               (is (thrown? js/Error (mcp/remove! registry "fake")))
+               (is (thrown? js/Error (await (mcp/test! registry "fake")))))
+             (testing "a file that is no JSON is not written over"
+               (fs/writeFileSync file "{broken")
+               (is (thrown? js/Error (await (mcp/add! registry "y" {:url "https://y.example/mcp"}))))
+               (is (= "{broken" (fs/readFileSync file "utf8"))))
+             registry)))))
