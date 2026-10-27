@@ -466,6 +466,11 @@
       (is (some #(and (vector? %) (= :ui/secret-field (first %)) (= "STORRITO_TOKEN" (:ui/name (second %)))) (tree-seq coll? seq section)))
       (is (str/includes? text "Connect a service …"))
       (is (str/includes? text "GITHUB_TOKEN"))))
+  (testing "what the last test found, or that it runs"
+    (let [text (fn [test] (str/join " " (filter string? (tree-seq coll? seq (i18n/translate (view/mcp-section {:servers [{:name "gh" :tools 2 :connected true}] :tests {"gh" test}}) :en)))))]
+      (is (str/includes? (text {:running? true}) "Testing …"))
+      (is (str/includes? (text {:ok? true :tools 2 :ms 7}) "Test passed: connected anew, 2 tools, in 7 ms."))
+      (is (str/includes? (text {:ok? false :error "MCP server requires authentication" :ms 9}) "Test failed after 9 ms: MCP server requires authentication"))))
   (testing "a remove asks in the row first"
     (let [section (view/mcp-section {:servers [{:name "github" :tools 1 :connected true}] :removing "github"})]
       (is (some #(= [:i18n :mcp/remove-confirm {:name "github"}] %) (tree-seq coll? seq section)))))

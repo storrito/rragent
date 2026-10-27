@@ -510,6 +510,12 @@
                        (is (not (str/includes? (str said) "shop-s3cret-1"))))
                      (is (await (eventually 5000 #(let [[shop] (:mcp @db/db)] (and (empty? (:needs shop)) (:error shop) (not (:connecting shop))))))
                          (str "no longer waiting: tried, and refused at port 1 " (pr-str (:mcp @db/db)))))
+                   (testing "Test connection: the row says it runs, then what it found and how long it took"
+                     (is (= {:success? true} (await (command! base cookie :mcp/test {:name "shop"}))))
+                     (let [result (await (eventually 5000 #(let [t (get-in @db/db [:mcp-tests "shop"])] (when (contains? t :ok?) t))))]
+                       (is (false? (:ok? result)) "port 1 refuses")
+                       (is (string? (:error result)))
+                       (is (number? (:ms result)))))
                    (testing "remove asks first in the row, then takes the server out of the file"
                      (is (= {:success? true} (await (command! base cookie :mcp/remove {:name "shop"}))))
                      (is (= "shop" (:mcp-removing @db/db)))
@@ -534,7 +540,7 @@
                        (is (not (contains? (:settings-open @db/db) "t1")) "the settings closed in that tab"))))
                  (finally
                    (.abort controller)
-                   (swap! db/db dissoc :settings-section :mcp :mcp-removing :secret-names)
+                   (swap! db/db dissoc :settings-section :mcp :mcp-removing :mcp-tests :secret-names)
                    (await (stop!))
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))

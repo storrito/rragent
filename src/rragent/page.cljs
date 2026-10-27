@@ -153,7 +153,7 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs update settings-open settings-section mcp mcp-removing secret-names]} @db/db
+  (let [{:keys [tabs update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         locale (i18n/locale (:ring/request w))]
@@ -170,7 +170,7 @@
                     :update update
                     :settings? (contains? settings-open (:tabid w))
                     :settings-section (get settings-section (:tabid w))
-                    :mcp {:servers mcp :removing mcp-removing :secrets secret-names}
+                    :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)})
         (i18n/translate locale))))
@@ -502,11 +502,24 @@
 
 (defn- mcp-test-command
   "Test connection: the server connected anew (`rragent.mcp/test!`);
-   its row says how it goes."
+   its row says that the test runs, then how it went and how long it
+   took (`:mcp-tests` of the atom, by name), so that even a server that
+   answers at once shows the click had an effect."
   [w]
-  (let [{:keys [name]} (command/command-data w)]
+  (let [{:keys [name]} (command/command-data w)
+        name (str name)
+        started (js/Date.now)
+        result! (fn [result]
+                  (swap! db/db assoc-in [:mcp-tests name] (assoc result :ms (- (js/Date.now) started))))]
     (if-let [r (registry)]
-      (do (in-background (str "test " name) (mcp/test! r (str name)))
+      (do (swap! db/db assoc-in [:mcp-tests name] {:running? true})
+          (-> (js/Promise.resolve nil)
+              (.then #(mcp/test! r name))
+              (.then (fn [{:keys [connected tools error needs]}]
+                       (result! (if connected
+                                  {:ok? true :tools (count tools)}
+                                  {:ok? false :error (or error (when (seq needs) (str "needs " (str/join ", " needs))) "not connected")}))))
+              (.catch (fn [e] (result! {:ok? false :error (ex-message e)}))))
           (command/accepted w))
       (command/rejected w :no-mcp))))
 
@@ -528,7 +541,7 @@
       (nil? r) (command/rejected w :no-mcp)
       (not= name (:mcp-removing @db/db)) (do (swap! db/db assoc :mcp-removing name)
                                              (command/accepted w))
-      :else (do (swap! db/db dissoc :mcp-removing)
+      :else (do (swap! db/db #(-> % (dissoc :mcp-removing) (update :mcp-tests dissoc name)))
                 (try
                   (mcp/remove! r name)
                   (command/accepted w)

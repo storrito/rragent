@@ -2634,6 +2634,19 @@ pre {
   color: var(--accent);
 }
 
+.main .settings li.mcp-server p.tested {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.main .settings li.mcp-server p.tested.ok {
+  color: var(--ok);
+}
+
+.main .settings li.mcp-server p.tested.failed {
+  color: var(--warn);
+}
+
 .main .settings li.mcp-server .secret {
   margin-top: 8px;
 }

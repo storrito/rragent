@@ -204,6 +204,9 @@
    :mcp/failed [:fn/str "Failed: {{:error}}"]
    :mcp/idle "Not connected yet"
    :mcp/test "Test connection"
+   :mcp/testing "Testing …"
+   :mcp/test-ok [:fn/str "Test passed: connected anew, {{:count}} tools, in {{:ms}} ms."]
+   :mcp/test-failed [:fn/str "Test failed after {{:ms}} ms: {{:error}}"]
    :mcp/turn-off "Turn off"
    :mcp/turn-on "Turn on"
    :mcp/remove "Remove"
@@ -432,6 +435,9 @@
    :mcp/failed [:fn/str "Fehlgeschlagen: {{:error}}"]
    :mcp/idle "Noch nicht verbunden"
    :mcp/test "Verbindung testen"
+   :mcp/testing "Teste …"
+   :mcp/test-ok [:fn/str "Test bestanden: neu verbunden, {{:count}} Werkzeuge, in {{:ms}} ms."]
+   :mcp/test-failed [:fn/str "Test fehlgeschlagen nach {{:ms}} ms: {{:error}}"]
    :mcp/turn-off "Ausschalten"
    :mcp/turn-on "Einschalten"
    :mcp/remove "Entfernen"

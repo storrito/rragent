@@ -562,17 +562,27 @@
                      :ui/button [:i18n :secret/save]
                      :ui/placeholder [:i18n :secret/placeholder]}])
 
+(defn- test-line
+  "What the last Test connection of a server found, or that it runs."
+  [{:keys [running? ok? tools error ms]}]
+  (cond
+    running? [:p.tested [:i18n :mcp/testing]]
+    ok? [:p.tested.ok [:i18n :mcp/test-ok {:count tools :ms ms}]]
+    (some? ok?) [:p.tested.failed [:i18n :mcp/test-failed {:error (str error) :ms ms}]]))
+
 (defn- mcp-row
-  "One server: its name, where it is, its state, a field for each
-   secret it waits for, and its buttons; a remove asks first, in the
-   row (`removing`)."
-  [{:keys [name address off connecting needs] :as server} removing]
+  "One server: its name, where it is, its state, what its last test
+   found (`test`), a field for each secret it waits for, and its
+   buttons; a remove asks first, in the row (`removing`)."
+  [{:keys [name address off connecting needs] :as server} removing test]
   [:li.mcp-server {:replicant/key name}
    [:div.head
     [:strong.name name]
     (when address
       [:span.address address])
     (mcp-state server)]
+   (when test
+     (test-line test))
    (for [secret-name needs]
      [:div.secret {:replicant/key secret-name}
       (secret-field secret-name)])
@@ -584,7 +594,7 @@
      [:div.actions
       (when-not off
         [:button.link {:on (mcp-command :mcp/test {:name name})
-                       :disabled (boolean connecting)}
+                       :disabled (boolean (or connecting (:running? test)))}
          [:i18n :mcp/test]])
       [:button.link {:on (mcp-command :mcp/enable {:name name :on? (boolean off)})}
        (if off [:i18n :mcp/turn-on] [:i18n :mcp/turn-off])]
@@ -595,14 +605,14 @@
    its state and the buttons to test, switch and remove it; the button
    that opens a new bot to connect a service (`:mcp/setup`, made in
    this tab); and the saved secrets, which only go from here."
-  [{:keys [servers removing secrets]}]
+  [{:keys [servers removing tests secrets]}]
   [:section.mcp
    [:h2 [:i18n :mcp/title]]
    [:p.explain [:i18n :mcp/explain]]
    (if (seq servers)
      [:ul.mcp-servers
       (for [server servers]
-        (mcp-row server removing))]
+        (mcp-row server removing (get tests (:name server))))]
      [:p [:i18n :mcp/none]])
    [:p.setup
     [:button.primary {:on {:click [[:data/command {:command/kind :mcp/setup
