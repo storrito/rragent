@@ -62,6 +62,7 @@
    "css" "text/css; charset=utf-8"
    "js" "application/javascript; charset=utf-8"
    "mjs" "application/javascript; charset=utf-8"
+   "wasm" "application/wasm"
    "json" "application/json; charset=utf-8"
    "svg" "image/svg+xml"
    "png" "image/png"
@@ -175,23 +176,28 @@
   "A register entry that serves files on `path`: the one file `root` for a
    plain path, the files below the folder `root` for a path that ends with
    /*. The counterpart of the classpath resources of the Clojure original:
-   a bundle has no classpath, the built client lies in a folder.
+   a bundle has no classpath, the built client lies in a folder. `root`
+   may be a vector of roots: the first that has the file serves it (the
+   built folder, else the sources under the dev server).
 
        (files \"/app.css\" \"dist/public/app.css\")
-       (files \"/assets/*\" \"dist/public/assets\")"
+       (files \"/assets/*\" \"dist/public/assets\")
+       (files \"/effects/*\" [\"dist/public/effects\" \"public/effects\"])"
   [path root]
   {:ring/route [:get path]
    :ring/handler (fn [w]
                    (let [subpath (get-in w [:ring/route-params :*])
+                         roots (if (vector? root) root [root])
                          file (cond
                                 (nil? subpath)
-                                (when (regular-file? root) root)
+                                (some #(when (regular-file? %) %) roots)
 
                                 (or (str/blank? subpath) (str/includes? subpath ".."))
                                 nil
 
                                 :else
-                                (resolve-file root subpath))]
+                                (some #(resolve-file % subpath) roots))]
+
                      (assoc w
                             :ring/response
                             (if file

@@ -74,7 +74,15 @@
                (is (= "hello\n" (await (transit/read-body (:body (await (fetch "/files/hello.txt")))))))
                (is (= 404 (:status (await (fetch "/files/missing.txt")))))
                (is (= 404 (:status (await (fetch "/files/")))))
-               (is (= 404 (:status (await (fetch "/files/../fixtures/hello.txt")))))))))
+               (is (= 404 (:status (await (fetch "/files/../fixtures/hello.txt")))))))
+           (testing "several roots: the first that has the file serves it, a missing root is no harm"
+             (let [handler (http/ring-handler (constantly [(http/files "/either/*" [(path/join fixtures "missing") fixtures])
+                                                            (http/files "/one.txt" [(path/join fixtures "missing.txt") (path/join fixtures "hello.txt")])]))
+                   fetch (fn [uri] (handler {:request-method :get :uri uri :headers {}}))]
+               (is (= "hello\n" (await (transit/read-body (:body (await (fetch "/either/hello.txt")))))))
+               (is (= "hello\n" (await (transit/read-body (:body (await (fetch "/one.txt")))))))
+               (is (= 404 (:status (await (fetch "/either/missing.txt")))))))))
+
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 

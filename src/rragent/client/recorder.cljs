@@ -39,12 +39,20 @@
    the `:seconds` recorded, the `:tests` (the clips of the last test,
    one per source: object URLs of the laptop's, the phone's on the
    machine) and the `:error`.
+   The webcam's picture can go through the effects
+   (`rragent.client.effects`): the background behind the person
+   blurred or taken away, the light corrected. The `:effects` settings
+   are in the store too, with the `:effects-status` of the worker
+   (`:loading`, `:on`, `{:failed message}`); the camera's own stream is
+   the session's `:raw`, and `:preview` is what is shown and recorded,
+   the processed stream while an effect is on.
    What is no data (the streams, the recorders, the uploaders, the
    meter and the preview node, the URL and the labels the panel was
    opened with) is in `session*`."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             ["qrcode" :as qrcode]
+            [rragent.client.effects :as effects]
             [rragent.client.icons :as icons]
             [rragent.client.usb-screen :as usb]))
 
@@ -243,25 +251,76 @@
           (await (js/navigator.mediaDevices.getUserMedia #js {:audio true :video true}))
           (throw error))))))
 
-(defn- ^:async preview!
-  "The camera and the microphone chosen, live in the panel: the stream
-   the webcam file records, with the meter on its microphone."
+(defn- effects-settings
   [store]
-  (let [{:keys [mic camera]} (:ui/recorder @store)]
-    (stop-tracks! (:preview @session*))
-    (let [stream (await (user-media mic camera))
-          audio-context (or (:audio-context @session*) (js/AudioContext.))
-          analyser (.createAnalyser audio-context)]
-      (set! (.-fftSize analyser) 2048)
-      (.connect (.createMediaStreamSource audio-context stream) analyser)
-      (swap! session* assoc
-             :preview stream
-             :audio-context audio-context
-             :analyser analyser
-             :samples (js/Float32Array. (.-fftSize analyser)))
+  (or (:effects (:ui/recorder @store)) effects/default-settings))
+
+(defn- pipeline!
+  "What is shown and recorded, from the camera's stream: through the
+   effects' worker while an effect is on, the camera's own otherwise.
+   The worker there was is ended first; the camera is asked for
+   automatic light when the light is corrected."
+  [store]
+  (let [{:keys [^js raw]} @session*
+        settings (effects-settings store)
+        gone (:effects @session*)]
+    (some-> gone effects/stop!)
+    (let [failed (atom nil)
+          handle (when (and raw (effects/supported?) (effects/active? settings))
+                   (try
+                     (effects/start! raw settings
+                                     {:on-ready (fn [] (update! store assoc :effects-status :on))
+                                      :on-failed (fn [message] (update! store assoc :effects-status {:failed message}))})
+                     ;; the worker could not be made: the camera as it is, and why
+                     (catch :default error
+                       (js/console.error "[recorder] effects" error)
+                       (reset! failed (str (or (some-> error .-message) error)))
+                       nil)))
+          stream (if handle (:stream handle) raw)]
+      (when (and raw (:auto-light? settings))
+        (effects/tune-camera! raw))
+      (swap! session* assoc :effects handle :preview stream)
+      (update! store assoc :effects-status (cond
+                                             @failed {:failed @failed}
+                                             handle :loading))
       (when-let [^js node (:preview-node @session*)]
         (set! (.-srcObject node) stream))
       stream)))
+
+(defn- ^:async preview!
+  "The camera and the microphone chosen, live in the panel: the stream
+   the webcam file records (`pipeline!`), with the meter on its
+   microphone."
+  [store]
+  (let [{:keys [mic camera]} (:ui/recorder @store)]
+    (some-> (:effects @session*) effects/stop!)
+    (stop-tracks! (:raw @session*))
+    (swap! session* dissoc :effects :raw :preview)
+    (let [raw (await (user-media mic camera))
+          audio-context (or (:audio-context @session*) (js/AudioContext.))
+          analyser (.createAnalyser audio-context)]
+      (set! (.-fftSize analyser) 2048)
+      (.connect (.createMediaStreamSource audio-context raw) analyser)
+      (swap! session* assoc
+             :raw raw
+             :audio-context audio-context
+             :analyser analyser
+             :samples (js/Float32Array. (.-fftSize analyser)))
+      (pipeline! store))))
+
+(defn set-effect!
+  "An effect changed in the panel, remembered: the worker that runs
+   takes the new settings; otherwise it is started or ended
+   (`pipeline!`)."
+  [store key value]
+  (let [now (assoc (effects-settings store) key value)]
+    (effects/remember! now)
+    (update! store assoc :effects now)
+    (if (and (:effects @session*) (effects/active? now))
+      (do (effects/update! (:effects @session*) now)
+          (when (and (:auto-light? now) (:raw @session*))
+            (effects/tune-camera! (:raw @session*))))
+      (pipeline! store))))
 
 (defn- failed!
   "The panel says what went wrong: a camera or a microphone the
@@ -297,6 +356,8 @@
                           :mic (pick :mic mics)
                           :camera (pick :camera cameras)
                           :sources (remembered-sources)
+                          :effects (effects/remembered)
+                          :effects-supported? (effects/supported?)
                           :minimized? (= "1" (remembered :minimized)))
                  (preview! store))))
       (.then (fn [_]
@@ -308,9 +369,11 @@
 (defn- release!
   "Lets the devices go and forgets the session."
   []
-  (let [{:keys [timer preview display clones usb audio-context]} @session*]
+  (let [{:keys [timer preview raw effects display clones usb audio-context]} @session*]
     (some-> timer js/clearInterval)
+    (some-> effects effects/stop!)
     (stop-tracks! preview)
+    (stop-tracks! raw)
     (stop-tracks! display)
     (doseq [^js clone clones]
       (stop-tracks! clone))
@@ -700,22 +763,26 @@
 
 (defn draft-line
   "What the draft says of the recording: its folder and every file
-   with what it is; the microphone alone in its own words."
-  [labels folder files]
-  (let [what {"screen" (or (:file-screen labels) "the screen")
-              "webcam" (or (:file-webcam labels) "the webcam")
-              "phone" (or (:file-phone labels) "the phone's camera")
-              "phone-screen" (or (:file-phone-screen labels) "the phone's screen")
-              "audio" (or (:file-audio labels) "the microphone")}
-        named (str/join ", " (map (fn [file]
-                                    (str file " (" (get what (first (str/split file #"\.")) file) ")"))
-                                  files))
-        audio-only? (every? #(str/starts-with? % "audio.") files)]
-    (-> (if audio-only?
-          (or (:draft-audio labels) "New recording in {folder}: {files}. ")
-          (or (:draft labels) "New recording in {folder}: {files}; every file carries a microphone. "))
-        (str/replace "{folder}" folder)
-        (str/replace "{files}" named))))
+   with what it is; the microphone alone in its own words; the webcam
+   with the background it was recorded on (`effects`), so that the
+   agent knows the green is to key out."
+  ([labels folder files]
+   (draft-line labels folder files nil))
+  ([labels folder files effects]
+   (let [what {"screen" (or (:file-screen labels) "the screen")
+               "webcam" (effects/file-label labels effects)
+               "phone" (or (:file-phone labels) "the phone's camera")
+               "phone-screen" (or (:file-phone-screen labels) "the phone's screen")
+               "audio" (or (:file-audio labels) "the microphone")}
+         named (str/join ", " (map (fn [file]
+                                     (str file " (" (get what (first (str/split file #"\.")) file) ")"))
+                                   files))
+         audio-only? (every? #(str/starts-with? % "audio.") files)]
+     (-> (if audio-only?
+           (or (:draft-audio labels) "New recording in {folder}: {files}. ")
+           (or (:draft labels) "New recording in {folder}: {files}; every file carries a microphone. "))
+         (str/replace "{folder}" folder)
+         (str/replace "{files}" named)))))
 
 (defn- ^:async ask-finish!
   "The end, asked for until the server has every file: the phone's
@@ -768,17 +835,21 @@
   (let [{:keys [recorders base started mime ctx phone?]} @session*
         {:keys [store-key labels]} ctx
         files (cond-> (into {} (map (fn [[name _]] [name "webm"]) recorders))
-                phone? (assoc "phone" (:phone-ext @session* "webm")))]
+                phone? (assoc "phone" (:phone-ext @session* "webm")))
+        ;; the webcam's background, when it went through the effects
+        effects (when (and (contains? recorders "webcam") (:effects @session*))
+                  (effects-settings store))]
     (try
       (doseq [{:keys [uploader]} (vals recorders)]
         (await (:chain @uploader)))
       (when phone?
         (update! store assoc :phone-waiting? true))
-      (let [value (await (ask-finish! base {:started started
-                                            :devices (labels-of store)
-                                            :mime mime
-                                            :files files}))
-            line (draft-line labels (str "artifacts/" (:folder value)) (:files value))]
+      (let [value (await (ask-finish! base (cond-> {:started started
+                                                    :devices (labels-of store)
+                                                    :mime mime
+                                                    :files files}
+                                             effects (assoc :effects (effects/facts effects)))))
+            line (draft-line labels (str "artifacts/" (:folder value)) (:files value) effects)]
         (swap! store update store-key (fn [draft]
                                         (str (when (seq (str draft)) (str draft "\n\n")) line)))
         (update! store assoc :status :ready :phone-waiting? false)
@@ -1071,6 +1142,40 @@
      (when (contains? ticked :phone-screen)
        (usb-preview store labels usb ready?))]))
 
+(defn- effects-section
+  "The webcam's effects when this browser has them: the background
+   behind the person and the automatic light, with a word on the
+   model loading, or why it did not; what the green is for."
+  [store labels {:keys [effects effects-status effects-supported?]} ready?]
+  (when effects-supported?
+    (let [{:keys [background auto-light?]} (or effects effects/default-settings)]
+      [:div.effects {:replicant/key "effects"}
+       [:label.background
+        (:background labels)
+        [:select {:disabled (not ready?)
+                  :on {:change (fn [^js event]
+                                 (set-effect! store :background (keyword (.. event -target -value))))}}
+         (for [choice effects/backgrounds]
+           [:option {:value (name choice)
+                     :selected (= choice background)}
+            (get labels (keyword (str "background-" (name choice))))])]]
+       [:label.auto-light
+        [:input {:type "checkbox"
+                 :checked (boolean auto-light?)
+                 :disabled (not ready?)
+                 :on {:change (fn [^js event]
+                                (set-effect! store :auto-light? (.. event -target -checked)))}}]
+        (:auto-light labels)]
+       (cond
+         (= :loading effects-status)
+         [:span.hint (:effects-loading labels)]
+
+         (:failed effects-status)
+         [:span.error (str/replace (or (:effects-failed labels) "The background effect did not load: {error}") "{error}" (str (:failed effects-status)))]
+
+         (= :green background)
+         [:span.hint (:green-hint labels)])])))
+
 (defn- device-select
   [store kind chosen options]
   [:select {:on {:change (fn [^js event]
@@ -1178,7 +1283,9 @@
                  [:span] [:span] [:span] [:span] [:span]]]]
               [:label (:camera labels)
                (device-select store :camera camera (:cameras devices))]]
+             (effects-section store labels recorder (= :ready status))
              (previews store labels recorder phone (= :ready status))
+
              (when (seq tests)
                [:div.tests
                 (for [source [:screen :webcam :phone :phone-screen :mic]
