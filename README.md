@@ -686,7 +686,13 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   program), a namespace per server, connected by the main thread at the
   first program (`rragent.mcp`, over `@earendil-works/pi-mcp`); the
   structured content or the text (JSON as data), a failure a throw,
-  pictures shown after the answer. See [docs/mcp.md](docs/mcp.md).
+  pictures shown after the answer. `(mcp/add! "github" {:url …
+  :token "GITHUB_TOKEN"})`, `mcp/test`, `mcp/enable!`, `mcp/remove!`
+  change the servers; a token is typed by the person into a password
+  field the bot asks for (`[:secret …]`), saved in `secrets.json`,
+  never seen by the model, and replaced by its name in any tool output.
+  Settings → MCP servers lists them and opens a bot that connects a
+  service. See [docs/mcp.md](docs/mcp.md).
 - `(remember "review-posted" {:id 4711})` and `(recall {:event
   "review-posted"})`: the facts (`rragent.facts`), the same entries the
   `remember` and `recall` tools make; a program sees the facts as they

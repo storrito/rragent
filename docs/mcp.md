@@ -8,6 +8,41 @@ client is [`@earendil-works/pi-mcp`](https://github.com/earendil-works/pi/tree/m
 rragent's side is `rragent.mcp` (the connections), `rragent.codemode`
 (the functions) and `rragent.codemode-worker` (the bridge between them).
 
+## Connecting a service
+
+The person does not have to write any of this. Settings → MCP servers
+lists the servers with their state (connected and how many tools,
+waiting for a secret, failed, off), Test connection, Turn off and
+Remove, and **Connect a service …**, which opens a new bot made for
+the job (`rragent.mcp-setup`): it asks which service, reads the
+service's documentation, connects it with `mcp/add!`, asks for the
+token with a password field and tests the connection. Any other bot
+can do the same when asked.
+
+A token never goes through the conversation:
+
+1. `mcp/add!` writes the entry with the token as `${NAME}`
+   (`:token "GITHUB_TOKEN"` is `Authorization: Bearer ${GITHUB_TOKEN}`)
+   and answers `:needs ["GITHUB_TOKEN"]`; a credential given as its
+   value is refused.
+2. The bot puts `[:secret {:name "GITHUB_TOKEN" :label "…"}]` into a
+   ```` ```hiccup ```` block of its answer, which the page shows as a
+   password field (the MCP settings show one too for every secret a
+   server waits for).
+3. What the person types there goes to the server as a command, not a
+   message, into `secrets.json` of the machine's folder (mode 600);
+   the bot is told "I saved the secret GITHUB_TOKEN", the servers that
+   use it are connected again.
+
+`${NAME}` is looked up in `secrets.json` first, then in the
+environment. Before a tool's result is committed, every known secret
+value in it (`secrets.json` and the environment's `…_KEY`, `…_TOKEN`,
+`…_SECRET`, `…_PASSWORD`) is replaced by `«NAME»` (an `afterTool`
+hook, `rragent.harness/redaction`), so a `cat secrets.json` or a server
+that echoes its token shows the model nothing. That stops accidents,
+not a bot set on it: the bots' bash runs as the same user and could
+still encode a value.
+
 ## Configuring
 
 The servers are named in `mcp.json` in the machine's folder
@@ -47,9 +82,10 @@ pchat and most MCP clients read. Every bot of the machine has them.
 | `timeoutMs` | How long one request may take, 60000 without; every progress the server reports starts it over. |
 
 A name has letters, digits, `-` and `_`. `${NAME}` in `url`, `headers`,
-`command`, `args`, `env` and `cwd` is the environment variable `NAME`,
-so that a token lives in the service's environment and not in the file;
-a variable that is not set makes the server fail with its name.
+`command`, `args`, `env` and `cwd` is the secret `NAME` of
+`secrets.json`, else the environment variable, so that a token is not
+in the file; one that has neither leaves the server waiting for it
+(`:needs`), not connected.
 
 A server behind a [connector](https://fly.io/docs/sprites/concepts/connectors)
 needs no token at all: its gateway URL as `url`
@@ -59,9 +95,10 @@ no `headers`, and the gateway adds the credential, as for `call`.
 OAuth is not wired up: pi-mcp has it (`@earendil-works/pi-mcp/oauth`),
 rragent passes static headers only.
 
-The file is read again before every program when it changed: a new
-server is there for the next program, a changed one is connected anew,
-a removed one closed. No restart.
+The file and `secrets.json` are read again before every program when
+one changed: a new server is there for the next program, one whose
+entry or secret changed is connected anew, a removed one closed. No
+restart.
 
 ## In the REPL
 
@@ -81,7 +118,17 @@ a removed one closed. No restart.
      (map :title))
 
 (mcp/call "files" "read.file" {:path "notes.md"})   ; by name, for a name that is no symbol
+
+(mcp/add! "github" {:url "https://api.githubcopilot.com/mcp/" :token "GITHUB_TOKEN"})
+;; => {:name "github" :connected false :tools [] :needs ["GITHUB_TOKEN"] :error "needs the secret …"}
+(mcp/test "github")          ; connected anew: {:connected true :tools ["get_me" …]} or the :error
+(mcp/enable! "github" false) ; off, the entry kept
+(mcp/remove! "github")
 ```
+
+The four that change the servers are done by the main thread, which
+owns `mcp.json`; a new server's `mcp.<server>/…` functions are there
+from the next program on, `mcp/call` reaches them at once.
 
 - A tool's symbol is its name with anything but letters, digits, `_`
   and `-` replaced by `-` (`files.read` is `mcp.files/files-read`).
@@ -119,7 +166,10 @@ the calls it waited for are aborted, and pi-mcp tells the server
 
 ## Tests
 
-`test/rragent/mcp_test.cljs` and the MCP tests of
+`test/rragent/mcp_test.cljs` (with the secrets, the redaction and
+`add!`/`test!`/`enable!`/`remove!`), `tools_test.cljs`'s redaction of a
+real bash call, `page_test.cljs`'s MCP settings and secret field, and
+the MCP tests of
 `codemode_test.cljs` and `codemode_worker_test.cljs` run against a fake
 server on pi-mcp's in-memory transport pair
 (`@earendil-works/pi-mcp/testing`, `test/rragent/fake_mcp.cljs`), and
