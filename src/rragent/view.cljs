@@ -541,11 +541,12 @@
 
 (defn- mcp-state
   "What a server's row says of it."
-  [{:keys [connected connecting off needs error tools]}]
+  [{:keys [connected connecting off needs error tools sign-in]}]
   (cond
     off [:span.state.off [:i18n :mcp/off]]
     connecting [:span.state.connecting [:i18n :mcp/connecting]]
     (seq needs) [:span.state.needs [:i18n :mcp/needs {:names (str/join ", " needs)}]]
+    sign-in [:span.state.needs [:i18n :mcp/needs-sign-in]]
     connected [:span.state.connected [:i18n :mcp/connected {:count tools}]]
     error [:span.state.failed [:i18n :mcp/failed {:error (str error)}]]
     :else [:span.state [:i18n :mcp/idle]]))
@@ -575,7 +576,7 @@
   "One server: its name, where it is, its state, what its last test
    found (`test`), a field for each secret it waits for, and its
    buttons; a remove asks first, in the row (`removing`)."
-  [{:keys [name address off connecting needs] :as server} removing test]
+  [{:keys [name address off connecting needs oauth connected] :as server} removing test]
   [:li.mcp-server {:replicant/key name}
    [:div.head
     [:strong.name name]
@@ -597,6 +598,14 @@
         [:button.link {:on (mcp-command :mcp/test {:name name})
                        :disabled (boolean (or connecting (:running? test)))}
          [:i18n :mcp/test]])
+      (when (and oauth (not off))
+        (if connected
+          [:button.link {:on (mcp-command :mcp/sign-out {:name name})} [:i18n :mcp/sign-out]]
+          ;; a page of its own: the service's sign-in, then the callback
+          [:a.link.sign-in {:href (str "/mcp/oauth/start/" (js/encodeURIComponent name))
+                            :target "_blank"
+                            :rel "noopener"}
+           [:i18n :mcp/sign-in]]))
       [:button.link {:on (mcp-command :mcp/enable {:name name :on? (boolean off)})}
        (if off [:i18n :mcp/turn-on] [:i18n :mcp/turn-off])]
       [:button.link.danger {:on (mcp-command :mcp/remove {:name name})} [:i18n :mcp/remove]]])])

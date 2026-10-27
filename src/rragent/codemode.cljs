@@ -372,7 +372,7 @@
   (mapv (fn [server]
           (-> server
               (update :tools count)
-              (select-keys [:name :ns :tools :connected :connecting :off :needs :error :instructions])))
+              (select-keys [:name :ns :tools :connected :connecting :off :needs :oauth :sign-in :error :instructions])))
         (:servers @(:mcp-catalog handle))))
 
 (defn mcp-tools
@@ -408,12 +408,17 @@
    Streamable HTTP server, :token \"NAME\" when it takes a bearer
    token (the header Authorization: Bearer ${NAME}), :headers {\"X-Api-Key\"
    \"${NAME}\"} for another header; or {:command \"npx\" :args [...]
-   :env {...} :cwd \"folder\"} for a program; :timeout-ms, :enabled.
+   :env {...} :cwd \"folder\"} for a program; :oauth true for a server
+   the person signs in to in their browser (OAuth): the answer has
+   :sign-in true until they did, with the link [:sign-in {:server
+   \"github\"}] in a ```hiccup block of your answer; :oauth {:client-id
+   \"…\" :client-secret \"${NAME}\" :scope \"…\"} for a service that does
+   not register clients by itself; :timeout-ms, :enabled.
    A credential is always a ${NAME}, never its value: the value is
    typed by the person into a field, [:secret {:name \"NAME\"}] in a
    ```hiccup block of your answer, and you never see it. Answers
    {:name :connected :tools [names] :needs [secret names not saved yet]
-   :error}; its functions mcp.<server>/<tool> are there from the next
+   :sign-in :error}; its functions mcp.<server>/<tool> are there from the next
    program on, (mcp/call …) reaches them now."
   [handle server opts]
   (admin handle {:admin :add :name (str server) :opts opts}))
