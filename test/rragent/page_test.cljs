@@ -12,6 +12,7 @@
             [clojure.test :refer [async deftest is testing]]
             [rframes.client.frames :as frames]
             [rragent.bots :as bots]
+            [rragent.artifacts :as artifacts]
             [rragent.db :as db]
             [rragent.fake-gateway :as fake-gateway]
             [rragent.harness :as harness]
@@ -237,6 +238,22 @@
                              (is (= "image/webp" (:mimeType (second message))) "as rragent.images prepares it")
                              (is (= 200 (.-status (await (js/fetch (str base url) #js {:headers #js {:cookie cookie}})))) "the file is served behind the token")
                              (is (= 403 (.-status (await (js/fetch (str base url))))))))))))
+                       (testing "what the pane shows goes with the message, as a line the model reads and the page shows as a hint"
+                         (.setResponses faux #js [(tools-test/answer "Made it pink.")])
+                         (artifacts/pick! db/db (db/bot-path id) "stories/a.html")
+                         (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Make it pink"}))))
+                         (let [answer (await (frame! #(mentions? % "Made it pink.")))
+                               message (->> (:entries (page/conversation (:value (machine/bot id))))
+                                            (filter #(= "pi.user" (:kind %)))
+                                            (last)
+                                            (:model)
+                                            (first)
+                                            (:content))]
+                           (is (= "Make it pink\non screen beside the chat: artifacts/stories/a.html" message) "the model reads the line")
+                           (is (mentions? answer "Open: stories/a.html") "the page shows it as a hint")
+                           (is (not (mentions? answer "on screen beside")) "not as text"))
+                         (artifacts/pick! db/db (db/bot-path id) nil)
+                         (artifacts/browse! db/db (db/bot-path id) ""))
                        (testing "the settings in place of the chat, for this tab alone; a bot picked brings the chat back"
                          (is (= {:success? false :result {:error :no-tab}} (await (command! base cookie :settings/open nil))))
                          (is (= {:success? true} (await (command! base cookie :settings/open {:tab "t1"}))))

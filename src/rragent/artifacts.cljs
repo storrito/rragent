@@ -56,6 +56,31 @@
   "Where the files are served."
   "/artifacts")
 
+(def screen-pattern
+  "The line the page adds to a message of the person's that says what
+   the pane shows beside the chat (`screen-line`)."
+  #"(?m)^on screen beside the chat: (artifacts/.*)$")
+
+(defn screen-line
+  "The line of a message that says what the pane of the bot's map
+   shows: the artifact on screen, else the folder the list browses,
+   with its slash; nil for the list at the root, which says nothing."
+  [{:keys [artifacts/current artifacts/folder]}]
+  (cond
+    (seq current) (str "on screen beside the chat: artifacts/" current)
+    (seq folder) (str "on screen beside the chat: artifacts/" folder "/")))
+
+(defn screen-of
+  "The path the screen line of a message's text names, under
+   `artifacts/`, or nil."
+  [text]
+  (some-> (re-find screen-pattern (str text)) (second) (subs (count "artifacts/"))))
+
+(defn without-screen-line
+  "The text of a message without its screen line."
+  [text]
+  (str/trim (str/replace (str text) #"(?m)^on screen beside the chat: artifacts/.*(\n|$)" "")))
+
 (def kinds
   {"html" :page "htm" :page
    "png" :image "jpg" :image "jpeg" :image "gif" :image "webp" :image "svg" :image

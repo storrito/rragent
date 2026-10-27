@@ -221,6 +221,20 @@
       (finally
         (fs/rmSync root #js {:recursive true :force true})))))
 
+(deftest screen-line-test
+  (testing "the artifact on screen, else the folder browsed, nothing at the root"
+    (is (= "on screen beside the chat: artifacts/stories/a b.html"
+           (artifacts/screen-line {:artifacts/current "stories/a b.html" :artifacts/folder "stories"})))
+    (is (= "on screen beside the chat: artifacts/stories/"
+           (artifacts/screen-line {:artifacts/current nil :artifacts/folder "stories"})))
+    (is (nil? (artifacts/screen-line {:artifacts/current nil :artifacts/folder ""})))
+    (is (nil? (artifacts/screen-line {}))))
+  (testing "read back from a message, and taken out of it"
+    (let [text "Make it pink\non screen beside the chat: artifacts/stories/a b.html\nimage: uploads/0a0b.png"]
+      (is (= "stories/a b.html" (artifacts/screen-of text)))
+      (is (= "Make it pink\nimage: uploads/0a0b.png" (artifacts/without-screen-line text)))
+      (is (nil? (artifacts/screen-of "on screen: nothing"))))))
+
 (deftest rename-and-trash-test
   (let [root (temp-dir "rragent-rename-")
         dir (path/join root "artifacts")

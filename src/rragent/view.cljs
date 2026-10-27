@@ -108,12 +108,15 @@
 
 (defn- with-media
   "The user item with its text, less the lines that name attached
-   files, and the files as `:media` (`rragent.uploads/attachments`)."
+   files and the pane's screen, the files as `:media`
+   (`rragent.uploads/attachments`) and what was on screen as `:screen`
+   (`rragent.artifacts/screen-of`)."
   [item content]
   (let [text (text-of content)]
     (assoc item
-           :text (uploads/without-lines text)
-           :media (uploads/attachments text))))
+           :text (artifacts/without-screen-line (uploads/without-lines text))
+           :media (uploads/attachments text)
+           :screen (artifacts/screen-of text))))
 
 (defn- human-size
   [bytes]
@@ -359,7 +362,7 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media bytes pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
+  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
@@ -369,6 +372,8 @@
        [:p.text text])
      (when (seq media)
        (media-view base media))
+     (when (seq screen)
+       [:p.hint [:i18n :chat/on-screen {:path screen}]])
      (when pending?
        [:p.hint [:i18n :chat/queued]])]
 

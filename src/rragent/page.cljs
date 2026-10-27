@@ -221,11 +221,13 @@
   "The text of the composer and the files attached to it submitted as
    an input of the bot's conversation (`rragent.uploads/content`: a
    line per file, the pictures as image blocks when the model takes
-   them); the answer arrives as frames."
+   them), with a line for what the pane shows
+   (`rragent.artifacts/screen-line`), so that \"this\" and \"here\" mean
+   it; the answer arrives as frames."
   [w]
   (let [{:keys [text attachments]} (command/command-data w)
         text (str/trim (str text))
-        {:keys [conversation uploads]} (bot-of-command w)
+        {:keys [conversation uploads] :as bot} (bot-of-command w)
         attachments (when conversation (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
     (cond
       (nil? conversation)
@@ -235,7 +237,8 @@
       (command/rejected w :empty-message)
 
       :else
-      (let [content (await (uploads/content uploads text attachments (await (harness/sees-images? (:models (machine/agent)) conversation))))]
+      (let [text (str/join "\n" (remove nil? [text (artifacts/screen-line bot)]))
+            content (await (uploads/content uploads text attachments (await (harness/sees-images? (:models (machine/agent)) conversation))))]
         (await (harness/submit conversation #js {:type "input" :content (clj->js content)}))
         (command/accepted w)))))
 
