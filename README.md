@@ -651,8 +651,8 @@ answer, an error the tool's error. The context is closed: no `js/`, no
 interop on values, no `require` of anything but Clojure's own namespaces,
 no reading of the environment, and `aget`, `js-obj` and their kind say
 that they are not there. What a program reaches, it reaches through the
-namespace `agent`, referred in `user`, with `composio/*` and `storrito/*`
-beside it; `(help)` lists them and `(doc f)` explains each:
+namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
+`mcp/*` and `mcp.<server>/*` beside it; `(help)` lists them and `(doc f)` explains each:
 
 - `(connectors)`: the gateway's list, read now, as data; `(connector
   "github")`: one connection, by provider name or by id.
@@ -679,6 +679,14 @@ beside it; `(help)` lists them and `(doc f)` explains each:
   `storrito/<name>` that takes a map and answers the API's data, a
   failed call a throw with what the API said; a 429 or a 5xx is tried
   again.
+- `(mcp.storrito/list_stories {:limit 5})`, `(mcp/servers)`,
+  `(mcp/tools "storrito")`, `(mcp/call "files" "read.file" {...})`: the
+  tools of the MCP servers named in `mcp.json` of the machine's folder
+  (the `mcpServers` file of pi and pchat, a URL with headers or a
+  program), a namespace per server, connected by the main thread at the
+  first program (`rragent.mcp`, over `@earendil-works/pi-mcp`); the
+  structured content or the text (JSON as data), a failure a throw,
+  pictures shown after the answer. See [docs/mcp.md](docs/mcp.md).
 - `(remember "review-posted" {:id 4711})` and `(recall {:event
   "review-posted"})`: the facts (`rragent.facts`), the same entries the
   `remember` and `recall` tools make; a program sees the facts as they
