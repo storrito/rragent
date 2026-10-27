@@ -265,18 +265,20 @@
    them, any otherwise, and only the kinds the laptop has (`devices`):
    a remembered id that is gone, or one kind that cannot be had, does
    not stop the panel; the other alone is asked for then. Without
-   either, an empty stream: the screen alone records still."
-  [mic camera {:keys [mics cameras]}]
+   either, an empty stream: the screen alone records still. The camera
+   only while the webcam is ticked (`webcam?`): unticked, it is let go."
+  [mic camera {:keys [mics cameras]} webcam?]
   (let [picture {:width {:ideal 1920}
                  :height {:ideal 1080}
                  :frameRate {:ideal 30}}
+        camera? (and webcam? (seq cameras))
         chosen (cond-> {}
                  (seq mics) (assoc :audio (if mic {:deviceId {:ideal mic}} true))
-                 (seq cameras) (assoc :video (cond-> picture camera (assoc :deviceId {:ideal camera}))))
+                 camera? (assoc :video (cond-> picture camera (assoc :deviceId {:ideal camera}))))
         any (cond-> {}
               (seq mics) (assoc :audio true)
-              (seq cameras) (assoc :video true))
-        tries (distinct (remove empty? [chosen any (when (seq cameras) {:video true}) (when (seq mics) {:audio true})]))]
+              camera? (assoc :video true))
+        tries (distinct (remove empty? [chosen any (when camera? {:video true}) (when (seq mics) {:audio true})]))]
     (loop [tries tries]
       (if-let [constraints (first tries)]
         (let [stream (try
@@ -333,7 +335,7 @@
     (some-> (:effects @session*) effects/stop!)
     (stop-tracks! (:raw @session*))
     (swap! session* dissoc :effects :raw :preview :analyser :samples)
-    (let [raw (await (user-media mic camera devices))
+    (let [raw (await (user-media mic camera devices (contains? (sources store) :webcam)))
           ;; the meter, when there is a microphone
           audio-context (when (has-audio? raw) (or (:audio-context @session*) (js/AudioContext.)))
           analyser (when audio-context (.createAnalyser audio-context))]
@@ -1008,6 +1010,7 @@
 (declare pair!)
 
 (defn toggle!
+
   "A source ticked or unticked, remembered. The phone's camera and its
    screen exclude each other (`exclusive`): ticking one unticks the
    other. The phone ticked without a phone connected shows the pairing
@@ -1026,6 +1029,11 @@
         :phone (update! store dissoc :pair)
         :phone-screen (drop-usb! store)
         nil))
+    ;; the camera let go when the webcam is unticked, asked for again when ticked
+    (when (= :webcam source)
+      (-> (preview! store)
+          (.catch (fn [error]
+                    (failed! store error)))))
     (when (and (= :phone source) (contains? now :phone) (nil? phone) (nil? (:pair (:ui/recorder @store))))
       (pair! store))))
 
@@ -1179,7 +1187,7 @@
   [store labels {:keys [screen? usb devices] :as recorder} phone ready?]
   (let [ticked (or (:sources recorder) default-sources)]
     [:div.preview {:replicant/key "preview"}
-     (when (seq (:cameras devices))
+     (when (and (seq (:cameras devices)) (contains? ticked :webcam))
        [:video.camera {:autoplay true
                        :playsinline true
                        :replicant/on-mount preview-mount}])
@@ -1194,8 +1202,8 @@
   "The webcam's effects when this browser has them: the background
    behind the person and the automatic light, with a word on the
    model loading, or why it did not; what the green is for."
-  [store labels {:keys [effects effects-status effects-supported?]} ready?]
-  (when effects-supported?
+  [store labels {:keys [effects effects-status effects-supported?] :as recorder} ready?]
+  (when (and effects-supported? (contains? (or (:sources recorder) default-sources) :webcam))
     (let [{:keys [background auto-light?]} (or effects effects/default-settings)]
       [:div.effects {:replicant/key "effects"}
        [:label.background

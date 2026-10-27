@@ -96,7 +96,16 @@
       (is (str/includes? html ":video.camera"))
       (is (re-find #":checked false, :disabled true, :on \{:change #object\[[^\]]*\]\}\}\] \"Microphone alone\"" html))))
 
+  (testing "the webcam unticked: no camera live, no effects, though there is a camera"
+    (let [html (render {:ui/recorder {:status :ready
+                                      :sources #{:screen}
+                                      :effects-supported? true
+                                      :devices {:mics [] :cameras [{:id "c" :label "Cam"}]}}})]
+      (is (not (str/includes? html ":video.camera")))
+      (is (not (str/includes? html ":div.effects")))
+      (is (str/includes? html "Cam") "the camera can still be chosen for later")))
   (testing "without a camera: no camera live, a word in its place"
+
     (let [html (render {:ui/recorder {:status :ready
                                       :sources #{:screen}
                                       :devices {:mics [{:id "m" :label "Mic"}] :cameras []}}})]
