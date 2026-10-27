@@ -505,6 +505,29 @@ draft names the files; the person tells the agent how the two go
 together, and the agent aligns them by their waveforms and composes the
 video. Chrome on a desktop only.
 
+The webcam's picture can go through effects on the laptop
+(`rragent.client.effects`, remembered in the browser): *Background*
+leaves it as it is, blurs what is behind the person, or takes it away
+for a plain green (for the agent to key out with ffmpeg's `chromakey`
+when it lays the webcam over the screen) or black; *Light and colour
+automatic* asks the camera for continuous exposure and white balance
+and corrects the brightness, contrast and saturation of the person as
+the picture goes. A worker (`public/effects/worker.js`) does the work:
+MediaPipe's selfie segmenter (the landscape model, 256 × 144, Apache
+2.0, in `public/effects/`; its bundle and wasm come from
+`@mediapipe/tasks-vision` into `dist/public/effects/` at build, served
+at `/effects/*`) finds the person in every frame, a canvas composes
+the frame, and the frames flow through streams
+(`MediaStreamTrackProcessor`, `MediaStreamTrackGenerator`), so the
+webcam keeps being processed while the tab is in the background, where
+a page's animation frames stop. The preview, the test and the
+recording show the processed picture; `recording.json` says which
+background the webcam was recorded on (`effects`, with the green to
+key out), and so does the draft. Until the model is loaded, and when
+it could not be, the webcam passes through as it is and the panel says
+so. Chrome has the streams; another browser sees no effects.
+
+
 A phone can be a camera too, instead of the webcam or besides it: *Pair
 a phone* in the panel shows a QR code, the phone opens its link (it is
 let in like a browser with the token) and lands on its page, which shows
