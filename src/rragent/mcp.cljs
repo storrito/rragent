@@ -224,11 +224,18 @@
     (catch :default e
       (js/console.error "[mcp]" server-name "tools/list after a change failed:" (ex-message e)))))
 
+(defn- same-entry?
+  "Whether the server still has `entry`: an attempt made for an entry
+   the file changed meanwhile, or removed, must not touch the state."
+  [{:keys [state]} server-name entry]
+  (let [s (get-in @state [:servers server-name])]
+    (and s (= entry (:entry s)))))
+
 (defn- ^:async open!
   "One connection to the server: initialize, its tools listed. Answers
    nothing; the state says how it went."
   [{:keys [state] :as registry} server-name]
-  (let [{:keys [spec timeout]} (get-in @state [:servers server-name])
+  (let [{:keys [spec timeout entry]} (get-in @state [:servers server-name])
         transport (make-transport registry server-name spec)
         client (McpClient. #js {:name "rragent" :version version/version :requestTimeoutMs timeout})]
     (try
@@ -240,7 +247,7 @@
         (.onNotification client "notifications/tools/list_changed"
                          (fn [_] (refresh-tools! registry server-name client)))
         (.onError client (fn [e] (js/console.error "[mcp]" server-name (ex-message e))))
-        (if (get-in @state [:servers server-name])
+        (if (same-entry? registry server-name entry)
           (swap! state (fn [s]
                          (bump (update-in s [:servers server-name] assoc
                                           :client client
@@ -248,11 +255,11 @@
                                           :instructions (.-instructions client)
                                           :error nil
                                           :failed-at nil))))
-          ;; the entry was removed meanwhile
+          ;; the entry was changed or removed meanwhile
           (close-client! client)))
       (catch :default e
         (close-client! client)
-        (when (get-in @state [:servers server-name])
+        (when (same-entry? registry server-name entry)
           (swap! state (fn [s]
                          (bump (update-in s [:servers server-name] assoc
                                           :client nil
@@ -264,9 +271,14 @@
    promise that resolves when the attempt is over."
   [{:keys [state] :as registry} server-name]
   (or (get-in @state [:servers server-name :connecting])
-      (let [attempt (-> (open! registry server-name)
+      (let [done (atom nil)
+            attempt (-> (open! registry server-name)
                         (.finally (fn []
-                                    (swap! state update-in [:servers server-name] dissoc :connecting))))]
+                                    (swap! state (fn [s]
+                                                   (if (identical? @done (get-in s [:servers server-name :connecting]))
+                                                     (update-in s [:servers server-name] dissoc :connecting)
+                                                     s))))))]
+        (reset! done attempt)
         (swap! state assoc-in [:servers server-name :connecting] attempt)
         attempt)))
 

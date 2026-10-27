@@ -13,7 +13,8 @@
             [clojure.test :refer [async deftest is testing]]
             [rragent.fake-mcp :as fake-mcp]
             [rragent.mcp :as mcp]
-            [rragent.test-home :as test-home]))
+            [rragent.test-home :as test-home]
+            [rragent.tools.eval :as eval-tool]))
 
 (defn- write-servers!
   [home servers]
@@ -204,6 +205,29 @@
                (is (= (str "MCP servers in " (mcp/file home) ": other") (mcp/report registry))))
              registry)))))
 
+(deftest changed-while-connecting-test
+  (async done
+    (run done
+         (^:async fn []
+           (let [fake (fake-mcp/fake {:init-delay-ms 100})
+                 home (test-home/make)
+                 _ (write-servers! home {:fake {:url "https://old.example/mcp"}})
+                 registry (mcp/registry {:file (mcp/file home) :home home :transport (:transport-fn fake)})]
+             (testing "a program that waits less than the connection takes runs without the server, which goes on connecting"
+               (let [{:keys [servers]} (await (mcp/catalog registry 10))]
+                 (is (:connecting (first servers)))
+                 (is (empty? (:tools (first servers))))))
+             (testing "the entry changed while it connected: the old attempt leaves the new entry alone"
+               (write-servers! home {:fake {:url "https://new.example/mcp"}})
+               (fs/utimesSync (mcp/file home) (js/Date.) (js/Date. (+ 5000 (js/Date.now))))
+               (let [{:keys [servers]} (await (mcp/catalog registry))]
+                 (is (:connected (first servers)))
+                 (is (= ["https://old.example/mcp" "https://new.example/mcp"] (mapv (comp :url second) @(:specs fake)))))
+               (await (sleep 150))
+               (is (= "echo: new" (:value (await (mcp/call! registry "fake" "echo" {:text "new"})))))
+               (is (= 2 (count @(:specs fake))) "no third connection"))
+             registry)))))
+
 (deftest no-file-test
   (async done
     (run done
@@ -315,3 +339,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
                  (js-delete (.-env js/process) "RRAGENT_TEST_HTTP")
                  (test-home/remove! home)))
              nil)))))
+
+(deftest eval-output-test
+  (testing "the eval tool's result: the program's text, then the pictures of its MCP calls, at most eight"
+    (is (= [{:type "text" :text "=> 1"}]
+           (js->clj (.-output (eval-tool/output "=> 1" nil)) :keywordize-keys true)))
+    (let [output (js->clj (.-output (eval-tool/output "=> 1" (repeat 10 {:data "iVBO" :mime-type "image/png"}))) :keywordize-keys true)]
+      (is (= 9 (count output)))
+      (is (= {:type "image" :data "iVBO" :mimeType "image/png"} (second output))))))

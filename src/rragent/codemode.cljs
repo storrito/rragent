@@ -362,15 +362,20 @@
 
 (defn mcp-tools
   "The tools of the MCP server `server`: {:name :fn :description}
-   each, :fn the function that calls it; (doc <fn>) says its
+   each, :fn the function that calls it, nil for a name whose symbol
+   an earlier tool has (mcp/call reaches it); (doc <fn>) says its
    arguments."
   [handle server]
   (let [{:keys [ns tools]} ((catalog-server server) handle)]
-    (mapv (fn [{:keys [name description]}]
-            {:name name
-             :fn (symbol ns (mcp/symbol-name name))
-             :description description})
-          tools)))
+    (first
+     (reduce (fn [[out seen] {:keys [name description]}]
+               (let [sym-name (mcp/symbol-name name)]
+                 [(conj out {:name name
+                             :fn (when-not (seen sym-name) (symbol ns sym-name))
+                             :description description})
+                  (conj seen sym-name)]))
+             [[] #{}]
+             tools))))
 
 (defn mcp-call
   "The tool `tool` of the MCP server `server` called with the map

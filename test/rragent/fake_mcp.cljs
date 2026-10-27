@@ -71,14 +71,15 @@
     (send! transport {:jsonrpc "2.0" :id id :error {:code -32602 :message (str "Unknown tool " name)}})))
 
 (defn- answer!
-  [{:keys [requests cancelled tools] :as fake} transport message]
+  [{:keys [requests cancelled tools init-delay-ms] :as fake} transport message]
   (let [{:keys [id method params]} (js->clj message :keywordize-keys true)]
     (swap! requests conj method)
     (case method
-      "initialize" (result! transport id {:protocolVersion (:protocolVersion params)
-                                          :capabilities {:tools {:listChanged true}}
-                                          :serverInfo {:name "fake-mcp" :version "1"}
-                                          :instructions "Use echo to test."})
+      "initialize" (js/setTimeout #(result! transport id {:protocolVersion (:protocolVersion params)
+                                                          :capabilities {:tools {:listChanged true}}
+                                                          :serverInfo {:name "fake-mcp" :version "1"}
+                                                          :instructions "Use echo to test."})
+                                  (or init-delay-ms 0))
       "tools/list" (let [all @tools
                          half (quot (count all) 2)]
                      (if (:cursor params)
@@ -96,9 +97,10 @@
    request ids it was told to cancel, the server ends of the
    connections, the tools it lists. `expire-once` makes the first
    tools/call of the first connection fail as an HTTP session the
-   server forgot."
-  [& [{:keys [expire-once]}]]
-  (let [this {:requests (atom [])
+   server forgot; `init-delay-ms` delays the answer to initialize."
+  [& [{:keys [expire-once init-delay-ms]}]]
+  (let [this {:init-delay-ms init-delay-ms
+              :requests (atom [])
               :calls (atom [])
               :cancelled (atom [])
               :servers (atom [])
