@@ -18,6 +18,10 @@
             [rragent.home :as home]
             [rragent.images-test :as images-test]
             [rragent.machine :as machine]
+            [rragent.mcp :as mcp]
+            [rragent.secrets :as secrets]
+            [rragent.mcp :as mcp]
+            [rragent.secrets :as secrets]
             [rragent.page :as page]
             [rragent.rframes.http :as http]
             [rragent.rframes.sse :as sse]
@@ -453,5 +457,85 @@
                    (test-home/remove! home)
                    (stop)
                    (sync-fetch/stop!)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(defn- ^:async eventually
+  "Polls `f` every 20 ms until it answers truthy, at most `ms`."
+  [ms f]
+  (let [until (+ (js/Date.now) ms)]
+    (loop []
+      (if-let [v (f)]
+        v
+        (if (< until (js/Date.now))
+          nil
+          (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve 20))))
+              (recur)))))))
+
+(deftest mcp-settings-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (.setResponses faux #js [(tools-test/answer "Thanks, testing it now.")])
+             (fs/writeFileSync (mcp/file home)
+                               (js/JSON.stringify (clj->js {:mcpServers {:shop {:url "http://127.0.0.1:1/mcp"
+                                                                                :headers {:Authorization "Bearer ${SHOP_TOKEN}"}}}})))
+             (let [{:keys [id base stop!]} (await (start! home models))
+                   controller (js/AbortController.)
+                   file (secrets/file home)]
+               (try
+                 (page/follow-mcp!)
+                 (let [cookie (await (login base "s3cret"))
+                       {:keys [reader decoder]} (await (stream (str base "/bot/" id) cookie controller "t1"))
+                       {:keys [frame!]} (frames! reader decoder "")]
+                   (testing "the MCP section of the settings: the server waits for its secret, a field takes it"
+                     (is (= [{:name "shop" :address "http://127.0.0.1:1/mcp" :tools 0 :needs ["SHOP_TOKEN"]
+                              :error "needs the secret SHOP_TOKEN, not saved yet (a field in the chat or the MCP settings takes it)"}]
+                            (:mcp @db/db)))
+                     (is (= {:success? true} (await (command! base cookie :settings/open {:tab "t1"}))))
+                     (is (= {:success? false :result {:error :no-such-section}} (await (command! base cookie :settings/section {:tab "t1" :section :nope}))))
+                     (is (= {:success? true} (await (command! base cookie :settings/section {:tab "t1" :section :mcp}))))
+                     (let [frame (await (frame! #(mentions? % "Waiting for SHOP_TOKEN")))]
+                       (is (= "SHOP_TOKEN" (:ui/name (second (find-tag frame :ui/secret-field)))))))
+                   (testing "a secret saved from a bot's field: in the file, the bot told its name, never its value; the server tried"
+                     (is (= {:success? false :result {:error :bad-secret-name}} (await (command! base cookie :secret/save {:name "a b" :value "x"}))))
+                     (is (= {:success? false :result {:error :empty-secret}} (await (command! base cookie :secret/save {:name "SHOP_TOKEN" :value " "}))))
+                     (is (= {:success? true} (await (command! base cookie :secret/save {:bot id :name "SHOP_TOKEN" :value "shop-s3cret-1"}))))
+                     (is (= {"SHOP_TOKEN" "shop-s3cret-1"} (secrets/read-all file)))
+                     (is (= ["SHOP_TOKEN"] (:secret-names @db/db)))
+                     (let [said (await (eventually 5000 #(some (fn [entry] (when (= "pi.user" (:kind entry)) (js/JSON.stringify (clj->js (:model entry)))))
+                                                                 (:entries (page/conversation (:value (machine/bot id)))))))]
+                       (is (str/includes? (str said) "I saved the secret SHOP_TOKEN"))
+                       (is (not (str/includes? (str said) "shop-s3cret-1"))))
+                     (is (await (eventually 5000 #(let [[shop] (:mcp @db/db)] (and (empty? (:needs shop)) (:error shop) (not (:connecting shop))))))
+                         (str "no longer waiting: tried, and refused at port 1 " (pr-str (:mcp @db/db)))))
+                   (testing "remove asks first in the row, then takes the server out of the file"
+                     (is (= {:success? true} (await (command! base cookie :mcp/remove {:name "shop"}))))
+                     (is (= "shop" (:mcp-removing @db/db)))
+                     (is (= {:success? true} (await (command! base cookie :mcp/keep {}))))
+                     (is (nil? (:mcp-removing @db/db)))
+                     (await (command! base cookie :mcp/remove {:name "shop"}))
+                     (is (= {:success? true} (await (command! base cookie :mcp/remove {:name "shop"}))))
+                     (is (= {} (mcp/read-servers (mcp/file home))))
+                     (is (= [] (:mcp @db/db))))
+                   (testing "a saved secret removed from the settings"
+                     (is (= {:success? true} (await (command! base cookie :secret/remove {:name "SHOP_TOKEN"}))))
+                     (is (= {} (secrets/read-all file)))
+                     (is (= [] (:secret-names @db/db))))
+                   (testing "Connect a service: a bot of its own for it, shown in the tab"
+                     (is (= {:success? true} (await (command! base cookie :mcp/setup {:tab "t1"}))))
+                     (let [id2 (get-in @db/db [:tabs "t1"])
+                           definition (:definition (machine/bot id2))]
+                       (is (not= id id2))
+                       (is (= "MCP setup" (:name definition)))
+                       (is (str/includes? (:instructions definition) "(mcp/add! "))
+                       (is (str/starts-with? (get-in definition [:metadata "ask"]) "Which service"))
+                       (is (not (contains? (:settings-open @db/db) "t1")) "the settings closed in that tab"))))
+                 (finally
+                   (.abort controller)
+                   (swap! db/db dissoc :settings-section :mcp :mcp-removing :secret-names)
+                   (await (stop!))
+                   (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

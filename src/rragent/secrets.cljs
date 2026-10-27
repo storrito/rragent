@@ -147,7 +147,7 @@
 (defn current
   "The redactions of `source` as they are now."
   [{:keys [file env cache]}]
-  (let [mtime (try (.-mtimeMs (fs/statSync file)) (catch :default _ nil))
+  (let [mtime (try (let [stat (fs/statSync file)] [(.-mtimeMs stat) (.-ino stat) (.-size stat)]) (catch :default _ nil))
         env-map (env-secrets env)
         {cached-mtime :mtime cached-env :env pairs :pairs} @cache]
     (if (and pairs (= mtime cached-mtime) (= env-map cached-env))

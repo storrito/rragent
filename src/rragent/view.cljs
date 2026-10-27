@@ -539,22 +539,121 @@
      (= :failed checked)
      [:p.result.failed [:i18n :update/lookup-failed]])])
 
+(defn- mcp-state
+  "What a server's row says of it."
+  [{:keys [connected connecting off needs error tools]}]
+  (cond
+    off [:span.state.off [:i18n :mcp/off]]
+    connecting [:span.state.connecting [:i18n :mcp/connecting]]
+    (seq needs) [:span.state.needs [:i18n :mcp/needs {:names (str/join ", " needs)}]]
+    connected [:span.state.connected [:i18n :mcp/connected {:count tools}]]
+    error [:span.state.failed [:i18n :mcp/failed {:error (str error)}]]
+    :else [:span.state [:i18n :mcp/idle]]))
+
+(defn- mcp-command
+  [kind data]
+  {:click [[:data/command {:command/kind kind :command/data data}]]})
+
+(defn- secret-field
+  "The field that saves the secret `secret-name` from the settings."
+  [secret-name]
+  [:ui/secret-field {:ui/name secret-name
+                     :ui/label secret-name
+                     :ui/button [:i18n :secret/save]
+                     :ui/placeholder [:i18n :secret/placeholder]}])
+
+(defn- mcp-row
+  "One server: its name, where it is, its state, a field for each
+   secret it waits for, and its buttons; a remove asks first, in the
+   row (`removing`)."
+  [{:keys [name address off connecting needs] :as server} removing]
+  [:li.mcp-server {:replicant/key name}
+   [:div.head
+    [:strong.name name]
+    (when address
+      [:span.address address])
+    (mcp-state server)]
+   (for [secret-name needs]
+     [:div.secret {:replicant/key secret-name}
+      (secret-field secret-name)])
+   (if (= name removing)
+     [:div.actions.confirm
+      [:span [:i18n :mcp/remove-confirm {:name name}]]
+      [:button.link.danger {:on (mcp-command :mcp/remove {:name name})} [:i18n :mcp/remove]]
+      [:button.link {:on (mcp-command :mcp/keep {})} [:i18n :mcp/keep]]]
+     [:div.actions
+      (when-not off
+        [:button.link {:on (mcp-command :mcp/test {:name name})
+                       :disabled (boolean connecting)}
+         [:i18n :mcp/test]])
+      [:button.link {:on (mcp-command :mcp/enable {:name name :on? (boolean off)})}
+       (if off [:i18n :mcp/turn-on] [:i18n :mcp/turn-off])]
+      [:button.link.danger {:on (mcp-command :mcp/remove {:name name})} [:i18n :mcp/remove]]])])
+
+(defn mcp-section
+  "The MCP servers of the machine (`rragent.mcp/overview`): each with
+   its state and the buttons to test, switch and remove it; the button
+   that opens a new bot to connect a service (`:mcp/setup`, made in
+   this tab); and the saved secrets, which only go from here."
+  [{:keys [servers removing secrets]}]
+  [:section.mcp
+   [:h2 [:i18n :mcp/title]]
+   [:p.explain [:i18n :mcp/explain]]
+   (if (seq servers)
+     [:ul.mcp-servers
+      (for [server servers]
+        (mcp-row server removing))]
+     [:p [:i18n :mcp/none]])
+   [:p.setup
+    [:button.primary {:on {:click [[:data/command {:command/kind :mcp/setup
+                                                   :command/data {:tab :ui/tabid}}]]}}
+     [:i18n :mcp/setup]]
+    [:span.explain " " [:i18n :mcp/setup-explain]]]
+   (when (seq secrets)
+     (list
+      [:h3 [:i18n :mcp/secrets]]
+      [:p.explain [:i18n :mcp/secrets-explain]]
+      [:ul.secrets
+       (for [secret-name secrets]
+         [:li {:replicant/key secret-name}
+          [:code secret-name]
+          " "
+          [:button.link.danger {:on (mcp-command :secret/remove {:name secret-name})}
+           [:i18n :mcp/secret-remove]]])]))])
+
+(def settings-sections
+  [:updates :mcp])
+
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
    (`:settings/open`: the button at the bottom of the sidebar, or the
    version in the header): a bar with the title and the way back
-   (`:settings/close`), and the one section there is, the updates
-   (`updates-section`). More sections follow here."
-  [update]
-  (list
-   [:header.bar
-    [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
-    [:h1 [:i18n :settings/title]]
-    [:button.link.close {:on {:click [[:data/command {:command/kind :settings/close
-                                                      :command/data {:tab :ui/tabid}}]]}}
-     [:i18n :settings/close]]]
-   [:div.settings
-    (updates-section update)]))
+   (`:settings/close`), the tabs of the sections (`:settings/section`,
+   per tab), and the section the tab picked: the updates
+   (`updates-section`) or the MCP servers (`mcp-section`, `mcp` its
+   data)."
+  [update section mcp]
+  (let [section (if (some #{section} settings-sections) section :updates)]
+    (list
+     [:header.bar
+      [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
+      [:h1 [:i18n :settings/title]]
+      [:button.link.close {:on {:click [[:data/command {:command/kind :settings/close
+                                                        :command/data {:tab :ui/tabid}}]]}}
+       [:i18n :settings/close]]]
+     [:div.settings
+      [:nav.tabs {:role "tablist" :aria-label [:i18n :settings/tabs]}
+       (for [k settings-sections]
+         [:button.tab {:replicant/key (name k)
+                       :role "tab"
+                       :aria-selected (= k section)
+                       :class (when (= k section) "current")
+                       :on {:click [[:data/command {:command/kind :settings/section
+                                                    :command/data {:tab :ui/tabid :section k}}]]}}
+          [:i18n (keyword "settings" (name k))]])]
+      (case section
+        :mcp (mcp-section mcp)
+        (updates-section update))])))
 
 (defn phone-words
   "The words of the phone's page (`rragent.client.phone`), translated
@@ -1099,8 +1198,9 @@
    when it did not; `:phone`, the phone paired as a camera while its
    hello is fresh (`rragent.phone/status`), or nil; `:settings?`,
    whether this tab shows the settings in place of the bot's chat and
-   pane (`settings`)."
-  [{:keys [bots bot conversation locale onboarding update note failed phone settings?] pane :artifacts}]
+   pane (`settings`), `:settings-section` which of their sections, and
+   `:mcp` what the MCP section shows (`mcp-section`)."
+  [{:keys [bots bot conversation locale onboarding update note failed phone settings? settings-section mcp] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -1117,7 +1217,7 @@
      (if settings?
        ;; keyed apart from the chat: the two share no element
        [:div.main.settings-open {:replicant/key "settings"}
-        (settings update)]
+        (settings update settings-section mcp)]
        ;; keyed by the bot: a switch builds the chat anew, the transcripts
        ;; of two bots share no element
        [:div.main {:replicant/key (str "bot-" id)}

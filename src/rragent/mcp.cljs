@@ -171,9 +171,13 @@
         {file-name {:error (str "the file is not JSON: " (ex-message e))}}))))
 
 (defn- mtime
+  "What says that `file` changed: its time, inode and size. A write of
+   ours renames a new file over it, a new inode, so two quick writes in
+   the same tick of the clock differ too."
   [file]
   (try
-    (.-mtimeMs (fs/statSync file))
+    (let [stat (fs/statSync file)]
+      [(.-mtimeMs stat) (.-ino stat) (.-size stat)])
     (catch :default _ nil)))
 
 ;;; The registry
@@ -702,6 +706,14 @@
                       (catch :default _ url))
       (string? command) (path/basename command)
       :else nil)))
+
+(defn using
+  "The names of the servers whose entries name the secret
+   `secret-name` as `${NAME}`."
+  [{:keys [state]} secret-name]
+  (vec (for [[server-name {:keys [entry]}] (sort-by key (:servers @state))
+             :when (and (map? entry) (some #{secret-name} (vars-of entry)))]
+         server-name)))
 
 (defn overview
   "The servers for the MCP settings of the page, by name:

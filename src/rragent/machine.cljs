@@ -317,11 +317,12 @@
    tool, given its folder and definition (`rragent.bots/definition-text`
    over the assistant's text with `:name`, `:instructions` and
    `:skill`; with none of them the assistant's text as it is, and the
-   bot names itself after its first answer), opened and followed.
-   Answers `{:id :name}`, the name the definition's."
-  [id {:keys [skill] :as given}]
+   bot names itself after its first answer; `:text`, a definition of
+   its own, written as it is), opened and followed. Answers `{:id
+   :name}`, the name the definition's."
+  [id {:keys [skill text] :as given}]
   (bots/check-skill! skill)
-  (bots/write-definition! (home) id (bots/definition-text (bots/assistant-text (home)) given))
+  (bots/write-definition! (home) id (or text (bots/definition-text (bots/assistant-text (home)) given)))
   (await (open-bot! id))
   {:id (str id) :name (name-of id)})
 
