@@ -87,7 +87,12 @@ the machine's page, token and environment stay what they were.
 A bot is made by one click on "New bot" in the sidebar, which asks
 for nothing: the bot starts from the generic assistant definition as
 it is (`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the
-bundle carries a copy as `assistant.md`), its page opens, and it
+bundle carries a copy as `assistant.md`, with the skills clone's
+repository filled in for `SKILLS_REPO`, and `<home>/assistant.md` is
+written anew from it when it is an earlier version of that copy,
+`deploy/agent/versions.txt` holding the sum of each, so that a release
+reaches the new bots of a machine made before it; a file someone
+changed stays), its page opens, and it
 names itself: the generic definition tells it to write a short
 fitting name into the `name:` line of its own `AGENT.md` once it knows
 what the person wants, after its first answer at the latest, which the

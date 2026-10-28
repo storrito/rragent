@@ -6,7 +6,8 @@
    (`rragent.home` says what is in it). Beside them `<home>/shared/`,
    the folder every bot's bash reads and writes, `<home>/assistant.md`,
    the generic definition a new bot starts from (`deploy/agent/AGENT.md`;
-   the build keeps a copy beside the bundle as `assistant.md`), and
+   the build keeps a copy beside the bundle as `assistant.md`, written
+   anew over an earlier version of it, see `assistant-text`), and
    `<home>/trash/<id>/`, where a deleted bot's folder goes.
 
    A machine from before the bots ran one agent at the top of the
@@ -20,6 +21,7 @@
    failure undoes the renames made and throws, the old layout as it
    was."
   (:require ["@earendil-works/pi-durable" :refer [ROOT_CONVERSATION_ID]]
+            ["node:crypto" :as crypto]
             ["node:fs" :as fs]
             ["node:path" :as path]
             ["node:url" :as node-url]
@@ -70,24 +72,82 @@
     (catch :default _
       false)))
 
+(defn- bundled
+  "A file the build keeps beside the bundle, `name`, else its `source`
+   in the checkout."
+  [name source]
+  (let [beside (path/join (path/dirname (node-url/fileURLToPath (js* "import.meta.url"))) name)]
+    (if (fs/existsSync beside)
+      beside
+      (path/resolve source))))
+
 (defn bundled-assistant-file
   "The generic definition as the bundle carries it: `assistant.md`
    beside the bundle (the build copies `deploy/agent/AGENT.md` there),
    else that file of the checkout."
   []
-  (let [beside (path/join (path/dirname (node-url/fileURLToPath (js* "import.meta.url"))) "assistant.md")]
-    (if (fs/existsSync beside)
-      beside
-      (path/resolve "deploy/agent/AGENT.md"))))
+  (bundled "assistant.md" "deploy/agent/AGENT.md"))
+
+(declare skills-dir)
+
+(defn skills-repo
+  "The GitHub repository the skills clone comes from, `owner/name`, as
+   its `.git/config` names it; nil without a clone."
+  []
+  (when-let [dir (skills-dir)]
+    (try
+      (second (re-find #"url\s*=\s*(?:https://github\.com/|git@github\.com:)([^/\s]+/[^/\s]+?)(?:\.git)?\s"
+                       (fs/readFileSync (path/join dir ".git" "config") "utf8")))
+      (catch :default _
+        nil))))
+
+(defn normalize
+  "A definition with its skills repository written back to the
+   placeholder of `deploy/agent/AGENT.md`, which the image fills in."
+  [text]
+  (str/replace-first (str text) #"`github\.com/[^`\s]+`" "`github.com/SKILLS_REPO`"))
+
+(defn digest
+  [text]
+  (-> (crypto/createHash "sha256") (.update (str text) "utf8") (.digest "hex")))
+
+(defn known-versions
+  "The sums of every version of the generic definition, normalized
+   (`deploy/agent/versions.txt`, beside the bundle as
+   `assistant-versions.txt`)."
+  []
+  (try
+    (->> (str/split-lines (fs/readFileSync (bundled "assistant-versions.txt" "deploy/agent/versions.txt") "utf8"))
+         (map str/trim)
+         (remove #(or (str/blank? %) (str/starts-with? % "#")))
+         (set))
+    (catch :default _
+      #{})))
+
+(defn bundled-assistant
+  "The bundle's generic definition with the skills repository of the
+   clone filled in, as the image fills it into its copy."
+  []
+  (let [text (fs/readFileSync (bundled-assistant-file) "utf8")]
+    (if-let [repo (skills-repo)]
+      (str/replace text "`github.com/SKILLS_REPO`" (str "`github.com/" repo "`"))
+      text)))
 
 (defn assistant-text
-  "The text of `<home>/assistant.md`, written from the bundle's copy
-   when it is missing."
+  "The text of `<home>/assistant.md`, the generic definition a new bot
+   starts from: written from the bundle's copy when it is missing, and
+   again when it is an earlier version of that copy (`known-versions`),
+   so that a release reaches every new bot of a machine made before it.
+   A file someone changed is no version of it and stays as it is."
   [home]
-  (let [file (assistant-file home)]
-    (when-not (fs/existsSync file)
-      (fs/copyFileSync (bundled-assistant-file) file))
-    (fs/readFileSync file "utf8")))
+  (let [file (assistant-file home)
+        current (when (fs/existsSync file) (fs/readFileSync file "utf8"))
+        text (bundled-assistant)]
+    (if (and (not= current text)
+             (or (nil? current) (contains? (known-versions) (digest (normalize current)))))
+      (do (fs/writeFileSync file text)
+          text)
+      current)))
 
 (defn- split-frontmatter
   "`[head body]` of a definition text, the head with its fences;

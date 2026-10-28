@@ -53,6 +53,49 @@
   (testing "a text without a frontmatter is refused"
     (is (thrown? js/Error (bots/definition-text "No head." {:name "x"})))))
 
+(deftest assistant-text-test
+  (let [bundled (fs/readFileSync "deploy/agent/AGENT.md" "utf8")
+        skills (fs/mkdtempSync (path/join (os/tmpdir) "rragent-skills-"))
+        home! (fn [text]
+                (let [home (temp-home)]
+                  (when text (fs/writeFileSync (bots/assistant-file home) text))
+                  home))]
+    (fs/mkdirSync (path/join skills ".git"))
+    (fs/writeFileSync (path/join skills ".git" "config") "[remote \"origin\"]\n\turl = https://github.com/storrito/agentitos.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
+    (testing "versions.txt has the version of deploy/agent/AGENT.md as it is now: add its sum when it changes"
+      (is (contains? (bots/known-versions) (bots/digest (bots/normalize bundled)))))
+    (with-env "RRAGENT_SKILLS" skills
+      (fn []
+        (testing "the bundle's copy with the skills repository of the clone filled in, as the image does"
+          (let [home (home! nil)]
+            (try
+              (let [text (bots/assistant-text home)]
+                (is (str/includes? text "`github.com/storrito/agentitos`"))
+                (is (not (str/includes? text "SKILLS_REPO")))
+                (is (= text (fs/readFileSync (bots/assistant-file home) "utf8"))))
+              (finally
+                (fs/rmSync home #js {:recursive true :force true})))))
+        (testing "an earlier version of it, as an image filled it in: written anew from the bundle's"
+          (let [earlier (str (str/replace bundled "`github.com/SKILLS_REPO`" "`github.com/someone/skills`") "\nA paragraph of before.\n")
+                home (home! earlier)]
+            (try
+              (with-redefs [bots/known-versions (fn [] #{(bots/digest (bots/normalize earlier))})]
+                (let [text (bots/assistant-text home)]
+                  (is (not (str/includes? text "A paragraph of before.")))
+                  (is (str/includes? text "`github.com/storrito/agentitos`"))
+                  (is (= text (fs/readFileSync (bots/assistant-file home) "utf8")))))
+              (finally
+                (fs/rmSync home #js {:recursive true :force true})))))
+        (testing "a definition someone changed stays as it is"
+          (let [mine (str bundled "\nMy own line.\n")
+                home (home! mine)]
+            (try
+              (is (= mine (bots/assistant-text home)))
+              (is (= mine (fs/readFileSync (bots/assistant-file home) "utf8")))
+              (finally
+                (fs/rmSync home #js {:recursive true :force true})))))))
+    (fs/rmSync skills #js {:recursive true :force true})))
+
 (deftest folder-test
   (let [home (temp-home)]
     (try

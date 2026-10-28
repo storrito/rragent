@@ -45,7 +45,8 @@ export default ({ command }) => {
       // folder as the harness and the agent need it (TEMPLATE.md, project/,
       // the executables, a built dist/), without its sources, tests and
       // build files. And the generic definition every new bot starts from
-      // (deploy/agent/AGENT.md) as assistant.md, read by rragent.bots.
+      // (deploy/agent/AGENT.md) as assistant.md with the sums of its earlier
+      // versions (deploy/agent/versions.txt), read by rragent.bots.
       {
         name: 'rragent-templates',
         closeBundle() {
@@ -55,6 +56,7 @@ export default ({ command }) => {
               filter: (source) => !/(^|\/)(src|test|node_modules|target|\.[^/]+|vite[^/]*\.mjs)$/.test(source),
             });
             cpSync('deploy/agent/AGENT.md', 'dist/assistant.md');
+            cpSync('deploy/agent/versions.txt', 'dist/assistant-versions.txt');
           }
         },
       },
