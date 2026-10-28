@@ -240,6 +240,7 @@
         (is (= "on screen beside the chat: artifacts/promo/" (artifacts/screen-line bot "promo/")))
         (is (nil? (artifacts/screen-line bot "")) "the root, or a pane out of sight")
         (is (nil? (artifacts/screen-line bot nil)) "a button in the chat")
+        (is (nil? (artifacts/screen-line bot :ui/screen)) "a tab with a page older than :ui/screen")
         (is (nil? (artifacts/screen-line bot "gone.html")))
         (is (nil? (artifacts/screen-line bot "stories")) "a folder without its slash")
         (is (nil? (artifacts/screen-line bot "top.png/")) "a file with one")

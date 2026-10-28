@@ -198,13 +198,14 @@
    tab with an older frame names nothing that is gone. Nil for a pane
    that shows the list at the root or is out of sight (a phone in the
    chat), a message from a button in the chat, which names no screen,
-   and what the list no longer has."
+   and what the list no longer has, or what is no path at all (a tab
+   with a page older than `:ui/screen` sends the keyword)."
   [{listed :artifacts/list} shown]
-  (let [p (str/replace (str shown) #"/$" "")]
-    (when (and (seq shown)
-               (or (= shown (screen {:artifacts/list listed :artifacts/current p}))
-                   (= shown (screen {:artifacts/list listed :artifacts/folder p}))))
-      (str screen-prefix "artifacts/" shown))))
+  (when (and (string? shown)
+             (or (some #(= shown (screen {:artifacts/list [%] :artifacts/current (:path %)})) listed)
+                 (and (str/ends-with? shown "/")
+                      (= shown (screen {:artifacts/list listed :artifacts/folder (subs shown 0 (dec (count shown)))})))))
+    (str screen-prefix "artifacts/" shown)))
 
 (defn screen-of
   "The path the screen line of a message's text names, under

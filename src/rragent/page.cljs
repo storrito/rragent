@@ -217,15 +217,6 @@
   [w]
   (machine/bot (:bot (command/command-data w))))
 
-(defn- with-line
-  "The user message `content` (`rragent.uploads/content`, a text or its
-   blocks) with `line` at the end of its text."
-  [content line]
-  (cond
-    (nil? line) content
-    (string? content) (str content "\n" line)
-    :else (update-in content [0 :text] str "\n" line)))
-
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as
    an input of the bot's conversation (`rragent.uploads/content`: a
@@ -246,8 +237,9 @@
       (command/rejected w :empty-message)
 
       :else
-      (let [content (-> (await (uploads/content uploads text attachments (await (harness/sees-images? (:models (machine/agent)) conversation))))
-                        (with-line (artifacts/screen-line bot screen)))]
+      (let [content (await (uploads/content uploads text attachments
+                                            (await (harness/sees-images? (:models (machine/agent)) conversation))
+                                            (artifacts/screen-line bot screen)))]
         (await (harness/submit conversation #js {:type "input" :content (clj->js content)}))
         (command/accepted w)))))
 

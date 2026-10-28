@@ -59,8 +59,8 @@
                        (uploads/named dir ["0a0b.png" "ab12.mp4" "missing.mp4" "../etc/passwd" "notes.txt"]))))
               (let [attachments (uploads/named dir ["ab12.mp4" "0a0b.png"])]
                 (testing "a clip is a line, a picture a line and an image block when the model takes images"
-                  (is (= "Cut this\nvideo: uploads/ab12.mp4" (await (uploads/content dir "Cut this" [{:kind :video :name "ab12.mp4"}] true))))
-                  (let [[text image] (await (uploads/content dir "Cut this " attachments true))]
+                  (is (= "Cut this\nvideo: uploads/ab12.mp4" (await (uploads/content dir "Cut this" [{:kind :video :name "ab12.mp4"}] true nil))))
+                  (let [[text image] (await (uploads/content dir "Cut this " attachments true nil))]
                     (is (= {:type "text" :text "Cut this\nvideo: uploads/ab12.mp4\nimage: uploads/0a0b.png"} text))
                     (is (= "image" (:type image)))
                     (is (= "image/webp" (:mimeType image)) "the picture as rragent.images prepares it for the model")
@@ -68,7 +68,12 @@
                     (is (.equals png (fs/readFileSync (path/join dir "0a0b.png"))) "the file itself untouched")))
                 (testing "a picture for a model without image input: the line and a note, no block"
                   (is (= (str "video: uploads/ab12.mp4\nimage: uploads/0a0b.png\n" uploads/no-vision-note)
-                         (await (uploads/content dir "" attachments false))))))))
+                         (await (uploads/content dir "" attachments false nil)))))
+                (testing "the last line after the files and the note"
+                  (is (= (str "video: uploads/ab12.mp4\nimage: uploads/0a0b.png\n" uploads/no-vision-note "\nthe end")
+                         (await (uploads/content dir "" attachments false "the end"))))
+                  (is (= "Cut this\nvideo: uploads/ab12.mp4\nimage: uploads/0a0b.png\nthe end"
+                         (:text (first (await (uploads/content dir "Cut this" attachments true "the end"))))))))))
           (.catch (fn [e] (is (nil? e) (str e))))
           (.finally (fn []
                       (fs/rmSync dir #js {:recursive true :force true})
