@@ -4,7 +4,8 @@
    a few sentences, put on top of the generic assistant definition
    every bot starts from, so that it adopts a skill or asks) and, when
    the job is one of the skills on the machine, the skill's name,
-   which the new bot takes at its first message. The new bot's
+   which the new bot takes at its first message, one of ours or one of
+   the person's on the machine (`rragent.skills`). The new bot's
    conversation is made in the call's own commit (`createConversation`
    of the transaction, ownerless, so it is a bot and not the call's
    subagent; the skill is checked before, so a refused create leaves
@@ -17,7 +18,6 @@
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineExtension defineTool]]
             [clojure.string :as str]
-            [rragent.bots :as bots]
             [rragent.tools.work :as work]))
 
 (def description
@@ -35,16 +35,17 @@
 
 (defn tool
   "The tool over `adopt!` (a conversation id and a map of `:name`,
-   `:instructions` and `:skill` to a promise of `{:id :name}`) and
-   `list` (the bots, each `{:id :name :state}`)."
-  [{:keys [adopt! list]}]
+   `:instructions` and `:skill` to a promise of `{:id :name}`), `list`
+   (the bots, each `{:id :name :state}`) and `check-skill!` (throws for
+   a skill the machine does not have)."
+  [{:keys [adopt! list check-skill!]}]
   (defineTool
    #js {:name "bot"
         :description description
         :parameters (.Object Type #js {:action (.Union Type #js [(.Literal Type "create") (.Literal Type "list")])
                                        :name (.Optional Type (.String Type #js {:description "The new bot's name, for the person"}))
                                        :instructions (.Optional Type (.String Type #js {:description "The new bot's job, a few sentences"}))
-                                       :skill (.Optional Type (.String Type #js {:description "A skill of the machine the new bot takes at once, by its folder name"}))})
+                                       :skill (.Optional Type (.String Type #js {:description "A skill the new bot takes at once, by its folder name: one of ours, or one of the person's (the skill tool lists them)"}))})
         :execute (^:async fn [args api call-context]
                    (case (.-action args)
                      "create" (do (when (str/blank? (str (.-name args)))
@@ -53,7 +54,7 @@
                                     (throw (js/Error. "create needs the instructions")))
                                   ;; before the conversation is made: a skill the machine lacks
                                   ;; would leave a conversation without a bot
-                                  (bots/check-skill! (not-empty (.-skill args)))
+                                  (check-skill! (not-empty (.-skill args)))
                                   (let [record (await (.commit api
                                                                (fn [tx] (.createConversation tx #js {:ownership #js {:kind "ownerless"}}))
                                                                call-context))

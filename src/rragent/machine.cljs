@@ -37,6 +37,7 @@
             [rragent.render :as render]
             [rragent.rframes.sse :as sse]
             [rragent.runs :as runs]
+            [rragent.skills :as skills]
             [rragent.tools.bot :as bot-tool]))
 
 (def Hidden
@@ -262,7 +263,9 @@
    takes them: `:home` (RRAGENT_HOME without), `:models`, `:provider`,
    `:storage`, `:gateway`, `:retry`. Answers the bots."
   [opts]
-  (let [agent (await (harness/open (assoc opts :extensions [(bot-tool/extension {:adopt! #'adopt! :list #'listed})])))]
+  (let [agent (await (harness/open (assoc opts :extensions [(bot-tool/extension {:adopt! #'adopt!
+                                                                                 :list #'listed
+                                                                                 :check-skill! (fn [skill] (skills/check! (home) skill))})])))]
     (when-let [id (:migrated agent)]
       (println (str "the agent of " (:home agent) " is the bot " id " now")))
     (swap! db/db assoc :machine agent)
@@ -384,7 +387,7 @@
    its own, written as it is), opened and followed. Answers `{:id
    :name}`, the name the definition's."
   [id {:keys [skill text] :as given}]
-  (bots/check-skill! skill)
+  (skills/check! (home) skill)
   (bots/write-definition! (home) id (or text (bots/definition-text (bots/assistant-text (home)) given)))
   (await (open-bot! id))
   {:id (str id) :name (name-of id)})
@@ -393,7 +396,7 @@
   "A new bot: an ownerless conversation of the storage, then
    `adopt!`; `{}` for one from the assistant's definition as it is."
   [{:keys [skill] :as given}]
-  (bots/check-skill! skill)
+  (skills/check! (home) skill)
   (let [conversation (await (.createConversation (:harness (agent)) #js {:ownership #js {:kind "ownerless"}} harness/context))]
     (await (adopt! (.-id conversation) given))))
 

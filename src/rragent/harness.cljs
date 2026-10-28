@@ -9,7 +9,8 @@
    rragent's own (remember and recall over the bot's events file,
    `rragent.events`, fetch, the REPL `eval` with
    the connectors of the gateway as functions, schedule, hook, report
-   (a run's word to the bot's chat, `rragent.runs`), and
+   (a run's word to the bot's chat, `rragent.runs`), skill (the
+   person's own skills on the machine, `rragent.skills`), and
    the tools of the artifacts: project, render, image, voice, music,
    transcribe;
    the pane shows what they make; subagent, which hands a task to a
@@ -56,6 +57,7 @@
             [rragent.tools.render :as render-tool]
             [rragent.tools.report :as report-tool]
             [rragent.tools.schedule :as schedule-tool]
+            [rragent.tools.skill :as skill-tool]
             [rragent.tools.subagent :as subagent-tool]
             [rragent.tools.transcribe :as transcribe-tool]))
 
@@ -72,7 +74,7 @@
   (defineExtension #js {:name "rragent"
                         :tools #js [events-tool/remember events-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
                                     (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)
-                                    (transcribe-tool/tool codemode) report-tool/tool]
+                                    (transcribe-tool/tool codemode) report-tool/tool skill-tool/tool]
                         :tasks #js [schedule/Task runs/Task]}))
 
 (def redacted-keys
