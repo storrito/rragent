@@ -9,15 +9,17 @@
    older than five minutes, is a 401. Composio delivers an event
    several times, so the ids taken are kept and a repeat is answered
    with 200 and nothing else. An event goes to the bot that owns its
-   trigger, the one whose newest fact about the trigger is a
-   `composio-trigger` (`rragent.codemode/add-trigger` remembers it),
+   trigger, the one whose newest event about the trigger is a
+   `composio-trigger` (`rragent.codemode/add-trigger` remembers it,
+   into the bot's events file, `rragent.events`),
    else to the bot the page opens by default, as an input of its
    conversation, the way a hook's call is submitted (`rragent.hooks`)."
   (:require ["node:crypto" :as crypto]
             [clojure.string :as str]
             [rragent.composio :as composio]
             [rragent.composio-setup :as setup]
-            [rragent.facts :as facts]
+            [rragent.events :as events]
+            [rragent.home :as home]
             [rragent.hooks :as hooks]))
 
 (def tolerance-ms
@@ -108,16 +110,16 @@
   (not-empty (str (get-in event [:metadata :trigger_id]))))
 
 (defn owner
-  "The bot that owns the trigger: of `facts-by-bot` (`{bot-id
-   [facts]}`, each bot's facts oldest first) the one whose newest fact
-   about the trigger id is a `composio-trigger`; nil when none has
-   one, or the newest says it was deleted."
-  [facts-by-bot trigger-id]
-  (some (fn [[bot facts]]
-          (let [about (last (filter #(= trigger-id (:id %)) facts))]
+  "The bot that owns the trigger: of `events-by-bot` (`{bot-id
+   [events]}`, each bot's events oldest first) the one whose newest
+   event about the trigger id is a `composio-trigger`; nil when none
+   has one, or the newest says it was deleted."
+  [events-by-bot trigger-id]
+  (some (fn [[bot events]]
+          (let [about (last (filter #(= trigger-id (:id %)) events))]
             (when (and about (= composio/trigger-fact (:event about)))
               bot)))
-        facts-by-bot))
+        events-by-bot))
 
 (defn- cut
   [body]
@@ -136,16 +138,15 @@
        (when-let [slug (get-in event [:metadata :trigger_slug])] (str "\nTrigger: " slug " (" (trigger-id event) ")"))
        "\nBody:\n" (cut body)))
 
-(defn- ^:async facts-of
-  "Every bot's facts, `{bot-id [facts]}`."
-  [bots context]
-  (loop [[[id {:keys [conversation]}] & more] (seq bots)
-         found {}]
-    (if (nil? id)
-      found
-      (recur more (if conversation
-                    (assoc found id (await (facts/facts (facts/from-root conversation context))))
-                    found)))))
+(defn- events-of
+  "Every bot's events, `{bot-id [events]}`, from the events file of
+   each bot's folder (the `:reload` of its map names it)."
+  [bots]
+  (into {}
+        (keep (fn [[id bot]]
+                (when-let [dir (get-in bot [:reload :home])]
+                  [id (events/read (home/events-file dir))])))
+        bots))
 
 (defn- ^:async take!
   "The event id noted among the seen, `seen-max` of them kept; true
@@ -176,7 +177,7 @@
         (if-not (await (take! harness context id))
           {:status 200 :body {:ok true :duplicate true}}
           (let [trigger (trigger-id event)
-                bot (or (when trigger (owner (await (facts-of bots context)) trigger))
+                bot (or (when trigger (owner (events-of bots) trigger))
                         (default-id))
                 conversation (:conversation (get bots bot))]
             (when conversation

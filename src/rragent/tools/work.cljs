@@ -36,6 +36,15 @@
   [api call-context]
   (db/bot-path (await (bot-id api call-context))))
 
+(defn ^:async bot-dir
+  "The folder of the bot of the call, `bots/<id>/` of the machine, as
+   the reload registered it when the bot opened (`rragent.reload`);
+   for a conversation the process does not know, the folder above the
+   call's working directory, which is the bot's `work/`."
+  [api call-context]
+  (or (get-in @db/db (conj (db/bot-path (await (bot-id api call-context))) :reload :home))
+      (path/dirname (dir api))))
+
 (defn artifacts-dir
   [api]
   (home/artifacts-dir (dir api)))

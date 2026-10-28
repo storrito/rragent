@@ -3,7 +3,7 @@
    before the bots migrated at the open, the first bot of a fresh home,
    a bot made by another through the `bot` tool in its own commit, the
    bots listed through the storage in the order made, the conversation
-   of each configured with its own cwd, the facts and the hooks of one
+   of each configured with its own cwd, the events and the hooks of one
    bot not another's, busy across bots, one alarm for the earliest
    scheduled run across them, and a delete that hides."
   (:require ["node:fs" :as fs]
@@ -13,7 +13,7 @@
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
             [rragent.bots-test :as bots-test]
-            [rragent.facts :as facts]
+            [rragent.events :as events]
             [rragent.fake-sprite-env :as fake]
             [rragent.harness :as harness]
             [rragent.home :as home]
@@ -176,12 +176,12 @@
                        (is (= "Second" (await (machine/rename! id-b "Second"))))
                        (is (= "Second" (:label (second (machine/listed)))))
                        (is (true? (:renamed? (:definition (machine/bot id-b)))) "the marker the bot is told to respect")))
-                   (testing "a fact of one bot is not another's"
+                   (testing "an event of one bot is not another's: each bot's events file"
                      (.setResponses faux #js [(tools-test/tool-call "remember" {:event "seen" :data {:n 1}} "r1")
                                               (tools-test/answer "Noted.")])
                      (is (= "Noted." (await (harness/ask-in conversation-a "Note it."))))
-                     (is (= ["seen"] (map :event (await (facts/facts (facts/from-root conversation-a harness/context))))))
-                     (is (= [] (await (facts/facts (facts/from-root conversation-b harness/context))))))
+                     (is (= ["seen"] (map :event (events/read (home/events-file (home/bot-dir home (:id a)))))))
+                     (is (= [] (events/read (home/events-file (home/bot-dir home id-b))))))
                    (testing "busy across bots: one bot's run makes the machine busy"
                      (.setResponses faux #js [(tools-test/tool-call "bash" {:command "sleep 1 && pwd"} "s1")
                                               (tools-test/answer "Slept.")])

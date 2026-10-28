@@ -6,9 +6,10 @@
    nothing else. One context for the life of the worker, so a `def` of
    one call is there for the next: the REPL half of the name. The
    answer is what the program printed and its value, cut at ten
-   thousand characters; an error is the tool's error. The facts of the
-   conversation are read before the program runs, so that it recalls
-   them; what it remembers is committed after it. Stop ends the
+   thousand characters; an error is the tool's error. The events of the
+   bot are read before the program runs, so that it recalls them;
+   what it remembers is appended to the bot's events file after it
+   (`rragent.events`). Stop ends the
    program with its worker, so does the timeout; the next call starts
    a fresh worker and says that the defs are gone. With `project` the
    code goes to that artifact's process instead
@@ -19,8 +20,9 @@
             [rragent.codemode :as codemode]
             [rragent.codemode-worker :as codemode-worker]
             [rragent.db :as db]
-            [rragent.facts :as facts]
+            [rragent.events :as events]
             [rragent.projects :as projects]
+            [rragent.tools.events :as events-tool]
             [rragent.tools.work :as work]))
 
 (def max-chars
@@ -54,22 +56,21 @@
 
 (defn ^:async evaluate
   "`code` run in the `worker` of the REPL for the tool's conversation:
-   the facts read first, what the program remembered committed after
-   it, in order, also when it failed after remembering; a program the
-   call's abort (Stop) or the timeout ended remembered nothing.
+   the bot's events read first, what the program remembered appended
+   to them after it, in order, also when it failed after remembering;
+   a program the call's abort (Stop) or the timeout ended remembered
+   nothing.
    Answers the tool's result: the text, and the pictures of its MCP
    calls (`output`)."
   [worker api call-context code]
-  (let [facts (await (facts/facts (facts/from-tool api call-context)))
+  (let [file (await (events-tool/file api call-context))
         {:keys [text error pending images]} (await (codemode-worker/evaluate! worker {:code code
-                                                                                 :facts facts
+                                                                                 :events (events/read file)
                                                                                  :env (codemode-worker/environment)
                                                                                  :signal (.-abortSignal call-context)
                                                                                  :on-progress (partial progress! api)}))]
-    (loop [[fact & more] pending]
-      (when fact
-        (await (facts/remember! api (:event fact) (dissoc fact :event :at) (:at fact) call-context))
-        (recur more)))
+    (doseq [event pending]
+      (events/append! file (:event event) (dissoc event :event :at) (:at event)))
     (if error
       (throw (js/Error. error))
       (output text images))))

@@ -11,7 +11,7 @@
    namespace's own module: the bundle in production, where
    `rragent.main` leaves the server to the main thread and the loop
    below runs instead, the compiled namespace under the test build. A
-   program goes over the port as transit with the facts the program
+   program goes over the port as transit with the events the program
    sees and the environment the bindings read, the answer comes back
    the same way: what it printed and its value, or its error, and what
    it remembered. Stop (the conversation aborted while a program runs)
@@ -89,15 +89,15 @@
 
 (defn run-program
   "One program in `handle`: the environment set, the MCP servers
-   installed when they came with it, the facts begun, the program
+   installed when they came with it, the events begun, the program
    evaluated. `{:text}` or `{:error}`, with `:pending`, what it
    remembered, and `:images`, the pictures its MCP calls answered,
    when there are any, either way."
-  [handle {:keys [code facts env mcp]}]
+  [handle {:keys [code events env mcp]}]
   (set-env! env)
   (when mcp
     (codemode/install-mcp! handle mcp))
-  (codemode/begin! handle facts)
+  (codemode/begin! handle events)
   (let [answer (try
                  {:text (codemode/evaluate handle code)}
                  (catch :default e
@@ -291,7 +291,7 @@
 (defn- post!
   "The program posted to the worker, started when there is none: a
    promise of its answer (see `evaluate!`)."
-  [{:keys [state] :as handle} {:keys [code facts env signal catalog on-progress]}]
+  [{:keys [state] :as handle} {:keys [code events env signal catalog on-progress]}]
   (js/Promise.
    (fn [resolve]
      (if (and signal (.-aborted signal))
@@ -316,11 +316,11 @@
                                                          (swap! state assoc :on-progress nil)
                                                          (resolve (noted note answer)))})
          (.ref worker)
-         (.postMessage worker (transit/write-str (cond-> {:id id :code code :facts facts :env env}
+         (.postMessage worker (transit/write-str (cond-> {:id id :code code :events events :env env}
                                                    mcp (assoc :mcp mcp)))))))))
 
 (defn ^:async evaluate!
-  "`{:code :facts :env :signal :on-progress}` run in the worker,
+  "`{:code :events :env :signal :on-progress}` run in the worker,
    started when there is none: a promise of `{:text :pending}` or
    `{:error :pending}`, with `:images` when MCP calls answered
    pictures; the error the program's, the stop's

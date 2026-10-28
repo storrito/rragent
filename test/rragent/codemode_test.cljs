@@ -145,10 +145,10 @@
         (is (str/includes? doc "agent/call\n((which path & [opts]))\n  An HTTP request through the gateway"))))
     (sync-fetch/stop!)))
 
-(deftest facts-test
+(deftest events-test
   (let [handle (codemode/handle "http://127.0.0.1:1")
         at 1700000000000]
-    (codemode/begin! handle [{:event "review-posted" :at at :id 4711 :fact/id "e1"}])
+    (codemode/begin! handle [{:event "review-posted" :at at :id 4711}])
     (testing "what a program recalls, and what it remembers is pending for the commit and recalled at once"
       (is (= "=> [4711]" (codemode/evaluate handle "(mapv :id (recall {:event \"review-posted\"}))")))
       (is (= "=> [\"Noted review-posted\" 2]" (codemode/evaluate handle "[(remember \"review-posted\" {:id 4712 :stars 4}) (count (recall))]")))
@@ -160,7 +160,7 @@
     (testing "the data is a map, the event a name"
       (is (str/includes? (failure #(codemode/evaluate handle "(remember \"x\" 1)")) "remember takes a map of data"))
       (is (str/includes? (failure #(codemode/evaluate handle "(remember \"\" {})")) "remember takes an event name")))
-    (testing "the next program starts with the facts given to it"
+    (testing "the next program starts with the events given to it"
       (codemode/begin! handle [])
       (is (= "=> 0" (codemode/evaluate handle "(count (recall))")))
       (is (= [] (codemode/pending handle))))

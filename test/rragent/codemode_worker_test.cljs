@@ -1,5 +1,5 @@
 (ns rragent.codemode-worker-test
-  "The REPL's worker: a def that stays across programs, the facts and
+  "The REPL's worker: a def that stays across programs, the events and
    the environment that go with a program, a call through the gateway
    from the worker, Stop and the timeout ending a program with the
    worker within a second, and the next program in a fresh context
@@ -19,7 +19,7 @@
 (defn- ^:async run
   "`code` run in `worker`, with `more` of the program's map."
   [worker code & [more]]
-  (await (codemode-worker/evaluate! worker (merge {:code code :facts [] :env {}} more))))
+  (await (codemode-worker/evaluate! worker (merge {:code code :events [] :env {}} more))))
 
 (defn- ^:async stopped-within
   "`code` run in `worker` and the run aborted after `after-ms`: the
@@ -27,7 +27,7 @@
   [worker code after-ms]
   (let [controller (js/AbortController.)
         started (js/Date.now)
-        answer (codemode-worker/evaluate! worker {:code code :facts [] :env {} :signal (.-signal controller)})]
+        answer (codemode-worker/evaluate! worker {:code code :events [] :env {} :signal (.-signal controller)})]
     (js/setTimeout #(.abort controller) after-ms)
     {:answer (await answer) :took (- (js/Date.now) started)}))
 
@@ -40,9 +40,9 @@
                (testing "a def stays for the next program"
                  (is (= {:text "=> #'user/x" :pending []} (await (run worker "(def x 21)"))))
                  (is (= {:text "=> 42" :pending []} (await (run worker "(* x 2)")))))
-               (testing "the facts go in with the program, what it remembered comes out"
+               (testing "the events go in with the program, what it remembered comes out"
                  (let [{:keys [text pending]} (await (run worker "(remember \"seen\" {:n (count (recall))}) (:n (first (recall {:event \"seen\"})))"
-                                                          {:facts [{:event "old" :at 1 :fact/id "e1"}]}))]
+                                                          {:events [{:event "old" :at 1}]}))]
                    (is (= "=> 1" text))
                    (is (= [{:event "seen" :n 1}] (mapv #(dissoc % :at) pending)))))
                (testing "a call goes through the gateway from the worker, the storrito/ functions are there"

@@ -205,8 +205,7 @@
                          (is (some? answer))
                          (is (number? (:used (first (machine/listed)))) "the bot counts as used by its newest entry")
                          (is (mentions? answer "Capital of France?") "the question is on the page")
-                         (is (mentions? answer "Noted a fact") "the tool call is on the page")
-                         (is (mentions? answer "Noted: asked") "and the fact itself, as a note")
+                         (is (mentions? answer "Noted an event") "the tool call is on the page; the event itself is in the bot's file, not in the chat")
                          (is (nil? (:ui/stop (second (find-tag answer :ui/composer)))) "the run is over, no Stop in the composer")
                          (testing "the answer's markdown is rendered"
                            (let [tags (set (map first (filter vector? (tree-seq coll? seq answer))))]

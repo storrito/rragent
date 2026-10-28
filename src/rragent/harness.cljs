@@ -6,7 +6,8 @@
    environment, as `rragent.openrouter` routes every call to
    OpenRouter, or what a test passes), the registry with pi-durable's
    coding tools (read, write, edit, bash in the bot's `work/`) and
-   rragent's own (remember and recall, fetch, the REPL `eval` with
+   rragent's own (remember and recall over the bot's events file,
+   `rragent.events`, fetch, the REPL `eval` with
    the connectors of the gateway as functions, schedule, hook, and
    the tools of the artifacts: project, render, image, voice, music,
    transcribe;
@@ -33,6 +34,7 @@
             [rragent.codemode :as codemode]
             [rragent.codemode-worker :as codemode-worker]
             [rragent.db :as db]
+            [rragent.events :as events]
             [rragent.gateway :as gateway]
             [rragent.home :as home]
             [rragent.images :as images]
@@ -44,6 +46,7 @@
             [rragent.schedule :as schedule]
             [rragent.secrets :as secrets]
             [rragent.tools.eval :as eval-tool]
+            [rragent.tools.events :as events-tool]
             [rragent.tools.fetch :as fetch-tool]
             [rragent.tools.hook :as hook-tool]
             [rragent.tools.media :as media-tool]
@@ -51,8 +54,7 @@
             [rragent.tools.render :as render-tool]
             [rragent.tools.schedule :as schedule-tool]
             [rragent.tools.subagent :as subagent-tool]
-            [rragent.tools.transcribe :as transcribe-tool]
-            [rragent.tools.facts :as facts-tool]))
+            [rragent.tools.transcribe :as transcribe-tool]))
 
 (def context
   "The Chord context every call takes; this one never cancels."
@@ -65,7 +67,7 @@
    project tool holds a call to the bot's definition."
   [codemode]
   (defineExtension #js {:name "rragent"
-                        :tools #js [facts-tool/remember facts-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
+                        :tools #js [events-tool/remember events-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
                                     (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)
                                     (transcribe-tool/tool codemode)]
                         :tasks #js [schedule/Task]}))
@@ -188,11 +190,16 @@
    now (its instructions, model and `cwd`) and again before every
    submission; its schedules registered with the machine's alarm
    (`rragent.schedule/watch!`), their next run noted in the bot's map
-   as `:schedules/next` for the page. Answers the definition."
+   as `:schedules/next` for the page; the events its conversation
+   held as entries before the events file moved into the file
+   (`rragent.events/migrate!`). Answers the definition."
   [{:keys [harness home provider]} conversation]
-  (let [id (.-id conversation)]
-    (reload/register! id {:home (home/bot-dir home id) :provider provider})
+  (let [id (.-id conversation)
+        dir (home/bot-dir home id)]
+    (reload/register! id {:home dir :provider provider})
     (await (reload/reload! conversation context))
+    (when-let [moved (await (events/migrate! conversation (home/events-file dir) context))]
+      (js/console.error "[events]" (str moved " facts of the bot " id " moved into its events.edn")))
     (schedule/watch! id (fn []
                           (-> (.snapshot harness schedule/Schedules id context)
                               (.then (fn [schedules]

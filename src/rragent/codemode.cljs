@@ -16,12 +16,12 @@
    a program loops over calls as over anything else; the agent runs
    its programs in a worker thread for that (`rragent.codemode-worker`,
    a handle of `handle-of` over what the main thread discovered). The
-   facts a program recalls are read before it runs, what it remembers
-   is committed after it (`rragent.tools.eval`)."
+   events a program recalls are read before it runs, what it remembers
+   is appended to the bot's events file after it (`rragent.tools.eval`)."
   (:require [clojure.string :as str]
             [goog.string :as gstring]
             [rragent.composio :as composio]
-            [rragent.facts :as facts]
+            [rragent.events :as events]
             [rragent.gateway :as gateway]
             [rragent.mcp :as mcp]
             [rragent.sprite :as sprite]
@@ -134,26 +134,26 @@
   (gateway/connection @(:discovery handle) which))
 
 (defn remember
-  "A fact for later runs: `event`, a short name such as
-   \"review-posted\", and `data`, a map of your own keys. Facts are
+  "An event for later runs: `event`, a short name such as
+   \"review-posted\", and `data`, a map of your own keys. Events are
    never changed or lost, the conversation's summaries leave them
-   alone; recall sees this one at once, it is committed when the
-   program ends."
+   alone, and your runs see them as you do; recall sees this one at
+   once, it is written when the program ends."
   [handle event data]
   (when (str/blank? (str event))
     (throw (js/Error. "remember takes an event name")))
   (when-not (or (nil? data) (map? data))
     (throw (js/Error. "remember takes a map of data")))
-  (let [fact (assoc (or data {}) :event (str event) :at (js/Date.now))]
-    (swap! (:facts handle) #(-> % (update :known conj fact) (update :pending conj fact)))
+  (let [noted (assoc (or data {}) :event (str event) :at (js/Date.now))]
+    (swap! (:events handle) #(-> % (update :known conj noted) (update :pending conj noted)))
     (str "Noted " event)))
 
 (defn recall
-  "Your facts, oldest first: maps with :event, :at (milliseconds) and
+  "Your events, oldest first: maps with :event, :at (milliseconds) and
    your own keys. `opts`: :event (only that kind), :since (an ISO
    date or milliseconds)."
   [handle & [opts]]
-  (facts/select (:known @(:facts handle)) (or opts {})))
+  (events/select (:known @(:events handle)) (or opts {})))
 
 (defn search
   "The tools of the organization's services (Gmail, Google Drive,
@@ -462,8 +462,8 @@
    ["(mcp/tools \"github\")" "the tools of one server: {:name :fn :description}, (doc mcp.github/<tool>) says its arguments"]
    ["(mcp/add! \"github\" {:url \"https://…/mcp\" :token \"GITHUB_TOKEN\"})" "connects an MCP server for the machine; :needs names the secrets the person types into a [:secret {:name \"GITHUB_TOKEN\"}] field of a ```hiccup block in your answer, never into the chat; (mcp/test \"github\") tries it again, (mcp/enable! \"github\" false), (mcp/remove! \"github\")"]
    ["(mcp.github/search_issues {:query \"bug\"})" "one tool of a server, a map of arguments: its structured content, else its text (JSON as data); pictures are shown to you after the answer; (mcp/call \"github\" \"search_issues\" {...}) the same by name"]
-   ["(remember \"review-posted\" {:id 4711})" "a fact for later runs, kept through every summary"]
-   ["(recall {:event \"review-posted\"})" "your facts, oldest first; :since narrows them"]])
+   ["(remember \"review-posted\" {:id 4711})" "an event for later runs, kept through every summary and seen by your runs"]
+   ["(recall {:event \"review-posted\"})" "your events, oldest first; :since narrows them"]])
 
 (defn- mcp-status
   "The MCP servers, for help."
@@ -572,7 +572,7 @@
 (defn handle-of
   "The REPL over what another thread found: `{:gateway :discovery
    :storrito}` as `snapshot` answers them, no request made. `{:gateway
-   :discovery :storrito :composio-session :facts :context :asked}`, the
+   :discovery :storrito :composio-session :events :context :asked}`, the
    last six atoms; the context is made at the first program, `asked`
    is when `connectors` last read the list again, 0 before it did."
   [{:keys [gateway discovery storrito]}]
@@ -580,7 +580,7 @@
    :discovery (atom discovery)
    :storrito (atom storrito)
    :composio-session (atom nil)
-   :facts (atom {:known [] :pending []})
+   :events (atom {:known [] :pending []})
    :images (atom [])
    :mcp-catalog (atom nil)
    :mcp-rpc (atom nil)
@@ -621,11 +621,11 @@
   @(:asked handle))
 
 (defn begin!
-  "The facts a program sees: `known`, the conversation's as they are
-   now; nothing pending, no pictures."
+  "The events a program sees: `known`, the bot's as they are now;
+   nothing pending, no pictures."
   [handle known]
   (reset! (:images handle) [])
-  (reset! (:facts handle) {:known (vec known) :pending []}))
+  (reset! (:events handle) {:known (vec known) :pending []}))
 
 (defn images
   "The pictures the program's MCP calls answered, `{:data :mime-type}`
@@ -634,9 +634,9 @@
   @(:images handle))
 
 (defn pending
-  "What the program remembered, oldest first, for the commit."
+  "What the program remembered, oldest first, for the events file."
   [handle]
-  (:pending @(:facts handle)))
+  (:pending @(:events handle)))
 
 (defn- location
   [e]

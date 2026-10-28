@@ -160,7 +160,7 @@
                    (is (= 3 (count (get-in (codemode/snapshot (:codemode agent)) [:storrito :catalog :procedures]))) "and the Storrito catalog")
                    (is (= (str "OpenRouter through the Sprites gateway (" base ")") (openrouter/report (codemode/discovery (:codemode agent)))))
                    (is (= {:text "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" :pending []}
-                          (await (codemode-worker/evaluate! (codemode-worker/of (:codemode agent) (.-id (:root agent))) {:code "(storrito/generate-uuid)" :facts [] :env {}})))
+                          (await (codemode-worker/evaluate! (codemode-worker/of (:codemode agent) (.-id (:root agent))) {:code "(storrito/generate-uuid)" :events [] :env {}})))
                        "a worker of a bot started now works from the late discovery")))
                (finally
                  (await (harness/close agent))
