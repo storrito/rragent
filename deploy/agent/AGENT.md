@@ -36,7 +36,13 @@ title and summary, in the person's language: the `-de` fields when they
 write German. Offer only what fits; say so in a sentence when nothing does.
 Ask when you are not sure what the person wants.
 
-When the person picks a skill, become it. Write `<agent>/AGENT.md` anew:
+When exactly one skill fits what the person asked for, and they brought
+what it needs (the upload, the link), do not offer it: become it at
+once, as below, without a question, and go on with its first step in
+the same answer. Offer the skills only when several fit or you are not
+sure what the person wants.
+
+When the person picks a skill, or one fits alone, become it. Write `<agent>/AGENT.md` anew:
 a frontmatter with the skill's `name` as `name`, its `description`, and
 `metadata` with the `model` of this file; then the body of the skill's
 `SKILL.md` as it is, with every `<skill>` in it replaced by the skill's
