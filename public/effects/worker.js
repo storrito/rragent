@@ -112,6 +112,25 @@ function fileset() {
   return FilesetResolver.forVisionTasks(base + "wasm", true);
 }
 
+// MediaPipe takes its wasm's factory from self.ModuleFactory and clears it
+// after every task it makes; it sets it by importing the wasm's loader,
+// an ES module, which a second import does not run again. So the second
+// model, or the CPU attempt after a failed GPU one, found no factory
+// ("ModuleFactory not set."). The factory is kept here and set before
+// every attempt, one attempt at a time.
+let factory = null;
+let creating = Promise.resolve();
+
+function withFactory(files, make) {
+  const run = creating.then(async () => {
+    factory ??= (await import(files.wasmLoaderPath)).default;
+    self.ModuleFactory = factory;
+    return make();
+  });
+  creating = run.catch(() => {});
+  return run;
+}
+
 /** `make(delegate)` tried on the GPU, then on the CPU. */
 async function onEither(name, make) {
   try {
@@ -128,12 +147,14 @@ function loadSegmenter() {
     loads.segmenter = (async () => {
       const files = await fileset();
       segmenter = await onEither("segmenter", (delegate) =>
-        ImageSegmenter.createFromOptions(files, {
-          baseOptions: { modelAssetPath: base + "selfie_segmenter_landscape.tflite", delegate },
-          runningMode: "VIDEO",
-          outputConfidenceMasks: true,
-          outputCategoryMask: false,
-        })
+        withFactory(files, () =>
+          ImageSegmenter.createFromOptions(files, {
+            baseOptions: { modelAssetPath: base + "selfie_segmenter_landscape.tflite", delegate },
+            runningMode: "VIDEO",
+            outputConfidenceMasks: true,
+            outputCategoryMask: false,
+          })
+        )
       );
     })().catch((error) => {
       loads.segmenter = null;
@@ -149,13 +170,15 @@ function loadLandmarker() {
     loads.landmarker = (async () => {
       const files = await fileset();
       landmarker = await onEither("face landmarker", (delegate) =>
-        FaceLandmarker.createFromOptions(files, {
-          baseOptions: { modelAssetPath: base + "face_landmarker.task", delegate },
-          runningMode: "VIDEO",
-          numFaces: 1,
-          outputFaceBlendshapes: false,
-          outputFacialTransformationMatrixes: false,
-        })
+        withFactory(files, () =>
+          FaceLandmarker.createFromOptions(files, {
+            baseOptions: { modelAssetPath: base + "face_landmarker.task", delegate },
+            runningMode: "VIDEO",
+            numFaces: 1,
+            outputFaceBlendshapes: false,
+            outputFacialTransformationMatrixes: false,
+          })
+        )
       );
     })().catch((error) => {
       loads.landmarker = null;
