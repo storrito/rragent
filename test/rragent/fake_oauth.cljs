@@ -55,8 +55,9 @@
           (do (.writeHead res 202) (.end res)))))))
 
 (defn- handler
-  [{:keys [codes tokens refresh clients counter] :as fake}]
+  [{:keys [codes tokens refresh clients counter register? requests] :as fake}]
   (fn [req res]
+    (swap! requests inc)
     (let [url (js/URL. (.-url req) (str "http://" (.. req -headers -host)))
           base (.-origin url)
           path (.-pathname url)]
@@ -67,14 +68,14 @@
                  (json! res 200 {:resource (str base "/mcp") :authorization_servers [base]})
 
                  (= path "/.well-known/oauth-authorization-server")
-                 (json! res 200 {:issuer base
-                                 :authorization_endpoint (str base "/authorize")
-                                 :token_endpoint (str base "/token")
-                                 :registration_endpoint (str base "/register")
-                                 :response_types_supported ["code"]
-                                 :grant_types_supported ["authorization_code" "refresh_token"]
-                                 :code_challenge_methods_supported ["S256"]
-                                 :token_endpoint_auth_methods_supported ["none"]})
+                 (json! res 200 (cond-> {:issuer base
+                                         :authorization_endpoint (str base "/authorize")
+                                         :token_endpoint (str base "/token")
+                                         :response_types_supported ["code"]
+                                         :grant_types_supported ["authorization_code" "refresh_token"]
+                                         :code_challenge_methods_supported ["S256"]
+                                         :token_endpoint_auth_methods_supported ["none"]}
+                                  register? (assoc :registration_endpoint (str base "/register"))))
 
                  (= path "/register")
                  (let [metadata (js->clj (js/JSON.parse body))
@@ -123,10 +124,13 @@
 
 (defn ^:async start!
   "The fake on a free port: `{:base :url :stop! :tokens :calls
-   :clients}`, `url` its MCP endpoint; `tokens` the access tokens it
-   takes (take one out to make it expire)."
-  []
-  (let [fake {:codes (atom {}) :tokens (atom #{}) :refresh (atom #{}) :clients (atom {})
+   :clients :requests}`, `url` its MCP endpoint; `tokens` the access tokens it
+   takes (take one out to make it expire). `register?` false: a
+   service that registers no clients by itself."
+  [& [{:keys [register?] :or {register? true}}]]
+  (let [fake {:register? register?
+              :requests (atom 0)
+              :codes (atom {}) :tokens (atom #{}) :refresh (atom #{}) :clients (atom {})
               :calls (atom []) :counter (atom 0)}
         server (http/createServer (handler fake))]
     (await (js/Promise. (fn [resolve] (.listen server 0 "127.0.0.1" resolve))))

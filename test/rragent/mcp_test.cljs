@@ -549,6 +549,45 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 
+;; the probe of the MCP authorization spec, against the fake service
+(deftest probe-oauth-test
+  (async done
+    (-> ((^:async fn []
+           (let [service (await (fake-oauth/start!))
+                 closed (await (fake-oauth/start! {:register? false}))
+                 home (test-home/make)
+                 registry (mcp/registry {:file (mcp/file home) :home home})]
+             (try
+               (testing "a service that registers clients, one that registers none, a server that takes no OAuth"
+                 (is (= :register (await (mcp/probe-oauth (:url service)))))
+                 (is (= :client (await (mcp/probe-oauth (:url closed)))))
+                 (is (nil? (await (mcp/probe-oauth (str (:base service) "/nothing")))))
+                 (is (nil? (await (mcp/probe-oauth "http://127.0.0.1:1/mcp"))) "no answer"))
+               (testing "add! of a bare URL whose service registers clients: oauth true, waiting for the sign-in"
+                 (let [status (await (mcp/add! registry "found" {:url (:url service)}))]
+                   (is (:oauth status))
+                   (is (:sign-in status))
+                   (is (str/includes? (:note status) "[:sign-in {:server \"found\"}]"))
+                   (is (= true (get-in (js->clj (js/JSON.parse (fs/readFileSync (mcp/file home) "utf8"))) ["mcpServers" "found" "oauth"])))))
+               (testing "one that registers none: the entry as given, a note on what it takes"
+                 (let [status (await (mcp/add! registry "closed" {:url (:url closed)}))]
+                   (is (not (:oauth status)))
+                   (is (str/includes? (:note status) ":client-id"))))
+               (testing "a token given: no probe, the entry as given"
+                 (let [requests @(:requests service)
+                       status (await (mcp/add! registry "tokened" {:url (:url service) :token "SOME_TOKEN"}))]
+                   (is (not (:oauth status)))
+                   (is (nil? (:note status)))
+                   (is (= requests @(:requests service)) "the token waits for its field, nothing asked")))
+               (finally
+                 (await (mcp/close! registry))
+                 (await ((:stop! service)))
+                 (await ((:stop! closed)))
+                 (test-home/remove! home)))))
+         )
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
 (deftest oauth-entry-test
   (is (= {:entry {"url" "https://mcp.linear.app/mcp" "oauth" true}} (mcp/entry-of {:url "https://mcp.linear.app/mcp" :oauth true})))
   (is (= {:entry {"url" "https://a.b/mcp" "oauth" {"clientId" "c1" "clientSecret" "${A_SECRET}" "scope" "read"}}}

@@ -38,7 +38,7 @@
    (`isError` in its result) and a failure of the protocol are both
    `{:error}`, which the REPL throws."
   (:require ["@earendil-works/pi-mcp" :refer [McpAbortError McpClient McpSessionExpiredError McpTimeoutError StdioTransport StreamableHttpTransport toLlmContent]]
-            ["@earendil-works/pi-mcp/oauth" :refer [McpOAuthAuthorizationRequiredError adaptOAuthProvider authorizeMcp]]
+            ["@earendil-works/pi-mcp/oauth" :refer [McpOAuthAuthorizationRequiredError adaptOAuthProvider authorizeMcp discoverOAuthServerInfo parseWwwAuthenticate]]
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
@@ -203,6 +203,46 @@
       [(.-mtimeMs stat) (.-ino stat) (.-size stat)])
     (catch :default _ nil)))
 
+;;; Whether a server signs in with OAuth
+
+(def probe-timeout-ms
+  "How long `probe-oauth` waits for each answer."
+  5000)
+
+(defn ^:async probe-oauth
+  "How the MCP server at `url` lets a person sign in, asked as the MCP
+   authorization spec has a client find out: a request without
+   credentials, answered 401, whose WWW-Authenticate (or the
+   well-known address) leads to the protected resource's metadata and
+   its authorization server's. `:register` when that server registers
+   clients itself (`\"oauth\": true` is all it takes), `:client` when
+   it registers none (a client id and secret from the service, or a
+   token), nil when the server takes no OAuth or did not answer.
+   `fetch`, a test's."
+  [url & [fetch-fn]]
+  (let [fetch-fn (or fetch-fn js/fetch)
+        signal #(js/AbortSignal.timeout probe-timeout-ms)]
+    (try
+      (let [res (await (fetch-fn url #js {:method "POST"
+                                       :headers #js {"content-type" "application/json"
+                                                     "accept" "application/json, text/event-stream"}
+                                       :body (js/JSON.stringify
+                                              (clj->js {:jsonrpc "2.0" :id 1 :method "initialize"
+                                                        :params {:protocolVersion "2025-06-18" :capabilities {}
+                                                                 :clientInfo {:name "rragent" :version version/version}}}))
+                                       :signal (signal)}))]
+        (try (await (.cancel (.-body res))) (catch :default _ nil))
+        (when (= 401 (.-status res))
+          (let [challenge (parseWwwAuthenticate (.get (.-headers res) "www-authenticate"))
+                metadata-url (.-resourceMetadataUrl challenge)
+                info (await (discoverOAuthServerInfo url (clj->js (cond-> {:fetch fetch-fn :signal (signal)}
+                                                                     metadata-url (assoc :resourceMetadataUrl (js/URL. metadata-url))))))
+                metadata (.-authorizationServerMetadata info)]
+            (when (and metadata (.-authorization_endpoint metadata))
+              (if (.-registration_endpoint metadata) :register :client)))))
+      (catch :default _
+        nil))))
+
 ;;; The registry
 
 (defn registry
@@ -216,8 +256,10 @@
    transports. `state` is an atom of `{:mtime :servers :version}`,
    `servers` by name `{:entry :spec :timeout :client :connecting
    :tools :instructions :error :failed-at}`; `version` counts the
-   changes of what the REPL sees."
-  [{:keys [file home transport secrets-file oauth-file]}]
+   changes of what the REPL sees. `probe` answers how a URL signs in
+   (`probe-oauth`); with a test's `transport` and no `probe`, nothing
+   is probed."
+  [{:keys [file home transport secrets-file oauth-file probe]}]
   {:file file
    :home (or home (some-> file path/dirname))
    :secrets-file (or secrets-file (some-> file path/dirname secrets/file))
@@ -226,6 +268,7 @@
    ;; the browser back to: RRAGENT_URL, else what a sign-in was started at
    :base (atom (not-empty (aget (.-env js/process) "RRAGENT_URL")))
    :transport transport
+   :probe (or probe (when-not transport probe-oauth))
    :state (atom {:mtime ::unread :servers {} :version 0})})
 
 (defn- bump
@@ -731,15 +774,26 @@
 (defn ^:async add!
   "The server `server-name` added to the file, or its entry replaced,
    from `opts` (`entry-of`), and connected right away (`test!`): its
-   `status`, with `:needs` the secrets the person still has to save."
-  [registry server-name opts]
+   `status`, with `:needs` the secrets the person still has to save.
+   A URL given without credentials is probed first (`probe-oauth`): a
+   server whose service registers clients is added with `\"oauth\":
+   true`, `:sign-in` in the answer; `:note` says what was found."
+  [{:keys [probe] :as registry} server-name opts]
   (when-not (and (string? server-name) (re-matches name-pattern server-name))
     (throw (js/Error. (str "A server's name has letters, digits, - and _: " (pr-str server-name)))))
-  (let [{:keys [entry error]} (entry-of opts)]
-    (when error
-      (throw (js/Error. error)))
+  (let [{:keys [entry error]} (entry-of opts)
+        _ (when error
+            (throw (js/Error. error)))
+        signs-in (when (and probe (:url opts) (not (contains? opts :oauth)) (not (get entry "headers")))
+                   (await (probe (:url opts))))
+        entry (cond-> entry
+                (= :register signs-in) (assoc "oauth" true))]
     (change-servers! registry #(assoc % server-name entry))
-    (await (test! registry server-name))))
+    (cond-> (await (test! registry server-name))
+      (= :register signs-in)
+      (assoc :note (str "The server signs in with OAuth, so it was added with :oauth true: put [:sign-in {:server \"" server-name "\"}] into your answer for the person to sign in."))
+      (= :client signs-in)
+      (assoc :note "The server signs in with OAuth, but its service registers no clients by itself: a token (:token \"NAME\"), or a client id and secret the person registers at the service (:oauth {:client-id \"…\" :client-secret \"${NAME}\"})."))))
 
 (defn ^:async enable!
   "The server switched on (connected right away) or off (closed),
