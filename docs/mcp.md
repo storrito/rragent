@@ -54,7 +54,13 @@ Such an entry says `"oauth": true`:
 ```
 
 (`(mcp/add! "linear" {:url "https://mcp.linear.app/mcp" :oauth true})`
-from the REPL.) Until the person signed in, the server waits for it
+from the REPL.) `mcp/add!` finds this out by itself for a URL given
+without credentials: it asks the server as the MCP authorization spec
+has a client do (a request without a token, answered 401, leads to
+the protected resource's metadata and its authorization server's).
+When that server registers clients itself, the entry gets `"oauth":
+true`; when it registers none (GitHub), the answer's `:note` says
+that it takes a token or a client registered by hand. Until the person signed in, the server waits for it
 (`:sign-in true`, "Waiting for a sign-in" in the settings) and is not
 tried by itself. The sign-in:
 

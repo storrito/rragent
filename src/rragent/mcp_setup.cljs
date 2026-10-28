@@ -22,10 +22,17 @@ language.
 1. Find out which service they want connected, if they did not say.
 2. Find out how its MCP server is reached. Read the service's own
    documentation with `fetch` (its docs site, \"<service> MCP server\");
-   most are an address like `https://…/mcp` that takes a token in a
-   header, some are a program run with `npx`. Never guess an address:
-   when the docs do not say, ask the person.
-3. Connect it with your REPL, the `eval` tool:
+   most are an address like `https://…/mcp`, some are a program run
+   with `npx`. Never guess an address: when the docs do not say, ask
+   the person. When the person gives you an address, use it as it is.
+3. Connect it with your REPL, the `eval` tool. Unless the docs say
+   that it takes a token or an API key, add the address alone:
+
+       (mcp/add! \"acme\" {:url \"https://acme.example.com/mcp\"})
+
+   `mcp/add!` asks the server how it signs in: one that signs in with
+   OAuth is set up for it at once, the answer has `:sign-in true` and
+   a `:note` (step 4). A server that takes a token:
 
        (mcp/add! \"github\" {:url \"https://api.githubcopilot.com/mcp/\" :token \"GITHUB_TOKEN\"})
 
@@ -48,14 +55,15 @@ language.
    chat anyway, ask them to use the field, and never repeat or use
    the pasted text.
 
-   A server that signs in with OAuth (the docs speak of OAuth or of
-   signing in with the service's account, and offer no token to copy;
-   most hosted servers, Notion, Linear, Atlassian, Sentry) is added
-   with `:oauth true` instead of a token:
+   A server that signs in with OAuth (most hosted servers, Notion,
+   Linear, Atlassian, Sentry, and any whose `mcp/add!` answer has
+   `:sign-in true`) needs no token. `mcp/add!` of the bare address
+   finds that out; when the docs speak of OAuth and it did not,
+   `:oauth true` says it:
 
        (mcp/add! \"linear\" {:url \"https://mcp.linear.app/mcp\" :oauth true})
 
-   The answer has `:sign-in true`: put the sign-in link into your
+   With `:sign-in true` in the answer, put the sign-in link into your
    answer and ask them to sign in in the tab it opens:
 
    ```hiccup
@@ -63,8 +71,8 @@ language.
    ```
 
    A message tells you when they are back, and whether the server is
-   connected. When a service wants a client registered by hand, the
-   docs give a client id and secret: the secret goes into a field like
+   connected. When a service wants a client registered by hand (the
+   `:note` says so), the docs give a client id and secret: the secret goes into a field like
    a token, then `:oauth {:client-id \"…\" :client-secret \"${NAME}\"}`.
 5. Then `(mcp/test \"github\")`. Connected: tell the person in a
    sentence or two what they can do now, from `(mcp/tools \"github\")`,

@@ -411,14 +411,17 @@
    :env {...} :cwd \"folder\"} for a program; :oauth true for a server
    the person signs in to in their browser (OAuth): the answer has
    :sign-in true until they did, with the link [:sign-in {:server
-   \"github\"}] in a ```hiccup block of your answer; :oauth {:client-id
+   \"github\"}] in a ```hiccup block of your answer. A :url without
+   :token, :headers or :oauth is probed first: a server that signs in
+   with OAuth, its service registering clients, gets :oauth true by
+   itself, and the answer's :note says what was found; :oauth {:client-id
    \"…\" :client-secret \"${NAME}\" :scope \"…\"} for a service that does
    not register clients by itself; :timeout-ms, :enabled.
    A credential is always a ${NAME}, never its value: the value is
    typed by the person into a field, [:secret {:name \"NAME\"}] in a
    ```hiccup block of your answer, and you never see it. Answers
    {:name :connected :tools [names] :needs [secret names not saved yet]
-   :sign-in :error}; its functions mcp.<server>/<tool> are there from the next
+   :sign-in :note :error}; its functions mcp.<server>/<tool> are there from the next
    program on, (mcp/call …) reaches them now."
   [handle server opts]
   (admin handle {:admin :add :name (str server) :opts opts}))
