@@ -61,6 +61,25 @@ The person meets none of these words unless they ask.
    as the questions the skill asks. The new skill appears in the
    assistant's offer next to ours.
 
+### On the page
+
+The bot's page after three reviews reached its hook (a real run on a
+laptop, 2026-10-28): the pane on its activity, one row per run with
+the run's closing line; the chat holds only the conversation.
+
+![The bot's page with the activity list in the pane](images/activity-desktop.png)
+
+A run's page: its transcript in place of the chat, the strip above it
+with the way back, what started the run and how it went, the bot's
+pane beside it. The composer asks the run itself.
+
+![A run's page](images/run-desktop.png)
+
+On a phone the activity is behind the Artifacts tab, and a run's page
+takes the chat's place.
+
+<img src="images/activity-phone.png" width="300" alt="The activity on a phone"> <img src="images/run-phone.png" width="300" alt="A run's page on a phone">
+
 ## Where an event runs
 
 Five ways to handle the review that arrives at 14:02. 🟢 good, 🟡
