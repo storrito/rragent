@@ -1,10 +1,12 @@
 (ns rragent.client.effects
   "The webcam's effects of the screencast panel (`rragent.client.recorder`):
    the background behind the person blurred or taken away (a flat green
-   for the agent to key out, or black), and the light and the colour of
-   the picture corrected as it goes. The work is done in a worker
+   for the agent to key out, or black), the light and the colour of
+   the picture corrected as it goes, and the skin of the face smoothed
+   (the touch-up, as Google Meet's). The work is done in a worker
    (`public/effects/worker.js`): MediaPipe's selfie segmenter finds the
-   person in every frame, a canvas composes the frame, and the frames
+   person in every frame, its face landmarker the face, a canvas
+   composes the frame, a shader smooths the skin, and the frames
    flow through streams (MediaStreamTrackProcessor from the camera's
    track, MediaStreamTrackGenerator into the track that is shown and
    recorded), so the webcam keeps being processed while the tab is in
@@ -12,7 +14,8 @@
    these; without them the panel shows no effects.
 
    The settings, `{:background :off|:blur|:green|:black :auto-light?
-   bool}`, are remembered in the browser. Nothing of the raw camera
+   bool :touch-up :off|:subtle|:smooth}`, are remembered in the
+   browser. Nothing of the raw camera
    leaves the laptop: the file recorded is the processed picture, and
    `facts` says so in `recording.json`, so that the agent knows the
    green is to key out."
@@ -22,9 +25,14 @@
   "What can be behind the person, in the order the panel offers them."
   [:off :blur :green :black])
 
+(def touch-ups
+  "How much the skin is smoothed, in the order the panel offers them."
+  [:off :subtle :smooth])
+
 (def default-settings
   {:background :off
-   :auto-light? false})
+   :auto-light? false
+   :touch-up :off})
 
 (def green
   "The green behind the person when the background is taken away, for
@@ -43,45 +51,59 @@
   "Whether any effect is on: the frames go through the worker then."
   [settings]
   (boolean (or (not= :off (:background settings :off))
-               (:auto-light? settings))))
+               (:auto-light? settings)
+               (not= :off (:touch-up settings :off)))))
+
+(defn- one-of
+  [choices word]
+  (some #(when (= word (name %)) %) choices))
 
 (defn parse
-  "The settings from what the browser remembered: the background's name
-   and whether the light is automatic; the defaults for anything else."
-  [background auto-light]
-  {:background (or (some #(when (= background (name %)) %) backgrounds) :off)
-   :auto-light? (= "1" auto-light)})
+  "The settings from what the browser remembered: the background's name,
+   whether the light is automatic and the touch-up's name; the defaults
+   for anything else."
+  ([background auto-light]
+   (parse background auto-light nil))
+  ([background auto-light touch-up]
+   {:background (or (one-of backgrounds background) :off)
+    :auto-light? (= "1" auto-light)
+    :touch-up (or (one-of touch-ups touch-up) :off)}))
 
 (defn remembered
   []
   (try
     (parse (js/localStorage.getItem "rragent.recorder.background")
-           (js/localStorage.getItem "rragent.recorder.auto-light"))
+           (js/localStorage.getItem "rragent.recorder.auto-light")
+           (js/localStorage.getItem "rragent.recorder.touch-up"))
     (catch :default _
       default-settings)))
 
 (defn remember!
-  [{:keys [background auto-light?]}]
+  [{:keys [background auto-light? touch-up]}]
   (try
     (js/localStorage.setItem "rragent.recorder.background" (name (or background :off)))
     (js/localStorage.setItem "rragent.recorder.auto-light" (if auto-light? "1" "0"))
+    (js/localStorage.setItem "rragent.recorder.touch-up" (name (or touch-up :off)))
     (catch :default _
       nil)))
 
 (defn settings-js
   "The settings as the worker reads them."
-  [{:keys [background auto-light?]}]
+  [{:keys [background auto-light? touch-up]}]
   #js {:background (name (or background :off))
-       :autoLight (boolean auto-light?)})
+       :autoLight (boolean auto-light?)
+       :touchUp (name (or touch-up :off))})
 
 (defn facts
   "What `recording.json` says of the webcam's file: the background it
-   was recorded with and the green to key out; nil when no effect was
-   on."
+   was recorded with and the green to key out, whether the light was
+   corrected and how much the skin was smoothed; nil when no effect
+   was on."
   [settings]
   (when (active? settings)
     (cond-> {:background (name (:background settings :off))
-             :auto-light (boolean (:auto-light? settings))}
+             :auto-light (boolean (:auto-light? settings))
+             :touch-up (name (:touch-up settings :off))}
       (= :green (:background settings)) (assoc :key green))))
 
 (defn file-label
@@ -100,9 +122,10 @@
   "The effects on the camera's stream `raw`: the worker is started with
    the camera's frames and the settings, and answers the stream to show
    and record, the processed picture with the microphone of `raw`.
-   `on-ready` is called once the model runs, `on-failed` with a message
-   when it could not be loaded; the frames pass through meanwhile."
-  [^js raw settings {:keys [on-ready on-failed]}]
+   `on-ready` is called once the models run, `on-loading` when new
+   settings need one not loaded yet, `on-failed` with a message when
+   one could not be loaded; the frames pass through meanwhile."
+  [^js raw settings {:keys [on-ready on-loading on-failed]}]
   (let [^js video (first (array-seq (.getVideoTracks raw)))
         processor (js/MediaStreamTrackProcessor. #js {:track video})
         generator (js/MediaStreamTrackGenerator. #js {:kind "video"})
@@ -114,6 +137,7 @@
             (let [data (.-data event)]
               (case (some-> data .-type)
                 "ready" (when on-ready (on-ready))
+                "loading" (when on-loading (on-loading))
                 "failed" (when on-failed (on-failed (str (.-message data))))
                 nil))))
     (set! (.-onerror worker)

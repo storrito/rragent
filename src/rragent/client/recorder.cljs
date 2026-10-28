@@ -41,7 +41,8 @@
    machine) and the `:error`.
    The webcam's picture can go through the effects
    (`rragent.client.effects`): the background behind the person
-   blurred or taken away, the light corrected. The `:effects` settings
+   blurred or taken away, the light corrected, the skin of the face
+   smoothed. The `:effects` settings
    are in the store too, with the `:effects-status` of the worker
    (`:loading`, `:on`, `{:failed message}`); the camera's own stream is
    the session's `:raw`, and `:preview` is what is shown and recorded,
@@ -309,6 +310,7 @@
                    (try
                      (effects/start! raw settings
                                      {:on-ready (fn [] (update! store assoc :effects-status :on))
+                                      :on-loading (fn [] (update! store assoc :effects-status :loading))
                                       :on-failed (fn [message] (update! store assoc :effects-status {:failed message}))})
                      ;; the worker could not be made: the camera as it is, and why
                      (catch :default error
@@ -1200,21 +1202,25 @@
 
 (defn- effects-section
   "The webcam's effects when this browser has them: the background
-   behind the person and the automatic light, with a word on the
-   model loading, or why it did not; what the green is for."
+   behind the person, the automatic light and the touch-up of the
+   skin, with a word on a model loading, or why it did not; what the
+   green is for."
   [store labels {:keys [effects effects-status effects-supported?] :as recorder} ready?]
   (when (and effects-supported? (contains? (or (:sources recorder) default-sources) :webcam))
-    (let [{:keys [background auto-light?]} (or effects effects/default-settings)]
+    (let [{:keys [background auto-light? touch-up]} (or effects effects/default-settings)
+          choose (fn [class key choices chosen]
+                   [(keyword (str "label." class))
+                    (get labels key)
+                    [:select {:disabled (not ready?)
+                              :on {:change (fn [^js event]
+                                             (set-effect! store key (keyword (.. event -target -value))))}}
+                     (for [choice choices]
+                       [:option {:value (name choice)
+                                 :selected (= choice chosen)}
+                        (get labels (keyword (str (name key) "-" (name choice))))])]])]
       [:div.effects {:replicant/key "effects"}
-       [:label.background
-        (:background labels)
-        [:select {:disabled (not ready?)
-                  :on {:change (fn [^js event]
-                                 (set-effect! store :background (keyword (.. event -target -value))))}}
-         (for [choice effects/backgrounds]
-           [:option {:value (name choice)
-                     :selected (= choice background)}
-            (get labels (keyword (str "background-" (name choice))))])]]
+       (choose "background" :background effects/backgrounds background)
+       (choose "touch-up" :touch-up effects/touch-ups touch-up)
        [:label.auto-light
         [:input {:type "checkbox"
                  :checked (boolean auto-light?)
@@ -1227,7 +1233,7 @@
          [:span.hint (:effects-loading labels)]
 
          (:failed effects-status)
-         [:span.error (str/replace (or (:effects-failed labels) "The background effect did not load: {error}") "{error}" (str (:failed effects-status)))]
+         [:span.error (str/replace (or (:effects-failed labels) "The effect did not load: {error}") "{error}" (str (:failed effects-status)))]
 
          (= :green background)
          [:span.hint (:green-hint labels)])])))

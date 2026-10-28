@@ -105,6 +105,8 @@ over the screen, with ffmpeg's `chromakey` on the webcam before the
 `overlay`, for instance
 `[1:v]chromakey=0x00ff00:0.25:0.08[cam];[0:v][cam]overlay=W-w-40:H-h-40`;
 with `"background": "blur"` the webcam is a picture like any other.
+Its `"touch-up"` (`"subtle"`, `"smooth"`) says the skin of the face
+was smoothed as it was recorded: nothing to do, do not smooth again.
 
 
 Install nothing outside this machine, change nothing in

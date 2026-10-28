@@ -517,20 +517,30 @@ for a plain green (for the agent to key out with ffmpeg's `chromakey`
 when it lays the webcam over the screen) or black; *Light and colour
 automatic* asks the camera for continuous exposure and white balance
 and corrects the brightness, contrast and saturation of the person as
-the picture goes. A worker (`public/effects/worker.js`) does the work:
-MediaPipe's selfie segmenter (the landscape model, 256 × 144, Apache
-2.0, in `public/effects/`; its bundle and wasm come from
-`@mediapipe/tasks-vision` into `dist/public/effects/` at build, served
-at `/effects/*`) finds the person in every frame, a canvas composes
-the frame, and the frames flow through streams
+the picture goes; *Touch-up* smooths the skin of the face, subtly or
+smoothly, as Google Meet's portrait touch-up does, so that nobody
+needs to make up for a recording. A worker (`public/effects/worker.js`)
+does the work: MediaPipe's selfie segmenter (the landscape model,
+256 × 144, Apache 2.0, in `public/effects/`; its bundle and wasm come
+from `@mediapipe/tasks-vision` into `dist/public/effects/` at build,
+served at `/effects/*`) finds the person in every frame, its face
+landmarker (`face_landmarker.task`, Apache 2.0, beside it; loaded when
+the touch-up is first turned on) the 478 points of the face, from
+which the skin is the face's oval without the eyes, the eyebrows and
+the lips (`public/effects/skin.js`), a WebGL shader averages each
+skin pixel with the neighbours near it in place and in colour (a
+bilateral filter: pores and shadows fade, eyelashes and the edge of
+the face stay sharp), a canvas composes the frame, and the frames flow
+through streams
 (`MediaStreamTrackProcessor`, `MediaStreamTrackGenerator`), so the
 webcam keeps being processed while the tab is in the background, where
 a page's animation frames stop. The preview, the test and the
 recording show the processed picture; `recording.json` says which
 background the webcam was recorded on (`effects`, with the green to
-key out), and so does the draft. Until the model is loaded, and when
-it could not be, the webcam passes through as it is and the panel says
-so. Chrome has the streams; another browser sees no effects.
+key out, and the `touch-up`), and so does the draft. Until a model is
+loaded, and when it could not be, the webcam passes through as it is
+and the panel says so. Chrome has the streams; another browser sees no
+effects.
 
 
 A phone can be a camera too, instead of the webcam or besides it: *Pair
