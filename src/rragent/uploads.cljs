@@ -370,19 +370,22 @@
    the agent reads; and when `vision?`, the model takes images, the
    pictures as image blocks besides (`image-block`), so the model sees
    them; without, a note that it does not, and no block, which the
-   transcript would carry for nothing."
-  [dir text attachments vision?]
+   transcript would carry for nothing. `last-line`, when there is one,
+   ends the text, after the note: the page's line of what the pane
+   shows (`rragent.artifacts/screen-line`)."
+  [dir text attachments vision? last-line]
   (let [pictures (filter #(= :image (:kind %)) attachments)
         text (str/join "\n" (remove str/blank? (cons (str/trim (str text))
-                                                     (map #(line (:kind %) (:name %)) attachments))))]
+                                                     (map #(line (:kind %) (:name %)) attachments))))
+        ended #(str/join "\n" (remove nil? [% last-line]))]
     (cond
-      (empty? pictures) text
-      vision? (into [{:type "text" :text text}]
+      (empty? pictures) (ended text)
+      vision? (into [{:type "text" :text (ended text)}]
                     (array-seq (await (js/Promise.all (into-array (map #(image-block dir (:name %)) pictures))))))
-      :else (str text "\n" no-vision-note))))
+      :else (ended (str text "\n" no-vision-note)))))
 
 (comment
   (attachments "Cut this\nvideo: uploads/ab12.mp4\nimage: uploads/ff00.png")
   (without-lines "Cut this\nvideo: uploads/ab12.mp4")
-  (content "/tmp/uploads" "Cut this" [{:kind :video :name "ab12.mp4"}] true)
+  (content "/tmp/uploads" "Cut this" [{:kind :video :name "ab12.mp4"}] true nil)
   )

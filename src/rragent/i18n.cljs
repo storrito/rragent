@@ -54,6 +54,7 @@
    :chat/ready "Ready"
    :chat/empty "Nothing here yet. Write the first message."
    :chat/queued "Waits for the current run to end"
+   :chat/on-screen [:fn/str "Open: {{:path}}"]
    :chat/reset "The context started over."
    :chat/compacted "Older messages were summarized."
    :chat/retry [:fn/str "The model call failed, trying again: {{:error}}"]
@@ -308,6 +309,7 @@
    :chat/ready "Bereit"
    :chat/empty "Noch nichts hier. Schreib die erste Nachricht."
    :chat/queued "Wartet, bis der laufende Durchgang endet"
+   :chat/on-screen [:fn/str "Geöffnet: {{:path}}"]
    :chat/reset "Der Kontext hat neu begonnen."
    :chat/compacted "Ältere Nachrichten wurden zusammengefasst."
    :chat/retry [:fn/str "Der Aufruf des Modells ist fehlgeschlagen, nächster Versuch: {{:error}}"]

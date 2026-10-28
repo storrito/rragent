@@ -108,12 +108,15 @@
 
 (defn- with-media
   "The user item with its text, less the lines that name attached
-   files, and the files as `:media` (`rragent.uploads/attachments`)."
+   files and the pane's screen, the files as `:media`
+   (`rragent.uploads/attachments`) and what was on screen as `:screen`
+   (`rragent.artifacts/screen-of`)."
   [item content]
   (let [text (text-of content)]
     (assoc item
-           :text (uploads/without-lines text)
-           :media (uploads/attachments text))))
+           :text (uploads/without-lines (artifacts/without-screen-line text))
+           :media (uploads/attachments text)
+           :screen (artifacts/screen-of text))))
 
 (defn- human-size
   [bytes]
@@ -359,7 +362,7 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media bytes pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
+  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
@@ -369,6 +372,8 @@
        [:p.text text])
      (when (seq media)
        (media-view base media))
+     (when (seq screen)
+       [:p.hint [:i18n :chat/on-screen {:path screen}]])
      (when pending?
        [:p.hint [:i18n :chat/queued]])]
 
@@ -703,14 +708,16 @@
   [:attachments id])
 
 (defn send-actions
-  "Sends the draft and the attachments to the bot's conversation, then
-   clears both."
+  "Sends the draft and the attachments to the bot's conversation, with
+   what the pane of the tab shows (`:ui/screen`, `rragent.client`),
+   then clears both."
   [id]
   [[:data/command
     {:command/kind :chat/send
      :command/data {:bot id
                     :text [:store/deref (draft-key id)]
-                    :attachments [:store/deref (attachments-key id)]}}
+                    :attachments [:store/deref (attachments-key id)]
+                    :screen :ui/screen}}
     {:on-success [[:store/dissoc (draft-key id)]
                   [:store/dissoc (attachments-key id)]]}]])
 
@@ -1082,7 +1089,9 @@
    recordings, the `:artifacts/text` of a text file on screen, the
    path of a row being renamed or asked about, `:artifacts/renaming`
    and `:artifacts/deleting`), `:projects` and `:renders`, and the
-   `:base` of the bot's page with its id as `:bot`."
+   `:base` of the bot's page with its id as `:bot`. What it shows is
+   its `data-screen` (`rragent.artifacts/screen`), which a message of
+   the tab carries while the pane is in sight (`:ui/screen`)."
   [{:keys [artifacts/list artifacts/current artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting projects renders base bot] :as pane}]
   (let [artifact (some #(when (= current (:path %)) %) list)
         project? (= :project (:kind artifact))
@@ -1092,7 +1101,8 @@
                    (artifacts/writing pane artifact)))]
     [:section.artifacts {:class (cond-> []
                                   (empty? list) (conj "empty")
-                                  artifact (conj "showing"))}
+                                  artifact (conj "showing"))
+                         :data-screen (artifacts/screen pane)}
      [:div.bar
       (when artifact
         [:button.link.back {:on {:click [[:data/command {:command/kind :artifacts/open

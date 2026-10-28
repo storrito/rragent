@@ -169,6 +169,55 @@
   (some #(when (and (readme? (:path %)) (= folder (folder-of (:path %)))) (:path %))
         listed))
 
+(defn screen
+  "What the pane shows, as the page tells the agent (`screen-line`):
+   the artifact on screen, a project with its slash; else the folder
+   the list browses, with its slash; nil for the list at the root.
+   Only what the list has, as the pane shows it: a pick or a folder
+   gone since is the root's list (`rragent.view/file-list`)."
+  [{listed :artifacts/list :keys [artifacts/current artifacts/folder]}]
+  (let [artifact (some #(when (= current (:path %)) %) listed)]
+    (cond
+      artifact (cond-> (:path artifact) (= :project (:kind artifact)) (str "/"))
+      (and (seq folder) (folder? listed folder)) (str folder "/"))))
+
+(def screen-prefix
+  "How the line of what the pane shows begins (`screen-line`)."
+  "on screen beside the chat: ")
+
+(def screen-pattern
+  "The line of what the pane shows, the last of a message: the page
+   adds it at the end, after the lines of the attached files, so that
+   a line of the same words the person wrote is not taken for it."
+  (re-pattern (str "\\n" screen-prefix "artifacts/([^\\n]*)$")))
+
+(defn screen-line
+  "The line the page adds to a message of the person's, what the pane
+   of their tab showed when they sent it: `screen` as the page names
+   it (`screen`), checked against the list of the bot's map, so that a
+   tab with an older frame names nothing that is gone. Nil for a pane
+   that shows the list at the root or is out of sight (a phone in the
+   chat), a message from a button in the chat, which names no screen,
+   and what the list no longer has, or what is no path at all (a tab
+   with a page older than `:ui/screen` sends the keyword)."
+  [{listed :artifacts/list} shown]
+  (when (and (string? shown)
+             (or (some #(= shown (screen {:artifacts/list [%] :artifacts/current (:path %)})) listed)
+                 (and (str/ends-with? shown "/")
+                      (= shown (screen {:artifacts/list listed :artifacts/folder (subs shown 0 (dec (count shown)))})))))
+    (str screen-prefix "artifacts/" shown)))
+
+(defn screen-of
+  "The path the screen line of a message's text names, under
+   `artifacts/`, or nil."
+  [text]
+  (second (re-find screen-pattern (str text))))
+
+(defn without-screen-line
+  "The text of a message without its screen line."
+  [text]
+  (str/trim (str/replace (str text) screen-pattern "")))
+
 (def recording-pattern
   "A recording's folder, `recordings/<stamp>` as `rragent.recordings`
    names it (its `stamp-pattern`): the date and the time of day in it."

@@ -344,6 +344,22 @@
         (is (contains? text "Nach Updates suchen"))
         (is (contains? text "Zurück zum Chat"))))))
 
+(deftest screen-test
+  (let [c {:entries [(user 2 [{:type "text" :text "Make it pink\non screen beside the chat: artifacts/stories/a.html"}])]}
+        item (first (view/items c))
+        page (i18n/translate (view/page {:agent {} :conversation c :locale :en}) :en)]
+    (testing "the screen line is no text of the message, but a hint under it"
+      (is (= "Make it pink" (:text item)))
+      (is (= "stories/a.html" (:screen item)))
+      (is (some #{"Open: stories/a.html"} (strings page)))
+      (is (not-any? #(and (string? %) (str/includes? % "on screen beside")) (strings page)))))
+  (testing "the pane says what it shows, for the tab's next message"
+    (let [pane {:artifacts/list [{:path "stories/a.html" :kind :page :title "a"}] :base "/bot/1" :bot "1"}
+          screen #(:data-screen (second (view/artifacts (merge pane %))))]
+      (is (= "stories/a.html" (screen {:artifacts/current "stories/a.html"})))
+      (is (= "stories/" (screen {:artifacts/folder "stories"})))
+      (is (nil? (screen {:artifacts/current "gone.html" :artifacts/folder "gone"})) "a pick and a folder gone since"))))
+
 (deftest attachments-test
   (let [text "What is in it?\nimage: uploads/0a0b.png\nvideo: uploads/ab12.mp4\naudio: uploads/ff00.wav"
         c {:entries [(user 2 [{:type "text" :text text} {:type "image" :data "iVBOR" :mimeType "image/png"}])]

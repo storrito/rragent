@@ -29,6 +29,7 @@
    when the server shows another bot than the URL named (one that was
    deleted). The way pchat does it."
   (:require [clojure.string :as str]
+            [clojure.walk :as walk]
             [cognitect.transit :as t]
             [rframes.client :as rframes]
             [rframes.client.state :as state]
@@ -435,6 +436,16 @@
                       (when (= :send step)
                         (state/dispatch! (:actions pending))))))))))
 
+(defn- screen
+  "What the pane of this tab shows (`data-screen`, see
+   `rragent.view/artifacts`) while it is in sight; \"\" for the list
+   at the root and for a pane out of sight, on a phone in the chat."
+  []
+  (let [^js pane (js/document.querySelector "section.artifacts")]
+    (or (when (and pane (pos? (.-length (.getClientRects pane))))
+          (.getAttribute pane "data-screen"))
+        "")))
+
 (defn composer
   "The textarea of the page with its attachments. The text lives in the
    store under `:ui/store-key`, the attachments under
@@ -482,7 +493,9 @@
                     (not pending?)
                     (not (ui/kind-issued? state :chat/send)))
         send-later! (fn []
-                      (swap! store assoc :ui/send-pending {:actions send
+                      ;; what the pane shows now, when Send is pressed,
+                      ;; not once the upload is in
+                      (swap! store assoc :ui/send-pending {:actions (walk/postwalk #(if (= :ui/screen %) (screen) %) send)
                                                            :store-key store-key
                                                            :attachments-key attachments-key
                                                            :chips (set (keep #(when (:uploading? %) (:chip %))
@@ -1021,8 +1034,9 @@
                                        nil)))}}])
 
 (def register
-  "The aliases of the page, the URL of the bot, and `:ui/tabid` in a
-   command, the id of this tab."
+  "The aliases of the page, the URL of the bot, `:ui/tabid` in a
+   command, the id of this tab, and `:ui/screen`, what its pane shows
+   (`screen`)."
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
    {:ui.alias/kind :ui/splitter
@@ -1046,7 +1060,11 @@
    {:ui.action-enricher/kind :ui/tabid
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/tabid x)
-                               state/tabid))}])
+                               state/tabid))}
+   {:ui.action-enricher/kind :ui/screen
+    :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
+                             (when (= :ui/screen x)
+                               (screen)))}])
 
 (defn init!
   "The page's runtime; on the phone's page (`#phone`, see
