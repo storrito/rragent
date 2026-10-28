@@ -297,10 +297,12 @@ that never takes the screen and gets no card in the chat.
 
 The agent knows what the pane shows: a message the person sends ends
 with the line `on screen beside the chat: artifacts/<path>`, the file
-on screen, else the folder browsed with its slash, none at the top
-level (`rragent.artifacts/screen-line`). "Make this one pink" then
-means that file. The transcript shows the line as a hint under the
-message, "Open: <path>", not as its text.
+on screen (a project with its slash), else the folder browsed with its
+slash, none at the top level (`rragent.artifacts/screen-line`). The
+tab tells what its pane shows as it sends, and only while the pane is
+in sight, not on a phone in the chat; a button in the chat sends no
+line. "Make this one pink" then means that file. The transcript shows
+the line as a hint under the message, "Open: <path>", not as its text.
 
 A directory under `artifacts/` with a `package.json` is a project, an
 artifact with a page of its own (`rragent.projects`). The agent makes

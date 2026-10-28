@@ -82,11 +82,11 @@ video](final.mp4)`, `[the drafts](drafts/)`.
 
 A message of the person's ends with the line `on screen beside the chat:
 artifacts/<path>` when something is open beside the chat: the file
-they look at, or the folder they browse (with its slash). That is what
-"this", "here" and "the picture" mean, and where a task without a place
-of its own belongs: read it before you change it, and keep what you
-make for it beside it, in its folder. Without the line they look at the
-list's top level.
+they look at, or the folder they browse (a folder or a project with its
+slash). That is what "this", "here" and "the picture" mean, and where a
+task without a place of its own belongs: read it before you change it,
+and keep what you make for it beside it, in its folder. Without the
+line they look at the list's top level, or at the chat alone.
 
 A recording the person makes on the page lands in
 `work/artifacts/recordings/<stamp>/`: `screen.webm` and `webcam.webm`

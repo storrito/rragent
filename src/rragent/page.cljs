@@ -217,15 +217,24 @@
   [w]
   (machine/bot (:bot (command/command-data w))))
 
+(defn- with-line
+  "The user message `content` (`rragent.uploads/content`, a text or its
+   blocks) with `line` at the end of its text."
+  [content line]
+  (cond
+    (nil? line) content
+    (string? content) (str content "\n" line)
+    :else (update-in content [0 :text] str "\n" line)))
+
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as
    an input of the bot's conversation (`rragent.uploads/content`: a
    line per file, the pictures as image blocks when the model takes
-   them), with a line for what the pane shows
-   (`rragent.artifacts/screen-line`), so that \"this\" and \"here\" mean
-   it; the answer arrives as frames."
+   them), and last a line for what the pane of the tab showed, its
+   `:screen` (`rragent.artifacts/screen-line`), so that \"this\" and
+   \"here\" mean it; the answer arrives as frames."
   [w]
-  (let [{:keys [text attachments]} (command/command-data w)
+  (let [{:keys [text attachments screen]} (command/command-data w)
         text (str/trim (str text))
         {:keys [conversation uploads] :as bot} (bot-of-command w)
         attachments (when conversation (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
@@ -237,8 +246,8 @@
       (command/rejected w :empty-message)
 
       :else
-      (let [text (str/join "\n" (remove nil? [text (artifacts/screen-line bot)]))
-            content (await (uploads/content uploads text attachments (await (harness/sees-images? (:models (machine/agent)) conversation))))]
+      (let [content (-> (await (uploads/content uploads text attachments (await (harness/sees-images? (:models (machine/agent)) conversation))))
+                        (with-line (artifacts/screen-line bot screen)))]
         (await (harness/submit conversation #js {:type "input" :content (clj->js content)}))
         (command/accepted w)))))
 

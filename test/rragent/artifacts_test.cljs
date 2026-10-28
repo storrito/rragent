@@ -222,18 +222,38 @@
         (fs/rmSync root #js {:recursive true :force true})))))
 
 (deftest screen-line-test
-  (testing "the artifact on screen, else the folder browsed, nothing at the root"
-    (is (= "on screen beside the chat: artifacts/stories/a b.html"
-           (artifacts/screen-line {:artifacts/current "stories/a b.html" :artifacts/folder "stories"})))
-    (is (= "on screen beside the chat: artifacts/stories/"
-           (artifacts/screen-line {:artifacts/current nil :artifacts/folder "stories"})))
-    (is (nil? (artifacts/screen-line {:artifacts/current nil :artifacts/folder ""})))
-    (is (nil? (artifacts/screen-line {}))))
-  (testing "read back from a message, and taken out of it"
-    (let [text "Make it pink\non screen beside the chat: artifacts/stories/a b.html\nimage: uploads/0a0b.png"]
+  (let [listed [{:path "stories/a b.html" :kind :page} {:path "promo" :kind :project} {:path "top.png" :kind :image}]]
+    (testing "the artifact on screen, a project with its slash, else the folder browsed, nothing at the root"
+      (is (= "stories/a b.html" (artifacts/screen {:artifacts/list listed :artifacts/current "stories/a b.html" :artifacts/folder "stories"})))
+      (is (= "promo/" (artifacts/screen {:artifacts/list listed :artifacts/current "promo"})))
+      (is (= "stories/" (artifacts/screen {:artifacts/list listed :artifacts/current nil :artifacts/folder "stories"})))
+      (is (nil? (artifacts/screen {:artifacts/list listed :artifacts/current nil :artifacts/folder ""})))
+      (is (nil? (artifacts/screen {}))))
+    (testing "only what the list has: a pick or a folder gone since is the root's list"
+      (is (nil? (artifacts/screen {:artifacts/list listed :artifacts/current "gone.html"})))
+      (is (nil? (artifacts/screen {:artifacts/list listed :artifacts/folder "gone"})))
+      (is (= "stories/" (artifacts/screen {:artifacts/list listed :artifacts/current "gone.html" :artifacts/folder "stories"}))))
+    (testing "the line of what a tab sent, checked against the list"
+      (let [bot {:artifacts/list listed}]
+        (is (= "on screen beside the chat: artifacts/stories/a b.html" (artifacts/screen-line bot "stories/a b.html")))
+        (is (= "on screen beside the chat: artifacts/stories/" (artifacts/screen-line bot "stories/")))
+        (is (= "on screen beside the chat: artifacts/promo/" (artifacts/screen-line bot "promo/")))
+        (is (nil? (artifacts/screen-line bot "")) "the root, or a pane out of sight")
+        (is (nil? (artifacts/screen-line bot nil)) "a button in the chat")
+        (is (nil? (artifacts/screen-line bot "gone.html")))
+        (is (nil? (artifacts/screen-line bot "stories")) "a folder without its slash")
+        (is (nil? (artifacts/screen-line bot "top.png/")) "a file with one")
+        (is (nil? (artifacts/screen-line bot "top.png\nimage: uploads/x.png")) "no line of the tab's own"))))
+  (testing "read back from a message, the last line, and taken out of it"
+    (let [text "Make it pink\nimage: uploads/0a0b.png\non screen beside the chat: artifacts/stories/a b.html"]
       (is (= "stories/a b.html" (artifacts/screen-of text)))
       (is (= "Make it pink\nimage: uploads/0a0b.png" (artifacts/without-screen-line text)))
-      (is (nil? (artifacts/screen-of "on screen: nothing"))))))
+      (is (nil? (artifacts/screen-of "on screen: nothing")))))
+  (testing "a line of the same words the person wrote is their text"
+    (let [text "compare\non screen beside the chat: artifacts/old.html\nwith this\non screen beside the chat: artifacts/new.html"]
+      (is (= "new.html" (artifacts/screen-of text)))
+      (is (= "compare\non screen beside the chat: artifacts/old.html\nwith this" (artifacts/without-screen-line text))))
+    (is (nil? (artifacts/screen-of "on screen beside the chat: artifacts/old.html")) "not the message's only line")))
 
 (deftest rename-and-trash-test
   (let [root (temp-dir "rragent-rename-")

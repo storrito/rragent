@@ -982,9 +982,20 @@
                                      (catch :default _
                                        nil)))}}])
 
+(defn- screen
+  "What the pane of this tab shows (`data-screen`, see
+   `rragent.view/artifacts`) while it is in sight; \"\" for the list
+   at the root and for a pane out of sight, on a phone in the chat."
+  []
+  (let [^js pane (js/document.querySelector "section.artifacts")]
+    (or (when (and pane (pos? (.-length (.getClientRects pane))))
+          (.getAttribute pane "data-screen"))
+        "")))
+
 (def register
-  "The aliases of the page, the URL of the bot, and `:ui/tabid` in a
-   command, the id of this tab."
+  "The aliases of the page, the URL of the bot, `:ui/tabid` in a
+   command, the id of this tab, and `:ui/screen`, what its pane shows
+   (`screen`)."
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
    {:ui.alias/kind :ui/splitter
@@ -1004,7 +1015,11 @@
    {:ui.action-enricher/kind :ui/tabid
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/tabid x)
-                               state/tabid))}])
+                               state/tabid))}
+   {:ui.action-enricher/kind :ui/screen
+    :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
+                             (when (= :ui/screen x)
+                               (screen)))}])
 
 (defn init!
   "The page's runtime; on the phone's page (`#phone`, see

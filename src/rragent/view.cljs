@@ -114,7 +114,7 @@
   [item content]
   (let [text (text-of content)]
     (assoc item
-           :text (artifacts/without-screen-line (uploads/without-lines text))
+           :text (uploads/without-lines (artifacts/without-screen-line text))
            :media (uploads/attachments text)
            :screen (artifacts/screen-of text))))
 
@@ -589,14 +589,16 @@
   [:attachments id])
 
 (defn send-actions
-  "Sends the draft and the attachments to the bot's conversation, then
-   clears both."
+  "Sends the draft and the attachments to the bot's conversation, with
+   what the pane of the tab shows (`:ui/screen`, `rragent.client`),
+   then clears both."
   [id]
   [[:data/command
     {:command/kind :chat/send
      :command/data {:bot id
                     :text [:store/deref (draft-key id)]
-                    :attachments [:store/deref (attachments-key id)]}}
+                    :attachments [:store/deref (attachments-key id)]
+                    :screen :ui/screen}}
     {:on-success [[:store/dissoc (draft-key id)]
                   [:store/dissoc (attachments-key id)]]}]])
 
@@ -964,7 +966,9 @@
    recordings, the `:artifacts/text` of a text file on screen, the
    path of a row being renamed or asked about, `:artifacts/renaming`
    and `:artifacts/deleting`), `:projects` and `:renders`, and the
-   `:base` of the bot's page with its id as `:bot`."
+   `:base` of the bot's page with its id as `:bot`. What it shows is
+   its `data-screen` (`rragent.artifacts/screen`), which a message of
+   the tab carries while the pane is in sight (`:ui/screen`)."
   [{:keys [artifacts/list artifacts/current artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting projects renders base bot] :as pane}]
   (let [artifact (some #(when (= current (:path %)) %) list)
         project? (= :project (:kind artifact))
@@ -974,7 +978,8 @@
                    (artifacts/writing pane artifact)))]
     [:section.artifacts {:class (cond-> []
                                   (empty? list) (conj "empty")
-                                  artifact (conj "showing"))}
+                                  artifact (conj "showing"))
+                         :data-screen (artifacts/screen pane)}
      [:div.bar
       (when artifact
         [:button.link.back {:on {:click [[:data/command {:command/kind :artifacts/open
