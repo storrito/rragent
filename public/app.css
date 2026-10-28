@@ -2858,3 +2858,132 @@ form.secret-field .note {
   border-color: var(--line);
   color: var(--text);
 }
+
+/* The pane's two lists: the artifacts and the activity, the runs of
+   the bot (rragent.view/activity), chosen with the two buttons in the
+   bar once the bot has runs. */
+.artifacts nav.panes {
+  display: flex;
+  gap: 4px;
+}
+
+.artifacts nav.panes button {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.artifacts nav.panes button.current {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+/* The activity: a row per run, newest first, with the dot of its
+   state, when it started, its line (what started it while it has
+   none) and its state; the run on screen marked. */
+.artifacts ul.runs {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  list-style: none;
+}
+
+.artifacts ul.runs li + li {
+  border-top: 1px solid var(--line);
+}
+
+.artifacts ul.runs li a.row {
+  display: grid;
+  grid-template-columns: 8px auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.artifacts ul.runs li a.row:hover,
+.artifacts ul.runs li.current a.row {
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+}
+
+.artifacts ul.runs li .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.artifacts ul.runs li.running .dot {
+  background: var(--warn);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.artifacts ul.runs li.done .dot {
+  background: var(--ok);
+}
+
+.artifacts ul.runs li.failed .dot,
+.artifacts ul.runs li.aborted .dot {
+  background: var(--accent);
+}
+
+.artifacts ul.runs li .when,
+.artifacts ul.runs li .state {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.artifacts ul.runs li .line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The run's page: the strip above its transcript names the bot (the
+   way back), what started the run and how it went. */
+.chat .banner.run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.chat .banner.run a.back {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.chat .banner.run .about {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat .banner.run .state {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  /* the run's strip on a phone: what started the run on a line of its own */
+  .chat .banner.run .about {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+}

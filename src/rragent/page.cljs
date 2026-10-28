@@ -13,13 +13,19 @@
    Which bot a tab shows is the tab's: its URL, `/bot/<id>`, the id of
    the bot's conversation, until a click in the sidebar names another
    (`:bot/show`, with the tab's id); the root redirects to the bot
-   last used. A tab whose bot is gone shows another with a note. The pane beside the chat follows
+   last used. A tab whose bot is gone shows another with a note. A tab
+   may show a run of the bot instead of its chat, `/bot/<id>/run/<rid>`
+   (`:run/show`, `rragent.runs`): the run's transcript, which the
+   person may ask, with the bot's pane beside it; the pane lists the
+   bot's runs as its activity next to the artifacts (`:pane/show`
+   picks which list a tab sees). The pane beside the chat follows
    `work/artifacts/` of the bot's folder (`rragent.artifacts`), runs
    the projects in it (`rragent.projects`) and shows the renders
    (`rragent.render`).
 
    Routes: `/` redirects to a bot's page; `GET /bot/<id>` the page,
-   `POST /bot/<id>` its stream, `/bot/<id>/artifacts/*` the bot's
+   `POST /bot/<id>` its stream, the same for `/bot/<id>/run/<rid>`,
+   `/bot/<id>/artifacts/*` the bot's
    artifacts (a running project's page through the proxy, else the
    file), `POST /bot/<id>/upload` and `/bot/<id>/uploads/*` the files
    attached to a message (`rragent.uploads`), `POST /bot/<id>/dictation`
@@ -74,6 +80,7 @@
             [rragent.rframes.replicant :as replicant]
             [rragent.rframes.sse :as sse]
             [rragent.rframes.transit :as transit]
+            [rragent.runs :as runs]
             [rragent.secrets :as secrets]
             [rragent.sprite :as sprite]
             [rragent.starting :as starting]
@@ -93,6 +100,7 @@
   #{:value :definition :schedules/next :failed
     :artifacts/list :artifacts/rev :artifacts/durations :artifacts/current :artifacts/picked-at :artifacts/folder :projects :renders
     :artifacts/renaming :artifacts/deleting
+    :runs :runs/values
     :deleting? :renaming? :phone})
 
 (def sidebar-keys
@@ -139,14 +147,39 @@
   [w]
   (first (split-bot (get-in w [:ring/route-params :*]))))
 
+(defn run-path
+  "The run id of `rest`, the path after the bot's, when it is a run's
+   page, `run/<rid>`; nil otherwise."
+  [rest]
+  (some-> (second (re-matches #"run/([0-9]+)/?" (str rest))) js/Number))
+
+(defn- url-run
+  "The run id in the path of a connection's world, `/bot/<id>/run/<rid>`."
+  [w]
+  (run-path (second (split-bot (get-in w [:ring/route-params :*])))))
+
+(defn shown-run
+  "The run a tab shows, if any: the one it picked since (`:run/show`,
+   also none, which beats the URL), else the one of its URL."
+  [tab-runs tabid url-run]
+  (if (contains? tab-runs tabid)
+    (get tab-runs tabid)
+    url-run))
+
 (defn- artifacts-pane
   "The keys of the pane (`rragent.view/artifacts`), with the text of
    the artifact on screen when it is a text file."
   [{:keys [dir] :as bot}]
-  (let [pane (select-keys bot [:artifacts/list :artifacts/current :artifacts/folder :artifacts/durations :artifacts/renaming :artifacts/deleting :projects :renders])
+  (let [pane (select-keys bot [:artifacts/list :artifacts/current :artifacts/folder :artifacts/durations :artifacts/renaming :artifacts/deleting :projects :renders :runs])
         current (some #(when (= (:artifacts/current bot) (:path %)) %) (:artifacts/list bot))]
     (cond-> pane
       current (assoc :artifacts/text (artifacts/text-of dir current)))))
+
+(defn- run-of
+  "The run `run-id` among the bot's listed runs, nil for none."
+  [bot run-id]
+  (when run-id
+    (some #(when (= run-id (:id %)) %) (:runs bot))))
 
 (defn page-view
   "The page in the language of the connection, with the bot of the
@@ -154,17 +187,24 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
+        run-id (shown-run tab-runs (:tabid w) (url-run w))
+        run (run-of bot run-id)
         locale (i18n/locale (:ring/request w))]
     (-> (view/page {:bots (machine/listed)
                     :bot {:id id
                           :name (machine/label-of id)
                           :model (:model definition)
                           :context-window (machine/context-window (:model definition))}
-                    :conversation (conversation (:value bot))
-                    :artifacts (artifacts-pane bot)
+                    :run run
+                    :conversation (if run
+                                    (conversation (get-in bot [:runs/values run-id]))
+                                    (conversation (:value bot)))
+                    :artifacts (assoc (artifacts-pane bot)
+                                      :pane/shown (get tab-panes (:tabid w) :artifacts)
+                                      :runs/current run-id)
                     :phone (phone/status (:phone bot))
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
@@ -228,6 +268,15 @@
   [w]
   (machine/bot (:bot (command/command-data w))))
 
+(defn- conversation-of-command
+  "The conversation a command is about: the run's when it names one
+   (`:run`, followed by a tab), else the bot's."
+  [w]
+  (let [{:keys [bot run]} (command/command-data w)]
+    (if run
+      (machine/run-conversation bot run)
+      (:conversation (machine/bot bot)))))
+
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as
    an input of the bot's conversation (`rragent.uploads/content`: a
@@ -236,13 +285,14 @@
    `:screen` (`rragent.artifacts/screen-line`), so that \"this\" and
    \"here\" mean it; the answer arrives as frames."
   [w]
-  (let [{:keys [text attachments screen]} (command/command-data w)
+  (let [{:keys [text attachments screen run]} (command/command-data w)
         text (str/trim (str text))
-        {:keys [conversation uploads] :as bot} (bot-of-command w)
+        {:keys [uploads] :as bot} (bot-of-command w)
+        conversation (conversation-of-command w)
         attachments (when conversation (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
     (cond
       (nil? conversation)
-      (command/rejected w :no-such-bot)
+      (command/rejected w (if run :no-such-run :no-such-bot))
 
       (and (str/blank? text) (empty? attachments))
       (command/rejected w :empty-message)
@@ -250,20 +300,51 @@
       :else
       (let [content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
-                                            (artifacts/screen-line bot screen)))]
-        (await (harness/submit conversation #js {:type "input" :content (clj->js content)}))
+                                            (artifacts/screen-line bot screen)))
+            draft #js {:type "input" :content (clj->js content)}]
+        ;; a run keeps the instructions it started with; the bot reads its file again
+        (if run
+          (await (.submit conversation draft harness/context))
+          (await (harness/submit conversation draft)))
         (command/accepted w)))))
 
 (defn- stop-command
-  "The run aborted; the abort resolves once the conversation is idle,
-   which the frames show, so the command does not wait for it."
+  "The run aborted (the bot's, or the run's a tab shows); the abort
+   resolves once the conversation is idle, which the frames show, so
+   the command does not wait for it."
   [w]
-  (if-let [{:keys [conversation]} (bot-of-command w)]
+  (if-let [conversation (conversation-of-command w)]
     (do (-> (.abort conversation harness/context)
             (.catch (fn [error]
                       (js/console.error "[stop]" (str error)))))
         (command/accepted w))
     (command/rejected w :no-such-bot)))
+
+(defn- ^:async run-show-command
+  "The tab `tab` shows the run `run` of the bot `bot` from now on, or
+   the bot's chat again for a nil run; the run's conversation followed
+   for the frames (`rragent.machine/open-run!`); its settings close."
+  [w]
+  (let [{:keys [tab bot run]} (command/command-data w)]
+    (cond
+      (nil? tab) (command/rejected w :no-tab)
+      (nil? (machine/bot bot)) (command/rejected w :no-such-bot)
+      (nil? run) (do (swap! db/db #(-> % (assoc-in [:tabs tab] (str bot)) (assoc-in [:tab-runs tab] nil) (chat-in tab)))
+                     (command/accepted w))
+      (await (machine/open-run! bot run)) (do (swap! db/db #(-> % (assoc-in [:tabs tab] (str bot)) (assoc-in [:tab-runs tab] run) (chat-in tab)))
+                                              (command/accepted w))
+      :else (command/rejected w :no-such-run))))
+
+(defn- pane-show-command
+  "The tab `tab` sees the `pane` of the two lists of the pane,
+   `:artifacts` or `:activity`."
+  [w]
+  (let [{:keys [tab pane]} (command/command-data w)]
+    (cond
+      (nil? tab) (command/rejected w :no-tab)
+      (#{:artifacts :activity} pane) (do (swap! db/db assoc-in [:tab-panes tab] pane)
+                                         (command/accepted w))
+      :else (command/rejected w :no-such-pane))))
 
 (defn- artifact-of
   [bot path]
@@ -738,9 +819,9 @@
   (let [{:keys [id tab]} (command/command-data w)]
     (cond
       (nil? tab) (command/rejected w :no-tab)
-      (nil? id) (do (swap! db/db #(-> (update % :tabs dissoc tab) (chat-in tab)))
+      (nil? id) (do (swap! db/db #(-> (update % :tabs dissoc tab) (update :tab-runs dissoc tab) (chat-in tab)))
                     (command/accepted w))
-      (machine/bot id) (do (swap! db/db #(-> (assoc-in % [:tabs tab] (str id)) (chat-in tab)))
+      (machine/bot id) (do (swap! db/db #(-> (assoc-in % [:tabs tab] (str id)) (assoc-in [:tab-runs tab] nil) (chat-in tab)))
                            (command/accepted w))
       :else (command/rejected w :no-such-bot))))
 
@@ -862,6 +943,9 @@
       (nil? bot)
       (assoc w :ring/response http/not-found)
 
+      (run-path rest)
+      (shim w)
+
       (str/starts-with? rest (str (subs artifacts/url-prefix 1) "/"))
       (await (artifacts-get bot (with-subpath w rest (subs artifacts/url-prefix 1))))
 
@@ -910,6 +994,11 @@
 
       (nil? bot)
       (assoc w :ring/response http/not-found)
+
+      ;; the run's page: its conversation followed before the first frame
+      (run-path rest)
+      (do (await (machine/open-run! id (run-path rest)))
+          (await (stream w)))
 
       (= rest (subs uploads/upload-path 1))
       (await (uploads/handler (:uploads bot) (bots/url id) w))
@@ -1062,6 +1151,10 @@
       :command/fn #'secret-remove-command}
      {:command/kind :bot/show
       :command/fn #'show-command}
+     {:command/kind :run/show
+      :command/fn #'run-show-command}
+     {:command/kind :pane/show
+      :command/fn #'pane-show-command}
      {:command/kind :bot/create
       :command/fn #'create-command}
      {:command/kind :bot/rename-start

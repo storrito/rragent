@@ -12,7 +12,10 @@
    conversation and the keys of its pane, which the page reads, and
    the handles of its runtime; its artifacts pane is followed
    (`rragent.artifacts`, `rragent.projects`, `rragent.render`), its
-   REPL worker made at its first program (`rragent.codemode-worker`).
+   REPL worker made at its first program (`rragent.codemode-worker`);
+   its runs (`rragent.runs`), the newest `runs-shown` as `:runs`, read
+   again whenever one changes, and the view value of a run a tab shows
+   under `:runs/values` (`open-run!`).
    The harness map of the machine is the atom's `:machine`. A bot's
    name is its definition's (`name:` of its `AGENT.md`), as the reload
    last read it; when it was made, the birth time of its folder; when
@@ -75,6 +78,59 @@
   "The open bots by id."
   []
   (:bots @db/db))
+
+(def runs-shown
+  "How many of a bot's runs the page lists, newest first."
+  50)
+
+(defn refresh-runs!
+  "The newest runs of the bot `id` read into its map, `:runs`, for the
+   page. A promise."
+  [id]
+  (let [id (str id)
+        {:keys [harness]} (agent)]
+    (if (and harness (bot id))
+      (-> (runs/listed harness (js/Number id) runs-shown harness/context)
+          (.then (fn [runs]
+                   (when (bot id)
+                     (swap! db/db assoc-in (conj (db/bot-path id) :runs) runs))))
+          (.catch (fn [e] (js/console.error "[runs]" (str e)))))
+      (js/Promise.resolve nil))))
+
+(defn ^:async open-run!
+  "The run `run-id` of the bot `id` followed for the page: the view
+   value of its conversation under `[:runs/values run-id]` of the
+   bot's map, the handles under `[:runs/open run-id]`; nothing new
+   when it is followed already. Answers the run, nil when the bot has
+   no such run; a run that waits for its turn has no conversation yet
+   and is answered without a view."
+  [id run-id]
+  (let [id (str id)
+        path (db/bot-path id)
+        {:keys [harness]} (agent)
+        run (when (and harness (bot id))
+              (await (runs/run harness run-id harness/context)))]
+    (when (and run (= (js/Number id) (:bot run)))
+      (when (and (:conversation run) (not (get-in @db/db (conj path :runs/open run-id))))
+        (let [handle (await (.conversation harness (:conversation run) harness/context))
+              view (await (.viewState handle harness/context))
+              unsubscribe (.subscribe view (fn [value] (swap! db/db assoc-in (conj path :runs/values run-id) value)))]
+          (swap! db/db update-in path
+                 (fn [bot]
+                   (-> bot
+                       (assoc-in [:runs/values run-id] (.-value view))
+                       (assoc-in [:runs/open run-id] {:conversation handle
+                                                      :view view
+                                                      :stop! (fn []
+                                                               (unsubscribe)
+                                                               (.dispose view))}))))))
+      run)))
+
+(defn run-conversation
+  "The conversation handle of the run `run-id` of the bot `id`, when a
+   tab follows it."
+  [id run-id]
+  (get-in (bot id) [:runs/open run-id :conversation]))
 
 (defn- running?
   "Whether a run goes in the view value: the `pi.live` document has
@@ -145,6 +201,7 @@
             view (await (.viewState conversation harness/context))
             handles (start-pane! id view)]
         (swap! db/db update-in path merge {:id id :conversation conversation :view view} handles)
+        (await (refresh-runs! id))
         (bot id))
       (catch :default e
         (js/console.error "[bots]" (str "the bot " id " did not open: " (.-message e)))
@@ -156,8 +213,10 @@
    process's hold on its conversation let go; nothing for a bot that
    is not open."
   [id]
-  (when-let [{:keys [stop!]} (bot id)]
+  (when-let [{:keys [stop! runs/open]} (bot id)]
     (when stop!
+      (stop!))
+    (doseq [{:keys [stop!]} (vals open)]
       (stop!))
     (harness/forget-conversation! (js/Number id))
     true))
@@ -207,6 +266,7 @@
     (when-let [id (:migrated agent)]
       (println (str "the agent of " (:home agent) " is the bot " id " now")))
     (swap! db/db assoc :machine agent)
+    (runs/watch! (fn [bot-id] (refresh-runs! bot-id)))
     (let [hidden (await (hidden (:harness agent)))
           ids (remove hidden (await (conversations (:harness agent))))]
       (doseq [id ids]
