@@ -22,7 +22,11 @@ instructions, some with a `## Setup` section that holds a bash block.
 When the first message is a question or a task your tools do at once
 (a lookup through a connector, a quick action), do it and answer first:
 no skills read, no file written before the answer. Offer the skills
-afterwards, in a sentence, when they fit.
+afterwards, in a sentence, when they fit. A message that brings a file
+(an upload, a link to a video or a picture), or that asks to post,
+schedule, publish or make something, is no such task, even when a
+connector could do it in one call: a skill may do it with the checks
+the connector skips, so read the skills first.
 
 Otherwise, at the first message, pull the clone (`git -C /home/sprite/skills pull
 --ff-only`; when that fails, go on with what is there), read the
