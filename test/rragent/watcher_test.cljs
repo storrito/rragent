@@ -11,6 +11,7 @@
             [rragent.events :as events]
             [rragent.harness :as harness]
             [rragent.home :as home]
+            [rragent.runs :as runs]
             [rragent.schedule-test :as schedule-test]
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
@@ -43,20 +44,24 @@
                    (try
                      (is (= "Watching." (await (harness/ask agent (str "Watch " url " every second.")))))
                      (await (sleep 3500))
-                     (testing "the schedule fired more than once, each run fetched the page and noted an event"
-                       (let [k (await (schedule-test/kinds agent))
+                     (testing "the schedule fired more than once, each run of the bot fetched the page and noted an event in the bot's file"
+                       (let [runs (await (schedule-test/runs-of agent))
+                             done (filter #(= :done (:state %)) runs)
                              seen (events/select (events/read (home/events-file (home/bot-dir home (.-id (:root agent))))) {:event "page-seen"})]
-                         (is (<= 2 (count (filter #(= "rragent.schedule" %) k))) (pr-str k))
+                         (is (<= 2 (count done)) (pr-str runs))
+                         (is (every? #(str/starts-with? (:line %) "Checked, run") done))
                          (is (<= 2 @hits) "the page was fetched at each run")
                          (is (<= 2 (count seen)) (pr-str seen))
-                         (is (= "#{\"Hello\"}" (events/project seen "(set (map :title events))")) "a projection over them")))
-                     (testing "the fetch tool saw the page"
-                       (let [page (await (.entries (:root agent) #js {} 100 js/undefined harness/context))
-                             results (->> (array-seq (.-items page))
-                                          (filter #(= "pi.tool-result" (.-kind %)))
-                                          (map #(js/JSON.stringify (.-model %))))]
-                         (is (some #(str/includes? % "HTTP 200") results))
-                         (is (some #(str/includes? % "<title>") results))))
+                         (is (= "#{\"Hello\"}" (events/project seen "(set (map :title events))")) "a projection over them")
+                         (is (= [] (filter #(= "rragent.schedule" %) (await (schedule-test/kinds agent)))) "nothing of it in the bot's chat")
+                         (testing "the fetch tool saw the page, in the run's conversation"
+                           (let [child (await (.conversation (:harness agent) (:conversation (first done)) harness/context))
+                                 page (await (.entries child #js {} 100 js/undefined harness/context))
+                                 results (->> (array-seq (.-items page))
+                                              (filter #(= "pi.tool-result" (.-kind %)))
+                                              (map #(js/JSON.stringify (.-model %))))]
+                             (is (some #(str/includes? % "HTTP 200") results))
+                             (is (some #(str/includes? % "<title>") results))))))
                      (finally
                        (await (harness/close agent))
                        (test-home/remove! home))))))))

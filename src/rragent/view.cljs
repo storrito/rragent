@@ -141,9 +141,18 @@
     [:i18n :chat/hook-event {:event event :name name}]
     [:i18n :chat/hook-called {:name name}]))
 
+(defn- report-label
+  "What a run's report was: the run failed, or it had a word for the
+   person (`rragent.runs/report-kind`)."
+  [{:keys [state about]}]
+  (if (= "failed" state)
+    [:i18n :chat/run-failed {:about about}]
+    [:i18n :chat/run-report]))
+
 (defn- call-item
-  "A hook's call or a schedule's run: a folded step with `label` on
-   its line and the whole input, as the model got it, behind it."
+  "A hook's call, a schedule's run, a run's report or what started a
+   run: a folded step with `label` on its line and the whole input,
+   as the model got it, behind it."
   [id label data model]
   {:kind :call
    :id id
@@ -161,6 +170,8 @@
     "pi.user" [(user-item id model)]
     "rragent.hook" [(call-item id (hook-label data) data model)]
     "rragent.schedule" [(call-item id [:i18n :chat/schedule-ran {:name (:name data)}] data model)]
+    "rragent.run-report" [(call-item id (report-label data) data model)]
+    "rragent.run-input" [(call-item id [:i18n :chat/run-started {:about (or (:line data) (str (:kind data) " " (:name data)))}] data model)]
     "pi.assistant" (let [message (first model)]
                      (cons (assistant-item id message)
                            (tool-items message results slots)))

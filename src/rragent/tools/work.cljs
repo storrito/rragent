@@ -45,6 +45,14 @@
   (or (get-in @db/db (conj (db/bot-path (await (bot-id api call-context))) :reload :home))
       (path/dirname (dir api))))
 
+(defn ^:async bot-call!
+  "Throws when the call is not the bot's own conversation's but a
+   run's or a subagent's: `what` (\"Hooks\") are the bot's to set."
+  [api call-context what]
+  (when (not= (await (bot-id api call-context)) (.-conversationId api))
+    (throw (js/Error. (str what " are the bot's, not a run's or a subagent's: set none here. "
+                           "Say in your answer what the bot should set up, the person tells it.")))))
+
 (defn artifacts-dir
   [api]
   (home/artifacts-dir (dir api)))

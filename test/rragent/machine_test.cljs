@@ -19,6 +19,7 @@
             [rragent.home :as home]
             [rragent.hooks :as hooks]
             [rragent.machine :as machine]
+            [rragent.runs :as runs]
             [rragent.schedule :as schedule]
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
@@ -194,7 +195,7 @@
                        (is (= "Slept." (await asked))))
                      (is (false? (machine/busy?)))
                      (is (str/includes? (get (await (results conversation-b)) "s1") (str home "/bots/" id-b "/work")) "the command ran in the bot's own work/"))
-                   (testing "a hook of one bot: the call reaches that bot, with that secret only"
+                   (testing "a hook of one bot: the call starts a run of that bot, with that secret only"
                      (.setResponses faux #js [(tools-test/tool-call "hook" {:action "create" :name "reviews" :purpose "A review"} "h1")
                                               (tools-test/answer "Made.")
                                               (tools-test/answer "Posting.")])
@@ -202,14 +203,14 @@
                      (let [doc (await (.snapshot (:harness (machine/agent)) hooks/Hooks (.-id conversation-b) harness/context))
                            secret (.. doc -reviews -secret)
                            receive! (fn [bot name secret headers body] (hooks/receive! bot name secret headers body harness/context))
-                           {:keys [ok submission]} (await (machine/hook! receive! "reviews" secret {} "{\"stars\":5}"))]
+                           {:keys [ok run]} (await (machine/hook! receive! "reviews" secret {} "{\"stars\":5}"))]
                        (is (true? ok))
-                       (await (.wait (await (.submission (:harness (machine/agent)) submission harness/context)) harness/context))
+                       (is (true? (machine/busy?)) "a run of a bot keeps the machine awake")
+                       (await (.waitForTask (:harness (machine/agent)) run harness/context))
                        (is (= {:ok false} (await (machine/hook! receive! "reviews" "wrong" {} "x"))))
-                       (let [kinds (fn [conversation] (-> (.entries conversation #js {} 100 js/undefined harness/context)
-                                                          (.then (fn [page] (mapv #(.-kind %) (array-seq (.-items page)))))))]
-                         (is (some #{"rragent.hook"} (await (kinds conversation-b))))
-                         (is (not-any? #{"rragent.hook"} (await (kinds conversation-a)))))))
+                       (let [of (fn [conversation] (runs/listed (:harness (machine/agent)) (.-id conversation) 10 harness/context))]
+                         (is (= [[:done "Posting."]] (map (juxt :state :line) (await (of conversation-b)))))
+                         (is (= [] (await (of conversation-a)))))))
                    (testing "one alarm for the earliest scheduled run across the bots"
                      (let [now (js/Date.now)
                            ;; the minute two hours from now, today or past midnight
