@@ -100,7 +100,7 @@
   #{:value :definition :schedules/next :failed
     :artifacts/list :artifacts/rev :artifacts/durations :artifacts/current :artifacts/picked-at :artifacts/folder :projects :renders
     :artifacts/renaming :artifacts/deleting
-    :runs :runs/values
+    :runs :runs/values :runs/definitions
     :deleting? :renaming? :phone})
 
 (def sidebar-keys
@@ -191,7 +191,11 @@
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         run-id (shown-run tab-runs (:tabid w) (url-run w))
-        run (run-of bot run-id)
+        run (when-let [run (run-of bot run-id)]
+              (let [text (get-in bot [:runs/definitions run-id])]
+                (cond-> run
+                  text (assoc :definition {:text text
+                                           :changed? (not= text (get-in bot [:reload :text]))}))))
         locale (i18n/locale (:ring/request w))]
     (-> (view/page {:bots (machine/listed)
                     :bot {:id id

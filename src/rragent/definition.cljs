@@ -116,6 +116,21 @@
   [{:keys [name]}]
   (= generic-name name))
 
+(def generic-description
+  "The description of the generic definition (`deploy/agent/AGENT.md`),
+   which a bot replaces with its job's."
+  "A new agent on a machine of its own, which takes one of the skills on the machine, or the job the person describes, and becomes that agent.")
+
+(defn job-written?
+  "Whether the definition holds a job of its own: neither the generic
+   name nor the generic description is left. A run of the bot knows
+   only the definition, so a hook or a schedule on a definition
+   without a job gets a warning (`rragent.tools.hook`,
+   `rragent.tools.schedule`)."
+  [{:keys [description] :as definition}]
+  (not (or (generic? definition)
+           (= generic-description (str description)))))
+
 (defn display-name
   "The name the page shows for the definition: its own, unless it is
    the generic one and `RRAGENT_NAME` is set, the name the provisioner

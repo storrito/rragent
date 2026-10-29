@@ -174,6 +174,32 @@ Asked one by one, answered by Max on 2026-10-28.
    offered beside ours. Sharing across a customer's machines comes
    later through Storrito; the format does not change for that.
 
+### Four more, on how a run knows its job (2026-10-29)
+
+A run starts with the bot's agent, not its transcript: the definition
+as system prompt, the tools, the trigger's text as the first message.
+The tokens spent building the templates in the chat never enter a run.
+What was agreed only in the chat is invisible to runs, though, and
+compaction takes it from the bot too. Hence:
+
+7. **One file.** The job lives in `AGENT.md` with the bot's identity,
+   under a `## Your job` heading (the convention of the generic
+   definition and of a bot made by the `bot` tool). No `job.md`: a
+   second file would drift from the first, and a cached prefix costs
+   the same as a system prompt or as a first message.
+8. **Warn, don't refuse.** A hook or a schedule made while the
+   definition is still the generic assistant's is made, and the tool's
+   answer says that a run knows nothing of this chat and that the job
+   goes into the definition before the first call.
+9. **Write the job first.** The generic definition and the two tools
+   say it as a step: whenever the person says "whenever …", the job
+   goes into the file, then the hook or the schedule is made; a rule
+   agreed later goes into the file at once.
+10. **The definition per run.** A run's task keeps the text of the
+    definition it works from; the run's page shows it folded under the
+    strip and says when the bot's has changed since, so "why did
+    Tuesday's run do that?" has an answer without the transcript.
+
 ## How it is built
 
 - `rragent.events`: the events file, `remember` and `recall` over it,

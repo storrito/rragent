@@ -634,7 +634,8 @@
              (.setResponses faux #js [(tools-test/tool-call "hook" {:action "create" :name "reviews" :purpose "A new review"} "h1")
                                       (tools-test/answer "The hook is made.")
                                       (tools-test/answer "Posted the story.")
-                                      (tools-test/answer "Because the cover photo is the apartment's.")])
+                                      (tools-test/answer "Because the cover photo is the apartment's.")
+                                      (tools-test/answer "Hello back.")])
              (let [{:keys [id base stop!]} (await (start! home models))
                    controller (js/AbortController.)
                    other (js/AbortController.)
@@ -666,15 +667,29 @@
                          (is (mentions? frame "Started by hook reviews"))
                          (is (mentions? frame "Posted the story.") "the run's answer in the feed")
                          (is (some? (find-tag frame :div.banner.run)))
-                         (is (= [:draft (str id "/run/" run)] (:ui/store-key (second (find-tag frame :ui/composer)))) "the draft is the run's"))
-                       (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :run run :text "Why that photo?"}))))
-                       (let [frame (await (frame! #(mentions? % "Because the cover photo")))]
-                         (is (mentions? frame "Why that photo?"))))
-                     (testing "back to the bot's chat"
+                         (is (= [:draft (str id "/run/" run)] (:ui/store-key (second (find-tag frame :ui/composer)))) "the draft is the run's")
+                         (testing "the definition the run works from, folded; the bot's unchanged so far"
+                           (is (mentions? frame "The definition this run works from"))
+                           (is (mentions? frame "You watch a page."))
+                           (is (not (mentions? frame "has changed since")))))
+                       (testing "the bot's definition changed since the run: the page says so"
+                         (fs/writeFileSync (path/join (home/bot-dir home (js/Number id)) "AGENT.md") (str/replace test-home/definition-text "You watch a page." "You watch two pages."))
+                         (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :run run :text "Why that photo?"}))))
+                         (let [frame (await (frame! #(mentions? % "Because the cover photo")))]
+                           (is (mentions? frame "Why that photo?"))
+                           ;; the bot's file is read again at its next submission, not the run's:
+                           ;; the word comes once the bot ran
+                           (is (not (mentions? frame "has changed since"))))))
+                     (testing "back to the bot's chat; its file read again at its next message, the run's page then says the definition changed"
                        (is (= {:success? true} (await (command! base cookie :bot/show {:tab "t1" :id id}))))
                        (let [frame (await (frame! #(= (str "/bot/" id) (url-of %))))]
                          (is (mentions? frame "The hook is made."))
-                         (is (not (mentions? frame "Because the cover photo")))))
+                         (is (not (mentions? frame "Because the cover photo"))))
+                       (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Hello again."}))))
+                       (await (frame! #(mentions? % "Hello back.")))
+                       (is (= {:success? true} (await (command! base cookie :run/show {:tab "t1" :bot id :run run}))))
+                       (let [frame (await (frame! #(and (= (str "/bot/" id "/run/" run) (url-of %)) (mentions? % "has changed since"))))]
+                         (is (mentions? frame "You watch a page.") "the run's own text, not the new one")))
                      (testing "the run's page by its URL, in another tab"
                        (is (= 200 (.-status (await (js/fetch (str bot-url "/run/" run) #js {:headers #js {:cookie cookie}})))))
                        (let [{:keys [reader decoder]} (await (stream (str bot-url "/run/" run) cookie other "t2"))

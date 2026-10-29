@@ -158,6 +158,13 @@
                    (is (= "message" (.. doc -chat -mode)))
                    (is (str/includes? (hooks/listed doc) "chat: ") )
                    (is (str/includes? (hooks/listed doc) "mode message"))
+                   (testing "the bot's definition holds a job: no warning in the tool's answer"
+                     (let [page (await (.entries (:root agent) #js {} 100 js/undefined harness/context))
+                           results (->> (array-seq (.-items page))
+                                        (filter #(= "pi.tool-result" (.-kind %)))
+                                        (map #(tools-test/result-text (aget (.-model %) 0))))]
+                       (is (some #(str/includes? % "each call starts a run of yours.") results))
+                       (is (not-any? #(str/includes? % "generic assistant") results))))
                    (is (= {:ok false} (await (hooks/receive! agent "reviews" "wrong" {} "x" harness/context))))
                    (is (= {:ok false} (await (hooks/receive! agent "nothing" secret {} "x" harness/context))))
                    (testing "a call starts a run: the bot's copy, told that it is a run, with the call as its message; its answer is the run's line"

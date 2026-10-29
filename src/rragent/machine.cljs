@@ -101,10 +101,11 @@
 (defn ^:async open-run!
   "The run `run-id` of the bot `id` followed for the page: the view
    value of its conversation under `[:runs/values run-id]` of the
-   bot's map, the handles under `[:runs/open run-id]`; nothing new
-   when it is followed already. Answers the run, nil when the bot has
-   no such run; a run that waits for its turn has no conversation yet
-   and is answered without a view."
+   bot's map, the text of the definition it works from under
+   `[:runs/definitions run-id]`, the handles under `[:runs/open
+   run-id]`; nothing new when it is followed already. Answers the
+   run, nil when the bot has no such run; a run that waits for its
+   turn has no conversation yet and is answered without a view."
   [id run-id]
   (let [id (str id)
         path (db/bot-path id)
@@ -112,6 +113,8 @@
         run (when (and harness (bot id))
               (await (runs/run harness run-id harness/context)))]
     (when (and run (= (js/Number id) (:bot run)))
+      (when (:definition run)
+        (swap! db/db assoc-in (conj path :runs/definitions run-id) (:definition run)))
       (when (and (:conversation run) (not (get-in @db/db (conj path :runs/open run-id))))
         (let [handle (await (.conversation harness (:conversation run) harness/context))
               view (await (.viewState handle harness/context))

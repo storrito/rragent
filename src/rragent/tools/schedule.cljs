@@ -26,6 +26,7 @@
                           "and the text the run gets then: what to do. Each fire starts a run, a fresh conversation with your definition, "
                           "your events and your artifacts, which does the job and ends with one line the person sees in your activity; "
                           "nothing of it enters this chat unless the run failed or reported something. "
+                          "A run knows nothing of this chat, only your definition, your events and your artifacts: write the job into your definition before you set a schedule. "
                           "`mode: message` instead has the text reach you here as a message, for a rare reminder you want to talk about; never for anything frequent. "
                           "`delete` with the name; `list`. "
                           "A set schedule replaces one of the same name. Write the cron line yourself, for example `0 8 * * 1-5` for weekday mornings at eight.")
@@ -44,7 +45,9 @@
                                    (throw (js/Error. "set needs name, cron and text")))
                                  (let [at (await (schedule/set! api name (.-cron args) (.-tz args) (.-text args) (.-mode args) (js/Date.now) call-context))]
                                    (await (rearm!))
-                                   (text (str "Schedule " name " set; next run " (.toISOString (js/Date. at))))))
+                                   (text (str "Schedule " name " set; next run " (.toISOString (js/Date. at)) "."
+                                              (when-not (= "message" (.-mode args))
+                                                (await (work/job-warning api call-context)))))))
                        "delete" (do (when (empty? name)
                                       (throw (js/Error. "delete needs the name")))
                                     (let [found (await (schedule/delete! api name call-context))]
