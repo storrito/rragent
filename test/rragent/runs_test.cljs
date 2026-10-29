@@ -5,6 +5,8 @@
    into the bot's events file), and the record of a run."
   (:require [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
+            [rragent.composio-events :as composio-events]
+            [rragent.composio-setup :as setup]
             [rragent.events :as events]
             [rragent.harness :as harness]
             [rragent.home :as home]
@@ -218,6 +220,54 @@
                      (is (str/includes? (get results "h1") "Your definition is still the generic assistant's"))
                      (is (str/includes? (get results "s1") "Your definition is still the generic assistant's"))
                      (is (not (str/includes? (get results "s2") "generic assistant")))))
+(def delivery
+  "What Composio posts for a Google Drive trigger, cut to what matters."
+  "{\"id\":\"msg_1\",\"type\":\"composio.trigger.message\",\"metadata\":{\"trigger_slug\":\"GOOGLEDRIVE_FILE_CREATED_TRIGGER\",\"trigger_id\":\"ti_1\",\"connected_account_id\":\"ca_1\"},\"data\":{\"event_type\":\"file_created\",\"file\":{\"id\":\"1dIU\",\"name\":\"4.txt\"}}}")
+
+(defn- signed
+  "The headers of a delivery signed as Composio signs them, now."
+  [secret id body]
+  (let [timestamp (str (quot (js/Date.now) 1000))]
+    {"webhook-id" id
+     "webhook-timestamp" timestamp
+     "webhook-signature" (str "v1," (composio-events/signature secret id timestamp body))}))
+
+(deftest a-composio-delivery-starts-a-run-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)
+                 secret "s3cret"]
+             (.setResponses faux #js [(tools-test/answer "Filed the file.")])
+             (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))
+                   root (:root agent)
+                   receive! (fn [headers body]
+                              (composio-events/receive! {:harness (:harness agent)
+                                                         :context harness/context
+                                                         :bots {"1" {:conversation root :reload {:home (home/bot-dir home 1)}}}
+                                                         :default-id (fn [] "1")
+                                                         :now js/Date.now}
+                                                        headers body))]
+               (try
+                 (await (setup/write! (:harness agent) harness/context (fn [doc] (aset doc "subscription" #js {:secret secret}))))
+                 (let [{:keys [status body]} (await (receive! (signed secret "msg_1" delivery) delivery))
+                       run (:run body)]
+                   (is (= 200 status))
+                   (is (= {:ok true :bot "1"} (dissoc body :run)))
+                   (is (number? run))
+                   (testing "the delivery is the run's message, its trigger the event; nothing in the bot's chat"
+                     (let [{:keys [state line trigger]} (await (settled agent run))]
+                       (is (= :done state))
+                       (is (= "Filed the file." line))
+                       (is (= {:kind "composio" :name "GOOGLEDRIVE_FILE_CREATED_TRIGGER" :line "Google Drive · file created · 4.txt"} trigger)))
+                     (let [k (await (schedule-test/kinds agent))]
+                       (is (not-any? #{composio-events/entry-kind "pi.user"} k) (pr-str k))))
+                   (testing "told again: no second run"
+                     (is (= {:status 200 :body {:ok true :duplicate true}} (await (receive! (signed secret "msg_1" delivery) delivery))))
+                     (is (= 1 (count (await (schedule-test/runs-of agent))))))
+                   (testing "not verified: nothing"
+                     (is (= 401 (:status (await (receive! (signed "other" "msg_2" delivery) delivery)))))
+                     (is (= 1 (count (await (schedule-test/runs-of agent)))))))
                  (finally
                    (await (harness/close agent))
                    (test-home/remove! home)))))))

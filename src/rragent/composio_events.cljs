@@ -12,15 +12,18 @@
    trigger, the one whose newest event about the trigger is a
    `composio-trigger` (`rragent.codemode/add-trigger` remembers it,
    into the bot's events file, `rragent.events`),
-   else to the bot the page opens by default, as an input of its
-   conversation, the way a hook's call is submitted (`rragent.hooks`)."
+   else to the bot the page opens by default: it starts a run of the
+   bot with the event as its text (`rragent.runs`), the way a hook's
+   call does (`rragent.hooks`), the definition read again first."
   (:require ["node:crypto" :as crypto]
             [clojure.string :as str]
             [rragent.composio :as composio]
             [rragent.composio-setup :as setup]
             [rragent.events :as events]
             [rragent.home :as home]
-            [rragent.hooks :as hooks]))
+            [rragent.hooks :as hooks]
+            [rragent.reload :as reload]
+            [rragent.runs :as runs]))
 
 (def tolerance-ms
   "How far from now a delivery's timestamp may be."
@@ -34,7 +37,19 @@
   20000)
 
 (def entry-kind
+  "The kind of the entries deliveries were submitted as before they
+   started runs; the page still shows them."
   "rragent.composio-event")
+
+(defn trigger-of
+  "What a delivery is as a run's trigger: `{:kind :name :line}`, the
+   name the trigger's slug (the event's type without one), the line
+   the event's for a person (`rragent.hooks/event-line`) when it has
+   one."
+  [event body]
+  (cond-> {:kind "composio"
+           :name (or (not-empty (str (get-in event [:metadata :trigger_slug]))) (str (:type event)))}
+    (hooks/event-line body) (assoc :line (hooks/event-line body))))
 
 (defn signed-content
   [id timestamp body]
@@ -164,9 +179,9 @@
 (defn ^:async receive!
   "One delivery: `{:status :body}` for the response. 401 for one that
    does not verify, 200 for a repeat (`:duplicate`), 200 with the bot
-   it went to otherwise. `bots` are the open bots by id
-   (`rragent.machine/bots`), `default-id` answers the page's default
-   bot, `now` the clock."
+   it went to and the run it started otherwise. `bots` are the open
+   bots by id (`rragent.machine/bots`), `default-id` answers the
+   page's default bot, `now` the clock."
   [{:keys [harness context bots default-id now]} headers body]
   (let [stored (await (setup/snapshot harness context))
         secret (get-in stored [:subscription :secret])]
@@ -180,12 +195,11 @@
                 bot (or (when trigger (owner (events-of bots) trigger))
                         (default-id))
                 conversation (:conversation (get bots bot))]
-            (when conversation
-              (await (.submit conversation
-                              #js {:type "input"
-                                   :content (message event body)
-                                   :whenBusy "followUp"
-                                   :entry #js {:kind entry-kind
-                                               :data #js {:id id :trigger trigger :type (:type event)}}}
-                              context)))
-            {:status 200 :body (cond-> {:ok true} bot (assoc :bot bot))}))))))
+            (if conversation
+              (do (await (reload/reload! conversation context))
+                  (let [run (await (runs/start! conversation
+                                                {:trigger (trigger-of event body)
+                                                 :content (message event body)}
+                                                context))]
+                    {:status 200 :body {:ok true :bot bot :run run}}))
+              {:status 200 :body (cond-> {:ok true} bot (assoc :bot bot))})))))))
