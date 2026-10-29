@@ -102,7 +102,10 @@ the model's, so the room pi-ai leaves for an answer, and for the
 summary of a conversation already past the budget, stays right. Past
 the budget every call takes longer and costs more: a bot at 440,000
 tokens of a 1,050,000 window waited 12 to 35 seconds for each call,
-where 70,000 took two to seven.
+where 70,000 took two to seven. The ring in the chat's header measures the last
+call against that budget (or the model's window, when smaller), so it
+fills towards the compaction, and its card says that older messages
+are summarized past it.
 
 A bot's conversation is compacted while the person is away too: once
 its last answer read 50,000 tokens or more and it has been quiet for

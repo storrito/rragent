@@ -264,7 +264,7 @@
             ring (second (find-tag page :ui/context))]
         (is (= 1200 (:ui/used ring)))
         (is (= 1000000 (:ui/window ring)))
-        (is (= "Context window" (:title (:ui/labels (second (find-tag (i18n/translate page :en) :ui/context)))))))
+        (is (= "Context" (:title (:ui/labels (second (find-tag (i18n/translate page :en) :ui/context)))))))
       (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en}) :ui/context)) "no ring before the first answer"))))
 
 (deftest update-banner-test

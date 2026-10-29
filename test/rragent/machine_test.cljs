@@ -13,6 +13,7 @@
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
             [rragent.bots-test :as bots-test]
+            [rragent.db :as db]
             [rragent.events :as events]
             [rragent.fake-sprite-env :as fake]
             [rragent.harness :as harness]
@@ -255,3 +256,15 @@
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest context-window-test
+  (let [{:keys [models]} (tools-test/faux-models {:models [{:id "wide-1" :contextWindow 1050000}
+                                                           {:id "small-1" :contextWindow 128000}]})
+        before (:machine @db/db)]
+    (swap! db/db assoc :machine {:models models :provider "faux"})
+    (try
+      (is (= harness/default-context-tokens (machine/context-window "wide-1")) "a 1M model: the ring fills towards the budget, where rragent compacts")
+      (is (= 128000 (machine/context-window "small-1")) "a smaller one towards its own window")
+      (is (nil? (machine/context-window "unknown-9")))
+      (finally
+        (swap! db/db assoc :machine before)))))

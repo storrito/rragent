@@ -61,13 +61,16 @@
   (:home (agent)))
 
 (defn context-window
-  "The context window of the model `id` in tokens, from the models
-   registry of the agent; nil for a model it does not know."
+  "The context a conversation on the model `id` keeps, in tokens: the
+   model's window from the models registry of the agent, at most the
+   budget past which rragent compacts (`rragent.harness/context-tokens`),
+   so that the page's ring fills towards the compaction; nil for a model
+   it does not know."
   [id]
   (let [{:keys [models provider]} (agent)]
     (when (and models (seq (str id)))
       (try
-        (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-contextWindow)
+        (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-contextWindow (min (harness/context-tokens)))
         (catch :default _
           nil)))))
 

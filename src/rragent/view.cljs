@@ -1343,7 +1343,8 @@
   "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :label
    :state :deleting? :renaming?}`; `:bot`, the one shown, its `:id`,
    `:name` (what the header shows, the label of the sidebar), its
-   `:model` and the model's `:context-window` in tokens, when known;
+   `:model` and the context it keeps, `:context-window` in tokens (the
+   model's window, at most rragent's budget), when known;
    `:conversation`, its transcript `{:entries :live
    :inbox}`; `:artifacts`, its pane's keys; `:locale`; `:onboarding`,
    the skill's welcome (`rragent.onboarding`) or nil; `:run`, a run
