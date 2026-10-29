@@ -32,6 +32,7 @@
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
             ["@earendil-works/pi-durable/tools" :refer [createCodingTools]]
             ["node:fs" :as fs]
+            [rragent.binary :as binary]
             [rragent.bots :as bots]
             [rragent.codemode :as codemode]
             [rragent.codemode-worker :as codemode-worker]
@@ -229,7 +230,8 @@
   "The registry: pi-durable's coding tools, rragent's own over the
    REPL `codemode`, the subagent tool in an extension of its own,
    which a subagent's agent leaves out, the redaction of the secrets
-   of `home`, the earlier tool results masked in every request
+   of `home`, a binary file decoded as text left out of a result
+   (`rragent.binary`), the earlier tool results masked in every request
    (`rragent.observations`), and `extensions` the caller brings."
   [codemode home extensions]
   (let [registry (doto (createRegistry)
@@ -237,6 +239,7 @@
                    (.install (extension codemode))
                    (.install subagent-tool/extension)
                    (.install (redaction home))
+                   (.install binary/extension)
                    (.install observations/extension))]
     (doseq [e extensions]
       (.install registry e))

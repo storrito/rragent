@@ -117,6 +117,17 @@ and the provider's cache. On the conversation of a bot after 97 turns
 it takes the tool results' text from some 188,000 tokens to 68,000 and
 its 51 pictures to none.
 
+A tool's text that is a binary file decoded as text never reaches the
+model: `read` takes every file that is no picture for UTF-8 text, so a
+PDF, a video or a .docx came back as up to 50 KB of replacement
+characters, and `cat` or a `fetch` of a PDF did the same. After every
+tool call such a text (it begins with a file's signature, `%PDF-`,
+`ftyp`, `PK…`, or holds more than one control code in a hundred or a
+third replacement characters) is replaced by a line that says what the
+file is and how to get at it with the commands of the machine's PATH
+(`pdftotext`, `ffprobe`, `unzip`), or that a tool is missing
+(`rragent.binary`).
+
 A bot is made by one click on "New bot" in the sidebar, which asks
 for nothing: the bot starts from the generic assistant definition as
 it is (`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the
