@@ -87,6 +87,12 @@ Keep each section concise. Preserve exact file paths, function names, and error 
     (when (and (= "stop" (some-> choice .-finish_reason)) (seq text))
       text)))
 
+(def timeout-ms
+  "How long the summary may take before pi-durable summarizes instead:
+   a compaction that hangs would keep the machine awake
+   (`rragent.away`)."
+  (* 5 60000))
+
 (defonce post
   ;; how the request goes out: the fetch from before rragent wrapped it,
   ;; so the summary is not kept as the session's last request; a test
@@ -105,7 +111,8 @@ Keep each section concise. Preserve exact file paths, function names, and error 
         _ (aset headers "accept" "application/json")
         response (await (@post url #js {:method "POST"
                                         :headers headers
-                                        :body (summary-body body instructions)}))
+                                        :body (summary-body body instructions)
+                                        :signal (js/AbortSignal.timeout timeout-ms)}))
         text (await (.text response))
         answer (try (js/JSON.parse text) (catch :default _ nil))
         summary (when (.-ok response) (summary-of answer))

@@ -76,7 +76,8 @@
                      :headers #js {"content-type" "application/json"}}))
 
 (def kept-sessions
-  "How many sessions' last requests are kept: a few MB each at most."
+  "How many sessions' last requests are kept: up to the gateway's
+   8 MB each."
   8)
 
 (defonce last-requests
