@@ -1344,7 +1344,9 @@
    :state :deleting? :renaming?}`; `:bot`, the one shown, its `:id`,
    `:name` (what the header shows, the label of the sidebar), its
    `:model` and the context it keeps, `:context-window` in tokens (the
-   model's window, at most rragent's budget), when known;
+   model's window, at most rragent's budget), when known; `:spend`, what
+   it cost so far with its subagents and runs, in place of the cost of
+   the transcript, which a compaction shortens;
    `:conversation`, its transcript `{:entries :live
    :inbox}`; `:artifacts`, its pane's keys; `:locale`; `:onboarding`,
    the skill's welcome (`rragent.onboarding`) or nil; `:run`, a run
@@ -1387,7 +1389,8 @@
           (list
            [:input#view-chat.toggle {:type "radio" :name "view"}]
            [:input#view-made.toggle {:type "radio" :name "view"}]))
-        (header bot status (context-usage conversation))
+        (header bot status (cond-> (context-usage conversation)
+                             (and (:spend bot) (not run)) (assoc :cost (:spend bot))))
         (when artifacts?
           (views))
         [:div.body

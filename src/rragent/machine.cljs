@@ -49,7 +49,7 @@
                   :history "latest"
                   :initial (fn [] #js {:hidden #js []})}))
 
-(declare adopt! listed)
+(declare adopt! listed refresh-spend!)
 
 (defn agent
   "The harness map of the machine."
@@ -150,13 +150,25 @@
   "A new view value of the bot: into its map, with whether a run goes;
    when the run just ended, the pane shows what the run made
    (`rragent.artifacts/refollow!`, the screen stays put while a run
-   goes)."
+   goes) and the bot's cost is read again (`refresh-spend!`)."
   [path ^js value]
   (let [was (:working? (db/at @db/db path))
         now (running? value)]
     (swap! db/db db/update-at path assoc :value value :working? now)
     (when (and was (not now))
-      (artifacts/refollow! db/db path))))
+      (artifacts/refollow! db/db path)
+      (refresh-spend! (last path)))))
+
+(defn- refresh-spend!
+  "The bot's cost so far, its subagents' and runs' included
+   (`rragent.harness/spend`), into its map as `:spend`, for the page."
+  [id]
+  (-> (harness/spend (:harness (agent)) (js/Number id))
+      (.then (fn [spend]
+               (when (bot id)
+                 (swap! db/db update-in (db/bot-path id) assoc :spend spend))))
+      (.catch (fn [error]
+                (js/console.error "[bots]" (str "the cost of the bot " id " was not read:") error)))))
 
 (defn- start-pane!
   "The bot's map follows the bot: the view value now and every one
@@ -209,6 +221,7 @@
             view (await (.viewState conversation harness/context))
             handles (start-pane! id view)]
         (swap! db/db update-in path merge {:id id :conversation conversation :view view} handles)
+        (refresh-spend! id)
         (await (refresh-runs! id))
         (bot id))
       (catch :default e

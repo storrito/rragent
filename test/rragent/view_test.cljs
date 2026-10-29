@@ -265,7 +265,16 @@
         (is (= 1200 (:ui/used ring)))
         (is (= 1000000 (:ui/window ring)))
         (is (= "Context" (:title (:ui/labels (second (find-tag (i18n/translate page :en) :ui/context)))))))
-      (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en}) :ui/context)) "no ring before the first answer"))))
+      (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en}) :ui/context)) "no ring before the first answer"))
+    (testing "the cost is the bot's, its subagents included, when known: a compaction shortens the transcript, not what it cost"
+      (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cost {:total 0.5}})]}]
+        (is (= 33.8 (:ui/cost (second (find-tag (view/page {:bot {:id "b1" :context-window 200000 :spend 33.8}
+                                                            :conversation conversation :locale :en})
+                                                :ui/context)))))
+        (is (= 0.5 (:ui/cost (second (find-tag (view/page {:bot {:id "b1" :context-window 200000}
+                                                           :conversation conversation :locale :en})
+                                               :ui/context))))
+            "before it is read, the transcript's")))))
 
 (deftest update-banner-test
   (testing "nothing while nothing newer is known"
