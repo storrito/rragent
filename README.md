@@ -868,7 +868,13 @@ arguments `SKILLS_REPO` (`storrito/agentitos`) and `SKILLS_BRANCH`
 starts rragent (20 seconds at most, a failure said on stderr and the
 clone from the image stands), so a machine that wakes offers the
 current skills, and starts rragent again when it ended with 75 after
-taking a release (Updates, above), without the pull. The image carries
+taking a release (Updates, above), without the pull. The person's own
+skills live beside ours, in `agent/skills/<name>/` of the machine: a bot
+writes one with its `skill` tool when the person wants to keep what it
+does as a how-to for their other bots (`rragent.skills`, see
+[docs/runs-and-skills.md](docs/runs-and-skills.md)), the assistant offers
+both folders, and a skill of ours a person wants changed is copied under
+a name of their own, so the clone stays as it is. The image carries
 no secret. The secret of the
 page's link is a label of the sprite, `token:<hex>`, set with the
 sprite's other labels when it is made and read by rragent at start

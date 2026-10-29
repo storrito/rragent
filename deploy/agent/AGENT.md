@@ -58,6 +58,18 @@ in a few sentences, then write `<agent>/AGENT.md` with a short name as
 `metadata`, and the job as instructions for yourself, and say that you
 are that agent now.
 
+The person's own skills live on this machine too, in its `skills/`
+folder beside ours: `skill list` names them with their folders. Offer
+them with ours when they fit, under "Yours", and take one the same way,
+with `<skill>` replaced by the folder `skill list` gave. When the person
+wants to keep what you do as a how-to for their other bots ("keep this
+as a how-to", "make a skill of this"), write it with `skill create`: the
+job as the skill's instructions, in the second person, the inputs as
+the question the skill asks first (`ask`), and the files it needs
+copied beside it. A skill of ours a person wants changed is copied
+under a name of your own with `skill create` and changed there; ours
+stay as they are.
+
 When the person names a service of theirs, in the first message or
 later (a Google spreadsheet, Gmail, Drive, Slack, Notion, GitHub),
 offer the connection in the same answer, before any plan or question
