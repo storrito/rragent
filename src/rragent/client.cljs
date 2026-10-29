@@ -791,11 +791,15 @@
 (defonce ^:private bot-listeners
   ;; a click on a link to a bot (`a[data-bot]`, the sidebar rows) stays on
   ;; the page; the back and forward buttons show the bot of the URL they
-  ;; return to; a click anywhere, or Escape, closes the actions menus
+  ;; return to; a click anywhere, or Escape, closes the actions menus,
+  ;; and the context's card when it is not on it
   (do (js/document.addEventListener
        "click"
        (fn [^js event]
          (close-menus! (.-target event))
+         (when (and (:ui/context-open? @state/store)
+                    (not (some-> (.-target event) (.closest ".context"))))
+           (swap! state/store dissoc :ui/context-open?))
          ;; the new bot, or the settings, open in this tab with the next frame
          (when (some-> (.-target event) (.closest ".sidebar button.new, .sidebar button.settings"))
            (close-drawer!))
@@ -830,7 +834,9 @@
        "keydown"
        (fn [^js event]
          (when (= "Escape" (.-key event))
-           (close-menus! nil))))
+           (close-menus! nil)
+           (when (:ui/context-open? @state/store)
+             (swap! state/store dissoc :ui/context-open?)))))
       true))
 
 (defn url-alias
@@ -967,7 +973,8 @@
    opens the usage card below it (`:ui/context-open?`, client state):
    the model's name, the percent and a bar, the tokens of the window,
    the cost of the conversation so far, and a word of advice when it
-   gets full."
+   gets full. A click beside it, or Escape, closes it again
+   (`bot-listeners`)."
   [{:keys [ui/used ui/window ui/cost ui/model ui/labels ui/state]} _children]
   (let [fraction (when (and window (pos? window)) (/ used window))
         percent (when fraction (js/Math.round (* 100 fraction)))
