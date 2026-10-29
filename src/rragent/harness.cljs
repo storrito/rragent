@@ -62,7 +62,8 @@
             [rragent.tools.schedule :as schedule-tool]
             [rragent.tools.skill :as skill-tool]
             [rragent.tools.subagent :as subagent-tool]
-            [rragent.tools.transcribe :as transcribe-tool]))
+            [rragent.tools.transcribe :as transcribe-tool]
+            [rragent.warm-summary :as warm-summary]))
 
 (def context
   "The Chord context every call takes; this one never cancels."
@@ -237,7 +238,9 @@
    which a subagent's agent leaves out, the redaction of the secrets
    of `home`, a binary file decoded as text left out of a result
    (`rragent.binary`), the earlier tool results masked in every request
-   (`rragent.observations`), and `extensions` the caller brings."
+   (`rragent.observations`), the summary of a compaction rragent starts
+   read from the provider's cache (`rragent.warm-summary`), and
+   `extensions` the caller brings."
   [codemode home extensions]
   (let [registry (doto (createRegistry)
                    (.install (createCodingTools #js {:images images/processor}))
@@ -245,7 +248,8 @@
                    (.install subagent-tool/extension)
                    (.install (redaction home))
                    (.install binary/extension)
-                   (.install observations/extension))]
+                   (.install observations/extension)
+                   (.install warm-summary/extension))]
     (doseq [e extensions]
       (.install registry e))
     registry))

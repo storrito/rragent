@@ -1,27 +1,30 @@
 (ns rragent.away
   "A bot's conversation compacted while the person is away. After a
-   pause the provider's cache of the conversation is gone (OpenAI and
-   Anthropic keep it some five to ten minutes), so the next message
-   reads all of it again at full price and speed: a bot at 442,000
-   tokens paid $2.21 to answer \"What is 1 + 1?\" the next morning. A
-   conversation whose last answer read at least `min-tokens` and that
-   has been quiet for `idle-ms` is compacted then (`tick!`), so the
-   person comes back to a small one; one that is smaller is cheaper to
-   read again than to summarize. Until that compaction is done the
+   long pause the provider's cache of the conversation is gone, so the
+   next message reads all of it again at full price and speed: a bot at
+   442,000 tokens paid $2.21 to answer \"What is 1 + 1?\" the next
+   morning. A conversation whose last answer read at least `min-tokens`
+   and that has been quiet for `idle-ms` is compacted then (`tick!`),
+   while the cache still holds it: OpenAI keeps the prefix of GPT-5.6
+   and later at least 30 minutes after its last read, so the summary
+   reads it at a twentieth of the price (`rragent.warm-summary`) and
+   the person comes back to a small conversation. One that is smaller
+   is cheap enough to read again. Until that compaction is done the
    machine counts as busy (`pending?`), so it does not go to sleep
    before and summarize when the person is back. The answers are kept
    in the process (`note!`, from `rragent.harness/context-budget`); a
    machine that starts again knows none until the next.")
 
 (def idle-ms
-  "How long a conversation is quiet before it is compacted: when the
-   providers' caches are surely gone, and the machine's sleep
+  "How long a conversation is quiet before it is compacted: long
+   enough that the person has likely left, well inside the 30 minutes
+   the provider's cache holds it, and the machine's sleep
    (`rragent.sleep`, ten minutes) waits for it."
   (* 10 60000))
 
 (def min-tokens
   "The context from which a quiet conversation is compacted: below it
-   reading it again once costs less than a summary."
+   the summary is not worth what it loses."
   50000)
 
 (defonce answers
