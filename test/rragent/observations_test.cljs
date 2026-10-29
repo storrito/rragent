@@ -32,6 +32,15 @@
     (is (str/includes? short "[… 8000 characters of this earlier result are left out here") "and what was left out")
     (is (not (str/includes? short "b")))))
 
+(deftest instructions-test
+  (is (observations/instructions? {:name "read" :args #js {:path "/home/sprite/skills/captions/SKILL.md"}}))
+  (is (observations/instructions? {:name "read" :args #js {:path "skills/mine/notes.md"}}) "the person's own skills")
+  (is (observations/instructions? {:name "read" :args #js {:path "../AGENT.md"}}))
+  (is (not (observations/instructions? {:name "read" :args #js {:path "artifacts/frame.png"}})))
+  (is (not (observations/instructions? {:name "read" :args #js {:path "artifacts/MY-SKILL.md.txt"}})))
+  (is (not (observations/instructions? {:name "bash" :args #js {:command "cat SKILL.md"}})))
+  (is (not (observations/instructions? nil)) "a call that is not there"))
+
 (deftest mask-test
   (testing "two turns or fewer: the same array"
     (let [messages #js [(user "one") (call "c1" "read" {:path "a.png"}) (result "c1" picture) (user "two")]]
@@ -64,6 +73,22 @@
       (is (identical? kept-text (aget masked 12)) "the running turn is whole")
       (is (identical? picture (aget (.-content kept-picture) 0)) "and the conversation's own messages are untouched")
       (is (= (js->clj masked) (js->clj (observations/mask messages))) "the same messages give the same request, for the cache")))
+  (testing "what the agent read of a skill stays whole: its instructions"
+    (let [skill (result "s1" (text long-text))
+          reference (result "s2" (text long-text))
+          definition (result "s3" (text long-text))
+          other (result "s4" (text long-text))
+          messages #js [(user "one")
+                        (call "s1" "read" {:path "/home/sprite/skills/platform-zones/SKILL.md"}) skill
+                        (call "s2" "read" {:path "/home/sprite/skills/hyperframes/references/captions.md"}) reference
+                        (call "s3" "read" {:path "AGENT.md"}) definition
+                        (call "s4" "bash" {:command "cat /home/sprite/skills/platform-zones/SKILL.md"}) other
+                        (user "two") (user "three")]
+          masked (observations/mask messages)]
+      (is (identical? skill (aget masked 2)))
+      (is (identical? reference (aget masked 4)) "a file of a skill's folder")
+      (is (identical? definition (aget masked 6)) "the bot's own definition")
+      (is (not (identical? other (aget masked 8))) "the same file through bash is a command's output")))
   (testing "a picture whose call is unknown"
     (let [messages #js [(user "one") (result "gone" picture) (user "two") (user "three")]]
       (is (= "[A picture was here; pictures of earlier turns are left out.]"

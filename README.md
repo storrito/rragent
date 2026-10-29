@@ -109,7 +109,9 @@ picture as a line naming its file, a text past 4,000 characters as its
 first and last thousand (`rragent.observations`, pi-durable's
 `beforeRequest`, for that request only). The conversation, the chat
 and a compaction's summary keep every result whole; the agent reads a
-file or runs a tool again for what it needs. The line moves only with
+file or runs a tool again for what it needs. What it read of a skill
+(a file of a skills folder, a `SKILL.md` or `AGENT.md`) stays whole:
+instructions, not results. The line moves only with
 a message of the person, so the requests of one run share their start
 and the provider's cache. On the conversation of a bot after 97 turns
 it takes the tool results' text from some 188,000 tokens to 68,000 and

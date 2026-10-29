@@ -9,7 +9,9 @@
    Results are most of what fills a conversation (pictures the agent
    looked at, a command's output, a page it fetched) and what an
    earlier turn needed of them is in the agent's answers; the agent
-   reads a file or runs the tool again for the rest. Without a model
+   reads a file or runs the tool again for the rest. What the agent
+   read of a skill (`instructions?`) is no result but its instructions,
+   and stays whole. Without a model
    call and the same for every model, as observation masking is in
    Lindenbauer et al. 2025 (\"The Complexity Trap\"): half the cost of
    the whole results, and as good as a summary. The line between kept and masked moves only
@@ -42,15 +44,24 @@
       (nth starts (- n kept-turns)))))
 
 (defn calls
-  "The arguments of every tool call of the agent's `messages`, by the
-   call's id."
+  "Every tool call of the agent's `messages` by its id: `{:name :args}`."
   [messages]
   (into {}
         (for [^js m messages
               :when (= "assistant" (.-role m))
               ^js c (array-seq (.-content m))
               :when (= "toolCall" (.-type c))]
-          [(.-id c) (.-arguments c)])))
+          [(.-id c) {:name (.-name c) :args (.-arguments c)}])))
+
+(defn instructions?
+  "Whether the call `{:name :args}` read instructions: a file of a
+   skills folder (ours, `/home/sprite/skills`, or the person's, the
+   machine's `skills/`), or a `SKILL.md` or `AGENT.md` anywhere."
+  [{:keys [name args]}]
+  (boolean
+   (when (= "read" name)
+     (when-let [path (some-> args (aget "path"))]
+       (re-find #"(^|/)skills/|(^|/)(SKILL|AGENT)\.md$" (str path))))))
 
 (defn shorten
   "`text` as its first and last `kept-chars` with a line between that
@@ -92,16 +103,18 @@
 
 (defn mask
   "The JS array `messages` with the tool results before `boundary`
-   masked (`mask-result`); the same array when nothing changed."
+   masked (`mask-result`), but for instructions (`instructions?`); the
+   same array when nothing changed."
   [messages]
   (let [ms (vec (array-seq messages))
         b (boundary ms)
-        args (calls (subvec ms 0 b))
+        by-id (calls (subvec ms 0 b))
         out (into []
                   (map-indexed (fn [i ^js m]
-                                 (if (and (< i b) (= "toolResult" (.-role m)))
-                                   (mask-result m (get args (.-toolCallId m)))
-                                   m)))
+                                 (let [call (get by-id (.-toolCallId m))]
+                                   (if (and (< i b) (= "toolResult" (.-role m)) (not (instructions? call)))
+                                     (mask-result m (:args call))
+                                     m))))
                   ms)]
     (if (every? true? (map identical? ms out))
       messages
