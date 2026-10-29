@@ -55,6 +55,10 @@
   (is (= "hook reviews" (runs/trigger-line {:kind "hook" :name "reviews"})))
   (is (= "schedule tick" (runs/trigger-line {:kind "schedule" :name "tick"})))
   (is (= "/bot/1/run/42" (runs/url 1 42)))
+  (is (= "A new review" (runs/short-line "A new review")))
+  (is (= "Receive the review." (runs/short-line "Receive the review. For 5 stars save a caption, for fewer remember it.")) "the first sentence")
+  (is (= (str (apply str (repeat 80 "x")) "…") (runs/short-line (apply str (repeat 100 "x")))) "cut")
+  (is (nil? (runs/short-line "  ")))
   (is (str/includes? (runs/instructions "Watch it.") "Watch it.\n\nYou are a run of the bot"))
   (is (str/includes? (runs/report-content 42 "No text in the review." 1) "/bot/1/run/42")))
 
