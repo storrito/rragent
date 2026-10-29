@@ -27,7 +27,7 @@
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai/models" :refer [createModels]]
             ["@earendil-works/pi-ai/providers/openrouter" :refer [openrouterProvider]]
-            ["@earendil-works/pi-durable" :refer [AssistantEntry Harness MemoryStorage ToolTask createRegistry defineExtension hook]]
+            ["@earendil-works/pi-durable" :refer [AssistantEntry GenerationTask Harness LiveDoc MemoryStorage ToolTask createRegistry defineExtension hook]]
             ["@earendil-works/pi-durable/env/node" :refer [NodeExecutionEnv]]
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
             ["@earendil-works/pi-durable/tools" :refer [createCodingTools]]
@@ -167,6 +167,63 @@
   (doto (createModels)
     (.setProvider (gateway-provider (openrouterProvider) codemode))))
 
+(def default-context-tokens
+  "The context a conversation keeps at most, in tokens, whatever window
+   its model has: past it every call takes longer (a bot at 440,000
+   tokens of a 1,050,000 window waited 12 to 35 seconds for each, at
+   70,000 two to seven), costs more (OpenAI's price doubles past
+   272,000) and the model reads its context worse."
+  200000)
+
+(defn context-tokens
+  "The context budget, `RRAGENT_CONTEXT_TOKENS` or
+   `default-context-tokens`."
+  []
+  (or (some-> (aget (.-env js/process) "RRAGENT_CONTEXT_TOKENS") js/parseInt (as-> n (when (pos? n) n)))
+      default-context-tokens))
+
+(defn context-read
+  "The tokens of context the model read for an answer, by its `usage`:
+   what it was sent, cached or not; 0 without usage."
+  [usage]
+  (if usage
+    (+ (or (.-input usage) 0) (or (.-cacheRead usage) 0) (or (.-cacheWrite usage) 0))
+    0))
+
+(defn ^:async compact-unless-compacting!
+  "A manual compaction of the conversation `id` of `harness` admitted,
+   unless one runs for it already (`pi.live` of it lists it)."
+  [harness id]
+  (let [live (await (.snapshot harness LiveDoc id context))]
+    (when (empty? (some-> live .-compactions array-seq))
+      (when-let [conversation (await (.conversation harness id context))]
+        (await (.compact conversation js/undefined context))))))
+
+(defn context-budget
+  "The extension that keeps every conversation within `budget` tokens of
+   context, whatever its model's window: an answer that read more
+   (`context-read`) admits a compaction of the conversation of
+   `@harness`, which summarizes while the conversation goes on and
+   places its summary at the next boundary. pi-durable compacts by the
+   model's window only (blocking at 16K below it), and its settings are
+   one for every model; the window stays the model's, so pi-ai's room
+   for the answer and a summary of a conversation past the budget stay
+   right. One compaction at a time per conversation, `pending` covering
+   the moment before `pi.live` lists it."
+  [harness budget]
+  (let [pending (atom #{})]
+    (defineExtension #js {:name "rragent-context-budget"
+                          :hooks #js [(hook GenerationTask #js {:afterResponse (fn [message ^js api _context]
+                                                                                  (let [id (.-conversationId api)]
+                                                                                    (when (and @harness
+                                                                                               (< budget (context-read (.-usage message)))
+                                                                                               (not (contains? @pending id)))
+                                                                                      (swap! pending conj id)
+                                                                                      (-> (compact-unless-compacting! @harness id)
+                                                                                          (.catch (fn [error] (js/console.error "[context]" error)))
+                                                                                          (.finally (fn [] (swap! pending disj id))))))
+                                                                                  js/undefined)})]})))
+
 (defn registry
   "The registry: pi-durable's coding tools, rragent's own over the
    REPL `codemode`, the subagent tool in an extension of its own,
@@ -233,10 +290,11 @@
    `retry` how the gateway's list is tried again at start,
    `{:delays-ms :timeout-ms}` as `rragent.gateway/discover-at-start`
    takes it (a test shortens them); `extensions` more extensions for
-   the registry. A home from before the bots is moved into the layout
-   first (`rragent.bots/migrate!`, `:migrated` says so) and a home
-   without a definition for the first bot gets the assistant's. The
-   gateway's connectors are discovered here, tried again while the
+   the registry, beside the one that keeps every conversation within
+   `context-tokens` (`context-budget`). A home from before the bots is
+   moved into the layout first (`rragent.bots/migrate!`, `:migrated`
+   says so) and a home without a definition for the first bot gets the
+   assistant's. The gateway's connectors are discovered here, tried again while the
    gateway comes up, for the REPL (`rragent.codemode`), with the MCP
    servers of `mcp.json` in `home` (`rragent.mcp`, connected at the
    first program), whose programs
@@ -260,9 +318,10 @@
         codemode (assoc (codemode/handle base (await (gateway/discover-at-start base retry)))
                         :mcp (mcp/registry {:file (mcp/file home) :home home}))
         models (or models (openrouter-models codemode))
+        opened (atom nil)
         harness (await (.open Harness storage
                               #js {:models models
-                                   :registry (registry codemode home extensions)
+                                   :registry (registry codemode home (cons (context-budget opened (context-tokens)) extensions))
                                    ;; the conversation's own cwd, the bot's work/ once it is
                                    ;; configured; the folder of its id before
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) (work-of home (.-conversationId target)))}))
@@ -271,6 +330,7 @@
                                    ;; a failing hook, listener or task: said, not swallowed
                                    :onReport (fn [error] (js/console.error "[harness]" error))}
                               context))
+        _ (reset! opened harness)
         root (await (.root harness context))
         view (await (.viewState root context))
         agent {:harness harness :home home :models models :codemode codemode :provider (or provider "openrouter")}

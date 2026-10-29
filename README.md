@@ -90,6 +90,19 @@ machine's, `POST /hook/<name>/<secret>`: the call is tried on every
 bot, the secret says whose it is. Nothing of this reaches Storrito:
 the machine's page, token and environment stay what they were.
 
+A conversation keeps at most `RRAGENT_CONTEXT_TOKENS` (200,000) tokens
+of context, whatever its model's window: once an answer read more,
+cached or not, the conversation is compacted while it goes on, its
+summary placed at the next boundary (`rragent.harness/context-budget`,
+a hook after every model answer, one compaction at a time).
+pi-durable's own threshold compacts only near the model's window, 16K
+below it, the same settings for every model; the window itself stays
+the model's, so the room pi-ai leaves for an answer, and for the
+summary of a conversation already past the budget, stays right. Past
+the budget every call takes longer and costs more: a bot at 440,000
+tokens of a 1,050,000 window waited 12 to 35 seconds for each call,
+where 70,000 took two to seven.
+
 A bot is made by one click on "New bot" in the sidebar, which asks
 for nothing: the bot starts from the generic assistant definition as
 it is (`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the
