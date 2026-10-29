@@ -216,6 +216,30 @@ definition folded with its frontmatter, the composer of a finished run
 (it takes orders), no "this happens without asking" line when a
 trigger is set, the run's closing line as the model writes it.
 
+### Offers, and the rules that must outlive a rewrite (2026-10-29)
+
+A person who has never used an agent will not ask for a trigger or a
+how-to; they do not know these exist. So the bot offers them, subtly
+(decided one by one with Max):
+
+11. **What:** a trigger or a schedule when the person describes
+    something that recurs and nothing of the bot's does it yet; a
+    how-to when the same job comes up for other accounts, apartments
+    or clients.
+12. **How:** one sentence at the end of the answer, once the work is
+    done, as an offer ("I can do this by myself whenever a review comes
+    in; say so if you want that"), at most one per answer, none while
+    a question is open.
+13. **How often:** no hard rule and no bookkeeping. A no, or an offer
+    let pass, ends it; the model is expected to remember that.
+14. **Where the rules live:** in AGENT.md, by Max's choice, not in a
+    prompt section of the harness. The generic definition therefore
+    keeps everything every bot must know under `## On this machine`,
+    and tells the bot to carry that section over, word for word,
+    whenever it writes its file anew for a skill or a job. (Found on
+    the way: the test bot's own rewrite had kept none of the rules
+    about runs, reports, the job section or skills.)
+
 ## How it is built
 
 - `rragent.events`: the events file, `remember` and `recall` over it,
