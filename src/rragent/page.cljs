@@ -188,7 +188,7 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes pane-steps update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         run-id (shown-run tab-runs (:tabid w) (url-run w))
@@ -210,6 +210,7 @@
                                     (conversation (:value bot)))
                     :artifacts (assoc (artifacts-pane bot)
                                       :pane/shown (get tab-panes (:tabid w) :artifacts)
+                                      :pane/step (get pane-steps (:tabid w))
                                       :runs/current run-id)
                     :phone (phone/status (:phone bot))
                     :locale locale
@@ -360,59 +361,83 @@
   [bot path]
   (some #(when (= path (:path %)) %) (:artifacts/list bot)))
 
-(defn- open-folder!
-  "The list browses `folder` of the bot; its README, when it has one,
-   takes the screen (`rragent.artifacts/readme`)."
-  [bot folder]
-  (let [bot-path (db/bot-path (:id bot))]
-    (artifacts/browse! db/db bot-path folder)
-    (when-let [readme (artifacts/readme (:artifacts/list bot) folder)]
-      (artifacts/pick! db/db bot-path readme))))
+(defn- folder-opened
+  "The bot's map with the list browsing `folder`; its README, when it
+   has one, takes the screen (`rragent.artifacts/readme`)."
+  [value folder]
+  (let [value (artifacts/browsed value folder)]
+    (if-let [readme (artifacts/readme (:artifacts/list value) folder)]
+      (artifacts/picked value readme)
+      value)))
+
+(defn- move-pane!
+  "The pane of the bot moved by `f` of its map, by the person in the
+   tab `tab`. A move that changes what the pane shows is a step of the
+   tab's: a new number in `:pane-steps`, from `:pane-step-seq`, in the
+   same change as the move, so that the frame with the move carries
+   the step to the tab's history (`rragent.client/pane-history`)."
+  [bot tab f]
+  (let [bot-path (db/bot-path (:id bot))
+        place #(select-keys % [:artifacts/current :artifacts/folder])]
+    (swap! db/db (fn [value]
+                   (let [before (db/at value bot-path)
+                         after (f before)
+                         n (inc (:pane-step-seq value 0))]
+                     (cond-> (db/update-at value bot-path (constantly after))
+                       (and tab (not= (place before) (place after)))
+                       (-> (assoc :pane-step-seq n)
+                           (assoc-in [:pane-steps tab] n))))))))
 
 (defn- open-artifact-command
   "The person picked an artifact in the list or on a card, or went back
    to the list (a nil path); a path that is a folder's, a link in a
-   README, opens the folder."
+   README, opens the folder. A step of the tab `tab` (`move-pane!`)."
   [w]
-  (let [{:keys [path]} (command/command-data w)
+  (let [{:keys [path tab]} (command/command-data w)
         bot (bot-of-command w)
         path (some-> path (str/replace #"/+$" ""))]
     (cond
       (nil? bot) (command/rejected w :no-such-bot)
-      (or (nil? path) (artifact-of bot path)) (do (artifacts/pick! db/db (db/bot-path (:id bot)) path)
+      (or (nil? path) (artifact-of bot path)) (do (move-pane! bot tab #(artifacts/picked % path))
                                                   (command/accepted w))
-      (artifacts/folder? (:artifacts/list bot) path) (do (open-folder! bot path)
+      (artifacts/folder? (:artifacts/list bot) path) (do (move-pane! bot tab #(folder-opened % path))
                                                          (command/accepted w))
       :else (command/rejected w :no-such-artifact))))
 
 (defn- open-folder-command
   "The person opened a folder in the list, or a crumb of the way to it;
-   the root for a blank path."
+   the root for a blank path. A step of the tab `tab` (`move-pane!`)."
   [w]
-  (let [{:keys [path]} (command/command-data w)
+  (let [{:keys [path tab]} (command/command-data w)
         bot (bot-of-command w)
         folder (str/replace (str path) #"/+$" "")]
     (cond
       (nil? bot) (command/rejected w :no-such-bot)
-      (artifacts/folder? (:artifacts/list bot) folder) (do (open-folder! bot folder)
+      (artifacts/folder? (:artifacts/list bot) folder) (do (move-pane! bot tab #(folder-opened % folder))
                                                            (command/accepted w))
       :else (command/rejected w :no-such-folder))))
 
 (defn- show-artifact-command
   "A step back or forward in the tab's history (`rragent.client`,
-   `pane-history`): the pane as it was there, the artifact `path` on
-   screen (nil the list alone) and the list browsing `folder`; nothing
-   of it when either is gone since."
+   `pane-history`): the pane as it was at the entry, the artifact
+   `path` on screen (nil the list alone) and the list browsing
+   `folder`, what is gone since left out (`rragent.artifacts/shown`),
+   and the tab's step the entry's, `step`, in the same change, so that
+   the tab knows the frame that shows it. The change always makes a
+   frame (`:pane-step-seq` counts on), the tab waits for it."
   [w]
-  (let [{:keys [path folder]} (command/command-data w)
-        bot (bot-of-command w)
-        folder (str folder)]
+  (let [{:keys [path folder tab step]} (command/command-data w)
+        bot (bot-of-command w)]
     (cond
       (nil? bot) (command/rejected w :no-such-bot)
-      (not (or (nil? path) (artifact-of bot path))) (command/rejected w :no-such-artifact)
-      (not (artifacts/folder? (:artifacts/list bot) folder)) (command/rejected w :no-such-folder)
-      :else (do (artifacts/show! db/db (db/bot-path (:id bot)) path folder)
-                (command/accepted w)))))
+      (nil? tab) (command/rejected w :no-tab)
+      :else (let [bot-path (db/bot-path (:id bot))]
+              (swap! db/db (fn [value]
+                             (-> value
+                                 (db/update-at bot-path #(artifacts/shown % path folder))
+                                 (assoc-in [:pane-steps tab] step)
+                                 (update :pane-step-seq (fnil inc 0)))))
+              (command/accepted w)))))
 
 (defn- clear-artifact-flags
   "The bot's map without a rename or a delete under way in a row of

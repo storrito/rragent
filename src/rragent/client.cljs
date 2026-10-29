@@ -453,16 +453,24 @@
   "Where the browser keeps which key sends a message (`send-key`)."
   "rragent.send-key")
 
+(defonce ^:private kept-send-key
+  ;; read once, the store has the person's choice after it
+  (try
+    (#{"enter"} (.getItem js/localStorage send-key-key))
+    (catch :default _ nil)))
+
 (defn send-key
   "Which key sends a message from the composer, as the person chose in
    the settings (`send-key-alias`): \"enter\", or \"ctrl-enter\",
    the default; the other breaks the line."
   [state]
-  (or (:ui/send-key state)
-      (try
-        (#{"enter"} (.getItem js/localStorage send-key-key))
-        (catch :default _ nil))
-      "ctrl-enter"))
+  (or (:ui/send-key state) kept-send-key "ctrl-enter"))
+
+(defn- keyboardless?
+  "A phone or a tablet without a keyboard: no Ctrl there, often no
+   Shift+Enter, so Enter breaks the line whatever the choice."
+  []
+  (.-matches (js/matchMedia "(hover: none) and (pointer: coarse)")))
 
 (defn- choose-send-key!
   "`k` the key that sends, kept for the next visit."
@@ -504,7 +512,8 @@
    and a click on it takes the send back. Enter breaks the line, on a
    phone too, where there is no Shift. Chosen in the settings
    (`send-key`), Enter sends instead, and Ctrl+Enter or Shift+Enter
-   break the line; the text's title then is `:ui/enter-title`. The microphone button, or
+   break the line, but not on a device without a keyboard
+   (`keyboardless?`); the text's title then is `:ui/enter-title`. The microphone button, or
    Space held in the text, dictates into the draft, its pieces go to
    `:ui/dictation-url`; while it runs the draft is the dictation's, and
    Ctrl+Enter or Send end it and send once its text is in
@@ -581,7 +590,7 @@
                    :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
                    :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label
                    :ui/record-url :ui/recorder :ui/phone :ui/enter-title)
-           (cond-> (= "enter" (send-key state)) (assoc :title (:ui/enter-title attrs)))
+           (cond-> (and (= "enter" (send-key state)) (not (keyboardless?))) (assoc :title (:ui/enter-title attrs)))
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -598,13 +607,19 @@
                                   ;; the other way round when the person
                                   ;; chose Enter (`send-key`), Shift+Enter
                                   ;; breaking the line as well
+                                  ;; (229: the Enter that confirms a word
+                                  ;; of an input method, in Safari)
                                   (when (and (= "Enter" (.-key event))
-                                             (not (.-isComposing event)))
+                                             (not (.-isComposing event))
+                                             (not= 229 (.-keyCode event)))
                                     (let [ctrl? (or (.-ctrlKey event) (.-metaKey event))]
-                                      (if (= "enter" (send-key state))
+                                      (if (and (= "enter" (send-key state)) (not (keyboardless?)))
                                         (cond
+                                          ;; during a dictation Ctrl+Enter
+                                          ;; still ends it and sends
                                           ctrl? (do (.preventDefault event)
-                                                    (when-not (dictation/active? state)
+                                                    (if (dictation/active? state)
+                                                      (send!)
                                                       (break-line!)))
                                           (not (.-shiftKey event)) (do (.preventDefault event)
                                                                        (send!)))
@@ -780,6 +795,46 @@
        (.toLocaleTimeString at)
        (str (.toLocaleDateString at js/undefined #js {:month "short" :day "numeric"}) " " (.toLocaleTimeString at)))]))
 
+(def ^:private pane*
+  "The pane through the tab's history (`pane-history`): `:awaiting`,
+   the bot and the step of the entry a back or forward step went to,
+   until a frame shows it; `:path`, the page's path the server was told
+   last (`show!`, `show-run!`)."
+  (atom {:path js/location.pathname}))
+
+(defn- pane-of
+  "The pane of a history entry's state, `{:bot :folder :current
+   :step}`, or nil."
+  [^js history-state]
+  (some-> history-state .-pane (js->clj :keywordize-keys true)))
+
+(defn pane-history
+  "`[:ui/pane-history {:ui/bot :ui/folder :ui/current :ui/step}]` in
+   the pane: where it is, kept in the entry of the tab's history. A
+   frame with a new `:ui/step`, a move the person made in this tab
+   (`rragent.page/move-pane!`), is a new entry, so that the back and
+   forward buttons, the mouse's too, step through the folders and the
+   files as through the bots; any other move (the agent's newest file
+   taking the screen, a step in another tab of the bot) changes the
+   entry in place. A step back or forward asks the server for the pane
+   of its entry with its step (`:artifacts/show`, the popstate
+   listener); the frames before the one that carries that step leave
+   the entry as it is. Renders nothing."
+  [{:keys [ui/bot ui/folder ui/current ui/step]} _children]
+  (let [here {:bot bot :folder (str folder) :current current :step step}
+        entry (pane-of js/history.state)
+        awaiting (:awaiting @pane*)
+        url (str js/location.pathname js/location.search)]
+    (when-not (and awaiting (not= awaiting [bot step]))
+      (when awaiting
+        (swap! pane* dissoc :awaiting))
+      (cond
+        (= here entry) nil
+        (and (not awaiting) (some? step) (= bot (:bot entry)) (not= step (:step entry)))
+        (js/history.pushState (clj->js {:pane here}) "" url)
+        :else (js/history.replaceState (clj->js {:pane here}) "" url))))
+  [:span.pane-history {:hidden true}])
+
 (defn bot-id-of
   "The bot id of a page path, `/bot/<id>` or `/bot/<id>/run/<rid>`;
    nil for any other path."
@@ -795,6 +850,7 @@
 (defn- show-run!
   "Tells the server which run of the bot this tab shows now."
   [bot run]
+  (swap! pane* assoc :path js/location.pathname)
   (state/dispatch! [[:data/command {:command/kind :run/show
                                     :command/data {:bot bot
                                                    :run run
@@ -804,61 +860,10 @@
   "Tells the server which bot this tab shows now: `id`, or nil for
    whatever the URL names."
   [id]
+  (swap! pane* assoc :path js/location.pathname)
   (state/dispatch! [[:data/command {:command/kind :bot/show
                                     :command/data {:id id
                                                    :tab state/tabid}}]]))
-
-(def ^:private pane*
-  "The steps of the pane through the tab's history (`pane-history`):
-   `:step`, when the person last moved the pane (`pane-step!`), and
-   `:restoring`, when a back or forward step asked the server for the
-   pane of its entry."
-  (atom {}))
-
-(def step-ms
-  "How long a step of the person's, or a step back or forward, waits
-   for the frame that shows it."
-  5000)
-
-(defn- pane-step!
-  "The person moves the pane: the frame that shows it is a new entry of
-   the history."
-  []
-  (swap! pane* assoc :step (js/Date.now)))
-
-(defn- pane-of
-  "The pane of a history entry's state, `{:bot :folder :current}`, or
-   nil."
-  [^js history-state]
-  (some-> history-state .-pane (js->clj :keywordize-keys true)))
-
-(defn- fresh?
-  [ms]
-  (and ms (< (- (js/Date.now) ms) step-ms)))
-
-(defn pane-history
-  "`[:ui/pane-history {:ui/bot :ui/folder :ui/current}]` in the pane:
-   where it is, kept in the entry of the tab's history. A step the
-   person took (`pane-step!`) is a new entry, so that the back and
-   forward buttons, the mouse's too, step through the folders and the
-   files as through the bots; a move of the agent's (its newest file
-   taking the screen) changes the entry in place. A step back or
-   forward asks the server for the pane of its entry (`:artifacts/show`,
-   the popstate listener); until a frame shows it, the frames before
-   leave the entry as it is. Renders nothing."
-  [{:keys [ui/bot ui/folder ui/current]} _children]
-  (let [here {:bot bot :folder (str folder) :current current}
-        entry (pane-of js/history.state)
-        {:keys [step restoring]} @pane*
-        url (str js/location.pathname js/location.search)]
-    (cond
-      (= here entry) (swap! pane* dissoc :restoring)
-      (fresh? restoring) nil
-      (and (fresh? step) (= bot (:bot entry))) (do (swap! pane* dissoc :step)
-                                                   (js/history.pushState (clj->js {:pane here}) "" url))
-      :else (do (swap! pane* dissoc :restoring)
-                (js/history.replaceState (clj->js {:pane here}) "" url))))
-  [:span.pane-history {:hidden true}])
 
 (defn- close-drawer!
   "On a phone the sidebar is a drawer over a checkbox; a tap on a bot
@@ -931,24 +936,30 @@
          (when-let [^js card (some-> (.-target event) (.closest "a[data-artifact]"))]
            (when (plain-click? event)
              (.preventDefault event)
-             (pane-step!)
              (state/dispatch! [[:data/command {:command/kind :artifacts/open
-                                               :command/data {:bot (.getAttribute card "data-artifact-bot")
+                                               :command/data {:tab state/tabid
+                                                              :bot (.getAttribute card "data-artifact-bot")
                                                               :path (.getAttribute card "data-artifact")}}]])
              (when-let [^js made (js/document.getElementById "view-made")]
                (set! (.-checked made) true))))))
       (js/window.addEventListener
        "popstate"
        (fn [^js event]
+         ;; the bot or the run only when the path changed, not for a
+         ;; step through the pane
          (let [path js/location.pathname]
-           (if-let [run (run-id-of path)]
-             (show-run! (bot-id-of path) run)
-             (show! (bot-id-of path))))
+           (when (not= path (:path @pane*))
+             (if-let [run (run-id-of path)]
+               (show-run! (bot-id-of path) run)
+               (show! (bot-id-of path)))))
          ;; the pane of the entry, when it has one (`pane-history`)
-         (when-let [{:keys [bot folder current]} (pane-of (.-state event))]
-           (swap! pane* assoc :restoring (js/Date.now))
-           (state/dispatch! [[:data/command {:command/kind :artifacts/show
-                                             :command/data {:bot bot :folder folder :path current}}]]))))
+         (if-let [{:keys [bot folder current step]} (pane-of (.-state event))]
+           (do (swap! pane* assoc :awaiting [bot step])
+               (state/dispatch! [[:data/command {:command/kind :artifacts/show
+                                                 :command/data {:bot bot :folder folder :path current
+                                                                :step step :tab state/tabid}}
+                                  {:on-error [[:ui/pane-shown]]}]]))
+           (swap! pane* dissoc :awaiting))))
       (js/document.addEventListener
        "keydown"
        (fn [^js event]
@@ -965,7 +976,8 @@
    Renders nothing."
   [{:keys [ui/path]} _children]
   (when (and (seq path) (not= path js/location.pathname))
-    (js/history.replaceState js/history.state "" (str path js/location.search)))
+    (js/history.replaceState js/history.state "" (str path js/location.search))
+    (swap! pane* assoc :path path))
   [:span.url {:hidden true}])
 
 (def theme-key
@@ -1226,8 +1238,8 @@
     :ui.alias/fn url-alias}
    {:ui.alias/kind :ui/pane-history
     :ui.alias/fn pane-history}
-   {:ui.action/kind :ui/pane-step
-    :ui.action/handler (fn [_] (pane-step!))}
+   {:ui.action/kind :ui/pane-shown
+    :ui.action/handler (fn [_] (swap! pane* dissoc :awaiting))}
    {:ui.action-enricher/kind :ui/tabid
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/tabid x)

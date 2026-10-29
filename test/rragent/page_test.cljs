@@ -262,6 +262,20 @@
                                (is (= "Make it pink\non screen beside the chat: artifacts/stories/a.html" (last-message)) "the model reads the line")
                                (is (mentions? answer "Open: stories/a.html") "the page shows it as a hint")
                                (is (not (mentions? answer "on screen beside")) "not as text"))
+                             (testing "a step in the pane is a step of the tab's, which its frame carries; a step back restores the pane and the step"
+                               (let [pane-step #(:ui/step (second (find-tag % :ui/pane-history)))
+                                     before (get-in @db/db [:pane-steps "t1"])]
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open-folder {:bot id :path "" :tab "t1"}))))
+                                 (let [step (get-in @db/db [:pane-steps "t1"])
+                                       frame (await (frame! #(= step (pane-step %))))]
+                                   (is (number? step))
+                                   (is (not= before step))
+                                   (is (= "" (:ui/folder (second (find-tag frame :ui/pane-history)))))
+                                   (is (= {:success? true} (await (command! base cookie :artifacts/open-folder {:bot id :path "" :tab "t1"}))))
+                                   (is (= step (get-in @db/db [:pane-steps "t1"])) "a click that moves nothing is no step")
+                                   (is (= {:success? true} (await (command! base cookie :artifacts/show {:bot id :path nil :folder "stories" :step 1 :tab "t1"}))))
+                                   (let [frame (await (frame! #(= 1 (pane-step %))))]
+                                     (is (= {:ui/bot id :ui/folder "stories" :ui/current nil :ui/step 1} (second (find-tag frame :ui/pane-history))))))))
                              (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "And this" :screen "gone.html"}))))
                              (await (frame! #(mentions? % "Which one?")))
                              (is (= "And this" (last-message)) "what the list no longer has names nothing")

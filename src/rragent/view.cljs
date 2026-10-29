@@ -1001,8 +1001,7 @@
        (= path renaming) (file-rename bot artifact)
        :else (list
               [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open
-                                                         :command/data {:bot bot :path path}}]
-                                         [:ui/pane-step]]}}
+                                                         :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
                [:span.icon (get kind-icons kind "📎")]
                [:span.name title]
                (into [:span.meta] (interpose " · " parts))]
@@ -1017,8 +1016,7 @@
                :class [(clojure.core/name kind)]
                :data-name (str/lower-case (str title " " name " " path))}
    [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open-folder
-                                              :command/data {:bot bot :path path}}]
-                              [:ui/pane-step]]}}
+                                              :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
     [:span.icon (get kind-icons kind)]
     [:span.name title]
     (into [:span.meta] (interpose " · " (remove nil? [(when duration (clock duration))
@@ -1028,8 +1026,7 @@
 (defn- open-folder
   [bot path]
   {:on {:click [[:data/command {:command/kind :artifacts/open-folder
-                                :command/data {:bot bot :path path}}]
-                [:ui/pane-step]]}})
+                                :command/data {:bot bot :path path :tab :ui/tabid}}]]}})
 
 (defn- crumbs
   "The way to the folder browsed, above the rows: the root and every
@@ -1174,9 +1171,10 @@
    lists it sees, `:pane/shown` (`:artifacts` or `:activity`,
    `activity`), and the
    `:base` of the bot's page with its id as `:bot`. A click that moves
-   the list or the screen is a step of the tab's history
-   (`:ui/pane-step`, `:ui/pane-history`, `rragent.client`), which the
-   back and forward buttons go through. What it shows is
+   the list or the screen is a step of the tab's (`:ui/tabid`, the
+   tab's last step `:pane/step`), an entry of its history
+   (`:ui/pane-history`, `rragent.client`), which the back and forward
+   buttons go through. What it shows is
    its `data-screen` (`rragent.artifacts/screen`), which a message of
    the tab carries while the pane is in sight (`:ui/screen`)."
   [{:keys [artifacts/list artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting projects renders runs runs/current pane/shown base bot] :as pane}]
@@ -1194,16 +1192,16 @@
                                   activity? (conj "activity"))
                          :data-screen (when-not activity? (artifacts/screen pane))}
      ;; where the pane is, an entry of the tab's history per step the
-     ;; person takes, so that back and forward step through it
-     (when-not activity?
-       [:ui/pane-history {:ui/bot bot
-                          :ui/folder (if (artifacts/folder? list (str folder)) (str folder) "")
-                          :ui/current (:path artifact)}])
+     ;; person takes, so that back and forward step through it; kept
+     ;; while the activity is in sight too
+     [:ui/pane-history {:ui/bot bot
+                        :ui/folder (if (artifacts/folder? list (str folder)) (str folder) "")
+                        :ui/current (some #(when (= (:artifacts/current pane) (:path %)) (:path %)) list)
+                        :ui/step (:pane/step pane)}]
      [:div.bar
       (when artifact
         [:button.link.back {:on {:click [[:data/command {:command/kind :artifacts/open
-                                                         :command/data {:bot bot :path nil}}]
-                                         [:ui/pane-step]]}}
+                                                         :command/data {:bot bot :path nil :tab :ui/tabid}}]]}}
          "‹ " [:i18n :artifacts/back]])
       (if (seq runs)
         (panes-nav (if activity? :activity :artifacts) runs)

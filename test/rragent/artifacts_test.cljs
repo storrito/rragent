@@ -209,10 +209,13 @@
       (is (= "a" (:artifacts/folder @db)) "a pick browses its folder")
       (artifacts/pick! db nil)
       (is (= "a" (:artifacts/folder @db)) "back to the list, in the same folder")
-      (artifacts/show! db [] "a/one.md" "")
+      (swap! db artifacts/shown "a/one.md" "")
       (is (= ["a/one.md" ""] [(:artifacts/current @db) (:artifacts/folder @db)]) "a step back: the screen and the folder as they were")
-      (artifacts/show! db [] nil "b")
+      (swap! db artifacts/shown nil "b")
       (is (= [nil "b"] [(:artifacts/current @db) (:artifacts/folder @db)]))
+      (swap! db artifacts/shown "gone.md" "gone")
+      (is (= [nil ""] [(:artifacts/current @db) (:artifacts/folder @db)]) "what is gone since: the list at the root")
+      (swap! db artifacts/shown nil "b")
       (artifacts/refresh! db dir)
       (is (= [nil "b"] [(:artifacts/current @db) (:artifacts/folder @db)]) "a pick: nothing older takes the screen")
       (testing "the recordings' lengths, from their recording.json"
@@ -384,11 +387,10 @@
         (is (= "true" (:data-deep (second (nth rows 4)))) "a row of another level is there for the filter alone")
         (is (nil? (:data-deep (second (first rows)))))
         (is (some #{[:i18n :artifacts/project]} (nodes (second rows))) "a project is named as such")
-        (is (= {:bot "b1" :path "pool.png"} (get-in (second (find-tag (nth rows 2) :button.row)) [:on :click 0 1 :command/data])))
-        (is (= {:bot "b1" :path nil} (get-in (second (find-tag v :button.link.back)) [:on :click 0 1 :command/data])) "the way back to the list")
-        (is (= [:ui/pane-step] (get-in (second (find-tag (nth rows 2) :button.row)) [:on :click 1])) "a step of the tab's history")
-        (is (= {:ui/bot "b1" :ui/folder "" :ui/current "card.html"} (second (find-tag v :ui/pane-history))) "where the pane is, for the history")
-        (is (= {:ui/bot "b1" :ui/folder "" :ui/current nil} (second (find-tag (pane "gone.html" {:artifacts/folder "gone"}) :ui/pane-history))) "what the pane shows, not what is gone")
+        (is (= {:bot "b1" :path "pool.png" :tab :ui/tabid} (get-in (second (find-tag (nth rows 2) :button.row)) [:on :click 0 1 :command/data])) "a step of the tab's")
+        (is (= {:bot "b1" :path nil :tab :ui/tabid} (get-in (second (find-tag v :button.link.back)) [:on :click 0 1 :command/data])) "the way back to the list")
+        (is (= {:ui/bot "b1" :ui/folder "" :ui/current "card.html" :ui/step 4} (second (find-tag (pane "card.html" {:pane/step 4}) :ui/pane-history))) "where the pane is, for the history")
+        (is (= {:ui/bot "b1" :ui/folder "" :ui/current nil :ui/step nil} (second (find-tag (pane "gone.html" {:artifacts/folder "gone"}) :ui/pane-history))) "what the pane shows, not what is gone")
         (is (= ["showing"] (:class (second v))))
         (is (= "/artifacts/card.html" (:ui/src (second (find-tag v :ui/canvas)))))
         (is (= 3 (:ui/rev (second (find-tag v :ui/canvas)))))))
@@ -399,7 +401,7 @@
         (is (= ["notes" "card.html" "clip" "pool.png" "story.mp4" "deep:notes/plan.md"] (keys-of v)) "a row of another level keyed apart, so that no node moves between the two")
         (is (= ["folder"] (:class (second folder))))
         (is (= "notes notes notes" (:data-name (second folder))) "the folder's title, name and path for the filter")
-        (is (= {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path "notes"}}
+        (is (= {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path "notes" :tab :ui/tabid}}
                (get-in (second (find-tag folder :button.row)) [:on :click 0 1])))
         (is (= ["📁"] (rest (find-tag folder :span.icon))))
         (is (= [[:i18n :artifacts/one-file] " · " "40 B"] (rest (find-tag folder :span.meta))))
@@ -414,8 +416,7 @@
         (is (= [nil "true" "true" "true" "true"] (map #(:data-deep (second %)) lis)))
         (is (= ["md" " · " "40 B"] (rest (find-tag (first lis) :span.meta))) "a file of the folder browsed goes without it")
         (is (= [:nav.crumbs
-                [:button.crumb {:on {:click [[:data/command {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path ""}}]
-                                             [:ui/pane-step]]}} [:i18n :page/artifacts]]
+                [:button.crumb {:on {:click [[:data/command {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path "" :tab :ui/tabid}}]]}} [:i18n :page/artifacts]]
                 [:span.sep "›"]
                 [:span.here "Notes"]]
                (:ui/crumbs (second filter-alias))))

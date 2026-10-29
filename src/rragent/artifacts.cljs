@@ -476,34 +476,40 @@
   ([db path]
    (swap! db db/update-at path (fn [value] (showing value (follow value value))))))
 
+(defn picked
+  "The bot's map `value` with `p` picked by the person, or the list
+   alone (nil); the list browses the folder of the pick."
+  [value p]
+  (-> (showing value p)
+      (assoc :artifacts/picked-at (js/Date.now))))
+
 (defn pick!
-  "The person picked `p`, or went back to the list (nil); the list
-   browses the folder of the pick."
+  "The person picked `p`, or went back to the list (nil) (`picked`)."
   ([db p]
    (pick! db [] p))
   ([db path p]
-   (swap! db db/update-at path
-          (fn [value]
-            (-> (showing value p)
-                (assoc :artifacts/picked-at (js/Date.now)))))))
+   (swap! db db/update-at path picked p)))
 
-(defn show!
-  "The pane as the person had it: `p` on screen (nil the list alone),
-   the list browsing `folder`, as a pick (`pick!`); a step back or
-   forward in the tab's history."
-  [db path p folder]
-  (swap! db db/update-at path
-         (fn [value]
-           (-> (showing value p)
-               (assoc :artifacts/folder (str folder)
-                      :artifacts/picked-at (js/Date.now))))))
+(defn shown
+  "`value` with the pane as the person had it: `p` on screen (nil the
+   list alone), the list browsing `folder`, as a pick (`picked`); a
+   step back or forward in a tab's history. What is gone since is not
+   shown: the list alone for a file, the root for a folder."
+  [{listed :artifacts/list :as value} p folder]
+  (-> (picked value (when (some #(= p (:path %)) listed) p))
+      (assoc :artifacts/folder (if (folder? listed (str folder)) (str folder) ""))))
+
+(defn browsed
+  "`value` with the list browsing `folder` (\"\" the root)."
+  [value folder]
+  (assoc value :artifacts/folder (str folder)))
 
 (defn browse!
-  "The person opened `folder` in the list (\"\" the root)."
+  "The person opened `folder` in the list (`browsed`)."
   ([db folder]
    (browse! db [] folder))
   ([db path folder]
-   (swap! db db/update-at path assoc :artifacts/folder (str folder))))
+   (swap! db db/update-at path browsed folder)))
 
 (defn base-name
   "What the person edits when renaming: the name of the file without

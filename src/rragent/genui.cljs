@@ -164,16 +164,17 @@
 
 (defn- open-actions
   "The artifact of `artifacts/<path>`, a project's folder with or
-   without its slash, under the bot's page or not."
+   without its slash, under the bot's page or not; a step of the tab
+   (`:ui/tabid`, see `rragent.view/artifacts`)."
   [path base bot]
   {:click [[:data/command {:command/kind :artifacts/open
                            :command/data (cond-> {:path (-> (str path)
                                                             (str/replace #"^/+" "/")
                                                             (as-> p (if (and (seq base) (str/starts-with? p (str base "/"))) (subs p (count base)) p))
                                                             (str/replace #"^/?artifacts/" "")
-                                                            (str/replace #"/+$" ""))}
-                                           bot (assoc :bot bot))}]
-           [:ui/pane-step]]})
+                                                            (str/replace #"/+$" ""))
+                                                  :tab :ui/tabid}
+                                           bot (assoc :bot bot))}]]})
 
 (defn- attrs
   "The attributes that are allowed, the ones with a URL checked; on a

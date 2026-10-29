@@ -128,8 +128,7 @@
            (genui/sanitize [:button {:send "Post on: {checked}" :class "go" :open "artifacts/x"} "Take these"]))))
   (testing ":open shows the artifact, a project's folder with or without its slash"
     (is (= {:click [[:data/command {:command/kind :artifacts/open
-                                    :command/data {:path "shorts"}}]
-                    [:ui/pane-step]]}
+                                    :command/data {:path "shorts" :tab :ui/tabid}}]]}
            (:on (second (genui/sanitize [:button {:open "artifacts/shorts"} "Show"])))
            (:on (second (genui/sanitize [:button {:open "/artifacts/shorts/"} "Show"])))))
     (is (= "card/a.mp4" (get-in (genui/sanitize [:button {:open "artifacts/card/a.mp4"} "x"])
@@ -140,7 +139,7 @@
       (is (= [:video {:src "/bot/ab12cd34/uploads/c.mp4" :controls true}] (genui/sanitize [:video {:src "/uploads/c.mp4" :controls true}] opts)))
       (is (= {:bot "ab12cd34" :text "Do this"}
              (get-in (genui/sanitize [:button {:send "Do this"} "x"] opts) [1 :on :click 0 1 :command/data])))
-      (is (= {:bot "ab12cd34" :path "shorts"}
+      (is (= {:bot "ab12cd34" :path "shorts" :tab :ui/tabid}
              (get-in (genui/sanitize [:button {:open "artifacts/shorts/"} "x"] opts) [1 :on :click 0 1 :command/data])
              (get-in (genui/sanitize [:button {:open "/bot/ab12cd34/artifacts/shorts"} "x"] opts) [1 :on :click 0 1 :command/data])))
       (is (= "ab12cd34" (get-in (genui/sanitize [:button {:send "On: {checked}"} "x"] opts) [1 :ui/bot])))

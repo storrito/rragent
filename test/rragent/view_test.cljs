@@ -187,7 +187,7 @@
                (:ui/phone (second (find-tag (page {:phone {:device "Pixel 8" :facing "environment"}}) :ui/composer)))) "the phone, from the frame")
         (is (= "Camera for a screencast" (:title (i18n/translate (view/phone-words) :en))))
         (is (= [:draft "cc33dd44"] (:ui/store-key composer)) "the draft is the bot's")
-        (is (= {:bot "cc33dd44" :path "card.html"}
+        (is (= {:bot "cc33dd44" :path "card.html" :tab :ui/tabid}
                (get-in (second (find-tag p :button.row)) [:on :click 0 1 :command/data])) "a row of the list opens its file under the bot")))
     (testing "on a phone the chat and the artifacts are tabs, once there are artifacts"
       (let [with (page {:artifacts {:artifacts/list [{:path "card.html" :kind :page :title "Card" :mtime 3}]
