@@ -53,6 +53,7 @@
             [rragent.artifacts :as artifacts]
             [rragent.assets :as assets]
             [rragent.auth :as auth]
+            [rragent.away :as away]
             [rragent.bots :as bots]
             [rragent.codemode :as codemode]
             [rragent.composio-events :as composio-events]
@@ -1276,6 +1277,9 @@
                                              (env "COMPOSIO_USER_ID")
                                              "rragent")})
         (.catch (fn [error] (js/console.error "[composio]" error))))
+    ;; a bot's conversation compacted while the person is away, before
+    ;; the machine sleeps (rragent.away)
+    (away/watch! (machine/away-options))
     ;; a bot's run, a connected page and a render on its way keep the
     ;; machine awake, and hold a known update back
     (await (lifecycle/start! [(fn [] (machine/busy?))

@@ -27,6 +27,7 @@
   (:require ["@earendil-works/pi-durable" :refer [defineDoc]]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
+            [rragent.away :as away]
             [rragent.bots :as bots]
             [rragent.db :as db]
             [rragent.definition :as definition]
@@ -294,13 +295,25 @@
 
 (defn busy?
   "Whether any bot runs, or renders, or a run of one goes or waits
-   (`rragent.runs`)."
+   (`rragent.runs`), or a bot's conversation is compacted or will be
+   once the person is away (`rragent.away`)."
   []
   (boolean (or (runs/active?)
+               (away/pending? (fn [id] (some? (bot id))))
                (some (fn [{:keys [view render-handle]}]
                        (or (and view (harness/busy? {:view view}))
+                           (and view (harness/compacting? {:view view}))
                            (and render-handle (render/any-running? render-handle))))
                      (vals (bots))))))
+
+(defn away-options
+  "What `rragent.away/watch!` takes for the machine's bots: a
+   conversation is a bot's when the machine has it open, idle when no
+   run of it goes, and compacted through the harness."
+  []
+  {:known? (fn [id] (some? (bot id)))
+   :idle? (fn [id] (not (some-> (bot id) :view (as-> view (harness/busy? {:view view})))))
+   :compact! (fn [id] (harness/compact-unless-compacting! (:harness (agent)) id))})
 
 (defn name-of
   "The bot's name: its definition's as the reload last read it

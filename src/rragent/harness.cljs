@@ -32,6 +32,7 @@
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
             ["@earendil-works/pi-durable/tools" :refer [createCodingTools]]
             ["node:fs" :as fs]
+            [rragent.away :as away]
             [rragent.binary :as binary]
             [rragent.bots :as bots]
             [rragent.codemode :as codemode]
@@ -211,14 +212,18 @@
    one for every model; the window stays the model's, so pi-ai's room
    for the answer and a summary of a conversation past the budget stay
    right. One compaction at a time per conversation, `pending` covering
-   the moment before `pi.live` lists it."
+   the moment before `pi.live` lists it. Every answer is noted for the
+   compaction while the person is away (`rragent.away/note!`)."
   [harness budget]
   (let [pending (atom #{})]
     (defineExtension #js {:name "rragent-context-budget"
                           :hooks #js [(hook GenerationTask #js {:afterResponse (fn [message ^js api _context]
-                                                                                  (let [id (.-conversationId api)]
+                                                                                  (let [id (.-conversationId api)
+                                                                                        read (context-read (.-usage message))]
+                                                                                    (when (pos? read)
+                                                                                      (away/note! id read (js/Date.now)))
                                                                                     (when (and @harness
-                                                                                               (< budget (context-read (.-usage message)))
+                                                                                               (< budget read)
                                                                                                (not (contains? @pending id)))
                                                                                       (swap! pending conj id)
                                                                                       (-> (compact-unless-compacting! @harness id)
@@ -355,6 +360,12 @@
   [{:keys [view]}]
   (some? (.-run (or (aget (.-docs (.-value view)) "pi.live") #js {}))))
 
+(defn compacting?
+  "Whether a compaction of the conversation of `view` runs: `pi.live`
+   of it lists one then."
+  [{:keys [view]}]
+  (boolean (seq (some-> (aget (.-docs (.-value view)) "pi.live") .-compactions array-seq))))
+
 (defn ^:async sees-images?
   "Whether the conversation's model takes images, by its entry in the
    catalog of `models`; a model the catalog does not know counts as one
@@ -397,14 +408,16 @@
 
 (defn ^:async close
   "The harness closed, which aborts a running program with its call,
-   every REPL worker ended, the MCP servers closed (`rragent.mcp`) and
-   every bot taken out of the one atom."
+   every REPL worker ended, the MCP servers closed (`rragent.mcp`),
+   every bot taken out of the one atom and its answers out of
+   `rragent.away`."
   [{:keys [harness codemode]}]
   (await (.close harness context))
   (runs/reset-gate!)
   (codemode-worker/stop-all! "The agent closed.")
   (await (mcp/close! (:mcp codemode)))
-  (swap! db/db assoc :bots {}))
+  (swap! db/db assoc :bots {})
+  (away/forget-all!))
 
 (def memory-storage
   "A storage that keeps nothing, for tests."
