@@ -43,6 +43,7 @@
             [rragent.mcp :as mcp]
             [rragent.mcp-oauth :as mcp-oauth]
             [rragent.model-requests :as model-requests]
+            [rragent.observations :as observations]
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
             [rragent.runs :as runs]
@@ -228,13 +229,15 @@
   "The registry: pi-durable's coding tools, rragent's own over the
    REPL `codemode`, the subagent tool in an extension of its own,
    which a subagent's agent leaves out, the redaction of the secrets
-   of `home`, and `extensions` the caller brings."
+   of `home`, the earlier tool results masked in every request
+   (`rragent.observations`), and `extensions` the caller brings."
   [codemode home extensions]
   (let [registry (doto (createRegistry)
                    (.install (createCodingTools #js {:images images/processor}))
                    (.install (extension codemode))
                    (.install subagent-tool/extension)
-                   (.install (redaction home)))]
+                   (.install (redaction home))
+                   (.install observations/extension))]
     (doseq [e extensions]
       (.install registry e))
     registry))

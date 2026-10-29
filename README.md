@@ -103,6 +103,18 @@ the budget every call takes longer and costs more: a bot at 440,000
 tokens of a 1,050,000 window waited 12 to 35 seconds for each call,
 where 70,000 took two to seven.
 
+Every request sends the tool results of the turns before the last two
+(a turn: a message of the person and what followed it) as less: a
+picture as a line naming its file, a text past 4,000 characters as its
+first and last thousand (`rragent.observations`, pi-durable's
+`beforeRequest`, for that request only). The conversation, the chat
+and a compaction's summary keep every result whole; the agent reads a
+file or runs a tool again for what it needs. The line moves only with
+a message of the person, so the requests of one run share their start
+and the provider's cache. On the conversation of a bot after 97 turns
+it takes the tool results' text from some 188,000 tokens to 68,000 and
+its 51 pictures to none.
+
 A bot is made by one click on "New bot" in the sidebar, which asks
 for nothing: the bot starts from the generic assistant definition as
 it is (`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the
