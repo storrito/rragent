@@ -78,7 +78,8 @@ entry of its conversation. One harness, one page server, one gateway
 discovery and one models catalog serve every bot, a REPL worker
 thread per bot (its SCI context is the bot's, found by the
 conversation of the call), and one sleep watch stops the machine once
-every bot is idle and no page is open. One `rragent-wake` automation
+every bot is idle, none waits for its compaction while the person is
+away (below), and no page is open. One `rragent-wake` automation
 is armed for the earliest due schedule across all bots
 (`rragent.schedule/rearm!`), and a wake starts the runs of whichever
 bot's schedules are due, one run at a time on the machine; a hook or
@@ -102,6 +103,17 @@ summary of a conversation already past the budget, stays right. Past
 the budget every call takes longer and costs more: a bot at 440,000
 tokens of a 1,050,000 window waited 12 to 35 seconds for each call,
 where 70,000 took two to seven.
+
+A bot's conversation is compacted while the person is away too: once
+its last answer read 50,000 tokens or more and it has been quiet for
+ten minutes, when the providers' caches of it are gone
+(`rragent.away`). Without, the next message read all of it again at
+full price and speed, $2.21 for "What is 1 + 1?" the next morning at
+442,000 tokens; after it the person comes back to a summary and the
+last turns. A smaller conversation is cheaper to read again than to
+summarize and is left as it is. Until the compaction is done the
+machine counts as busy, so the sleep watch waits for it instead of the
+summary being made when the person is back.
 
 Every request sends the tool results of the turns before the last two
 (a turn: a message of the person and what followed it) as less: a

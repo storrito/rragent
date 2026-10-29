@@ -53,6 +53,7 @@
             [rragent.artifacts :as artifacts]
             [rragent.assets :as assets]
             [rragent.auth :as auth]
+            [rragent.away :as away]
             [rragent.bots :as bots]
             [rragent.codemode :as codemode]
             [rragent.composio-events :as composio-events]
@@ -1241,7 +1242,8 @@
    `rragent.auth/token` (the sprite's label, else RRAGENT_TOKEN, else
    one generated and printed in the link); the machine's alarm, sleep
    watch and update watch started (`rragent.lifecycle`), a connected
-   page keeping it awake. The port is taken before the bots open,
+   page keeping it awake, and the watch that compacts a bot's
+   conversation while the person is away (`rragent.away`). The port is taken before the bots open,
    `rragent.starting` answers until then."
   []
   (let [{:keys [token] :as from} (auth/token)
@@ -1276,6 +1278,9 @@
                                              (env "COMPOSIO_USER_ID")
                                              "rragent")})
         (.catch (fn [error] (js/console.error "[composio]" error))))
+    ;; a bot's conversation compacted while the person is away, before
+    ;; the machine sleeps (rragent.away)
+    (away/watch! (machine/away-options))
     ;; a bot's run, a connected page and a render on its way keep the
     ;; machine awake, and hold a known update back
     (await (lifecycle/start! [(fn [] (machine/busy?))
