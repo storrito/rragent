@@ -158,6 +158,20 @@
       (str (subs line 0 max-line-chars) "…")
       line)))
 
+(def max-short-chars
+  80)
+
+(defn short-line
+  "What started a run as the activity names it: the first sentence of
+   `text`, at most `max-short-chars`; nil for a blank text."
+  [text]
+  (let [line (first-line text)
+        sentence (str/trim (or (second (re-find #"^(.*?[.!?])(?:\s|$)" line)) line))
+        cut (if (< max-short-chars (count sentence))
+              (str (str/trimr (subs sentence 0 max-short-chars)) "…")
+              sentence)]
+    (not-empty cut)))
+
 (defn url
   "The page of the run of the bot."
   [bot-id run-id]

@@ -441,29 +441,24 @@
       [:span [:i18n :chat/working]]])])
 
 (defn header
-  "The bot's name and model, the running version of rragent (a click
-   on it opens the settings, `settings`, where a newer release is
-   looked for), how full the
-   model's context is (`:ui/context`, a ring that opens the usage,
+  "The bot's name, how full the model's context is (`:ui/context`, a
+   ring that opens the usage card, which names the model,
    `rragent.client`), whether a run goes, and the button that switches
    between the light and the dark theme (`:ui/theme-toggle`, client
-   state, see `rragent.client`). On a phone the sidebar is a drawer;
+   state, see `rragent.client`). The running version of rragent is the
+   settings' (`updates-section`). On a phone the sidebar is a drawer;
    the label opens it (the checkbox in `page`)."
-  [{:keys [name model context-window]} status version usage]
+  [{:keys [name model context-window]} status usage]
   [:header.bar
    [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
    [:h1 name]
-   [:span.model model]
-   (when version
-     [:button.version {:title [:i18n :settings/version-title]
-                       :on {:click [[:data/command {:command/kind :settings/open
-                                                    :command/data {:tab :ui/tabid}}]]}}
-      (str "v" version)])
    (when usage
      [:ui/context {:ui/used (:used usage)
                    :ui/window context-window
                    :ui/cost (:cost usage)
+                   :ui/model model
                    :ui/labels {:title [:i18n :context/title]
+                               :model [:i18n :context/model]
                                :used [:i18n :context/used]
                                :of [:i18n :context/of]
                                :unknown [:i18n :context/unknown]
@@ -485,10 +480,10 @@
 
 (defn update-banner
   "Above the chat when a newer rragent is known (`rragent.update`, the
-   `:update` of the db): the version, the first line of its notes and
-   the button, then what the update is doing, or why it did not work.
-   Nothing otherwise; what a lookup the person asked for found is the
-   settings' (`updates-section`)."
+   `:update` of the db): that a new version is ready and the button,
+   then what the update is doing, or why it did not work. Nothing
+   otherwise; the version, its notes and what a lookup the person
+   asked for found are the settings' (`updates-section`)."
   [{:keys [version notes state error auto?]}]
   (cond
     (= :applying state)
@@ -502,9 +497,7 @@
 
     version
     [:div.banner.update
-     [:i18n :update/available {:version version}]
-     (when (seq notes)
-       [:span.notes " " notes])
+     [:i18n :update/ready]
      " "
      (update-button [:i18n :update/button])
      (when auto?
@@ -1393,7 +1386,7 @@
           (list
            [:input#view-chat.toggle {:type "radio" :name "view"}]
            [:input#view-made.toggle {:type "radio" :name "view"}]))
-        (header bot status (:current update) (context-usage conversation))
+        (header bot status (context-usage conversation))
         (when artifacts?
           (views))
         [:div.body

@@ -112,16 +112,15 @@
         (is (contains? text "Füge den Link ein."))
         (is (not (contains? text "Noch nichts hier. Schreib die erste Nachricht.")))
         (is (= "YouTube-Link einfügen" (:placeholder (second (find-tag page :ui/composer)))))))
-    (testing "the running version in the header, a newer release as a banner above the chat"
+    (testing "a newer release as a banner above the chat; the version is the settings', not the header's"
       (let [page (i18n/translate (view/page {:agent {} :conversation nil :locale :en
                                              :update {:current "0.1.2" :version "0.1.3" :notes "Subagents" :state :known :auto? true}})
                                  :en)
             text (set (strings page))]
-        (is (= "v0.1.2" (last (find-tag page :button.version))))
-        (is (= [[:data/command {:command/kind :settings/open :command/data {:tab :ui/tabid}}]] (get-in (second (find-tag page :button.version)) [:on :click])) "the version opens the settings")
-        (is (= "Look for a newer rragent in the settings" (:title (second (find-tag page :button.version)))))
-        (is (contains? text "rragent 0.1.3 is available."))
-        (is (contains? text "Subagents"))
+        (is (nil? (find-tag page :button.version)))
+        (is (not (contains? text "v0.1.2")))
+        (is (contains? text "A new version of rragent is ready."))
+        (is (not (contains? text "Subagents")) "the notes are the settings'")
         (is (contains? text "Update"))
         (is (contains? text "It installs itself once the agent is idle; the page comes back by itself."))
         (is (< (.indexOf (vec (nodes page)) (find-tag page :div.banner.update))
@@ -272,12 +271,13 @@
   (testing "nothing while nothing newer is known"
     (is (nil? (view/update-banner nil)))
     (is (nil? (view/update-banner {:current "0.1.2" :auto? true}))))
-  (testing "a newer release: the version, the first line of its notes, the button"
+  (testing "a newer release: that one is ready, the button; the version and the notes are the settings'"
     (let [banner (i18n/translate (view/update-banner {:current "0.1.2" :version "0.1.3" :notes "Subagents" :state :known}) :en)
           text (set (strings banner))]
       (is (= :div.banner.update (first banner)))
-      (is (contains? text "rragent 0.1.3 is available."))
-      (is (contains? text "Subagents"))
+      (is (contains? text "A new version of rragent is ready."))
+      (is (not (contains? text "rragent 0.1.3 is available.")))
+      (is (not (contains? text "Subagents")))
       (is (= [:button.link {:on {:click [[:data/command {:command/kind :update/apply}]]}} "Update"]
              (find-tag banner :button.link)))
       (is (not (contains? text "It installs itself once the agent is idle; the page comes back by itself.")))))

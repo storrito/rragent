@@ -30,7 +30,7 @@
                           "Composio's own trigger endpoints are closed to you on purpose; the Storrito procedures are the way.")
         :parameters (.Object Type #js {:action (.Union Type #js [(.Literal Type "create") (.Literal Type "delete") (.Literal Type "list")])
                                        :name (.Optional Type (.String Type #js {:description "The hook's name: lowercase letters, digits, dashes"}))
-                                       :purpose (.Optional Type (.String Type #js {:description "What calls it and why, for yourself"}))
+                                       :purpose (.Optional Type (.String Type #js {:description "What calls it, in a few words a person reads: the activity names the run by it, such as \"A new review\""}))
                                        :mode (.Optional Type (.Union Type #js [(.Literal Type "run") (.Literal Type "message")]))})
         :execute (^:async fn [args api call-context]
                    (let [name (.-name args)]

@@ -56,7 +56,7 @@
                      (let [runs (await (runs-of agent))
                            k (await (kinds agent))]
                        (is (<= 1 (count runs)) (pr-str runs))
-                       (is (every? #(= {:kind "schedule" :name "tick"} (:trigger %)) runs))
+                       (is (every? #(= {:kind "schedule" :name "tick" :line "Tick: say tock."} (:trigger %)) runs) "the schedule's text as the trigger's line")
                        (is (some #(= :done (:state %)) runs) (pr-str runs))
                        (is (= "Tock." (:line (first (filter #(= :done (:state %)) runs)))))
                        (is (not-any? #(= "rragent.schedule" %) k) (pr-str k))
@@ -179,7 +179,7 @@
                              child-agent (await (.agent child harness/context))]
                          (is (= :done state))
                          (is (= "A five-star review, posting." line))
-                         (is (= {:kind "hook" :name "reviews"} trigger) "no event line in a plain JSON body")
+                         (is (= {:kind "hook" :name "reviews" :line "A new review"} trigger) "no event line in a plain JSON body: the hook's purpose")
                          (is (and (number? started) (number? ended) (<= started ended)))
                          (is (not= conversation (.-id (:root agent))) "a conversation of its own")
                          (is (= (:work agent) (.-cwd child-agent)) "the bot's work folder")

@@ -161,8 +161,10 @@
                                                       :entry #js {:kind "rragent.hook" :data (clj->js data)}}
                                            context))]
             {:ok true :submission (.-id submission)})
-          (let [trigger (cond-> {:kind "hook" :name name}
-                          (:event data) (assoc :line (:event data)))
+          (let [line (or (:event data) (runs/short-line (.-purpose hook)))
+                ;; the event's line, else the hook's purpose: words for a person
+                trigger (cond-> {:kind "hook" :name name}
+                          line (assoc :line line))
                 run (await (runs/start! conversation {:trigger trigger :content content} context))]
             {:ok true :run run})))
       {:ok false})))
