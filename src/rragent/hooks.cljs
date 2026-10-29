@@ -1,16 +1,19 @@
 (ns rragent.hooks
-  "The agent's hooks: addresses other systems call to start a turn.
-   Each has a name, a purpose and a secret, kept in the document
-   `rragent.hooks` of the bot's conversation; its address is
+  "The agent's hooks: addresses other systems call to start a run.
+   Each has a name, a purpose, a secret and a mode, kept in the
+   document `rragent.hooks` of the bot's conversation; its address is
    `/hook/<name>/<secret>` on the machine's page, which tries the
-   call on every bot: the secret says whose it is. A call with the right secret submits the call's body
-   as an input, as if the person had typed it, with the headers that
-   say who sent it, the definition read again first
-   (`rragent.reload`)."
+   call on every bot: the secret says whose it is. A call with the
+   right secret starts a run of the bot (`rragent.runs`) with the
+   call's body as its text and the headers that say who sent it, the
+   definition read again first (`rragent.reload`); a hook of the mode
+   `message` submits the text as an input of the bot's own
+   conversation instead, as if the person had typed it."
   (:require ["node:crypto" :as crypto]
             ["@earendil-works/pi-durable" :refer [defineDoc]]
             [clojure.string :as str]
-            [rragent.reload :as reload]))
+            [rragent.reload :as reload]
+            [rragent.runs :as runs]))
 
 (def Hooks
   (defineDoc #js {:kind "rragent.hooks"
@@ -33,17 +36,24 @@
   [name secret]
   (str (str/replace (str (aget (.-env js/process) "RRAGENT_URL")) #"/+$" "") (path name secret)))
 
+(def modes
+  "`run`, a call starts a run of the bot; `message`, a call reaches the
+   bot's own conversation."
+  #{"run" "message"})
+
 (defn ^:async create!
-  "The hook `name` made (or its secret renewed) with `purpose`. Answers
-   its address."
-  [api name purpose call-context]
+  "The hook `name` made (or its secret renewed) with `purpose` and
+   `mode` (`run` without one). Answers its address."
+  [api name purpose mode call-context]
   (when-not (re-matches #"[a-z0-9][a-z0-9-]*" (str name))
     (throw (js/Error. "a hook's name is lowercase letters, digits and dashes")))
+  (when-not (contains? modes (or mode "run"))
+    (throw (js/Error. "a hook's mode is run or message")))
   (let [secret (.toString (crypto/randomBytes 16) "hex")]
     (await (.commit api
                     (^:async fn [tx]
                       (let [doc (await (.doc tx Hooks (.-conversationId api)))]
-                        (aset doc name #js {:secret secret :purpose purpose :createdAt (js/Date.now)})))
+                        (aset doc name #js {:secret secret :purpose purpose :mode (or mode "run") :createdAt (js/Date.now)})))
                     call-context))
     (address name secret)))
 
@@ -61,7 +71,7 @@
 (defn listed
   [hooks]
   (->> (js/Object.entries (or hooks #js {}))
-       (map (fn [[name h]] (str name ": " (address name (.-secret h)) " (" (.-purpose h) ")")))
+       (map (fn [[name h]] (str name ": " (address name (.-secret h)) " (" (.-purpose h) ")" (when (= "message" (.-mode h)) " · mode message"))))
        (str/join "\n")))
 
 (defn- message
@@ -129,20 +139,30 @@
 
 (defn ^:async receive!
   "A call of the hook `name` with `secret` on the bot's `conversation`
-   (the `root` without one): the input submitted when the secret is
-   the hook's, answering `{:ok true :submission id}`; `{:ok false}`
-   otherwise, for a 403. `headers` is a map of lowercase names."
+   (the `root` without one), when the secret is the hook's: a run of
+   the bot started with the call as its text, `{:ok true :run id}`,
+   the task's id; for a hook of the mode `message` the input submitted
+   to the bot's conversation, `{:ok true :submission id}`. `{:ok
+   false}` otherwise, for a 403. `headers` is a map of lowercase
+   names."
   [{:keys [harness conversation root]} name secret headers body context]
   (let [conversation (or conversation root)
         hooks (await (.snapshot harness Hooks (.-id conversation) context))
         hook (some-> hooks (aget name))]
     (if (and hook (= secret (.-secret hook)))
       (let [kept (into {} (keep (fn [h] (when-let [v (get headers h)] [h v]))) kept-headers)
-            _ (await (reload/reload! conversation context))
-            submission (await (.submit conversation #js {:type "input"
-                                                  :content (message name (.-purpose hook) kept body)
-                                                  :whenBusy "followUp"
-                                                  :entry #js {:kind "rragent.hook" :data (clj->js (entry-data name body))}}
-                                       context))]
-        {:ok true :submission (.-id submission)})
+            content (message name (.-purpose hook) kept body)
+            data (entry-data name body)]
+        (await (reload/reload! conversation context))
+        (if (= "message" (.-mode hook))
+          (let [submission (await (.submit conversation #js {:type "input"
+                                                      :content content
+                                                      :whenBusy "followUp"
+                                                      :entry #js {:kind "rragent.hook" :data (clj->js data)}}
+                                           context))]
+            {:ok true :submission (.-id submission)})
+          (let [trigger (cond-> {:kind "hook" :name name}
+                          (:event data) (assoc :line (:event data)))
+                run (await (runs/start! conversation {:trigger trigger :content content} context))]
+            {:ok true :run run})))
       {:ok false})))

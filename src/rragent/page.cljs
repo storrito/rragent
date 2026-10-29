@@ -965,21 +965,24 @@
 
 (defn- ^:async hook-handler
   "`POST /hook/<name>/<secret>`: the body as text to the bot whose hook
-   it is (`rragent.hooks`, every bot asked), 202 with the submission
-   when the secret is a hook's, 403 otherwise."
+   it is (`rragent.hooks`, every bot asked), 202 with the run started
+   (or the submission, for a hook of the mode message) when the secret
+   is a hook's, 403 otherwise."
   [w]
   (let [[name secret] (str/split (str (get-in w [:ring/route-params :*])) #"/" 2)
         request (:ring/request w)
         body (await (transit/read-body (:body request)))
-        {:keys [ok submission]} (await (machine/hook! (fn [bot name secret headers body]
-                                                        (hooks/receive! bot name secret headers body harness/context))
-                                                      name secret (:headers request) body))]
+        {:keys [ok submission run]} (await (machine/hook! (fn [bot name secret headers body]
+                                                            (hooks/receive! bot name secret headers body harness/context))
+                                                          name secret (:headers request) body))]
     (assoc w
            :ring/response
            (if ok
              {:status 202
               :headers {"Content-Type" "application/json"}
-              :body (js/JSON.stringify #js {:submission submission})}
+              :body (js/JSON.stringify (clj->js (cond-> {}
+                                                   submission (assoc :submission submission)
+                                                   run (assoc :run run))))}
              {:status 403
               :headers {"Content-Type" "text/plain"}
               :body "forbidden"}))))

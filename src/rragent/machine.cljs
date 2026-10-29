@@ -33,6 +33,7 @@
             [rragent.reload :as reload]
             [rragent.render :as render]
             [rragent.rframes.sse :as sse]
+            [rragent.runs :as runs]
             [rragent.tools.bot :as bot-tool]))
 
 (def Hidden
@@ -226,12 +227,14 @@
   (:codemode (agent)))
 
 (defn busy?
-  "Whether any bot runs, or renders."
+  "Whether any bot runs, or renders, or a run of one goes or waits
+   (`rragent.runs`)."
   []
-  (boolean (some (fn [{:keys [view render-handle]}]
-                   (or (and view (harness/busy? {:view view}))
-                       (and render-handle (render/any-running? render-handle))))
-                 (vals (bots)))))
+  (boolean (or (runs/active?)
+               (some (fn [{:keys [view render-handle]}]
+                       (or (and view (harness/busy? {:view view}))
+                           (and render-handle (render/any-running? render-handle))))
+                     (vals (bots))))))
 
 (defn name-of
   "The bot's name: its definition's as the reload last read it

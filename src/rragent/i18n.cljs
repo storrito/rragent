@@ -49,6 +49,9 @@
    :chat/hook-called [:fn/str "Hook {{:name}} was called"]
    :chat/hook-event [:fn/str "{{:event}} · hook {{:name}}"]
    :chat/schedule-ran [:fn/str "Schedule {{:name}} ran"]
+   :chat/run-failed [:fn/str "A run failed · {{:about}}"]
+   :chat/run-report "A run reported"
+   :chat/run-started [:fn/str "Started by {{:about}}"]
    :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/ready "Ready"
@@ -79,6 +82,7 @@
    :tool/voice "Made a voice"
    :tool/music "Made music"
    :tool/subagent "Handed a task to a subagent"
+   :tool/report "Reported to the bot's chat"
    :tool/bot "Made or listed bots"
    :tool/other [:fn/str "Used {{:name}}"]
    :tool/running " …"
@@ -304,6 +308,9 @@
    :chat/hook-called [:fn/str "Hook {{:name}} wurde aufgerufen"]
    :chat/hook-event [:fn/str "{{:event}} · Hook {{:name}}"]
    :chat/schedule-ran [:fn/str "Zeitplan {{:name}} lief"]
+   :chat/run-failed [:fn/str "Ein Durchlauf ist fehlgeschlagen · {{:about}}"]
+   :chat/run-report "Ein Durchlauf hat gemeldet"
+   :chat/run-started [:fn/str "Gestartet durch {{:about}}"]
    :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
@@ -334,6 +341,7 @@
    :tool/voice "Stimme erstellt"
    :tool/music "Musik erstellt"
    :tool/subagent "Aufgabe an einen Subagenten gegeben"
+   :tool/report "Dem Bot gemeldet"
    :tool/bot "Bots angelegt oder aufgelistet"
    :tool/other [:fn/str "{{:name}} benutzt"]
    :tool/running " …"

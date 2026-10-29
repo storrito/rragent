@@ -1,11 +1,13 @@
 (ns rragent.tools.schedule
   "The `schedule` tool: the agent sets, lists and deletes its schedules
    (`rragent.schedule`), and the machine's alarm follows
-   (`rragent.wake`)."
+   (`rragent.wake`). A run or a subagent of the bot has no schedules
+   of its own (`rragent.tools.work/bot-call!`)."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [rragent.docs :as docs]
-            [rragent.schedule :as schedule]))
+            [rragent.schedule :as schedule]
+            [rragent.tools.work :as work]))
 
 (defn- text
   [s]
@@ -19,22 +21,28 @@
 (def tool
   (defineTool
    #js {:name "schedule"
-        :description (str "Your schedules: when the machine wakes you with a message of your own. "
+        :description (str "Your schedules: when the machine starts a run of yours with a text of your own. "
                           "`set` with a name, a cron line (five fields, or six with seconds first), a time zone (IANA name, UTC by default) "
-                          "and the text you want to receive then; `delete` with the name; `list`. "
+                          "and the text the run gets then: what to do. Each fire starts a run, a fresh conversation with your definition, "
+                          "your events and your artifacts, which does the job and ends with one line the person sees in your activity; "
+                          "nothing of it enters this chat unless the run failed or reported something. "
+                          "`mode: message` instead has the text reach you here as a message, for a rare reminder you want to talk about; never for anything frequent. "
+                          "`delete` with the name; `list`. "
                           "A set schedule replaces one of the same name. Write the cron line yourself, for example `0 8 * * 1-5` for weekday mornings at eight.")
         :parameters (.Object Type #js {:action (.Union Type #js [(.Literal Type "set") (.Literal Type "delete") (.Literal Type "list")])
                                        :name (.Optional Type (.String Type #js {:description "The schedule's name"}))
                                        :cron (.Optional Type (.String Type #js {:description "The cron line"}))
                                        :tz (.Optional Type (.String Type #js {:description "The time zone of the cron line, an IANA name such as Europe/Berlin"}))
-                                       :text (.Optional Type (.String Type #js {:description "The message you receive when it fires: what to do then"}))})
+                                       :text (.Optional Type (.String Type #js {:description "The text the run gets when it fires: what to do then"}))
+                                       :mode (.Optional Type (.Union Type #js [(.Literal Type "run") (.Literal Type "message")]))})
         :execute (^:async fn [args api call-context]
                    (let [action (.-action args)
                          name (.-name args)]
+                     (await (work/bot-call! api call-context "Schedules"))
                      (case action
                        "set" (do (when (or (empty? name) (empty? (.-cron args)) (empty? (.-text args)))
                                    (throw (js/Error. "set needs name, cron and text")))
-                                 (let [at (await (schedule/set! api name (.-cron args) (.-tz args) (.-text args) (js/Date.now) call-context))]
+                                 (let [at (await (schedule/set! api name (.-cron args) (.-tz args) (.-text args) (.-mode args) (js/Date.now) call-context))]
                                    (await (rearm!))
                                    (text (str "Schedule " name " set; next run " (.toISOString (js/Date. at))))))
                        "delete" (do (when (empty? name)

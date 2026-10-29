@@ -28,7 +28,10 @@ model and the name on the page with it, without a restart. The bot runs on
 [OpenRouter](https://openrouter.ai), through the connector of its Sprite or
 with a key of its own. It reaches the outside world through typed tools, a
 REPL whose functions are the organization's connectors, a schedule it writes
-itself as a cron line, and named hooks that other systems call. A long job
+itself as a cron line, and named hooks that other systems call; a fire
+or a call starts a *run*, a conversation of its own that does the job
+and ends with one line for the bot's activity (`rragent.runs`, see
+[docs/runs-and-skills.md](docs/runs-and-skills.md)). A long job
 it can hand to a subagent (`rragent.tools.subagent`): a conversation owned
 by the tool call, with the agent's model, tools and instructions, whose
 answer alone enters the transcript. It ends with the call, so it is a
@@ -77,8 +80,10 @@ thread per bot (its SCI context is the bot's, found by the
 conversation of the call), and one sleep watch stops the machine once
 every bot is idle and no page is open. One `rragent-wake` automation
 is armed for the earliest due schedule across all bots
-(`rragent.schedule/rearm!`), and a wake runs whichever bot's
-schedules are due; the schedules and hooks are documents of each
+(`rragent.schedule/rearm!`), and a wake starts the runs of whichever
+bot's schedules are due, one run at a time on the machine; a hook or
+a schedule of the mode `message` reaches the bot's own chat instead.
+The schedules and hooks are documents of each
 conversation, the events a file of its folder, `bots/<id>/events.edn`,
 one EDN map per line (`rragent.events`). A hook's address is the
 machine's, `POST /hook/<name>/<secret>`: the call is tried on every

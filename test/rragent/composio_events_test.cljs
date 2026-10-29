@@ -27,6 +27,12 @@
                                        (.update (str id "." timestamp "." body) "utf8")
                                        (.digest "base64")))})
 
+(deftest trigger-of-test
+  (is (= {:kind "composio" :name "GOOGLEDRIVE_FILE_CREATED_TRIGGER" :line "Google Drive · file created · 4.txt"}
+         (events/trigger-of (events/parse body) body)))
+  (is (= {:kind "composio" :name "composio.connected_account.expired"}
+         (events/trigger-of {:type "composio.connected_account.expired"} "{\"type\":\"composio.connected_account.expired\"}"))))
+
 (deftest signature-test
   (testing "a delivery signed with the secret verifies; the header may carry several signatures, a bare one too"
     (let [headers (signed secret "msg_1" timestamp body)]

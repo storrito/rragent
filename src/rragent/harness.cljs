@@ -8,7 +8,8 @@
    coding tools (read, write, edit, bash in the bot's `work/`) and
    rragent's own (remember and recall over the bot's events file,
    `rragent.events`, fetch, the REPL `eval` with
-   the connectors of the gateway as functions, schedule, hook, and
+   the connectors of the gateway as functions, schedule, hook, report
+   (a run's word to the bot's chat, `rragent.runs`), and
    the tools of the artifacts: project, render, image, voice, music,
    transcribe;
    the pane shows what they make; subagent, which hands a task to a
@@ -43,6 +44,7 @@
             [rragent.model-requests :as model-requests]
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
+            [rragent.runs :as runs]
             [rragent.schedule :as schedule]
             [rragent.secrets :as secrets]
             [rragent.tools.eval :as eval-tool]
@@ -52,6 +54,7 @@
             [rragent.tools.media :as media-tool]
             [rragent.tools.project :as project-tool]
             [rragent.tools.render :as render-tool]
+            [rragent.tools.report :as report-tool]
             [rragent.tools.schedule :as schedule-tool]
             [rragent.tools.subagent :as subagent-tool]
             [rragent.tools.transcribe :as transcribe-tool]))
@@ -69,8 +72,8 @@
   (defineExtension #js {:name "rragent"
                         :tools #js [events-tool/remember events-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
                                     (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)
-                                    (transcribe-tool/tool codemode)]
-                        :tasks #js [schedule/Task]}))
+                                    (transcribe-tool/tool codemode) report-tool/tool]
+                        :tasks #js [schedule/Task runs/Task]}))
 
 (def redacted-keys
   "The parts of a tool's result that reach the model, a program or the
@@ -330,6 +333,7 @@
    every bot taken out of the one atom."
   [{:keys [harness codemode]}]
   (await (.close harness context))
+  (runs/reset-gate!)
   (codemode-worker/stop-all! "The agent closed.")
   (await (mcp/close! (:mcp codemode)))
   (swap! db/db assoc :bots {}))

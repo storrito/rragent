@@ -2,7 +2,7 @@
   "The definition read again before every run: a rewrite of the
    AGENT.md between two asks, and the second run has the new
    instructions, the new model and the new name; an unchanged file
-   transacts nothing; a schedule's run and a hook's call read the file
+   transacts nothing; a schedule's fire and a hook's call read the file
    too."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
@@ -130,9 +130,9 @@
                    (testing "a hook's call too"
                      (rewrite! home (str/replace test-home/definition-text "You watch a page." "You tock softly."))
                      (let [doc (await (.snapshot (:harness agent) hooks/Hooks (.-id (:root agent)) harness/context))
-                           {:keys [ok submission]} (await (hooks/receive! agent "reviews" (.. doc -reviews -secret) {} "{\"stars\":5}" harness/context))]
+                           {:keys [ok run]} (await (hooks/receive! agent "reviews" (.. doc -reviews -secret) {} "{\"stars\":5}" harness/context))]
                        (is (true? ok))
-                       (await (.wait (await (.submission (:harness agent) submission harness/context)) harness/context))
+                       (await (.waitForTask (:harness agent) run harness/context))
                        (let [run (run-with @seen "Hook \"reviews\"")]
                          (is (some? run) "the hook's run")
                          (is (str/includes? (:instructions run) "You tock softly.")))))
