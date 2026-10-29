@@ -172,7 +172,8 @@
                                                             (as-> p (if (and (seq base) (str/starts-with? p (str base "/"))) (subs p (count base)) p))
                                                             (str/replace #"^/?artifacts/" "")
                                                             (str/replace #"/+$" ""))}
-                                           bot (assoc :bot bot))}]]})
+                                           bot (assoc :bot bot))}]
+           [:ui/pane-step]]})
 
 (defn- attrs
   "The attributes that are allowed, the ones with a URL checked; on a

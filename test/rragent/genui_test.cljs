@@ -128,7 +128,8 @@
            (genui/sanitize [:button {:send "Post on: {checked}" :class "go" :open "artifacts/x"} "Take these"]))))
   (testing ":open shows the artifact, a project's folder with or without its slash"
     (is (= {:click [[:data/command {:command/kind :artifacts/open
-                                    :command/data {:path "shorts"}}]]}
+                                    :command/data {:path "shorts"}}]
+                    [:ui/pane-step]]}
            (:on (second (genui/sanitize [:button {:open "artifacts/shorts"} "Show"])))
            (:on (second (genui/sanitize [:button {:open "/artifacts/shorts/"} "Show"])))))
     (is (= "card/a.mp4" (get-in (genui/sanitize [:button {:open "artifacts/card/a.mp4"} "x"])

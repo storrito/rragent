@@ -487,6 +487,17 @@
             (-> (showing value p)
                 (assoc :artifacts/picked-at (js/Date.now)))))))
 
+(defn show!
+  "The pane as the person had it: `p` on screen (nil the list alone),
+   the list browsing `folder`, as a pick (`pick!`); a step back or
+   forward in the tab's history."
+  [db path p folder]
+  (swap! db db/update-at path
+         (fn [value]
+           (-> (showing value p)
+               (assoc :artifacts/folder (str folder)
+                      :artifacts/picked-at (js/Date.now))))))
+
 (defn browse!
   "The person opened `folder` in the list (\"\" the root)."
   ([db folder]

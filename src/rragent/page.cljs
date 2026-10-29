@@ -398,6 +398,22 @@
                                                            (command/accepted w))
       :else (command/rejected w :no-such-folder))))
 
+(defn- show-artifact-command
+  "A step back or forward in the tab's history (`rragent.client`,
+   `pane-history`): the pane as it was there, the artifact `path` on
+   screen (nil the list alone) and the list browsing `folder`; nothing
+   of it when either is gone since."
+  [w]
+  (let [{:keys [path folder]} (command/command-data w)
+        bot (bot-of-command w)
+        folder (str folder)]
+    (cond
+      (nil? bot) (command/rejected w :no-such-bot)
+      (not (or (nil? path) (artifact-of bot path))) (command/rejected w :no-such-artifact)
+      (not (artifacts/folder? (:artifacts/list bot) folder)) (command/rejected w :no-such-folder)
+      :else (do (artifacts/show! db/db (db/bot-path (:id bot)) path folder)
+                (command/accepted w)))))
+
 (defn- clear-artifact-flags
   "The bot's map without a rename or a delete under way in a row of
    the pane."
@@ -1115,6 +1131,8 @@
       :command/fn #'stop-command}
      {:command/kind :artifacts/open
       :command/fn #'open-artifact-command}
+     {:command/kind :artifacts/show
+      :command/fn #'show-artifact-command}
      {:command/kind :artifacts/open-folder
       :command/fn #'open-folder-command}
      {:command/kind :artifacts/rename-start

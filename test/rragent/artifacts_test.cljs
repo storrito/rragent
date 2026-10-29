@@ -209,6 +209,12 @@
       (is (= "a" (:artifacts/folder @db)) "a pick browses its folder")
       (artifacts/pick! db nil)
       (is (= "a" (:artifacts/folder @db)) "back to the list, in the same folder")
+      (artifacts/show! db [] "a/one.md" "")
+      (is (= ["a/one.md" ""] [(:artifacts/current @db) (:artifacts/folder @db)]) "a step back: the screen and the folder as they were")
+      (artifacts/show! db [] nil "b")
+      (is (= [nil "b"] [(:artifacts/current @db) (:artifacts/folder @db)]))
+      (artifacts/refresh! db dir)
+      (is (= [nil "b"] [(:artifacts/current @db) (:artifacts/folder @db)]) "a pick: nothing older takes the screen")
       (testing "the recordings' lengths, from their recording.json"
         (let [with (path/join dir "recordings" "2026-10-21T11-56-03")
               without (path/join dir "recordings" "2026-10-21T11-57-00")]
@@ -380,6 +386,9 @@
         (is (some #{[:i18n :artifacts/project]} (nodes (second rows))) "a project is named as such")
         (is (= {:bot "b1" :path "pool.png"} (get-in (second (find-tag (nth rows 2) :button.row)) [:on :click 0 1 :command/data])))
         (is (= {:bot "b1" :path nil} (get-in (second (find-tag v :button.link.back)) [:on :click 0 1 :command/data])) "the way back to the list")
+        (is (= [:ui/pane-step] (get-in (second (find-tag (nth rows 2) :button.row)) [:on :click 1])) "a step of the tab's history")
+        (is (= {:ui/bot "b1" :ui/folder "" :ui/current "card.html"} (second (find-tag v :ui/pane-history))) "where the pane is, for the history")
+        (is (= {:ui/bot "b1" :ui/folder "" :ui/current nil} (second (find-tag (pane "gone.html" {:artifacts/folder "gone"}) :ui/pane-history))) "what the pane shows, not what is gone")
         (is (= ["showing"] (:class (second v))))
         (is (= "/artifacts/card.html" (:ui/src (second (find-tag v :ui/canvas)))))
         (is (= 3 (:ui/rev (second (find-tag v :ui/canvas)))))))
@@ -405,7 +414,8 @@
         (is (= [nil "true" "true" "true" "true"] (map #(:data-deep (second %)) lis)))
         (is (= ["md" " · " "40 B"] (rest (find-tag (first lis) :span.meta))) "a file of the folder browsed goes without it")
         (is (= [:nav.crumbs
-                [:button.crumb {:on {:click [[:data/command {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path ""}}]]}} [:i18n :page/artifacts]]
+                [:button.crumb {:on {:click [[:data/command {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path ""}}]
+                                             [:ui/pane-step]]}} [:i18n :page/artifacts]]
                 [:span.sep "›"]
                 [:span.here "Notes"]]
                (:ui/crumbs (second filter-alias))))

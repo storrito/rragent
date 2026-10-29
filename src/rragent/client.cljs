@@ -27,7 +27,10 @@
    tab's id), the back and forward buttons do the same with the URL
    they return to, and the `:ui/url` alias corrects the address bar
    when the server shows another bot than the URL named (one that was
-   deleted). The way pchat does it."
+   deleted). The way pchat does it. The steps through the artifacts
+   pane are entries of the history too (`pane-history`), so that back
+   and forward, the mouse's buttons as well, go through the folders and
+   files the person opened."
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [cognitect.transit :as t]
@@ -805,6 +808,58 @@
                                     :command/data {:id id
                                                    :tab state/tabid}}]]))
 
+(def ^:private pane*
+  "The steps of the pane through the tab's history (`pane-history`):
+   `:step`, when the person last moved the pane (`pane-step!`), and
+   `:restoring`, when a back or forward step asked the server for the
+   pane of its entry."
+  (atom {}))
+
+(def step-ms
+  "How long a step of the person's, or a step back or forward, waits
+   for the frame that shows it."
+  5000)
+
+(defn- pane-step!
+  "The person moves the pane: the frame that shows it is a new entry of
+   the history."
+  []
+  (swap! pane* assoc :step (js/Date.now)))
+
+(defn- pane-of
+  "The pane of a history entry's state, `{:bot :folder :current}`, or
+   nil."
+  [^js history-state]
+  (some-> history-state .-pane (js->clj :keywordize-keys true)))
+
+(defn- fresh?
+  [ms]
+  (and ms (< (- (js/Date.now) ms) step-ms)))
+
+(defn pane-history
+  "`[:ui/pane-history {:ui/bot :ui/folder :ui/current}]` in the pane:
+   where it is, kept in the entry of the tab's history. A step the
+   person took (`pane-step!`) is a new entry, so that the back and
+   forward buttons, the mouse's too, step through the folders and the
+   files as through the bots; a move of the agent's (its newest file
+   taking the screen) changes the entry in place. A step back or
+   forward asks the server for the pane of its entry (`:artifacts/show`,
+   the popstate listener); until a frame shows it, the frames before
+   leave the entry as it is. Renders nothing."
+  [{:keys [ui/bot ui/folder ui/current]} _children]
+  (let [here {:bot bot :folder (str folder) :current current}
+        entry (pane-of js/history.state)
+        {:keys [step restoring]} @pane*
+        url (str js/location.pathname js/location.search)]
+    (cond
+      (= here entry) (swap! pane* dissoc :restoring)
+      (fresh? restoring) nil
+      (and (fresh? step) (= bot (:bot entry))) (do (swap! pane* dissoc :step)
+                                                   (js/history.pushState (clj->js {:pane here}) "" url))
+      :else (do (swap! pane* dissoc :restoring)
+                (js/history.replaceState (clj->js {:pane here}) "" url))))
+  [:span.pane-history {:hidden true}])
+
 (defn- close-drawer!
   "On a phone the sidebar is a drawer over a checkbox; a tap on a bot
    closes it."
@@ -849,8 +904,8 @@
 (defonce ^:private bot-listeners
   ;; a click on a link to a bot (`a[data-bot]`, the sidebar rows) stays on
   ;; the page; the back and forward buttons show the bot of the URL they
-  ;; return to; a click anywhere, or Escape, closes the actions menus,
-  ;; and the context's card when it is not on it
+  ;; return to, and the pane of the entry; a click anywhere, or Escape,
+  ;; closes the actions menus, and the context's card when it is not on it
   (do (js/document.addEventListener
        "click"
        (fn [^js event]
@@ -876,6 +931,7 @@
          (when-let [^js card (some-> (.-target event) (.closest "a[data-artifact]"))]
            (when (plain-click? event)
              (.preventDefault event)
+             (pane-step!)
              (state/dispatch! [[:data/command {:command/kind :artifacts/open
                                                :command/data {:bot (.getAttribute card "data-artifact-bot")
                                                               :path (.getAttribute card "data-artifact")}}]])
@@ -883,11 +939,16 @@
                (set! (.-checked made) true))))))
       (js/window.addEventListener
        "popstate"
-       (fn [_]
+       (fn [^js event]
          (let [path js/location.pathname]
            (if-let [run (run-id-of path)]
              (show-run! (bot-id-of path) run)
-             (show! (bot-id-of path))))))
+             (show! (bot-id-of path))))
+         ;; the pane of the entry, when it has one (`pane-history`)
+         (when-let [{:keys [bot folder current]} (pane-of (.-state event))]
+           (swap! pane* assoc :restoring (js/Date.now))
+           (state/dispatch! [[:data/command {:command/kind :artifacts/show
+                                             :command/data {:bot bot :folder folder :path current}}]]))))
       (js/document.addEventListener
        "keydown"
        (fn [^js event]
@@ -900,10 +961,11 @@
 (defn url-alias
   "`[:ui/url {:ui/path \"/bot/<id>\"}]` in a frame: the page of the bot
    the server shows; when the address bar says another, it is corrected
-   in place, no entry in the history. Renders nothing."
+   in place, no entry in the history, its state kept (`pane-history`).
+   Renders nothing."
   [{:keys [ui/path]} _children]
   (when (and (seq path) (not= path js/location.pathname))
-    (js/history.replaceState nil "" (str path js/location.search)))
+    (js/history.replaceState js/history.state "" (str path js/location.search)))
   [:span.url {:hidden true}])
 
 (def theme-key
@@ -1162,6 +1224,10 @@
     :ui.alias/fn send-key-alias}
    {:ui.alias/kind :ui/url
     :ui.alias/fn url-alias}
+   {:ui.alias/kind :ui/pane-history
+    :ui.alias/fn pane-history}
+   {:ui.action/kind :ui/pane-step
+    :ui.action/handler (fn [_] (pane-step!))}
    {:ui.action-enricher/kind :ui/tabid
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/tabid x)
