@@ -30,15 +30,17 @@
   (is (= :video (uploads/kind "ab12.MOV")))
   (is (= :audio (uploads/kind "ff00.wav")))
   (is (= :image (uploads/kind "ff00.png")))
-  (is (nil? (uploads/kind "notes.txt")))
+  (is (= :text (uploads/kind "notes.txt")) "a pasted text")
+  (is (nil? (uploads/kind "notes.pdf")))
   (is (nil? (uploads/kind "notes"))))
 
 (deftest lines-test
-  (let [text "Make a short of this\nvideo: uploads/ab12cd.mp4\naudio: uploads/ff00.wav\nimage: uploads/0a0b.png"]
+  (let [text "Make a short of this\nvideo: uploads/ab12cd.mp4\naudio: uploads/ff00.wav\nimage: uploads/0a0b.png\ntext: uploads/77aa.txt"]
     (testing "the lines that name files"
       (is (= [{:kind :video :name "ab12cd.mp4"}
               {:kind :audio :name "ff00.wav"}
-              {:kind :image :name "0a0b.png"}]
+              {:kind :image :name "0a0b.png"}
+              {:kind :text :name "77aa.txt"}]
              (uploads/attachments text)))
       (is (= "Make a short of this" (uploads/without-lines text))))
     (testing "a message without files is left as it is"
@@ -78,6 +80,33 @@
           (.finally (fn []
                       (fs/rmSync dir #js {:recursive true :force true})
                       (done)))))))
+
+(deftest keep-long-text-test
+  (let [dir (path/join (fs/mkdtempSync (path/join (os/tmpdir) "rragent-uploads-")) "uploads")
+        long-text (str "Make show notes of this:\n"
+                       (apply str (repeat 30000 "x"))
+                       "\nThanks!")]
+    (try
+      (testing "a text up to the limit stays in the message"
+        (let [text (apply str (repeat uploads/text-max-chars "y"))]
+          (is (= {:text text} (uploads/keep-long-text! dir text))))
+        (is (not (fs/existsSync dir)) "and writes nothing"))
+      (testing "a longer one is a file of the uploads, the message keeps its start and end"
+        (let [{:keys [text attachment]} (uploads/keep-long-text! dir long-text)
+              file (path/join dir (:name attachment))]
+          (is (= :text (:kind attachment)))
+          (is (re-matches #"[0-9a-f]{32}\.txt" (:name attachment)) "named by its hash, as the files the page sends")
+          (is (= long-text (fs/readFileSync file "utf8")) "the whole text in the file")
+          (is (.startsWith text "Make show notes of this:") "the person's words before it")
+          (is (.endsWith text "\nThanks!") "and after it")
+          (is (.includes text (str "is in uploads/" (:name attachment))) "where the whole is")
+          (is (< (count text) 2200))
+          (is (= attachment (:attachment (uploads/keep-long-text! dir long-text))) "the same text, the same file")
+          (is (= [attachment] (uploads/named dir [(:name attachment)])) "an attachment the message may name")
+          (is (= (str "text: uploads/" (:name attachment)) (uploads/line :text (:name attachment)))
+              "named on a line of its own")))
+      (finally
+        (fs/rmSync (path/dirname dir) #js {:recursive true :force true})))))
 
 (deftest server-test
   (async done

@@ -256,7 +256,7 @@
                            (fs/writeFileSync (path/join dir "stories" "a.html") "<h1>a</h1>")
                            (artifacts/refresh! db/db (db/bot-path id) dir)
                            (try
-                             (.setResponses faux #js [(tools-test/answer "Made it pink.") (tools-test/answer "Which one?")])
+                             (.setResponses faux #js [(tools-test/answer "Made it pink.") (tools-test/answer "Which one?") (tools-test/answer "Got the long text.")])
                              (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Make it pink" :screen "stories/a.html"}))))
                              (let [answer (await (frame! #(mentions? % "Made it pink.")))]
                                (is (= "Make it pink\non screen beside the chat: artifacts/stories/a.html" (last-message)) "the model reads the line")
@@ -265,6 +265,15 @@
                              (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "And this" :screen "gone.html"}))))
                              (await (frame! #(mentions? % "Which one?")))
                              (is (= "And this" (last-message)) "what the list no longer has names nothing")
+                             (let [long-text (str "Notes of this:\n" (apply str (repeat 25000 "z")) "\nThanks")]
+                               (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text long-text}))))
+                               (let [frame (await (frame! #(mentions? % "Got the long text.")))
+                                     message (last-message)
+                                     [_ file-name] (re-find #"text: uploads/([0-9a-f]{32}\.txt)" message)]
+                                 (is (.startsWith message "Notes of this:") "a long text: the message keeps its start")
+                                 (is (some? file-name) "and names the file that holds it")
+                                 (is (= long-text (fs/readFileSync (path/join (home/bot-dir home id) "work" "uploads" (str file-name)) "utf8")))
+                                 (is (mentions? frame file-name) "the chat links the file")))
                              (finally
                                (fs/rmSync (path/join dir "stories") #js {:recursive true :force true})
                                (artifacts/refresh! db/db (db/bot-path id) dir)

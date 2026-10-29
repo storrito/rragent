@@ -285,9 +285,11 @@
   "The text of the composer and the files attached to it submitted as
    an input of the bot's conversation (`rragent.uploads/content`: a
    line per file, the pictures as image blocks when the model takes
-   them), and last a line for what the pane of the tab showed, its
-   `:screen` (`rragent.artifacts/screen-line`), so that \"this\" and
-   \"here\" mean it; the answer arrives as frames."
+   them; a long text as a file of its own,
+   `rragent.uploads/keep-long-text!`), and last a line for what the
+   pane of the tab showed, its `:screen`
+   (`rragent.artifacts/screen-line`), so that \"this\" and \"here\" mean
+   it; the answer arrives as frames."
   [w]
   (let [{:keys [text attachments screen run]} (command/command-data w)
         text (str/trim (str text))
@@ -302,7 +304,9 @@
       (command/rejected w :empty-message)
 
       :else
-      (let [content (await (uploads/content uploads text attachments
+      (let [{text :text pasted :attachment} (uploads/keep-long-text! uploads text)
+            attachments (cond-> attachments pasted (conj pasted))
+            content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
             draft #js {:type "input" :content (clj->js content)}]
