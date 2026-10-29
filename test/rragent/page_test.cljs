@@ -17,6 +17,7 @@
             [rragent.fake-gateway :as fake-gateway]
             [rragent.harness :as harness]
             [rragent.home :as home]
+            [rragent.hooks :as hooks]
             [rragent.images-test :as images-test]
             [rragent.machine :as machine]
             [rragent.fake-oauth :as fake-oauth]
@@ -621,6 +622,71 @@
                  (finally
                    (await (stop!))
                    (await ((:stop! service)))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest runs-on-the-page-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (.setResponses faux #js [(tools-test/tool-call "hook" {:action "create" :name "reviews" :purpose "A new review"} "h1")
+                                      (tools-test/answer "The hook is made.")
+                                      (tools-test/answer "Posted the story.")
+                                      (tools-test/answer "Because the cover photo is the apartment's.")])
+             (let [{:keys [id base stop!]} (await (start! home models))
+                   controller (js/AbortController.)
+                   other (js/AbortController.)
+                   bot-url (str base "/bot/" id)]
+               (try
+                 (let [cookie (await (login base "s3cret"))
+                       {:keys [reader decoder]} (await (stream bot-url cookie controller "t1"))
+                       {first-frame :view buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
+                       {:keys [frame!]} (frames! reader decoder buffer)]
+                   (is (nil? (find-tag first-frame :nav.panes)) "no switch of the pane's lists without runs")
+                   (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Make a hook."}))))
+                   (await (frame! #(mentions? % "The hook is made.")))
+                   (let [doc (await (.snapshot (:harness (machine/agent)) hooks/Hooks (js/Number id) harness/context))
+                         secret (.. doc -reviews -secret)
+                         posted (await (js/fetch (str base "/hook/reviews/" secret) #js {:method "POST" :body "{\"stars\":5}"}))
+                         {:strs [run]} (js->clj (js/JSON.parse (await (.text posted))))]
+                     (is (= 202 (.-status posted)))
+                     (is (number? run))
+                     (testing "the run is in the activity of the pane, with its line once it answered; nothing of it in the chat"
+                       (let [frame (await (frame! #(find-tag % :nav.panes)))]
+                         (is (nil? (find-tag frame :ul.runs)) "the pane keeps showing the artifacts until the switch"))
+                       (is (= {:success? true} (await (command! base cookie :pane/show {:tab "t1" :pane :activity}))))
+                       (let [frame (await (frame! #(and (find-tag % :ul.runs) (mentions? % "Posted the story."))))]
+                         (is (= (str "/bot/" id) (url-of frame)) "still the bot's page")
+                         (is (not (mentions? frame "Started by")))))
+                     (testing "the run's page: its transcript, which the person asks"
+                       (is (= {:success? true} (await (command! base cookie :run/show {:tab "t1" :bot id :run run}))))
+                       (let [frame (await (frame! #(= (str "/bot/" id "/run/" run) (url-of %))))]
+                         (is (mentions? frame "Started by hook reviews"))
+                         (is (mentions? frame "Posted the story.") "the run's answer in the feed")
+                         (is (some? (find-tag frame :div.banner.run)))
+                         (is (= [:draft (str id "/run/" run)] (:ui/store-key (second (find-tag frame :ui/composer)))) "the draft is the run's"))
+                       (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :run run :text "Why that photo?"}))))
+                       (let [frame (await (frame! #(mentions? % "Because the cover photo")))]
+                         (is (mentions? frame "Why that photo?"))))
+                     (testing "back to the bot's chat"
+                       (is (= {:success? true} (await (command! base cookie :bot/show {:tab "t1" :id id}))))
+                       (let [frame (await (frame! #(= (str "/bot/" id) (url-of %))))]
+                         (is (mentions? frame "The hook is made."))
+                         (is (not (mentions? frame "Because the cover photo")))))
+                     (testing "the run's page by its URL, in another tab"
+                       (is (= 200 (.-status (await (js/fetch (str bot-url "/run/" run) #js {:headers #js {:cookie cookie}})))))
+                       (let [{:keys [reader decoder]} (await (stream (str bot-url "/run/" run) cookie other "t2"))
+                             {frame :view} (await (within 15000 (next-frame reader decoder "" (constantly true))))]
+                         (is (= (str "/bot/" id "/run/" run) (url-of frame)))
+                         (is (mentions? frame "Posted the story."))))
+                     (testing "a run the bot does not have"
+                       (is (= {:success? false :result {:error :no-such-run}} (await (command! base cookie :run/show {:tab "t1" :bot id :run 999999})))))))
+                 (finally
+                   (.abort controller)
+                   (.abort other)
+                   (await (stop!))
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

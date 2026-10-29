@@ -22,6 +22,7 @@
             [rragent.dictation :as dictation]
             [rragent.markdown :as markdown]
             [rragent.recordings :as recordings]
+            [rragent.runs :as runs]
             [rragent.uploads :as uploads]))
 
 (defn cut
@@ -433,7 +434,7 @@
      (cond
        (seq shown) (map #(item-view % opts) shown)
        onboarding (welcome onboarding)
-       :else [:p.hint.empty [:i18n :chat/empty]]))
+       :else [:p.hint.empty (or (:empty opts) [:i18n :chat/empty])]))
    (when (= :working status)
      [:div.item.working {:replicant/key "working"}
       [:span.dot]
@@ -708,6 +709,12 @@
    :flip [:i18n :phone/flip]
    :keep-open [:i18n :phone/keep-open]})
 
+(defn store-id
+  "What the drafts and attachments of a composer are kept under: the
+   bot's id, or the run's page for a run's composer."
+  [id run]
+  (if run (str id "/run/" run) id))
+
 (defn draft-key
   "Where the browser keeps the draft for a bot; one per bot, so that a
    switch of the bot keeps what was typed."
@@ -722,15 +729,17 @@
   "Sends the draft and the attachments to the bot's conversation, with
    what the pane of the tab shows (`:ui/screen`, `rragent.client`),
    then clears both."
-  [id]
-  [[:data/command
-    {:command/kind :chat/send
-     :command/data {:bot id
-                    :text [:store/deref (draft-key id)]
-                    :attachments [:store/deref (attachments-key id)]
-                    :screen :ui/screen}}
-    {:on-success [[:store/dissoc (draft-key id)]
-                  [:store/dissoc (attachments-key id)]]}]])
+  [id & [run]]
+  (let [key (store-id id run)]
+    [[:data/command
+      {:command/kind :chat/send
+       :command/data (cond-> {:bot id
+                              :text [:store/deref (draft-key key)]
+                              :attachments [:store/deref (attachments-key key)]
+                              :screen :ui/screen}
+                       run (assoc :run run))}
+      {:on-success [[:store/dissoc (draft-key key)]
+                    [:store/dissoc (attachments-key key)]]}]]))
 
 (defn composer
   "The draft and the attachments are client state (`:ui/composer`, see
@@ -743,18 +752,18 @@
    (`rragent.recordings`, the words of its panel in `:ui/recorder`).
    `placeholder` is the skill's while the chat is empty, the page's own
    otherwise."
-  [id base status placeholder phone]
+  [id base status placeholder phone & [run]]
   [:div.composer
-   [:ui/composer {:ui/store-key (draft-key id)
+   [:ui/composer {:ui/store-key (draft-key (store-id id run))
                   :ui/phone phone
                   :ui/stop (when (= :working status)
                              [[:data/command {:command/kind :chat/stop
-                                              :command/data {:bot id}}]])
+                                              :command/data (cond-> {:bot id} run (assoc :run run))}]])
                   :ui/stop-label (when (= :working status)
                                    [:i18n :composer/stop])
-                  :ui/attachments-key (attachments-key id)
+                  :ui/attachments-key (attachments-key (store-id id run))
                   :ui/upload-url (str base uploads/upload-path)
-                  :ui/send (send-actions id)
+                  :ui/send (send-actions id run)
                   :ui/send-label [:i18n :composer/send]
                   :ui/send-pending-label [:i18n :composer/send-pending]
                   :ui/send-cancel-title [:i18n :composer/send-cancel]
@@ -1090,6 +1099,58 @@
                :download (last (str/split path #"/"))}
       [:i18n :artifacts/download]])))
 
+(defn run-state-label
+  [state]
+  (case state
+    :queued [:i18n :run/waiting]
+    :running [:i18n :run/running]
+    :done [:i18n :run/done]
+    :failed [:i18n :run/failed]
+    :aborted [:i18n :run/stopped]
+    (clojure.core/name state)))
+
+(defn- run-row
+  "A row of the activity: the dot of the run's state, when it started,
+   its line (what started it while it has none) and its state; a
+   click opens the run's page (`a[data-run]`, `rragent.client`). The
+   run on screen marked."
+  [bot {:keys [id state line trigger started]} current]
+  [:li {:replicant/key (str id)
+        :class (cond-> [(clojure.core/name state)]
+                 (= id current) (conj "current"))}
+   [:a.row {:href (runs/url bot id)
+            :data-bot bot
+            :data-run id}
+    [:span.dot]
+    [:span.when (when started [:ui/time {:ui/ms started}])]
+    [:span.line (or (not-empty line) (runs/trigger-line trigger))]
+    [:span.state (run-state-label state)]]])
+
+(defn- activity
+  "The runs of the bot, newest first (`rragent.runs/listed`), in place
+   of the files when the pane shows the activity."
+  [bot runs current]
+  (if (seq runs)
+    [:ul.runs {:replicant/key "runs"}
+     (for [run runs]
+       (run-row bot run current))]
+    [:div.placeholder [:i18n :activity/empty]]))
+
+(defn- panes-nav
+  "The two lists of the pane as buttons in its bar, once the bot has
+   runs: the artifacts and the activity, the one shown marked
+   (`:pane/show`, per tab)."
+  [shown runs]
+  [:nav.panes
+   [:button {:class (when (= :artifacts shown) "current")
+             :on {:click [[:data/command {:command/kind :pane/show
+                                          :command/data {:tab :ui/tabid :pane :artifacts}}]]}}
+    [:i18n :page/artifacts]]
+   [:button {:class (when (= :activity shown) "current")
+             :on {:click [[:data/command {:command/kind :pane/show
+                                          :command/data {:tab :ui/tabid :pane :activity}}]]}}
+    [:i18n :activity/label] " " (str (count runs))]])
+
 (defn artifacts
   "The right half of the page: the list of the artifacts, newest first,
    beside the one on screen, with its Open and Download links in the
@@ -1099,42 +1160,66 @@
    `:artifacts/folder` browsed with the `:artifacts/durations` of the
    recordings, the `:artifacts/text` of a text file on screen, the
    path of a row being renamed or asked about, `:artifacts/renaming`
-   and `:artifacts/deleting`), `:projects` and `:renders`, and the
+   and `:artifacts/deleting`), `:projects` and `:renders`, the bot's
+   `:runs` with the `:runs/current` a tab shows and which of the two
+   lists it sees, `:pane/shown` (`:artifacts` or `:activity`,
+   `activity`), and the
    `:base` of the bot's page with its id as `:bot`. What it shows is
    its `data-screen` (`rragent.artifacts/screen`), which a message of
    the tab carries while the pane is in sight (`:ui/screen`)."
-  [{:keys [artifacts/list artifacts/current artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting projects renders base bot] :as pane}]
-  (let [artifact (some #(when (= current (:path %)) %) list)
+  [{:keys [artifacts/list artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting projects renders runs runs/current pane/shown base bot] :as pane}]
+  (let [activity? (and (= :activity shown) (seq runs))
+        artifact (when-not activity?
+                   (some #(when (= (:artifacts/current pane) (:path %)) %) list))
         project? (= :project (:kind artifact))
         render (when artifact
                  (if project?
                    (get renders (:path artifact))
                    (artifacts/writing pane artifact)))]
     [:section.artifacts {:class (cond-> []
-                                  (empty? list) (conj "empty")
-                                  artifact (conj "showing"))
-                         :data-screen (artifacts/screen pane)}
+                                  (and (empty? list) (empty? runs)) (conj "empty")
+                                  artifact (conj "showing")
+                                  activity? (conj "activity"))
+                         :data-screen (when-not activity? (artifacts/screen pane))}
      [:div.bar
       (when artifact
         [:button.link.back {:on {:click [[:data/command {:command/kind :artifacts/open
                                                          :command/data {:bot bot :path nil}}]]}}
          "‹ " [:i18n :artifacts/back]])
-      [:span.label [:i18n :page/artifacts]]
+      (if (seq runs)
+        (panes-nav (if activity? :activity :artifacts) runs)
+        [:span.label [:i18n :page/artifacts]])
       (when artifact
         [:span.title (:title artifact)])
       (when artifact
         (actions base bot artifact render))]
-     [:div.split
-      (when (seq list)
-        (file-list bot list (str folder) durations {:current current :renaming renaming :deleting deleting}))
-      [:div.shown
-       (cond
-         artifact (content base artifact {:project (get projects (:path artifact))
-                                          :render render
-                                          :text text
-                                          :bot bot})
-         (seq list) [:div.placeholder [:i18n :artifacts/pick]]
-         :else [:div.placeholder [:i18n :artifacts/empty]])]]]))
+     (if activity?
+       [:div.split.activity
+        (activity bot runs current)]
+       [:div.split
+        (when (seq list)
+          (file-list bot list (str folder) durations {:current (:artifacts/current pane) :renaming renaming :deleting deleting}))
+        [:div.shown
+         (cond
+           artifact (content base artifact {:project (get projects (:path artifact))
+                                            :render render
+                                            :text text
+                                            :bot bot})
+           (seq list) [:div.placeholder [:i18n :artifacts/pick]]
+           :else [:div.placeholder [:i18n :artifacts/empty]])]])]))
+
+(defn- run-head
+  "The strip above a run's transcript: the way back to the bot's chat
+   (`a[data-bot]`), what started the run, when, and how it went."
+  [bot name {:keys [state trigger started]}]
+  [:div.banner.run
+   [:a.back {:href (bots/url bot)
+             :data-bot bot}
+    "‹ " name]
+   [:span.about [:i18n :run/started-by {:about (runs/trigger-line trigger)}]]
+   (when started
+     [:ui/time {:ui/ms started}])
+   [:span.state {:class (clojure.core/name state)} (run-state-label state)]])
 
 (defn- views
   "On a phone the chat and the artifacts take turns: two radios in
@@ -1252,7 +1337,10 @@
    `:model` and the model's `:context-window` in tokens, when known;
    `:conversation`, its transcript `{:entries :live
    :inbox}`; `:artifacts`, its pane's keys; `:locale`; `:onboarding`,
-   the skill's welcome (`rragent.onboarding`) or nil; `:update`, the
+   the skill's welcome (`rragent.onboarding`) or nil; `:run`, a run
+   of the bot the tab shows in place of its chat (`rragent.runs`,
+   `{:id :state :trigger :started :line}`), its transcript then the
+   `:conversation`; `:update`, the
    running version and the newer release when one is known
    (`rragent.update`); `:note`, a line above the chat when the bot is
    not the one the URL named; `:failed`, why the bot did not open,
@@ -1261,15 +1349,16 @@
    whether this tab shows the settings in place of the bot's chat and
    pane (`settings`), `:settings-section` which of their sections, and
    `:mcp` what the MCP section shows (`mcp-section`)."
-  [{:keys [bots bot conversation locale onboarding update note failed phone settings? settings-section mcp] pane :artifacts}]
+  [{:keys [bots bot run conversation locale onboarding update note failed phone settings? settings-section mcp] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
         status (status (:live conversation))
         fresh? (not-any? shown? items)
-        artifacts? (seq (:artifacts/list pane))]
+        artifacts? (or (seq (:artifacts/list pane)) (seq (:runs pane)))
+        onboarding (when-not run onboarding)]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
-     [:ui/url {:ui/path base}]
+     [:ui/url {:ui/path (if run (runs/url id (:id run)) base)}]
      ;; the drawer state on a phone, toggled by labels, never rendered
      ;; with :checked so that the person's choice survives a frame
      [:input#nav.toggle {:type "checkbox"}]
@@ -1279,9 +1368,9 @@
        ;; keyed apart from the chat: the two share no element
        [:div.main.settings-open {:replicant/key "settings"}
         (settings update settings-section mcp)]
-       ;; keyed by the bot: a switch builds the chat anew, the transcripts
-       ;; of two bots share no element
-       [:div.main {:replicant/key (str "bot-" id)}
+       ;; keyed by the bot, and by the run when one is shown: a switch
+       ;; builds the chat anew, two transcripts share no element
+       [:div.main {:replicant/key (if run (str "bot-" id "-run-" (:id run)) (str "bot-" id))}
         ;; the view on a phone once there are artifacts, chat or artifacts;
         ;; never rendered with :checked either, see `views`
         (when artifacts?
@@ -1298,8 +1387,10 @@
             [:div.banner.note note])
           (when failed
             [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
-          (feed items status onboarding {:base base :bot id})
-          (composer id base status (when fresh? (:placeholder onboarding)) phone)]
+          (when run
+            (run-head id (:name bot) run))
+          (feed items status onboarding {:base base :bot id :empty (when run [:i18n :run/empty])})
+          (composer id base status (when fresh? (:placeholder onboarding)) phone (:id run))]
          ;; the handle between the chat and the pane, dragged to give one
          ;; more room (`rragent.client/splitter`); a phone has none
          [:ui/splitter]

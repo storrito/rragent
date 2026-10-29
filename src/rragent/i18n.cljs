@@ -19,6 +19,16 @@
    :page/artifacts "Artifacts"
    :page/view-chat "Chat"
 
+   :activity/label "Activity"
+   :activity/empty "No runs yet. A hook call or a schedule starts one; it shows here."
+   :run/waiting "waiting"
+   :run/running "running"
+   :run/done "done"
+   :run/failed "failed"
+   :run/stopped "stopped"
+   :run/started-by [:fn/str "Started by {{:about}}"]
+   :run/empty "The run has not started yet; it waits for its turn."
+
    :artifacts/open "Open"
    :artifacts/download "Download"
    :artifacts/back "Artifacts"
@@ -276,6 +286,16 @@
 (def de
   {:page/title "rragent"
    :page/artifacts "Artefakte"
+
+   :activity/label "Aktivität"
+   :activity/empty "Noch keine Durchläufe. Ein Hook-Aufruf oder ein Zeitplan startet einen; er erscheint hier."
+   :run/waiting "wartet"
+   :run/running "läuft"
+   :run/done "fertig"
+   :run/failed "fehlgeschlagen"
+   :run/stopped "gestoppt"
+   :run/started-by [:fn/str "Gestartet durch {{:about}}"]
+   :run/empty "Der Durchlauf hat noch nicht begonnen; er wartet, bis er dran ist."
    :page/view-chat "Chat"
 
    :artifacts/open "Öffnen"

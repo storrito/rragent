@@ -79,6 +79,42 @@
             (resolve true))
         (swap! gate assoc :holder nil)))))
 
+(defonce on-change
+  (atom nil))
+
+(defn watch!
+  "`f`, told the bot's conversation id whenever a run of the bot
+   starts, gets its conversation or ends; `rragent.machine` refreshes
+   the bot's runs for the page with it."
+  [f]
+  (reset! on-change f))
+
+(defn changed!
+  [bot-id]
+  (when-let [f @on-change]
+    (try
+      (f bot-id)
+      (catch :default e
+        (js/console.error "[runs]" (str e))))))
+
+(defonce on-change
+  (atom nil))
+
+(defn watch!
+  "`f`, told the bot's conversation id whenever a run of the bot
+   starts, gets its conversation or ends; `rragent.machine` refreshes
+   the bot's runs for the page with it."
+  [f]
+  (reset! on-change f))
+
+(defn changed!
+  [bot-id]
+  (when-let [f @on-change]
+    (try
+      (f bot-id)
+      (catch :default e
+        (js/console.error "[runs]" (str e))))))
+
 (defn active?
   "Whether a run goes, waits for its turn, or was just started."
   []
@@ -148,7 +184,8 @@
                                              created))]
                         #js {:status "running"
                              :checkpoint #js {:phase "run" :conversation conversation :started (.now runtime)}}))
-                    context))))
+                    context))
+    (changed! (.-conversationId runtime))))
 
 (defn- ^:async answer-of
   "The text of the answer entry `id`, read through a commit of the task
@@ -225,7 +262,8 @@
     ;; the gate goes before the record is terminal: whoever waits for the
     ;; task finds the machine free of this run
     (leave! id)
-    (await (.commit runtime (fn [] (terminal #js {:status "completed" :result result})) context))))
+    (await (.commit runtime (fn [] (terminal #js {:status "completed" :result result})) context))
+    (changed! (.-conversationId runtime))))
 
 (def Task
   (defineTask
@@ -250,7 +288,8 @@
                          (throw e)))))))}
         :abort (fn [_task runtime context]
                  (leave! (.-taskId runtime))
-                 (.commit runtime (fn [] (terminal #js {:status "aborted"})) context))}))
+                 (-> (.commit runtime (fn [] (terminal #js {:status "aborted"})) context)
+                     (.then (fn [] (changed! (.-conversationId runtime))))))}))
 
 (defn ^:async start!
   "A run of the bot's `conversation` for `trigger` (`{:kind :name
@@ -266,6 +305,7 @@
                                                :background true}))
                            context))]
     (swap! live conj id)
+    (changed! (.-id conversation))
     id))
 
 (defn create-in
@@ -280,6 +320,7 @@
                            :background true})
          (fn [id]
            (swap! live conj id)
+           (changed! conversation-id)
            id)))
 
 (defn run-of
@@ -293,6 +334,7 @@
         outcome (.-outcome state)
         result (some-> outcome .-result)]
     {:id (.-id record)
+     :bot (.-conversationId record)
      :trigger (js->clj (.-trigger (.-input record)) :keywordize-keys true)
      :state (cond
               (some? outcome) (case (.-status outcome)

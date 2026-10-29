@@ -716,9 +716,24 @@
    (.toLocaleTimeString (js/Date. ms))])
 
 (defn bot-id-of
-  "The bot id of a page path, `/bot/<id>`; nil for any other path."
+  "The bot id of a page path, `/bot/<id>` or `/bot/<id>/run/<rid>`;
+   nil for any other path."
   [path]
-  (second (re-matches #"/bot/([0-9]+)/?" (str path))))
+  (second (re-matches #"/bot/([0-9]+)(?:/run/[0-9]+)?/?" (str path))))
+
+(defn run-id-of
+  "The run id of a run's page path, `/bot/<id>/run/<rid>`; nil for
+   any other path."
+  [path]
+  (some-> (second (re-matches #"/bot/[0-9]+/run/([0-9]+)/?" (str path))) js/Number))
+
+(defn- show-run!
+  "Tells the server which run of the bot this tab shows now."
+  [bot run]
+  (state/dispatch! [[:data/command {:command/kind :run/show
+                                    :command/data {:bot bot
+                                                   :run run
+                                                   :tab state/tabid}}]]))
 
 (defn- show!
   "Tells the server which bot this tab shows now: `id`, or nil for
@@ -741,6 +756,13 @@
   (js/history.pushState nil "" (str "/bot/" id js/location.search))
   (close-drawer!)
   (show! id))
+
+(defn- go-run!
+  "To the run's page without a reload."
+  [bot run]
+  (js/history.pushState nil "" (str "/bot/" bot "/run/" run js/location.search))
+  (close-drawer!)
+  (show-run! bot run))
 
 (defn- plain-click?
   "A left click without a modifier: the ones that open in a new tab or
@@ -773,10 +795,16 @@
          ;; the new bot, or the settings, open in this tab with the next frame
          (when (some-> (.-target event) (.closest ".sidebar button.new, .sidebar button.settings"))
            (close-drawer!))
-         (when-let [^js link (some-> (.-target event) (.closest "a[data-bot]"))]
+         ;; a run's row in the activity (`a[data-run]`, rragent.view/run-row)
+         ;; opens the run's page; a link to a bot its page
+         (if-let [^js link (some-> (.-target event) (.closest "a[data-run]"))]
            (when (plain-click? event)
              (.preventDefault event)
-             (go! (.getAttribute link "data-bot"))))
+             (go-run! (.getAttribute link "data-bot") (js/Number (.getAttribute link "data-run"))))
+           (when-let [^js link (some-> (.-target event) (.closest "a[data-bot]"))]
+             (when (plain-click? event)
+               (.preventDefault event)
+               (go! (.getAttribute link "data-bot")))))
          ;; a card in the chat (`a[data-artifact]`, rragent.view/artifact-card)
          ;; opens the artifact in the pane, and the pane on a phone
          (when-let [^js card (some-> (.-target event) (.closest "a[data-artifact]"))]
@@ -790,7 +818,10 @@
       (js/window.addEventListener
        "popstate"
        (fn [_]
-         (show! (bot-id-of js/location.pathname))))
+         (let [path js/location.pathname]
+           (if-let [run (run-id-of path)]
+             (show-run! (bot-id-of path) run)
+             (show! (bot-id-of path))))))
       (js/document.addEventListener
        "keydown"
        (fn [^js event]
