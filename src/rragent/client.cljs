@@ -453,24 +453,38 @@
   "Where the browser keeps which key sends a message (`send-key`)."
   "rragent.send-key")
 
-(defonce ^:private kept-send-key
-  ;; read once, the store has the person's choice after it
+(defn- kept-send-key
+  []
   (try
     (#{"enter"} (.getItem js/localStorage send-key-key))
     (catch :default _ nil)))
+
+;; the var is nobody's, the listener is the point
+#_{:clj-kondo/ignore [:unused-private-var]}
+(defonce ^:private send-key-listener
+  ;; read once into the store, and again when another tab chose
+  (do (swap! state/store assoc :ui/send-key (kept-send-key))
+      (js/window.addEventListener "storage"
+                                  (fn [^js event]
+                                    (when (= send-key-key (.-key event))
+                                      (swap! state/store assoc :ui/send-key (kept-send-key)))))
+      true))
 
 (defn send-key
   "Which key sends a message from the composer, as the person chose in
    the settings (`send-key-alias`): \"enter\", or \"ctrl-enter\",
    the default; the other breaks the line."
   [state]
-  (or (:ui/send-key state) kept-send-key "ctrl-enter"))
+  (or (:ui/send-key state) "ctrl-enter"))
+
+(defonce ^:private keyboardless-query
+  (js/matchMedia "(hover: none) and (pointer: coarse)"))
 
 (defn- keyboardless?
   "A phone or a tablet without a keyboard: no Ctrl there, often no
    Shift+Enter, so Enter breaks the line whatever the choice."
   []
-  (.-matches (js/matchMedia "(hover: none) and (pointer: coarse)")))
+  (.-matches keyboardless-query))
 
 (defn- choose-send-key!
   "`k` the key that sends, kept for the next visit."
@@ -796,11 +810,11 @@
        (str (.toLocaleDateString at js/undefined #js {:month "short" :day "numeric"}) " " (.toLocaleTimeString at)))]))
 
 (def ^:private pane*
-  "The pane through the tab's history (`pane-history`): `:awaiting`,
-   the bot and the step of the entry a back or forward step went to,
-   until a frame shows it; `:path`, the page's path the server was told
-   last (`show!`, `show-run!`)."
-  (atom {:path js/location.pathname}))
+  "The pane through the tab's history (`pane-history`): `:seen`, the
+   bot and the step of the last frame, and `:stale`, those of the
+   frames from before a back or forward step, until one of another
+   comes."
+  (atom {}))
 
 (defn- pane-of
   "The pane of a history entry's state, `{:bot :folder :current
@@ -818,19 +832,18 @@
    taking the screen, a step in another tab of the bot) changes the
    entry in place. A step back or forward asks the server for the pane
    of its entry with its step (`:artifacts/show`, the popstate
-   listener); the frames before the one that carries that step leave
-   the entry as it is. Renders nothing."
+   listener); the frames that still carry the bot and the step from
+   before leave the entry alone. Renders nothing."
   [{:keys [ui/bot ui/folder ui/current ui/step]} _children]
   (let [here {:bot bot :folder (str folder) :current current :step step}
+        seen [bot step]
         entry (pane-of js/history.state)
-        awaiting (:awaiting @pane*)
         url (str js/location.pathname js/location.search)]
-    (when-not (and awaiting (not= awaiting [bot step]))
-      (when awaiting
-        (swap! pane* dissoc :awaiting))
+    (when-not (= seen (:stale @pane*))
+      (swap! pane* (fn [p] (-> p (assoc :seen seen) (dissoc :stale))))
       (cond
         (= here entry) nil
-        (and (not awaiting) (some? step) (= bot (:bot entry)) (not= step (:step entry)))
+        (and (some? step) (= bot (:bot entry)) (not= step (:step entry)))
         (js/history.pushState (clj->js {:pane here}) "" url)
         :else (js/history.replaceState (clj->js {:pane here}) "" url))))
   [:span.pane-history {:hidden true}])
@@ -850,7 +863,6 @@
 (defn- show-run!
   "Tells the server which run of the bot this tab shows now."
   [bot run]
-  (swap! pane* assoc :path js/location.pathname)
   (state/dispatch! [[:data/command {:command/kind :run/show
                                     :command/data {:bot bot
                                                    :run run
@@ -860,7 +872,6 @@
   "Tells the server which bot this tab shows now: `id`, or nil for
    whatever the URL names."
   [id]
-  (swap! pane* assoc :path js/location.pathname)
   (state/dispatch! [[:data/command {:command/kind :bot/show
                                     :command/data {:id id
                                                    :tab state/tabid}}]]))
@@ -945,21 +956,21 @@
       (js/window.addEventListener
        "popstate"
        (fn [^js event]
-         ;; the bot or the run only when the path changed, not for a
-         ;; step through the pane
          (let [path js/location.pathname]
-           (when (not= path (:path @pane*))
-             (if-let [run (run-id-of path)]
-               (show-run! (bot-id-of path) run)
-               (show! (bot-id-of path)))))
-         ;; the pane of the entry, when it has one (`pane-history`)
-         (if-let [{:keys [bot folder current step]} (pane-of (.-state event))]
-           (do (swap! pane* assoc :awaiting [bot step])
-               (state/dispatch! [[:data/command {:command/kind :artifacts/show
-                                                 :command/data {:bot bot :folder folder :path current
-                                                                :step step :tab state/tabid}}
-                                  {:on-error [[:ui/pane-shown]]}]]))
-           (swap! pane* dissoc :awaiting))))
+           (if-let [run (run-id-of path)]
+             (show-run! (bot-id-of path) run)
+             (show! (bot-id-of path))))
+         ;; the pane of the entry, when it has one (`pane-history`); the
+         ;; frames of before are stale until the server shows it
+         (when-let [{:keys [bot folder current step]} (pane-of (.-state event))]
+           (let [{:keys [seen]} @pane*]
+             (if (= seen [bot step])
+               (swap! pane* dissoc :stale)
+               (swap! pane* assoc :stale seen)))
+           (state/dispatch! [[:data/command {:command/kind :artifacts/show
+                                             :command/data {:bot bot :folder folder :path current
+                                                            :step step :tab state/tabid}}
+                              {:on-error [[:ui/pane-shown]]}]]))))
       (js/document.addEventListener
        "keydown"
        (fn [^js event]
@@ -976,8 +987,7 @@
    Renders nothing."
   [{:keys [ui/path]} _children]
   (when (and (seq path) (not= path js/location.pathname))
-    (js/history.replaceState js/history.state "" (str path js/location.search))
-    (swap! pane* assoc :path path))
+    (js/history.replaceState js/history.state "" (str path js/location.search)))
   [:span.url {:hidden true}])
 
 (def theme-key
@@ -1239,7 +1249,7 @@
    {:ui.alias/kind :ui/pane-history
     :ui.alias/fn pane-history}
    {:ui.action/kind :ui/pane-shown
-    :ui.action/handler (fn [_] (swap! pane* dissoc :awaiting))}
+    :ui.action/handler (fn [_] (swap! pane* dissoc :stale))}
    {:ui.action-enricher/kind :ui/tabid
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/tabid x)

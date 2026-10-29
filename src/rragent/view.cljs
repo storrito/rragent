@@ -1194,10 +1194,11 @@
      ;; where the pane is, an entry of the tab's history per step the
      ;; person takes, so that back and forward step through it; kept
      ;; while the activity is in sight too
-     [:ui/pane-history {:ui/bot bot
-                        :ui/folder (if (artifacts/folder? list (str folder)) (str folder) "")
-                        :ui/current (some #(when (= (:artifacts/current pane) (:path %)) (:path %)) list)
-                        :ui/step (:pane/step pane)}]
+     (let [{:keys [current folder]} (artifacts/place pane)]
+       [:ui/pane-history {:ui/bot bot
+                          :ui/folder folder
+                          :ui/current current
+                          :ui/step (:pane/step pane)}])
      [:div.bar
       (when artifact
         [:button.link.back {:on {:click [[:data/command {:command/kind :artifacts/open
