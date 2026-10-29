@@ -12,7 +12,7 @@ conversation that never ends: what the bot did is its memory, a job and a
 chat are the same thing. No list of chats, nothing an earlier
 conversation left behind for a later one to stumble over. Several bots
 share one machine, each a mind of its own (see [Bots](#bots)): its own
-conversation, definition, schedules, hooks, facts and work folder; the
+conversation, definition, schedules, hooks, events and work folder; the
 machine, its connectors and the templates are what they share.
 
 The runtime is [pi-durable](https://github.com/earendil-works/pi/tree/main/packages/durable):
@@ -79,7 +79,8 @@ every bot is idle and no page is open. One `rragent-wake` automation
 is armed for the earliest due schedule across all bots
 (`rragent.schedule/rearm!`), and a wake runs whichever bot's
 schedules are due; the schedules and hooks are documents of each
-conversation, the facts its entries. A hook's address is the
+conversation, the events a file of its folder, `bots/<id>/events.edn`,
+one EDN map per line (`rragent.events`). A hook's address is the
 machine's, `POST /hook/<name>/<secret>`: the call is tried on every
 bot, the secret says whose it is. Nothing of this reaches Storrito:
 the machine's page, token and environment stay what they were.
@@ -747,10 +748,14 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   link in the settings, or `[:sign-in …]` in a bot's answer; its
   tokens are kept and refreshed by the machine. Settings → MCP servers
   lists them and opens a bot that connects a service. See [docs/mcp.md](docs/mcp.md).
+- Why hooks and schedules start runs instead of chat messages, and why
+  the person's know-how becomes a skill: [docs/runs-and-skills.md](docs/runs-and-skills.md).
 - `(remember "review-posted" {:id 4711})` and `(recall {:event
-  "review-posted"})`: the facts (`rragent.facts`), the same entries the
-  `remember` and `recall` tools make; a program sees the facts as they
-  were when it started, what it remembers is committed when it ends.
+  "review-posted"})`: the bot's events (`rragent.events`, one EDN map
+  per line in `bots/<id>/events.edn`), the same file the `remember` and
+  `recall` tools write and read, shared with the bot's runs; a program
+  sees the events as they were when it started, what it remembers is
+  appended when it ends.
 
 A call blocks the thread it runs in until it is answered: SCI evaluates
 a program synchronously, so a call in the middle of a loop cannot

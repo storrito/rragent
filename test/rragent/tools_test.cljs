@@ -5,13 +5,14 @@
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.fake-gateway :as fake-gateway]
+            [rragent.events :as events]
             [rragent.harness :as harness]
+            [rragent.home :as home]
             [rragent.secrets :as secrets]
             [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
             [rragent.tools.eval :as eval-tool]
-            [rragent.tools.fetch :as fetch-tool]
-            [rragent.facts :as facts]))
+            [rragent.tools.fetch :as fetch-tool]))
 
 (deftest eval-description-test
   (testing "the tool every bot has says how a service of the person's is connected, whatever the bot's definition"
@@ -37,7 +38,7 @@
   [text]
   (fauxAssistantMessage #js [(fauxText text)]))
 
-(deftest facts-test
+(deftest events-test
   (async done
     (-> ((^:async fn []
            (let [home (test-home/make)
@@ -51,16 +52,16 @@
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
                (try
                  (is (= "Noted." (await (harness/ask agent "Remember the reviews."))))
-                 (let [all (await (facts/facts (facts/from-root (:root agent) harness/context)))]
-                   (is (= ["review-posted" "review-posted" "price-checked"] (mapv :event all)) "three facts, oldest first")
+                 (let [all (events/read (home/events-file (home/bot-dir home (.-id (:root agent)))))]
+                   (is (= ["review-posted" "review-posted" "price-checked"] (mapv :event all)) "three events in the bot's file, oldest first")
                    (is (= 4711 (:id (first all))))
                    (is (every? #(number? (:at %)) all)))
                  (let [page (await (.entries (:root agent) #js {} 100 js/undefined harness/context))
                        results (->> (array-seq (.-items page))
                                     (filter #(= "pi.tool-result" (.-kind %)))
                                     (map #(js/JSON.stringify (.-model %))))]
-                   (is (some #(str/includes? % "#{4711 4712}") results) "the projection the model wrote, over the facts")
-                   (is (some #(str/includes? % ":eur 180") results) "the facts of one event, as they are"))
+                   (is (some #(str/includes? % "#{4711 4712}") results) "the projection the model wrote, over the events")
+                   (is (some #(str/includes? % ":eur 180") results) "the events of one kind, as they are"))
                  (finally
                    (await (harness/close agent))
                    (test-home/remove! home)))))))
@@ -121,7 +122,7 @@
                (try
                  (is (= "Done." (await (harness/ask agent "Look at the echo."))))
                  (let [results (await (tool-results agent))]
-                   (testing "the program's printed output and its value, the call through the gateway, the fact seen at once"
+                   (testing "the program's printed output and its value, the call through the gateway, the event seen at once"
                      (is (= "status 200\n=> 1" (result-text (get results "e1")))))
                    (testing "a def stays for the next call"
                      (is (= "=> #'user/n" (result-text (get results "e2"))))
@@ -129,11 +130,11 @@
                    (testing "the host is out of reach, as an error the model reads"
                      (is (true? (.-isError (get results "e4"))))
                      (is (str/includes? (result-text (get results "e4")) "Unable to resolve symbol: js/process")))
-                   (testing "what the program remembered is a fact of the conversation"
+                   (testing "what the program remembered is an event of the bot, recalled by the tool"
                      (is (str/includes? (result-text (get results "r1")) ":path \"/hello\""))
                      (is (str/includes? (result-text (get results "r1")) ":q \"1\""))))
-                 (let [all (await (facts/facts (facts/from-root (:root agent) harness/context)))]
-                   (is (= [{:event "seen" :path "/hello" :q "1"}] (mapv #(dissoc % :at :fact/id) all))))
+                 (let [all (events/read (home/events-file (home/bot-dir home (.-id (:root agent)))))]
+                   (is (= [{:event "seen" :path "/hello" :q "1"}] (mapv #(dissoc % :at) all)) "in the bot's events file"))
                  (finally
                    (await (harness/close agent))
                    (test-home/remove! home)

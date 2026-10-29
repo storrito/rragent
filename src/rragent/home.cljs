@@ -4,6 +4,7 @@
    (pi-durable), and a folder per bot, `bots/<id>/`, named by the id
    of its conversation (`rragent.bots` lays them out). In a bot's
    folder: `AGENT.md` (or a `SKILL.md` of agentitos), the definition,
+   `events.edn`, what the bot noted for later (`rragent.events`),
    and `work/`, where the bot's tools read and write, with
    `work/artifacts/`, what the pane shows, and `work/uploads/`, what
    the person attached to a message. `home`, `database` and `bot-dir`
@@ -33,6 +34,12 @@
           (let [file (path/join dir name)]
             (when (fs/existsSync file) file)))
         ["AGENT.md" "SKILL.md"]))
+
+(defn events-file
+  "The bot's events, one EDN map per line (`rragent.events`), beside
+   its definition."
+  [dir]
+  (path/join dir "events.edn"))
 
 (defn work-dir
   "Where the bot's tools read and write; made on first use."

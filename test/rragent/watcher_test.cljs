@@ -2,18 +2,19 @@
   "The job of milestone 1, end to end on a laptop against the faux
    model: a schedule the agent sets, which wakes it every second; at
    each run it fetches a page from a local server and notes what it saw
-   as a fact. The model's moves are scripted; the plumbing is real:
+   as an event. The model's moves are scripted; the plumbing is real:
    the task that sleeps and fires, the input it submits, the tools it
    calls, the document it writes."
   (:require ["node:http" :as http]
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
+            [rragent.events :as events]
             [rragent.harness :as harness]
+            [rragent.home :as home]
             [rragent.schedule-test :as schedule-test]
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
-            [rragent.tools-test :as tools-test]
-            [rragent.facts :as facts]))
+            [rragent.tools-test :as tools-test]))
 
 (defn- sleep
   [ms]
@@ -42,13 +43,13 @@
                    (try
                      (is (= "Watching." (await (harness/ask agent (str "Watch " url " every second.")))))
                      (await (sleep 3500))
-                     (testing "the schedule fired more than once, each run fetched the page and noted a fact"
+                     (testing "the schedule fired more than once, each run fetched the page and noted an event"
                        (let [k (await (schedule-test/kinds agent))
-                             seen (facts/select (await (facts/facts (facts/from-root (:root agent) harness/context))) {:event "page-seen"})]
+                             seen (events/select (events/read (home/events-file (home/bot-dir home (.-id (:root agent))))) {:event "page-seen"})]
                          (is (<= 2 (count (filter #(= "rragent.schedule" %) k))) (pr-str k))
                          (is (<= 2 @hits) "the page was fetched at each run")
                          (is (<= 2 (count seen)) (pr-str seen))
-                         (is (= "#{\"Hello\"}" (facts/project seen "(set (map :title events))")) "a projection over them")))
+                         (is (= "#{\"Hello\"}" (events/project seen "(set (map :title events))")) "a projection over them")))
                      (testing "the fetch tool saw the page"
                        (let [page (await (.entries (:root agent) #js {} 100 js/undefined harness/context))
                              results (->> (array-seq (.-items page))
