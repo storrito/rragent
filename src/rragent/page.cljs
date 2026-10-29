@@ -1242,7 +1242,8 @@
    `rragent.auth/token` (the sprite's label, else RRAGENT_TOKEN, else
    one generated and printed in the link); the machine's alarm, sleep
    watch and update watch started (`rragent.lifecycle`), a connected
-   page keeping it awake. The port is taken before the bots open,
+   page keeping it awake, and the watch that compacts a bot's
+   conversation while the person is away (`rragent.away`). The port is taken before the bots open,
    `rragent.starting` answers until then."
   []
   (let [{:keys [token] :as from} (auth/token)
