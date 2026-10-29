@@ -220,6 +220,12 @@
                      (is (str/includes? (get results "h1") "Your definition is still the generic assistant's"))
                      (is (str/includes? (get results "s1") "Your definition is still the generic assistant's"))
                      (is (not (str/includes? (get results "s2") "generic assistant")))))
+                 (finally
+                   (await (harness/close agent))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
 (def delivery
   "What Composio posts for a Google Drive trigger, cut to what matters."
   "{\"id\":\"msg_1\",\"type\":\"composio.trigger.message\",\"metadata\":{\"trigger_slug\":\"GOOGLEDRIVE_FILE_CREATED_TRIGGER\",\"trigger_id\":\"ti_1\",\"connected_account_id\":\"ca_1\"},\"data\":{\"event_type\":\"file_created\",\"file\":{\"id\":\"1dIU\",\"name\":\"4.txt\"}}}")
