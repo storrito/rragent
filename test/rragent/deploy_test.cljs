@@ -47,6 +47,20 @@
     (is (str/includes? text "`name:` line"))
     (is (str/includes? text "`renamed: true`") "the person's rename, which the bot leaves alone")))
 
+(deftest the-definition-keeps-the-machine-section-test
+  (let [text (fs/readFileSync "deploy/agent/AGENT.md" "utf8")
+        section (subs text (str/index-of text "## On this machine"))]
+    (testing "what every bot must know is one section, carried over when the bot writes its file anew"
+      (is (str/includes? text "## On this machine"))
+      (is (= 2 (count (re-seq #"the section `## On this machine` of\s+this\s+file,\s+word for word" text))) "for a skill and for a job of its own"))
+    (testing "the section holds the rules of runs, the job, skills, offers and failed steps"
+      (is (str/includes? section "## Your job"))
+      (is (str/includes? section "start a run of yours"))
+      (is (str/includes? section "skill create"))
+      (is (str/includes? section "Offer what the person may not know exists"))
+      (is (str/includes? section "none twice"))
+      (is (str/includes? section "When a step of yours did not work")))))
+
 (deftest the-definition-offers-the-connection-test
   (testing "a service the person names is connected in the same answer, through the REPL"
     (let [text (fs/readFileSync "deploy/agent/AGENT.md" "utf8")]
