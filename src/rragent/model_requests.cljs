@@ -12,7 +12,10 @@
    OpenRouter's request id, its answer to a body past 8,000,000 bytes
    (seen 2026-10-23, a 413 only between 8,000,000 and some 8,200,000).
    Pictures are what fills a request: `rragent.images` keeps them
-   small, this is the net under it.")
+   small, this is the net under it. The last request of each provider
+   session, a conversation's, is kept (`last-request`), for a summary
+   that asks the same again and reads it from the provider's cache
+   (`rragent.warm-summary`).")
 
 (def warn-bytes
   "The body size from which a request is logged, a sign that the
@@ -72,13 +75,61 @@
                 #js {:status 413
                      :headers #js {"content-type" "application/json"}}))
 
+(def kept-sessions
+  "How many sessions' last requests are kept: a few MB each at most."
+  8)
+
+(defonce last-requests
+  ;; the last chat completion request by provider session:
+  ;; {session {:url :headers :body :at}}
+  (atom {}))
+
+(defn session-of
+  "The provider session of a request with `headers` (a plain object)
+   and `body`: OpenRouter's `x-session-id`, else OpenAI's
+   `prompt_cache_key`; nil for none."
+  [headers body]
+  (or (some-> headers (aget "x-session-id") str not-empty)
+      (some-> (re-find #"\"prompt_cache_key\":\"([^\"]+)\"" (str body)) second)))
+
+(defn plain-headers
+  "The headers of a fetch's `init` as a plain object, lower-case names."
+  [^js init]
+  (let [headers (js/Headers. (or (.-headers init) #js {}))
+        out #js {}]
+    (.forEach headers (fn [v k] (aset out k v)))
+    out))
+
+(defn remember!
+  "The request `{:url :headers :body}` of `session` as its last, the
+   oldest session forgotten past `kept-sessions`."
+  [session request now]
+  (swap! last-requests
+         (fn [requests]
+           (let [requests (assoc requests session (assoc request :at now))]
+             (if (< kept-sessions (count requests))
+               (dissoc requests (key (apply min-key (comp :at val) requests)))
+               requests)))))
+
+(defn last-request
+  "The last request of the provider session `session`, nil for none."
+  [session]
+  (get @last-requests session))
+
 (defn wrap
   "`fetch` with the measuring and the translation around every chat
-   completion request; any other request goes through as it is."
+   completion request, each remembered as its session's last
+   (`remember!`); any other request goes through as it is."
   [fetch]
   (fn [input & [init]]
     (if (and (completion-url? input) init (string? (.-body init)))
-      (let [{:keys [bytes images] :as size} (measure (.-body init))]
+      (let [{:keys [bytes images] :as size} (measure (.-body init))
+            headers (plain-headers init)]
+        (when-let [session (session-of headers (.-body init))]
+          (remember! session {:url (str (if (instance? js/URL input) (.-href input) (or (.-url input) input)))
+                              :headers headers
+                              :body (.-body init)}
+                     (js/Date.now)))
         (when (< warn-bytes bytes)
           (js/console.warn (str "[model] a request of " (mb bytes) ", " (mb images) " of it pictures: the gateway forwards " (mb cap-bytes) " at most")))
         (.then (fetch input init)

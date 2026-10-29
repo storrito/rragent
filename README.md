@@ -106,14 +106,25 @@ where 70,000 took two to seven.
 
 A bot's conversation is compacted while the person is away too: once
 its last answer read 50,000 tokens or more and it has been quiet for
-ten minutes, when the providers' caches of it are gone
-(`rragent.away`). Without, the next message read all of it again at
-full price and speed, $2.21 for "What is 1 + 1?" the next morning at
-442,000 tokens; after it the person comes back to a summary and the
-last turns. A smaller conversation is cheaper to read again than to
-summarize and is left as it is. Until the compaction is done the
+ten minutes (`rragent.away`). Without, the next message after a long
+pause read all of it again at full price and speed, $2.21 for "What is
+1 + 1?" the next morning at 442,000 tokens; after it the person comes
+back to a summary and the last turns. Until the compaction is done the
 machine counts as busy, so the sleep watch waits for it instead of the
 summary being made when the person is back.
+
+A compaction rragent starts (the budget's and the one while the person
+is away) reads the conversation from the provider's cache: OpenAI keeps
+the prefix of GPT-5.6 and later at least 30 minutes after its last
+read, and a cached token of GPT-6.1 Sol costs a twentieth of one read
+anew (a first one 1.25 times, the cache write). pi-durable summarizes
+in a request of its own, which no cache holds; rragent keeps the last
+request of every provider session (`rragent.model-requests`, eight
+sessions at most) and asks it again with the request for the summary
+appended and no tool to call (`rragent.warm-summary`, pi-durable's
+`beforeCompact`): on a test of 27,895 tokens 27,767 came from the
+cache, $0.0047 instead of $0.0698. Without a kept request (the process
+started since) or when it fails, pi-durable summarizes as before.
 
 Every request sends the tool results as less (`rragent.observations`,
 pi-durable's `beforeRequest`, for that request only). A text of the

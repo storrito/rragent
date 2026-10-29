@@ -114,3 +114,40 @@
           (.finally (fn []
                       (set! (.-warn js/console) original-warn)
                       (done)))))))
+
+(deftest session-test
+  (is (= "s1" (model-requests/session-of #js {"x-session-id" "s1"} "{}")) "OpenRouter's header")
+  (is (= "k1" (model-requests/session-of #js {} "{\"model\":\"m\",\"prompt_cache_key\":\"k1\"}")) "else OpenAI's key")
+  (is (nil? (model-requests/session-of #js {} "{\"model\":\"m\"}"))))
+
+(deftest remember-test
+  (reset! model-requests/last-requests {})
+  (doseq [k (range 10)]
+    (model-requests/remember! (str "s" k) {:body (str k)} k))
+  (is (= model-requests/kept-sessions (count @model-requests/last-requests)) "the newest sessions only")
+  (is (nil? (model-requests/last-request "s0")))
+  (is (= "9" (:body (model-requests/last-request "s9"))))
+  (model-requests/remember! "s2" {:body "again"} 20)
+  (is (= "again" (:body (model-requests/last-request "s2"))) "a session's last request replaces its earlier")
+  (reset! model-requests/last-requests {}))
+
+(deftest wrap-remembers-test
+  (async done
+    (-> ((^:async fn []
+           (reset! model-requests/last-requests {})
+           (let [{:keys [url stop]} (await (serve))
+                 fetching (model-requests/wrap model-requests/original-fetch)]
+             (try
+               (await (fetching (str url "/ok/chat/completions")
+                                #js {:method "POST" :headers #js {"Content-Type" "application/json" "X-Session-Id" "conv-7"} :body body}))
+               (let [{:keys [headers] :as kept} (model-requests/last-request "conv-7")]
+                 (is (= (str url "/ok/chat/completions") (:url kept)))
+                 (is (= body (:body kept)))
+                 (is (= "conv-7" (aget headers "x-session-id")) "the headers as a plain object, lower-case"))
+               (await (fetching (str url "/ok/chat/completions") #js {:method "POST" :headers #js {} :body body}))
+               (is (= 1 (count @model-requests/last-requests)) "a request without a session is not kept")
+               (finally
+                 (reset! model-requests/last-requests {})
+                 (await (stop)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
