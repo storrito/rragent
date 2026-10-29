@@ -651,8 +651,19 @@
           [:button.link.danger {:on (mcp-command :secret/remove {:name secret-name})}
            [:i18n :mcp/secret-remove]]])]))])
 
+(defn input-section
+  "The Input section of the settings: which key sends a message, Enter
+   or Ctrl+Enter, the other breaking the line; the choice is the
+   browser's (`:ui/send-key`, `rragent.client`)."
+  []
+  [:section.input
+   [:h2 [:i18n :input/title]]
+   [:p [:i18n :input/explain]]
+   [:ui/send-key {:ui/ctrl-enter [:i18n :input/ctrl-enter]
+                  :ui/enter [:i18n :input/enter]}]])
+
 (def settings-sections
-  [:updates :mcp])
+  [:updates :input :mcp])
 
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
@@ -660,8 +671,8 @@
    version in the header): a bar with the title and the way back
    (`:settings/close`), the tabs of the sections (`:settings/section`,
    per tab), and the section the tab picked: the updates
-   (`updates-section`) or the MCP servers (`mcp-section`, `mcp` its
-   data)."
+   (`updates-section`), the keys of the composer (`input-section`) or
+   the MCP servers (`mcp-section`, `mcp` its data)."
   [update section mcp]
   (let [section (if (some #{section} settings-sections) section :updates)]
     (list
@@ -683,6 +694,7 @@
           [:i18n (keyword "settings" (name k))]])]
       (case section
         :mcp (mcp-section mcp)
+        :input (input-section)
         (updates-section update))])))
 
 (defn phone-words
@@ -850,6 +862,7 @@
                   :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
                   :rows 3
                   :title [:i18n :composer/keys]
+                  :ui/enter-title [:i18n :composer/keys-enter]
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]])
 
 (defn- rendering
@@ -988,7 +1001,7 @@
        (= path renaming) (file-rename bot artifact)
        :else (list
               [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open
-                                                         :command/data {:bot bot :path path}}]]}}
+                                                         :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
                [:span.icon (get kind-icons kind "📎")]
                [:span.name title]
                (into [:span.meta] (interpose " · " parts))]
@@ -1003,7 +1016,7 @@
                :class [(clojure.core/name kind)]
                :data-name (str/lower-case (str title " " name " " path))}
    [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open-folder
-                                              :command/data {:bot bot :path path}}]]}}
+                                              :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
     [:span.icon (get kind-icons kind)]
     [:span.name title]
     (into [:span.meta] (interpose " · " (remove nil? [(when duration (clock duration))
@@ -1013,7 +1026,7 @@
 (defn- open-folder
   [bot path]
   {:on {:click [[:data/command {:command/kind :artifacts/open-folder
-                                :command/data {:bot bot :path path}}]]}})
+                                :command/data {:bot bot :path path :tab :ui/tabid}}]]}})
 
 (defn- crumbs
   "The way to the folder browsed, above the rows: the root and every
@@ -1157,7 +1170,11 @@
    `:runs` with the `:runs/current` a tab shows and which of the two
    lists it sees, `:pane/shown` (`:artifacts` or `:activity`,
    `activity`), and the
-   `:base` of the bot's page with its id as `:bot`. What it shows is
+   `:base` of the bot's page with its id as `:bot`. A click that moves
+   the list or the screen is a step of the tab's (`:ui/tabid`, the
+   tab's last step `:pane/step`), an entry of its history
+   (`:ui/pane-history`, `rragent.client`), which the back and forward
+   buttons go through. What it shows is
    its `data-screen` (`rragent.artifacts/screen`), which a message of
    the tab carries while the pane is in sight (`:ui/screen`)."
   [{:keys [artifacts/list artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting projects renders runs runs/current pane/shown base bot] :as pane}]
@@ -1174,10 +1191,18 @@
                                   artifact (conj "showing")
                                   activity? (conj "activity"))
                          :data-screen (when-not activity? (artifacts/screen pane))}
+     ;; where the pane is, an entry of the tab's history per step the
+     ;; person takes, so that back and forward step through it; kept
+     ;; while the activity is in sight too
+     (let [{:keys [current folder]} (artifacts/place pane)]
+       [:ui/pane-history {:ui/bot bot
+                          :ui/folder folder
+                          :ui/current current
+                          :ui/step (:pane/step pane)}])
      [:div.bar
       (when artifact
         [:button.link.back {:on {:click [[:data/command {:command/kind :artifacts/open
-                                                         :command/data {:bot bot :path nil}}]]}}
+                                                         :command/data {:bot bot :path nil :tab :ui/tabid}}]]}}
          "‹ " [:i18n :artifacts/back]])
       (if (seq runs)
         (panes-nav (if activity? :activity :artifacts) runs)

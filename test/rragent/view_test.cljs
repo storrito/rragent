@@ -187,7 +187,7 @@
                (:ui/phone (second (find-tag (page {:phone {:device "Pixel 8" :facing "environment"}}) :ui/composer)))) "the phone, from the frame")
         (is (= "Camera for a screencast" (:title (i18n/translate (view/phone-words) :en))))
         (is (= [:draft "cc33dd44"] (:ui/store-key composer)) "the draft is the bot's")
-        (is (= {:bot "cc33dd44" :path "card.html"}
+        (is (= {:bot "cc33dd44" :path "card.html" :tab :ui/tabid}
                (get-in (second (find-tag p :button.row)) [:on :click 0 1 :command/data])) "a row of the list opens its file under the bot")))
     (testing "on a phone the chat and the artifacts are tabs, once there are artifacts"
       (let [with (page {:artifacts {:artifacts/list [{:path "card.html" :kind :page :title "Card" :mtime 3}]
@@ -323,6 +323,16 @@
         (is (= "current" (:class (second (find-tag page :button.settings)))) "marked in the sidebar")
         (is (nil? (find-tag page :div.banner.update)))
         (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
+    (testing "the Input section: which key sends, the browser's choice"
+      (let [input (i18n/translate (view/page {:agent {} :conversation nil :locale :de :settings? true :settings-section :input}) :de)]
+        (is (= ["Updates" "Eingabe" "MCP-Server"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
+        (is (= {:ui/ctrl-enter "Strg+Enter sendet (⌘+Enter auf dem Mac), Enter bricht die Zeile um"
+                :ui/enter "Enter sendet, Strg+Enter (⌘+Enter auf dem Mac) bricht die Zeile um"}
+               (second (find-tag input :ui/send-key))))))
+    (testing "the composer's title for either key"
+      (let [composer (second (find-tag (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en) :ui/composer))]
+        (is (str/starts-with? (:title composer) "Ctrl+Enter sends"))
+        (is (str/starts-with? (:ui/enter-title composer) "Enter sends"))))
     (testing "the sidebar's way to the settings, unmarked while the chat shows"
       (let [chat (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en)
             button (find-tag chat :button.settings)]

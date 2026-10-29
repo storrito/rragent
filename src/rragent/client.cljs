@@ -27,7 +27,10 @@
    tab's id), the back and forward buttons do the same with the URL
    they return to, and the `:ui/url` alias corrects the address bar
    when the server shows another bot than the URL named (one that was
-   deleted). The way pchat does it."
+   deleted). The way pchat does it. The steps through the artifacts
+   pane are entries of the history too (`pane-history`), so that back
+   and forward, the mouse's buttons as well, go through the folders and
+   files the person opened."
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [cognitect.transit :as t]
@@ -446,6 +449,72 @@
           (.getAttribute pane "data-screen"))
         "")))
 
+(def send-key-key
+  "Where the browser keeps which key sends a message (`send-key`)."
+  "rragent.send-key")
+
+(defn- kept-send-key
+  []
+  (try
+    (#{"enter"} (.getItem js/localStorage send-key-key))
+    (catch :default _ nil)))
+
+;; the var is nobody's, the listener is the point
+#_{:clj-kondo/ignore [:unused-private-var]}
+(defonce ^:private send-key-listener
+  ;; read once into the store, and again when another tab chose
+  (do (swap! state/store assoc :ui/send-key (kept-send-key))
+      (js/window.addEventListener "storage"
+                                  (fn [^js event]
+                                    (when (= send-key-key (.-key event))
+                                      (swap! state/store assoc :ui/send-key (kept-send-key)))))
+      true))
+
+(defn send-key
+  "Which key sends a message from the composer, as the person chose in
+   the settings (`send-key-alias`): \"enter\", or \"ctrl-enter\",
+   the default; the other breaks the line."
+  [state]
+  (or (:ui/send-key state) "ctrl-enter"))
+
+(defonce ^:private keyboardless-query
+  (js/matchMedia "(hover: none) and (pointer: coarse)"))
+
+(defn- keyboardless?
+  "A phone or a tablet without a keyboard: no Ctrl there, often no
+   Shift+Enter, so Enter breaks the line whatever the choice."
+  []
+  (.-matches keyboardless-query))
+
+(defn- choose-send-key!
+  "`k` the key that sends, kept for the next visit."
+  [k]
+  (try
+    (.setItem js/localStorage send-key-key k)
+    (catch :default _ nil))
+  (swap! state/store assoc :ui/send-key k))
+
+(defn send-key-alias
+  "`[:ui/send-key {:ui/ctrl-enter :ui/enter}]` in the settings: the two
+   ways a message goes, as radio buttons, their words the server's."
+  [{:keys [ui/ctrl-enter ui/enter ui/state]} _children]
+  (let [chosen (send-key state)]
+    [:div.send-key
+     (for [[k label] [["ctrl-enter" ctrl-enter] ["enter" enter]]]
+       [:label {:replicant/key k}
+        [:input {:type "radio"
+                 :name "send-key"
+                 :value k
+                 :checked (= k chosen)
+                 :on {:change (fn [_] (choose-send-key! k))}}]
+        " " label])]))
+
+(defn- break-line!
+  "A line break at the caret of the textarea, as typing one would: an
+   input event, which puts the text in the store, and a step of undo."
+  []
+  (js/document.execCommand "insertText" false "\n"))
+
 (defn composer
   "The textarea of the page with its attachments. The text lives in the
    store under `:ui/store-key`, the attachments under
@@ -455,7 +524,10 @@
    with a text, files or both; while files go up they run once the last
    is in (`pending-step`), the button says so (`:ui/send-pending-label`)
    and a click on it takes the send back. Enter breaks the line, on a
-   phone too, where there is no Shift. The microphone button, or
+   phone too, where there is no Shift. Chosen in the settings
+   (`send-key`), Enter sends instead, and Ctrl+Enter or Shift+Enter
+   break the line, but not on a device without a keyboard
+   (`keyboardless?`); the text's title then is `:ui/enter-title`. The microphone button, or
    Space held in the text, dictates into the draft, its pieces go to
    `:ui/dictation-url`; while it runs the draft is the dictation's, and
    Ctrl+Enter or Send end it and send once its text is in
@@ -531,7 +603,8 @@
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
                    :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
                    :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label
-                   :ui/record-url :ui/recorder :ui/phone)
+                   :ui/record-url :ui/recorder :ui/phone :ui/enter-title)
+           (cond-> (and (= "enter" (send-key state)) (not (keyboardless?))) (assoc :title (:ui/enter-title attrs)))
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -544,12 +617,29 @@
                                   (dictation/key-down! store store-key dictation-url event)
                                   ;; Ctrl+Enter sends, Cmd+Enter on a Mac;
                                   ;; Enter alone breaks the line, as in a
-                                  ;; text field anywhere, on a phone too
+                                  ;; text field anywhere, on a phone too;
+                                  ;; the other way round when the person
+                                  ;; chose Enter (`send-key`), Shift+Enter
+                                  ;; breaking the line as well
+                                  ;; (229: the Enter that confirms a word
+                                  ;; of an input method, in Safari)
                                   (when (and (= "Enter" (.-key event))
-                                             (or (.-ctrlKey event) (.-metaKey event))
-                                             (not (.-isComposing event)))
-                                    (.preventDefault event)
-                                    (send!)))
+                                             (not (.-isComposing event))
+                                             (not= 229 (.-keyCode event)))
+                                    (let [ctrl? (or (.-ctrlKey event) (.-metaKey event))]
+                                      (if (and (= "enter" (send-key state)) (not (keyboardless?)))
+                                        (cond
+                                          ;; during a dictation Ctrl+Enter
+                                          ;; still ends it and sends
+                                          ctrl? (do (.preventDefault event)
+                                                    (if (dictation/active? state)
+                                                      (send!)
+                                                      (break-line!)))
+                                          (not (.-shiftKey event)) (do (.preventDefault event)
+                                                                       (send!)))
+                                        (when ctrl?
+                                          (.preventDefault event)
+                                          (send!))))))
                        :keyup (fn [^js event]
                                 (dictation/key-up! store store-key dictation-url event))
                        :blur (fn [_]
@@ -719,6 +809,45 @@
        (.toLocaleTimeString at)
        (str (.toLocaleDateString at js/undefined #js {:month "short" :day "numeric"}) " " (.toLocaleTimeString at)))]))
 
+(def ^:private pane*
+  "The pane through the tab's history (`pane-history`): `:seen`, the
+   bot and the step of the last frame, and `:stale`, those of the
+   frames from before a back or forward step, until one of another
+   comes."
+  (atom {}))
+
+(defn- pane-of
+  "The pane of a history entry's state, `{:bot :folder :current
+   :step}`, or nil."
+  [^js history-state]
+  (some-> history-state .-pane (js->clj :keywordize-keys true)))
+
+(defn pane-history
+  "`[:ui/pane-history {:ui/bot :ui/folder :ui/current :ui/step}]` in
+   the pane: where it is, kept in the entry of the tab's history. A
+   frame with a new `:ui/step`, a move the person made in this tab
+   (`rragent.page/move-pane!`), is a new entry, so that the back and
+   forward buttons, the mouse's too, step through the folders and the
+   files as through the bots; any other move (the agent's newest file
+   taking the screen, a step in another tab of the bot) changes the
+   entry in place. A step back or forward asks the server for the pane
+   of its entry with its step (`:artifacts/show`, the popstate
+   listener); the frames that still carry the bot and the step from
+   before leave the entry alone. Renders nothing."
+  [{:keys [ui/bot ui/folder ui/current ui/step]} _children]
+  (let [here {:bot bot :folder (str folder) :current current :step step}
+        seen [bot step]
+        entry (pane-of js/history.state)
+        url (str js/location.pathname js/location.search)]
+    (when-not (= seen (:stale @pane*))
+      (swap! pane* (fn [p] (-> p (assoc :seen seen) (dissoc :stale))))
+      (cond
+        (= here entry) nil
+        (and (some? step) (= bot (:bot entry)) (not= step (:step entry)))
+        (js/history.pushState (clj->js {:pane here}) "" url)
+        :else (js/history.replaceState (clj->js {:pane here}) "" url))))
+  [:span.pane-history {:hidden true}])
+
 (defn bot-id-of
   "The bot id of a page path, `/bot/<id>` or `/bot/<id>/run/<rid>`;
    nil for any other path."
@@ -791,11 +920,15 @@
 (defonce ^:private bot-listeners
   ;; a click on a link to a bot (`a[data-bot]`, the sidebar rows) stays on
   ;; the page; the back and forward buttons show the bot of the URL they
-  ;; return to; a click anywhere, or Escape, closes the actions menus
+  ;; return to, and the pane of the entry; a click anywhere, or Escape,
+  ;; closes the actions menus, and the context's card when it is not on it
   (do (js/document.addEventListener
        "click"
        (fn [^js event]
          (close-menus! (.-target event))
+         (when (and (:ui/context-open? @state/store)
+                    (not (some-> (.-target event) (.closest ".context"))))
+           (swap! state/store dissoc :ui/context-open?))
          ;; the new bot, or the settings, open in this tab with the next frame
          (when (some-> (.-target event) (.closest ".sidebar button.new, .sidebar button.settings"))
            (close-drawer!))
@@ -815,31 +948,46 @@
            (when (plain-click? event)
              (.preventDefault event)
              (state/dispatch! [[:data/command {:command/kind :artifacts/open
-                                               :command/data {:bot (.getAttribute card "data-artifact-bot")
+                                               :command/data {:tab state/tabid
+                                                              :bot (.getAttribute card "data-artifact-bot")
                                                               :path (.getAttribute card "data-artifact")}}]])
              (when-let [^js made (js/document.getElementById "view-made")]
                (set! (.-checked made) true))))))
       (js/window.addEventListener
        "popstate"
-       (fn [_]
+       (fn [^js event]
          (let [path js/location.pathname]
            (if-let [run (run-id-of path)]
              (show-run! (bot-id-of path) run)
-             (show! (bot-id-of path))))))
+             (show! (bot-id-of path))))
+         ;; the pane of the entry, when it has one (`pane-history`); the
+         ;; frames of before are stale until the server shows it
+         (when-let [{:keys [bot folder current step]} (pane-of (.-state event))]
+           (let [{:keys [seen]} @pane*]
+             (if (= seen [bot step])
+               (swap! pane* dissoc :stale)
+               (swap! pane* assoc :stale seen)))
+           (state/dispatch! [[:data/command {:command/kind :artifacts/show
+                                             :command/data {:bot bot :folder folder :path current
+                                                            :step step :tab state/tabid}}
+                              {:on-error [[:ui/pane-shown]]}]]))))
       (js/document.addEventListener
        "keydown"
        (fn [^js event]
          (when (= "Escape" (.-key event))
-           (close-menus! nil))))
+           (close-menus! nil)
+           (when (:ui/context-open? @state/store)
+             (swap! state/store dissoc :ui/context-open?)))))
       true))
 
 (defn url-alias
   "`[:ui/url {:ui/path \"/bot/<id>\"}]` in a frame: the page of the bot
    the server shows; when the address bar says another, it is corrected
-   in place, no entry in the history. Renders nothing."
+   in place, no entry in the history, its state kept (`pane-history`).
+   Renders nothing."
   [{:keys [ui/path]} _children]
   (when (and (seq path) (not= path js/location.pathname))
-    (js/history.replaceState nil "" (str path js/location.search)))
+    (js/history.replaceState js/history.state "" (str path js/location.search)))
   [:span.url {:hidden true}])
 
 (def theme-key
@@ -967,7 +1115,8 @@
    opens the usage card below it (`:ui/context-open?`, client state):
    the model's name, the percent and a bar, the tokens of the window,
    the cost of the conversation so far, and a word of advice when it
-   gets full."
+   gets full. A click beside it, or Escape, closes it again
+   (`bot-listeners`)."
   [{:keys [ui/used ui/window ui/cost ui/model ui/labels ui/state]} _children]
   (let [fraction (when (and window (pos? window)) (/ used window))
         percent (when fraction (js/Math.round (* 100 fraction)))
@@ -1093,8 +1242,14 @@
     :ui.alias/fn time-alias}
    {:ui.alias/kind :ui/theme-toggle
     :ui.alias/fn theme-toggle}
+   {:ui.alias/kind :ui/send-key
+    :ui.alias/fn send-key-alias}
    {:ui.alias/kind :ui/url
     :ui.alias/fn url-alias}
+   {:ui.alias/kind :ui/pane-history
+    :ui.alias/fn pane-history}
+   {:ui.action/kind :ui/pane-shown
+    :ui.action/handler (fn [_] (swap! pane* dissoc :stale))}
    {:ui.action-enricher/kind :ui/tabid
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/tabid x)

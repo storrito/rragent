@@ -476,23 +476,50 @@
   ([db path]
    (swap! db db/update-at path (fn [value] (showing value (follow value value))))))
 
+(defn picked
+  "The bot's map `value` with `p` picked by the person, or the list
+   alone (nil); the list browses the folder of the pick."
+  [value p]
+  (-> (showing value p)
+      (assoc :artifacts/picked-at (js/Date.now))))
+
 (defn pick!
-  "The person picked `p`, or went back to the list (nil); the list
-   browses the folder of the pick."
+  "The person picked `p`, or went back to the list (nil) (`picked`)."
   ([db p]
    (pick! db [] p))
   ([db path p]
-   (swap! db db/update-at path
-          (fn [value]
-            (-> (showing value p)
-                (assoc :artifacts/picked-at (js/Date.now)))))))
+   (swap! db db/update-at path picked p)))
 
-(defn browse!
-  "The person opened `folder` in the list (\"\" the root)."
-  ([db folder]
-   (browse! db [] folder))
-  ([db path folder]
-   (swap! db db/update-at path assoc :artifacts/folder (str folder))))
+(defn place
+  "Where the pane of the bot's map is, as it shows it: the artifact on
+   screen, `:current`, nil for the list alone, and the folder the list
+   browses, `:folder`, \"\" the root; what is gone since is not
+   shown (`rragent.view/file-list`)."
+  [{listed :artifacts/list :keys [artifacts/current artifacts/folder]}]
+  {:current (when (some #(= current (:path %)) listed) current)
+   :folder (if (folder? listed (str folder)) (str folder) "")})
+
+(defn shown
+  "`value` with the pane as the person had it: `p` on screen (nil the
+   list alone), the list browsing `folder`, as a pick (`picked`); a
+   step back or forward in a tab's history. What is gone since is not
+   shown: the list alone for a file, the file's folder or the root for
+   a folder."
+  [{listed :artifacts/list :as value} p folder]
+  (let [p (when (some #(= p (:path %)) listed) p)
+        folder (str folder)]
+    (-> (picked value p)
+        (assoc :artifacts/folder (cond
+                                   (folder? listed folder) folder
+                                   p (folder-of p)
+                                   :else "")))))
+
+(defn browsed
+  "`value` with the list browsing `folder` (\"\" the root)."
+  [value folder]
+  (assoc value :artifacts/folder (str folder)))
+
+
 
 (defn base-name
   "What the person edits when renaming: the name of the file without
