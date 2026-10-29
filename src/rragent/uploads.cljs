@@ -4,8 +4,10 @@
    the agent's folder (`rragent.home`), where the agent, whose tools
    work in `work/`, reaches a file as `uploads/<name>`, and the message
    names them, one line per file, `video: uploads/ab12.mp4` (`line`); a
-   picture goes to the model as an image block besides (`content`). The
-   port of pchat.uploads to Node streams.
+   picture goes to the model as an image block besides (`content`). A
+   text pasted past `text-max-chars` lands there too, as a `.txt` named
+   `text: uploads/…` (`keep-long-text!`), the message keeping its start
+   and end. The port of pchat.uploads to Node streams.
 
    `POST /upload` takes the file as the request body with its media
    type. A picture is content-addressed, named by the hash of its bytes,
@@ -71,17 +73,20 @@
    "audio/x-flac" ["flac" :audio]})
 
 (def kinds
-  "The kind of a stored file by its extension."
-  (into (into {} (vals media))
-        (map (fn [extension] [extension :image]))
-        (vals images)))
+  "The kind of a stored file by its extension: a pasted text is a
+   `.txt` (`keep-long-text!`)."
+  (assoc (into (into {} (vals media))
+               (map (fn [extension] [extension :image]))
+               (vals images))
+         "txt" :text))
 
 (defn- extension-of
   [file-name]
   (str/lower-case (or (second (re-find #"\.([^./]+)$" (str file-name))) "")))
 
 (defn kind
-  "`:video`, `:audio` or `:image` for the name of a stored file, else nil."
+  "`:video`, `:audio`, `:image` or `:text` for the name of a stored
+   file, else nil."
   [file-name]
   (kinds (extension-of file-name)))
 
@@ -314,7 +319,7 @@
 (def line-pattern
   "A line the page adds to a message for each attached file: its kind,
    then its path under the agent's working directory."
-  #"(?m)^(video|audio|image): (uploads/[A-Za-z0-9]+\.[a-z0-9]+)$")
+  #"(?m)^(video|audio|image|text): (uploads/[A-Za-z0-9]+\.[a-z0-9]+)$")
 
 (defn line
   "The line of a message that names an attached file."
@@ -328,6 +333,39 @@
   (vec (for [[_ kind p] (re-seq line-pattern (str text))]
          {:kind (keyword kind)
           :name (subs p (count "uploads/"))})))
+
+(def text-max-chars
+  "A message's text longer than this is kept as a file: some 5,000
+   tokens, a quarter of an hour of a transcript. In the message it
+   would go with every request of the conversation until a compaction;
+   as a file the agent reads it when it needs it, and an earlier read
+   is left out of later requests (`rragent.observations`)."
+  20000)
+
+(def text-kept-chars
+  "What the message keeps of a long text's start and of its end each,
+   where the person's words about it stand: \"make show notes of this:\"
+   before a transcript, \"what do you think?\" after an email."
+  1000)
+
+(defn keep-long-text!
+  "`text` of a message as it goes to the agent: `{:text text}` when not
+   longer than `text-max-chars`; else written to `dir` as a `.txt`
+   named by the hash of its bytes, `{:text :attachment}`: its first and
+   last `text-kept-chars` with a line between that says where the
+   whole is, and the file as an attachment for `content`."
+  [dir text]
+  (if (<= (count text) text-max-chars)
+    {:text text}
+    (let [file-name (str (hex (.update (crypto/createHash "sha256") text "utf8")) ".txt")
+          n (count text)]
+      (fs/mkdirSync dir #js {:recursive true})
+      (fs/writeFileSync (path/join dir file-name) text)
+      {:text (str (subs text 0 text-kept-chars)
+                  "\n\n[… " (- n (* 2 text-kept-chars)) " more characters: the whole text, "
+                  n " characters, is in uploads/" file-name " …]\n\n"
+                  (subs text (- n text-kept-chars)))
+       :attachment {:kind :text :name file-name}})))
 
 (defn without-lines
   "The text of a message without the lines that name files."
@@ -388,4 +426,5 @@
   (attachments "Cut this\nvideo: uploads/ab12.mp4\nimage: uploads/ff00.png")
   (without-lines "Cut this\nvideo: uploads/ab12.mp4")
   (content "/tmp/uploads" "Cut this" [{:kind :video :name "ab12.mp4"}] true nil)
+  (keep-long-text! "/tmp/uploads" (apply str (repeat 30000 "a")))
   )

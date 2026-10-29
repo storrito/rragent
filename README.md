@@ -238,7 +238,14 @@ its own, `video: uploads/ab12.mp4`, `audio: …` or `image: …`, so the
 agent reaches the file from its working directory with its tools; a
 picture goes to the model as an image block besides, when the model
 takes images (pi-ai puts a placeholder where one was when it does not,
-so a picture then goes as its line and a note). Every picture the model
+so a picture then goes as its line and a note). A text pasted past
+20,000 characters (some 5,000 tokens, a quarter of an hour of a
+transcript) goes there too, as `uploads/<hash>.txt` named on a line
+`text: uploads/…`; the message keeps its first and last thousand
+characters, where the person's words about it stand, and the agent
+reads the file when it needs it (`rragent.uploads/keep-long-text!`).
+In the message the whole would go with every request until a
+compaction, and be gone after it. Every picture the model
 gets, uploaded or read by its `read` tool, is a WebP of quality 80 with
 at most 2048 pixels on the long edge, made by ffmpeg (`rragent.images`),
 the file itself untouched: the Sprites gateway forwards a request of at
