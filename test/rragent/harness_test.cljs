@@ -70,6 +70,68 @@
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 
+(deftest context-read-test
+  (is (= 442343 (harness/context-read #js {:input 3 :output 6 :cacheRead 0 :cacheWrite 442340})) "what was sent, cached or not, without the answer")
+  (is (= 0 (harness/context-read nil)) "no usage, nothing read"))
+
+(deftest context-tokens-test
+  (async done
+    (-> ((^:async fn []
+           (is (= 120000 (await (with-env "RRAGENT_CONTEXT_TOKENS" "120000" #(js/Promise.resolve (harness/context-tokens))))))
+           (is (= harness/default-context-tokens (await (with-env "RRAGENT_CONTEXT_TOKENS" "lots" #(js/Promise.resolve (harness/context-tokens))))))
+           (is (= harness/default-context-tokens (await (with-env "RRAGENT_CONTEXT_TOKENS" nil #(js/Promise.resolve (harness/context-tokens))))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(defn- ^:async compaction-entry
+  "The `pi.compaction` entry of the conversation, waited for up to two
+   seconds; nil without one."
+  [conversation]
+  (loop [tries 20]
+    (let [view (await (.context conversation harness/context))
+          entry (some #(when (= "pi.compaction" (.-kind %)) %) (array-seq (.-entries view)))]
+      (if (or entry (zero? tries))
+        entry
+        (do (await (sleep 100))
+            (recur (dec tries)))))))
+
+(defn- ^:async compaction-entry-now
+  "The `pi.compaction` entry of the conversation as it is; nil without one."
+  [conversation]
+  (let [view (await (.context conversation harness/context))]
+    (some #(when (= "pi.compaction" (.-kind %)) %) (array-seq (.-entries view)))))
+
+(deftest context-budget-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make "AGENT.md" (str/replace test-home/definition-text "faux-1" "wide-1"))
+                 {:keys [faux models]} (tools-test/faux-models {:models [{:id "wide-1" :contextWindow 1050000}]})
+                 windows (atom [])
+                 answer (fn [text]
+                          (fn [_context _options _state model]
+                            (swap! windows conj (.-contextWindow model))
+                            (tools-test/answer text)))
+                 ;; some 25,000 tokens each, four characters a token
+                 long-text (fn [word] (str/join " " (repeat 25000 word)))]
+             (.setResponses faux #js [(answer "Noted.") (answer "Noted again.") (answer "The person sent two long texts.")])
+             (await (with-env "RRAGENT_CONTEXT_TOKENS" "40000"
+                      (^:async fn []
+                        (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
+                          (try
+                            (is (= "Noted." (await (harness/ask agent (long-text "red")))))
+                            (await (sleep 200))
+                            (is (nil? (await (compaction-entry-now (:root agent)))) "within the budget nothing is compacted")
+                            (is (= "Noted again." (await (harness/ask agent (long-text "blue")))))
+                            (let [entry (await (compaction-entry (:root agent)))]
+                              (is (some? entry) "an answer that read more than the budget compacts the conversation, its model's window far off")
+                              (is (str/includes? (js/JSON.stringify entry) "The person sent two long texts.") "the summary is the model's"))
+                            (is (= [1050000 1050000 1050000] @windows) "the model keeps its own window, for the answers and the summary")
+                            (finally
+                              (await (harness/close agent))
+                              (test-home/remove! home))))))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
 (deftest openrouter-route-test
   (async done
     (-> ((^:async fn []
