@@ -323,6 +323,16 @@
         (is (= "current" (:class (second (find-tag page :button.settings)))) "marked in the sidebar")
         (is (nil? (find-tag page :div.banner.update)))
         (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
+    (testing "the Input section: which key sends, the browser's choice"
+      (let [input (i18n/translate (view/page {:agent {} :conversation nil :locale :de :settings? true :settings-section :input}) :de)]
+        (is (= ["Updates" "Eingabe" "MCP-Server"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
+        (is (= {:ui/ctrl-enter "Strg+Enter sendet (⌘+Enter auf dem Mac), Enter bricht die Zeile um"
+                :ui/enter "Enter sendet, Strg+Enter (⌘+Enter auf dem Mac) bricht die Zeile um"}
+               (second (find-tag input :ui/send-key))))))
+    (testing "the composer's title for either key"
+      (let [composer (second (find-tag (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en) :ui/composer))]
+        (is (str/starts-with? (:title composer) "Ctrl+Enter sends"))
+        (is (str/starts-with? (:ui/enter-title composer) "Enter sends"))))
     (testing "the sidebar's way to the settings, unmarked while the chat shows"
       (let [chat (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en)
             button (find-tag chat :button.settings)]

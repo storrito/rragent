@@ -446,6 +446,50 @@
           (.getAttribute pane "data-screen"))
         "")))
 
+(def send-key-key
+  "Where the browser keeps which key sends a message (`send-key`)."
+  "rragent.send-key")
+
+(defn send-key
+  "Which key sends a message from the composer, as the person chose in
+   the settings (`send-key-alias`): \"enter\", or \"ctrl-enter\",
+   the default; the other breaks the line."
+  [state]
+  (or (:ui/send-key state)
+      (try
+        (#{"enter"} (.getItem js/localStorage send-key-key))
+        (catch :default _ nil))
+      "ctrl-enter"))
+
+(defn- choose-send-key!
+  "`k` the key that sends, kept for the next visit."
+  [k]
+  (try
+    (.setItem js/localStorage send-key-key k)
+    (catch :default _ nil))
+  (swap! state/store assoc :ui/send-key k))
+
+(defn send-key-alias
+  "`[:ui/send-key {:ui/ctrl-enter :ui/enter}]` in the settings: the two
+   ways a message goes, as radio buttons, their words the server's."
+  [{:keys [ui/ctrl-enter ui/enter ui/state]} _children]
+  (let [chosen (send-key state)]
+    [:div.send-key
+     (for [[k label] [["ctrl-enter" ctrl-enter] ["enter" enter]]]
+       [:label {:replicant/key k}
+        [:input {:type "radio"
+                 :name "send-key"
+                 :value k
+                 :checked (= k chosen)
+                 :on {:change (fn [_] (choose-send-key! k))}}]
+        " " label])]))
+
+(defn- break-line!
+  "A line break at the caret of the textarea, as typing one would: an
+   input event, which puts the text in the store, and a step of undo."
+  []
+  (js/document.execCommand "insertText" false "\n"))
+
 (defn composer
   "The textarea of the page with its attachments. The text lives in the
    store under `:ui/store-key`, the attachments under
@@ -455,7 +499,9 @@
    with a text, files or both; while files go up they run once the last
    is in (`pending-step`), the button says so (`:ui/send-pending-label`)
    and a click on it takes the send back. Enter breaks the line, on a
-   phone too, where there is no Shift. The microphone button, or
+   phone too, where there is no Shift. Chosen in the settings
+   (`send-key`), Enter sends instead, and Ctrl+Enter or Shift+Enter
+   break the line; the text's title then is `:ui/enter-title`. The microphone button, or
    Space held in the text, dictates into the draft, its pieces go to
    `:ui/dictation-url`; while it runs the draft is the dictation's, and
    Ctrl+Enter or Send end it and send once its text is in
@@ -531,7 +577,8 @@
                    :ui/failed-label :ui/drop-title :ui/drop-hint :ui/dictation-url :ui/dictate-title
                    :ui/dictate-stop-title :ui/transcribing-title :ui/dictation-failed-title
                    :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label
-                   :ui/record-url :ui/recorder :ui/phone)
+                   :ui/record-url :ui/recorder :ui/phone :ui/enter-title)
+           (cond-> (= "enter" (send-key state)) (assoc :title (:ui/enter-title attrs)))
            (assoc :value draft
                   :readonly (dictation/active? state)
                   :on {:input [[:store/assoc store-key :event/target.value]]
@@ -544,12 +591,23 @@
                                   (dictation/key-down! store store-key dictation-url event)
                                   ;; Ctrl+Enter sends, Cmd+Enter on a Mac;
                                   ;; Enter alone breaks the line, as in a
-                                  ;; text field anywhere, on a phone too
+                                  ;; text field anywhere, on a phone too;
+                                  ;; the other way round when the person
+                                  ;; chose Enter (`send-key`), Shift+Enter
+                                  ;; breaking the line as well
                                   (when (and (= "Enter" (.-key event))
-                                             (or (.-ctrlKey event) (.-metaKey event))
                                              (not (.-isComposing event)))
-                                    (.preventDefault event)
-                                    (send!)))
+                                    (let [ctrl? (or (.-ctrlKey event) (.-metaKey event))]
+                                      (if (= "enter" (send-key state))
+                                        (cond
+                                          ctrl? (do (.preventDefault event)
+                                                    (when-not (dictation/active? state)
+                                                      (break-line!)))
+                                          (not (.-shiftKey event)) (do (.preventDefault event)
+                                                                       (send!)))
+                                        (when ctrl?
+                                          (.preventDefault event)
+                                          (send!))))))
                        :keyup (fn [^js event]
                                 (dictation/key-up! store store-key dictation-url event))
                        :blur (fn [_]
@@ -1100,6 +1158,8 @@
     :ui.alias/fn time-alias}
    {:ui.alias/kind :ui/theme-toggle
     :ui.alias/fn theme-toggle}
+   {:ui.alias/kind :ui/send-key
+    :ui.alias/fn send-key-alias}
    {:ui.alias/kind :ui/url
     :ui.alias/fn url-alias}
    {:ui.action-enricher/kind :ui/tabid

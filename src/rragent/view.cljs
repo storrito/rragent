@@ -651,8 +651,19 @@
           [:button.link.danger {:on (mcp-command :secret/remove {:name secret-name})}
            [:i18n :mcp/secret-remove]]])]))])
 
+(defn input-section
+  "The Input section of the settings: which key sends a message, Enter
+   or Ctrl+Enter, the other breaking the line; the choice is the
+   browser's (`:ui/send-key`, `rragent.client`)."
+  []
+  [:section.input
+   [:h2 [:i18n :input/title]]
+   [:p [:i18n :input/explain]]
+   [:ui/send-key {:ui/ctrl-enter [:i18n :input/ctrl-enter]
+                  :ui/enter [:i18n :input/enter]}]])
+
 (def settings-sections
-  [:updates :mcp])
+  [:updates :input :mcp])
 
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
@@ -660,8 +671,8 @@
    version in the header): a bar with the title and the way back
    (`:settings/close`), the tabs of the sections (`:settings/section`,
    per tab), and the section the tab picked: the updates
-   (`updates-section`) or the MCP servers (`mcp-section`, `mcp` its
-   data)."
+   (`updates-section`), the keys of the composer (`input-section`) or
+   the MCP servers (`mcp-section`, `mcp` its data)."
   [update section mcp]
   (let [section (if (some #{section} settings-sections) section :updates)]
     (list
@@ -683,6 +694,7 @@
           [:i18n (keyword "settings" (name k))]])]
       (case section
         :mcp (mcp-section mcp)
+        :input (input-section)
         (updates-section update))])))
 
 (defn phone-words
@@ -850,6 +862,7 @@
                   :ui/send-after-dictation-label [:i18n :composer/send-after-dictation]
                   :rows 3
                   :title [:i18n :composer/keys]
+                  :ui/enter-title [:i18n :composer/keys-enter]
                   :placeholder (or placeholder [:i18n :composer/placeholder])}]])
 
 (defn- rendering
