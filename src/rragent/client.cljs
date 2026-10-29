@@ -709,11 +709,15 @@
 
 (defn time-alias
   "A moment (`:ui/ms`, milliseconds since the epoch) as the time of day
-   in the browser's own time zone and language: the server knows
-   neither."
+   in the browser's own time zone and language, with the date before
+   it when the day is not today: the server knows neither."
   [{:keys [ui/ms]} _]
-  [:time {:datetime (.toISOString (js/Date. ms))}
-   (.toLocaleTimeString (js/Date. ms))])
+  (let [at (js/Date. ms)
+        today? (= (.toDateString at) (.toDateString (js/Date.)))]
+    [:time {:datetime (.toISOString at)}
+     (if today?
+       (.toLocaleTimeString at)
+       (str (.toLocaleDateString at js/undefined #js {:month "short" :day "numeric"}) " " (.toLocaleTimeString at)))]))
 
 (defn bot-id-of
   "The bot id of a page path, `/bot/<id>` or `/bot/<id>/run/<rid>`;
@@ -958,12 +962,13 @@
                     :style {:stroke-dasharray (str (* c (js/Math.min 1 (js/Math.max 0 fraction))) " " c)}}]]))
 
 (defn context-alias
-  "`[:ui/context {:ui/used :ui/window :ui/cost :ui/labels}]` in the
-   header: how full the model's context is, a ring; a click opens the
-   usage card below it (`:ui/context-open?`, client state): the
-   percent and a bar, the tokens of the window, the cost of the
-   conversation so far, and a word of advice when it gets full."
-  [{:keys [ui/used ui/window ui/cost ui/labels ui/state]} _children]
+  "`[:ui/context {:ui/used :ui/window :ui/cost :ui/model :ui/labels}]`
+   in the header: how full the model's context is, a ring; a click
+   opens the usage card below it (`:ui/context-open?`, client state):
+   the model's name, the percent and a bar, the tokens of the window,
+   the cost of the conversation so far, and a word of advice when it
+   gets full."
+  [{:keys [ui/used ui/window ui/cost ui/model ui/labels ui/state]} _children]
   (let [fraction (when (and window (pos? window)) (/ used window))
         percent (when fraction (js/Math.round (* 100 fraction)))
         level (cond
@@ -987,6 +992,8 @@
          [:button.link {:type "button"
                         :on {:click (fn [_] (swap! state/store dissoc :ui/context-open?))}}
           (:close labels)]]
+        (when (seq (str model))
+          [:p.muted (fill-in (:model labels) {:model model})])
         (if percent
           (list
            [:div.row

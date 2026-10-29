@@ -153,7 +153,7 @@
                          (await (.commit runtime
                                          (^:async fn [tx]
                                            (await (runs/create-in tx (.-conversationId runtime)
-                                                                  {:trigger {:kind "schedule" :name name}
+                                                                  {:trigger {:kind "schedule" :name name :line (runs/first-line text)}
                                                                    :content content}))
                                            (moved))
                                          context)))

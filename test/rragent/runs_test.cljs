@@ -309,7 +309,7 @@
                            report (some #(when (= runs/report-kind (.-kind %)) %) items)]
                        (is (some? report))
                        (is (= "failed" (aget (.-data report) "state")))
-                       (is (= "hook reviews" (aget (.-data report) "about")))
+                       (is (= "A new review" (aget (.-data report) "about")) "the hook's purpose, words for the person")
                        (is (str/includes? (js/JSON.stringify (.-model report)) "A run of yours failed"))
                        (is (= "pi.assistant" (.-kind (last items)))))))
                  (finally

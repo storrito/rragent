@@ -664,7 +664,7 @@
                      (testing "the run's page: its transcript, which the person asks"
                        (is (= {:success? true} (await (command! base cookie :run/show {:tab "t1" :bot id :run run}))))
                        (let [frame (await (frame! #(= (str "/bot/" id "/run/" run) (url-of %))))]
-                         (is (mentions? frame "Started by hook reviews"))
+                         (is (mentions? frame "Started by A new review") "the hook's purpose")
                          (is (mentions? frame "Posted the story.") "the run's answer in the feed")
                          (is (some? (find-tag frame :div.banner.run)))
                          (is (= [:draft (str id "/run/" run)] (:ui/store-key (second (find-tag frame :ui/composer)))) "the draft is the run's")

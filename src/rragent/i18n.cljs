@@ -217,6 +217,7 @@
    :updates/explain "A newer release is looked up at start and once an hour; this looks right now."
    :updates/check "Check for updates"
    :updates/checking "Checking …"
+   :update/ready "A new version of rragent is ready."
    :update/available [:fn/str "rragent {{:version}} is available."]
    :update/button "Update"
    :update/retry "Try again"
@@ -262,6 +263,7 @@
    :bots/title "Bots"
    :bots/menu "The bots"
    :context/title "Context window"
+   :context/model "Model: {model}"
    :context/used "{percent} % used"
    :context/of "{used} of {window} tokens"
    :context/unknown "{used} tokens; the window of this model is not known."
@@ -489,6 +491,7 @@
    :updates/explain "Beim Start und einmal pro Stunde wird nach einer neueren Version gesehen; das hier sieht sofort nach."
    :updates/check "Nach Updates suchen"
    :updates/checking "Suche …"
+   :update/ready "Eine neue Version von rragent ist da."
    :update/available [:fn/str "rragent {{:version}} ist da."]
    :update/button "Aktualisieren"
    :update/retry "Noch einmal versuchen"
@@ -534,6 +537,7 @@
    :bots/title "Bots"
    :bots/menu "Die Bots"
    :context/title "Kontextfenster"
+   :context/model "Modell: {model}"
    :context/used "{percent} % belegt"
    :context/of "{used} von {window} Tokens"
    :context/unknown "{used} Tokens; das Fenster dieses Modells ist nicht bekannt."

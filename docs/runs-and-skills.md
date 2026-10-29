@@ -200,6 +200,22 @@ compaction takes it from the bot too. Hence:
     strip and says when the bot's has changed since, so "why did
     Tuesday's run do that?" has an answer without the transcript.
 
+### Plain words for the person (2026-10-29)
+
+Ten questions on what a person who is not technical would stumble
+over, answered one by one. Changed: the activity rows and the run's
+strip say what started the run in the hook's purpose or the schedule's
+text ("A new review"), not its name; rows older than today carry the
+date; the header shows the bot's name and the context ring only, the
+model is named in the ring's card, the version and the release notes
+are the settings'; the update banner says "A new version of rragent is
+ready" and nothing more; the bot says in one sentence what a failed
+step of its means for the person, or nothing. Kept as they are: the
+word "hook" and its address in the chat, "Artifacts", the run's
+definition folded with its frontmatter, the composer of a finished run
+(it takes orders), no "this happens without asking" line when a
+trigger is set, the run's closing line as the model writes it.
+
 ## How it is built
 
 - `rragent.events`: the events file, `remember` and `recall` over it,
