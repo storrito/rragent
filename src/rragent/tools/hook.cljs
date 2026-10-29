@@ -20,6 +20,7 @@
                           "`create` with a name and a purpose answers the address to give that system. Each call starts a run: a fresh conversation "
                           "with your definition, your events and your artifacts, which does the job the call brings and ends with one line the person sees "
                           "in your activity; nothing of it enters this chat unless the run failed or reported something. "
+                          "A run knows nothing of this chat, only your definition, your events and your artifacts: write the job into your definition before you create a hook. "
                           "`mode: message` instead has every call reach you here as a message, for a rare event you want to talk about; never for anything frequent. "
                           "`delete` with the name revokes it; `list` shows them. A created name that exists gets a new secret. "
                           "Events of a service the organization connected (a new file in a Google Drive folder, a mail in Gmail) reach you through a Storrito integration trigger that posts to one of your hooks: "
@@ -41,8 +42,8 @@
                                           address (await (hooks/create! api name (or (.-purpose args) "") mode call-context))]
                                       (text (str "Hook " name " at " address
                                                  (if (= "message" mode)
-                                                   "; each call reaches you here as a message"
-                                                   "; each call starts a run of yours")))))
+                                                   "; each call reaches you here as a message."
+                                                   (str "; each call starts a run of yours." (await (work/job-warning api call-context))))))))
                        "delete" (do (when (empty? name)
                                       (throw (js/Error. "delete needs the name")))
                                     (text (if (await (hooks/delete! api name call-context)) (str "Hook " name " deleted") (str "No hook " name))))

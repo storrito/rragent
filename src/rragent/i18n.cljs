@@ -28,6 +28,8 @@
    :run/stopped "stopped"
    :run/started-by [:fn/str "Started by {{:about}}"]
    :run/empty "The run has not started yet; it waits for its turn."
+   :run/definition "The definition this run works from"
+   :run/definition-changed "the bot's has changed since"
 
    :artifacts/open "Open"
    :artifacts/download "Download"
@@ -296,6 +298,8 @@
    :run/stopped "gestoppt"
    :run/started-by [:fn/str "Gestartet durch {{:about}}"]
    :run/empty "Der Durchlauf hat noch nicht begonnen; er wartet, bis er dran ist."
+   :run/definition "Die Definition, mit der dieser Durchlauf arbeitet"
+   :run/definition-changed "die des Bots hat sich seitdem geändert"
    :page/view-chat "Chat"
 
    :artifacts/open "Öffnen"

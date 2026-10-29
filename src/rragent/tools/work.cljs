@@ -9,7 +9,9 @@
    (`rragent.db`) and its REPL worker are the call's too."
   (:require ["node:path" :as path]
             [rragent.db :as db]
-            [rragent.home :as home]))
+            [rragent.definition :as definition]
+            [rragent.home :as home]
+            [rragent.reload :as reload]))
 
 (defn dir
   "The working directory of the call."
@@ -52,6 +54,16 @@
   (when (not= (await (bot-id api call-context)) (.-conversationId api))
     (throw (js/Error. (str what " are the bot's, not a run's or a subagent's: set none here. "
                            "Say in your answer what the bot should set up, the person tells it.")))))
+
+(defn ^:async job-warning
+  "A line for the tool's answer when the bot's definition holds no job
+   yet (`rragent.definition/job-written?`), nil when it does: a run
+   knows only the definition."
+  [api call-context]
+  (let [definition (reload/current (await (bot-id api call-context)))]
+    (when (and definition (not (definition/job-written? definition)))
+      (str " Your definition is still the generic assistant's: a run knows nothing of this chat, only your definition, "
+           "your events and your artifacts, so write your job into AGENT.md before the first call."))))
 
 (defn artifacts-dir
   [api]

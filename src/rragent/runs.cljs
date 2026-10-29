@@ -24,6 +24,7 @@
    `rragent.tools.work/bot-dir`)."
   (:require ["@earendil-works/pi-durable" :refer [configure defineTask]]
             [clojure.string :as str]
+            [rragent.db :as db]
             [rragent.tools.subagent :as subagent-tool]))
 
 (def kind
@@ -166,14 +167,23 @@
   [outcome]
   #js {:status "terminal" :outcome outcome})
 
+(defn definition-text
+  "The text of the bot's definition file as the reload last applied it
+   (`rragent.reload`), what a run of the bot works from; nil for a bot
+   the process does not know."
+  [bot-id]
+  (get-in @db/db (conj (db/bot-path bot-id) :reload :text)))
+
 (defn- ^:async made!
   "The run's conversation, made in a commit of the task (the one it owns
    when a rerun finds it) as a copy of the bot's agent with the run's
-   instructions, and the checkpoint that names it. Answers nothing;
-   the task is invoked again with the new checkpoint."
+   instructions, and the checkpoint that names it, with the text of
+   the definition the run works from, which its page shows. Answers
+   nothing; the task is invoked again with the new checkpoint."
   [runtime context]
   (let [id (.-taskId runtime)
-        agent (await (.agent runtime context))]
+        agent (await (.agent runtime context))
+        definition (definition-text (.-conversationId runtime))]
     (await (.commit runtime
                     (^:async fn [tx]
                       (let [existing (aget (.-items (await (.scanConversations tx #js {:ownerTaskId id} 1))) 0)
@@ -183,7 +193,10 @@
                                              (await (configure tx created #js {:instructions (instructions (.-instructions agent))}))
                                              created))]
                         #js {:status "running"
-                             :checkpoint #js {:phase "run" :conversation conversation :started (.now runtime)}}))
+                             :checkpoint #js {:phase "run"
+                                              :conversation conversation
+                                              :started (.now runtime)
+                                              :definition (or definition js/undefined)}}))
                     context))
     (changed! (.-conversationId runtime))))
 
@@ -256,7 +269,8 @@
                     :line line
                     :conversation (.-conversation checkpoint)
                     :started (.-started checkpoint)
-                    :ended (.now runtime)}]
+                    :ended (.now runtime)
+                    :definition (or (.-definition checkpoint) js/undefined)}]
     (when-not done?
       (await (report-failure! runtime trigger line context)))
     ;; the gate goes before the record is terminal: whoever waits for the
@@ -324,8 +338,9 @@
            id)))
 
 (defn run-of
-  "A task record as the run the page and the model read: `{:id
-   :trigger :state :line :started :ended :conversation}`; the state
+  "A task record as the run the page and the model read: `{:id :bot
+   :trigger :state :line :started :ended :conversation :definition}`,
+   the last the text of the definition the run works from; the state
    `:queued` before the conversation is made, `:running` while the
    answer is waited for, then `:done`, `:failed` or `:aborted`."
   [record]
@@ -346,7 +361,8 @@
      :line (or (some-> result .-line) (when (and outcome (= "failed" (.-status outcome))) (some-> outcome .-error .-message)))
      :started (or (some-> result .-started) (some-> checkpoint .-started) (.-startedAt record))
      :ended (or (some-> result .-ended) (.-endedAt record))
-     :conversation (or (some-> result .-conversation) (some-> checkpoint .-conversation))}))
+     :conversation (or (some-> result .-conversation) (some-> checkpoint .-conversation))
+     :definition (or (some-> result .-definition) (some-> checkpoint .-definition))}))
 
 (defn ^:async listed
   "The newest `n` runs of the bot whose conversation is `conversation-id`,
@@ -355,7 +371,9 @@
   (let [page (await (.commit harness
                              (fn [tx] (.scanTasks tx #js {:conversationId conversation-id :kind kind :order "descending"} n))
                              context))]
-    (mapv run-of (array-seq (.-items page)))))
+    ;; the definitions stay out of the list: a page reads one run's
+    ;; through `run`
+    (mapv #(dissoc (run-of %) :definition) (array-seq (.-items page)))))
 
 (defn ^:async run
   "One run of the bot by its task `id`, nil for none."

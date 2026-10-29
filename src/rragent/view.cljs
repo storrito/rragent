@@ -1208,18 +1208,34 @@
            (seq list) [:div.placeholder [:i18n :artifacts/pick]]
            :else [:div.placeholder [:i18n :artifacts/empty]])]])]))
 
+(defn- run-definition
+  "The definition the run works from, folded: the text of the bot's
+   file at the run's start, with a word when the bot's has changed
+   since."
+  [{:keys [text changed?]}]
+  [:details.work.definition
+   [:summary [:i18n :run/definition]
+    (when changed?
+      (list " · " [:i18n :run/definition-changed]))]
+   [:pre.output (cut 20000 text)]])
+
 (defn- run-head
   "The strip above a run's transcript: the way back to the bot's chat
-   (`a[data-bot]`), what started the run, when, and how it went."
-  [bot name {:keys [state trigger started]}]
-  [:div.banner.run
-   [:a.back {:href (bots/url bot)
-             :data-bot bot}
-    "‹ " name]
-   [:span.about [:i18n :run/started-by {:about (runs/trigger-line trigger)}]]
-   (when started
-     [:ui/time {:ui/ms started}])
-   [:span.state {:class (clojure.core/name state)} (run-state-label state)]])
+   (`a[data-bot]`), what started the run, when, and how it went; under
+   it the definition the run works from (`run-definition`)."
+  [bot name {:keys [state trigger started definition]}]
+  (list
+   [:div.banner.run
+    [:a.back {:href (bots/url bot)
+              :data-bot bot}
+     "‹ " name]
+    [:span.about [:i18n :run/started-by {:about (runs/trigger-line trigger)}]]
+    (when started
+      [:ui/time {:ui/ms started}])
+    [:span.state {:class (clojure.core/name state)} (run-state-label state)]]
+   (when definition
+     [:div.item.step.run-definition
+      (run-definition definition)])))
 
 (defn- views
   "On a phone the chat and the artifacts take turns: two radios in

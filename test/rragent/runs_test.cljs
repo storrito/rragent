@@ -179,6 +179,53 @@
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 
+(deftest the-definition-of-a-run-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (.setResponses faux #js [(tools-test/tool-call "hook" {:action "create" :name "reviews" :purpose "A new review"} "h1")
+                                      (tools-test/answer "Made.")
+                                      (tools-test/answer "Posted.")])
+             (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
+               (try
+                 (is (= "Made." (await (harness/ask agent "Make a hook."))))
+                 (let [secret (await (hook-secret agent "reviews"))
+                       {:keys [run]} (await (hooks/receive! agent "reviews" secret {} "one" harness/context))
+                       {:keys [definition state]} (await (settled agent run))]
+                   (is (= :done state))
+                   (testing "the run keeps the text of the definition it worked from; the list leaves it out"
+                     (is (= test-home/definition-text definition))
+                     (is (not (contains? (first (await (schedule-test/runs-of agent))) :definition)))))
+                 (finally
+                   (await (harness/close agent))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest a-generic-definition-warns-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make "AGENT.md" "---\nname: Assistant\ndescription: A new agent on a machine of its own, which takes one of the skills on the machine, or the job the person describes, and becomes that agent.\nmetadata:\n  model: faux-1\n---\n\n# Assistant\n\nYou are new.\n")
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (.setResponses faux #js [(tools-test/tool-call "hook" {:action "create" :name "reviews" :purpose "A new review"} "h1")
+                                      (tools-test/tool-call "schedule" {:action "set" :name "tick" :cron "0 8 * * *" :text "Tick."} "s1")
+                                      (tools-test/tool-call "schedule" {:action "set" :name "word" :cron "0 9 * * *" :text "Word." :mode "message"} "s2")
+                                      (tools-test/answer "Made.")])
+             (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
+               (try
+                 (is (= "Made." (await (harness/ask agent "Make a hook and a schedule."))))
+                 (let [results (await (results-of agent (.-id (:root agent))))]
+                   (testing "a hook and a run schedule on the generic definition warn, a message schedule does not"
+                     (is (str/includes? (get results "h1") "Your definition is still the generic assistant's"))
+                     (is (str/includes? (get results "s1") "Your definition is still the generic assistant's"))
+                     (is (not (str/includes? (get results "s2") "generic assistant")))))
+                 (finally
+                   (await (harness/close agent))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
 (def delivery
   "What Composio posts for a Google Drive trigger, cut to what matters."
   "{\"id\":\"msg_1\",\"type\":\"composio.trigger.message\",\"metadata\":{\"trigger_slug\":\"GOOGLEDRIVE_FILE_CREATED_TRIGGER\",\"trigger_id\":\"ti_1\",\"connected_account_id\":\"ca_1\"},\"data\":{\"event_type\":\"file_created\",\"file\":{\"id\":\"1dIU\",\"name\":\"4.txt\"}}}")
