@@ -202,7 +202,8 @@
                     :bot {:id id
                           :name (machine/label-of id)
                           :model (:model definition)
-                          :context-window (machine/context-window (:model definition))}
+                          :context-window (machine/context-window (:model definition))
+                          :spend (:spend bot)}
                     :run run
                     :conversation (if run
                                     (conversation (get-in bot [:runs/values run-id]))

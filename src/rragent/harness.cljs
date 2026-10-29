@@ -27,7 +27,7 @@
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai/models" :refer [createModels]]
             ["@earendil-works/pi-ai/providers/openrouter" :refer [openrouterProvider]]
-            ["@earendil-works/pi-durable" :refer [AssistantEntry GenerationTask Harness LiveDoc MemoryStorage ToolTask createRegistry defineExtension hook]]
+            ["@earendil-works/pi-durable" :refer [AssistantEntry GenerationTask Harness LiveDoc MemoryStorage ToolTask UsageDoc createRegistry defineExtension hook]]
             ["@earendil-works/pi-durable/env/node" :refer [NodeExecutionEnv]]
             ["@earendil-works/pi-durable/storage/sqlite/node" :refer [openNodeSqliteStorage]]
             ["@earendil-works/pi-durable/tools" :refer [createCodingTools]]
@@ -193,6 +193,41 @@
   (if usage
     (+ (or (.-input usage) 0) (or (.-cacheRead usage) 0) (or (.-cacheWrite usage) 0))
     0))
+
+(defn usage-cost
+  "What a conversation's `pi.usage` (`usage`) says it cost, in dollars:
+   its models' and its tools' buckets; 0 without one."
+  [^js usage]
+  (reduce + 0 (for [bucket ["models" "tools"]
+                    ^js entry (some-> usage (aget bucket) js/Object.values array-seq)]
+                (or (some-> entry .-cost .-total) 0))))
+
+(defn ^:async owned
+  "The ids of the conversations the conversation `id` owns: its
+   subagents' and its runs', each made by a task of it."
+  [harness id]
+  (loop [cursor js/undefined
+         found []]
+    (let [page (await (.commit harness (fn [tx] (.scanConversations tx #js {:ownerConversationId id} 200 cursor)) context))
+          items (array-seq (.-items page))
+          found (into found (map #(.-id %)) items)]
+      (if (and (.-next page) (seq items))
+        (recur (.-next page) found)
+        found))))
+
+(defn ^:async spend
+  "What the conversation `id` cost so far, in dollars, with every
+   conversation it owns, theirs too (`owned`): the sum of their
+   `pi.usage`, which pi-durable keeps across compactions, unlike the
+   transcript, which a compaction shortens."
+  [harness id]
+  (loop [todo [id]
+         total 0]
+    (if-let [id (first todo)]
+      (let [usage (await (.snapshot harness UsageDoc id context))
+            children (await (owned harness id))]
+        (recur (into (vec (rest todo)) children) (+ total (usage-cost usage))))
+      total)))
 
 (defn ^:async compact-unless-compacting!
   "A manual compaction of the conversation `id` of `harness` admitted,

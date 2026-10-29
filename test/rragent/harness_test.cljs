@@ -1,5 +1,6 @@
 (ns rragent.harness-test
   (:require ["@earendil-works/pi-ai/models" :refer [createModels]]
+            ["@earendil-works/pi-durable" :refer [UsageDoc]]
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.codemode :as codemode]
@@ -290,5 +291,43 @@
                    (await (harness/close agent))
                    (test-home/remove! home)
                    (sync-fetch/stop!)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest usage-cost-test
+  (is (= 3.5 (harness/usage-cost #js {:models #js {"openrouter/m" #js {:cost #js {:total 3}}}
+                                      :tools #js {"image" #js {:cost #js {:total 0.5}}}}))
+      "the models' and the tools' buckets")
+  (is (= 0 (harness/usage-cost nil))))
+
+(deftest spend-test
+  (async done
+    (-> ((^:async fn []
+           (testing "a conversation and every one it owns, theirs too"
+             (let [usage {1 3, 5 1, 9 0.25, 12 0.5}
+                   children {1 [5 12], 5 [9], 9 [], 12 []}
+                   fake #js {:snapshot (fn [_doc id _context]
+                                         (js/Promise.resolve (when-let [cost (usage id)]
+                                                               #js {:models #js {"m" #js {:cost #js {:total cost}}} :tools #js {}})))
+                             :commit (fn [change _context]
+                                       (js/Promise.resolve
+                                        (change #js {:scanConversations (fn [query _limit _cursor]
+                                                                          #js {:items (into-array (map (fn [id] #js {:id id})
+                                                                                                       (children (.-ownerConversationId query))))})})))}]
+               (is (= 4.75 (await (harness/spend fake 1))))))
+           (testing "through pi-durable's storage: the ledger of a conversation that owns none"
+             (let [home (test-home/make)
+                   {:keys [faux models]} (tools-test/faux-models)]
+               (.setResponses faux #js [(tools-test/answer "Paris.")])
+               (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))
+                     id (.-id (:root agent))]
+                 (try
+                   (await (harness/ask agent "Capital of France?"))
+                   (is (= [] (await (harness/owned (:harness agent) id))) "no subagent, no run")
+                   (is (some? (await (.snapshot (:harness agent) UsageDoc id harness/context))) "the answer noted in pi.usage")
+                   (is (= 0 (await (harness/spend (:harness agent) id))) "the faux model costs nothing")
+                   (finally
+                     (await (harness/close agent))
+                     (test-home/remove! home))))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
