@@ -85,7 +85,8 @@
    :chat/queued "Waits for the current run to end"
    :chat/on-screen [:fn/str "Open: {{:path}}"]
    :chat/reset "The context started over."
-   :chat/compacted "Older messages were summarized."
+   :chat/compacted "From here on the model reads a summary of the messages above."
+   :chat/summary-kept "What the model keeps of them"
    :chat/retry [:fn/str "The model call failed, trying again: {{:error}}"]
    :chat/model-failed [:fn/str "The model call failed: {{:error}}"]
    :chat/aborted "Stopped."
@@ -378,7 +379,8 @@
    :chat/queued "Wartet, bis der laufende Durchgang endet"
    :chat/on-screen [:fn/str "Geöffnet: {{:path}}"]
    :chat/reset "Der Kontext hat neu begonnen."
-   :chat/compacted "Ältere Nachrichten wurden zusammengefasst."
+   :chat/compacted "Ab hier liest das Modell eine Zusammenfassung der Nachrichten oben."
+   :chat/summary-kept "Was das Modell davon behält"
    :chat/retry [:fn/str "Der Aufruf des Modells ist fehlgeschlagen, nächster Versuch: {{:error}}"]
    :chat/model-failed [:fn/str "Der Aufruf des Modells ist fehlgeschlagen: {{:error}}"]
    :chat/aborted "Gestoppt."

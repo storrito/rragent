@@ -673,3 +673,23 @@
         (is (contains? text "Hook deploy was called."))
         (is (not (contains? text "Hook \"drive\" (files) was called.\nBody:\n{}")) "a closed one does not")
         (is (= 2 (count (filter placeholder? (folds page)))))))))
+
+(deftest compaction-note-test
+  (let [conversation {:entries [{:id 9 :kind "pi.compaction" :head 5 :model [{:role "user" :content "Summary: two capitals were asked."}]}
+                                (user 10 "And Italy?")]
+                      :live {}
+                      :inbox {}}
+        items (view/items conversation)
+        page (fn [expanded]
+               (i18n/translate (view/page {:agent {} :conversation conversation :locale :en :expanded expanded}) :en))]
+    (testing "the compaction's note carries what the model keeps"
+      (is (= [:note :user] (map :kind items)))
+      (is (= "Summary: two capitals were asked." (:summary (first items)))))
+    (testing "on the page the summary is a fold under the note, its body for the tab that opens it"
+      (let [closed (page nil)
+            fold (first (filter #(and (vector? %) (= :details.work (first %))) (nodes closed)))]
+        (is (some #{"From here on the model reads a summary of the messages above."} (strings closed)))
+        (is (some #{"What the model keeps of them"} (strings closed)))
+        (is (not (some #{"Summary: two capitals were asked."} (strings closed))))
+        (is (= 9 (get-in (second fold) [:on :toggle 0 1 :command/data :id])))
+        (is (some #{"Summary: two capitals were asked."} (strings (page #{9}))))))))

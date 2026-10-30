@@ -457,6 +457,11 @@
         w (fn [tab url-id] {:tabid tab :ring/route-params {:* url-id}})
         shows-1 (w "t1" "1")
         shows-7 (w "t2" "7")]
+    (testing "the history read after a compaction goes to the tabs showing the bot"
+      (let [pred (page/affected old (assoc-in old [:bots "7" :history] {:head 9 :entries []}))]
+        (is (fn? pred))
+        (is (true? (pred shows-7)))
+        (is (false? (pred shows-1)))))
     (testing "a value of one bot goes to the tabs showing it"
       (let [pred (page/affected old (assoc-in old [:bots "1" :artifacts/list] [{:path "x.html"}]))]
         (is (fn? pred))

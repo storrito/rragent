@@ -32,6 +32,7 @@
             [rragent.db :as db]
             [rragent.definition :as definition]
             [rragent.harness :as harness]
+            [rragent.history :as history]
             [rragent.home :as home]
             [rragent.projects :as projects]
             [rragent.reload :as reload]
@@ -146,16 +147,44 @@
   [^js value]
   (boolean (some-> value .-docs (aget "pi.live") .-run)))
 
+(defn- ^:async refresh-history!
+  "The entries before the bot's active context into its map as
+   `:history`, `{:head <the marker's id> :entries [...]}`
+   (`rragent.history/before!`), when the context's head marker is
+   another than the one the history was read for: after a compaction
+   the page shows the summarized messages above the note. Without a
+   marker there is no history, and the key goes. One read at a time
+   (`:history-loading`, a handle: no frame for it)."
+  [path conversation ^js value]
+  (let [marker (history/marker value)
+        head-id (some-> marker .-id)
+        {:keys [history history-loading]} (db/at @db/db path)]
+    (cond
+      (nil? marker) (when history
+                      (swap! db/db db/update-at path dissoc :history))
+      (or (= head-id (:head history)) (= head-id history-loading)) nil
+      :else (do (swap! db/db db/update-at path assoc :history-loading head-id)
+                (try
+                  (let [entries (await (history/before! conversation (.-head marker)))]
+                    (when (db/at @db/db path)
+                      (swap! db/db db/update-at path assoc :history {:head head-id :entries entries})))
+                  (catch :default error
+                    (js/console.error "[history]" (str "the history of the bot " (last path) " was not read:") error))
+                  (finally
+                    (swap! db/db db/update-at path dissoc :history-loading)))))))
+
 (defn- value!
   "A new view value of the bot: into its map, with whether a run goes
    (`:working?`); when the run just ended, the bot's cost is read
-   again (`refresh-spend!`)."
-  [path ^js value]
+   again (`refresh-spend!`); the history before the context read when
+   its head marker changed (`refresh-history!`)."
+  [path conversation ^js value]
   (let [was (:working? (db/at @db/db path))
         now (running? value)]
     (swap! db/db db/update-at path assoc :value value :working? now)
     (when (and was (not now))
-      (refresh-spend! (last path)))))
+      (refresh-spend! (last path)))
+    (refresh-history! path conversation value)))
 
 (defn- refresh-spend!
   "The bot's cost so far, its subagents' and runs' included
@@ -173,7 +202,7 @@
    after it, the artifacts folder watched, the projects in it run while
    someone looks at the page, the renders kept, the uploads folder
    known. Answers the handles and what ends the following."
-  [id view]
+  [id conversation view]
   (let [path (db/bot-path id)
         work (home/work-dir (home/bot-dir (home) id))
         dir (home/artifacts-dir work)
@@ -183,8 +212,8 @@
                                    :dir dir
                                    :base base
                                    :shown? (fn [] (pos? (sse/connections)))})]
-    (swap! db/db db/update-at path assoc :value (.-value view) :working? (running? (.-value view)))
-    (let [unsubscribe (.subscribe view (fn [value] (value! path value)))
+    (value! path conversation (.-value view))
+    (let [unsubscribe (.subscribe view (fn [value] (value! path conversation value)))
           stop-artifacts (artifacts/watch! db/db path dir)
           stop-projects (projects/watch! projects)]
       {:dir dir
@@ -217,7 +246,7 @@
             _ (when-not definition
                 (throw (js/Error. (str "no definition in " (home/bot-dir (home) id)))))
             view (await (.viewState conversation harness/context))
-            handles (start-pane! id view)]
+            handles (start-pane! id conversation view)]
         (swap! db/db update-in path merge {:id id :conversation conversation :view view} handles)
         (refresh-spend! id)
         (await (refresh-runs! id))

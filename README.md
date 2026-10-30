@@ -113,7 +113,11 @@ tokens of a 1,050,000 window waited 12 to 35 seconds for each call,
 where 70,000 took two to seven. The ring in the chat's header measures the last
 call against that budget (or the model's window, when smaller), so it
 fills towards the compaction, and its card says that older messages
-are summarized past it.
+are summarized past it. The summarized messages stay on the page: once
+the summary is placed, the entries before the first one kept are read
+from the storage (`rragent.history`) and shown above a note that says
+the model reads a summary from there on, the summary itself folded
+under the note. The model's context shrinks, the person's chat does not.
 
 A bot's conversation is compacted while the person is away too: once
 its last answer read 50,000 tokens or more and it has been quiet for
