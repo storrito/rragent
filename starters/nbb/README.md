@@ -41,7 +41,7 @@ No database of your own. Three things, and nothing else is kept:
   what counts as a repeat) applies to the whole past on the next run,
   because the files are still there. Reduce over the log, never hold
   it: `(transduce (events/kind "posted") … (events/reducible file))`
-  reads a chunk at a time, as `replay` and `new-items` do. Replaying is
+  makes each event as it goes, as `replay` and `new-items` do. Replaying is
   fast enough for years of imports; a database is state that drifts,
   `node:sqlite` is in Node when a job truly needs one, and it is not
   the first choice.
@@ -58,9 +58,10 @@ No database of your own. Three things, and nothing else is kept:
   export has none).
 - `events.cljs`: the log, appended and read in the harness's format:
   `:event`, `:at` in milliseconds, your keys. `reducible` is what you
-  `reduce`, `transduce` or `into`, one chunk of the file in memory at a
-  time, a `reduced` value stops the reading; it is seqable too, for
-  `filter` and friends. `kind` is a transducer for one kind of event.
+  `reduce`, `transduce` or `into`: the events made one at a time as you
+  consume them, never all at once, a `reduced` value stops the rest; it
+  is seqable too, for `filter` and friends. `kind` is a transducer for
+  one kind of event.
   A path in an event is relative to the log's folder.
 - `main_test.cljs` and `events_test.cljs`: `cljs.test`, in a folder
   laid out like a bot's; the first runs both. A test that waits for a

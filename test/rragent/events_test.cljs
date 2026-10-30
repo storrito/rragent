@@ -84,11 +84,8 @@
         file (home/events-file home)
         n 3000]
     (try
-      ;; a few chunks' worth, with characters of more than one byte on
-      ;; every line, so that some chunk ends inside one of them
       (dotimes [i n]
         (events/append! file (if (odd? i) "odd" "even") {:n i :text "grüß ✓ naïve"} (* 1000 i)))
-      (is (< events/chunk-size (.-size (fs/statSync file))) "the log spans chunks")
       (testing "every event, oldest first, whole"
         (let [all (into [] (events/reducible file))]
           (is (= n (count all)))

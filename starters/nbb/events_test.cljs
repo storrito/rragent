@@ -1,6 +1,6 @@
 (ns events-test
-  "The log read a chunk at a time: every event, an early stop, the
-   seq, the lines that are none; run by main_test.cljs."
+  "The log as an eduction: every event, an early stop, the seq, the
+   lines that are none; run by main_test.cljs."
   (:require ["node:fs" :as fs]
             ["node:os" :as os]
             ["node:path" :as path]
@@ -14,11 +14,8 @@
 (deftest reducible-test
   (let [file (temp-log)
         n 3000]
-    ;; a few chunks' worth, with characters of more than one byte on
-    ;; every line, so that some chunk ends inside one of them
     (dotimes [i n]
       (events/append! file (if (odd? i) "odd" "even") {:n i :text "grüß ✓ naïve"}))
-    (is (< events/chunk-size (.-size (fs/statSync file))) "the log spans chunks")
     (testing "every event, oldest first, whole"
       (let [all (into [] (events/reducible file))]
         (is (= n (count all)))

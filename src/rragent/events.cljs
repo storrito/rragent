@@ -8,10 +8,11 @@
    that posted a review notes it, the next run sees it. There is no
    state to keep in step: a read model is a projection the bot writes
    as Clojure over the events, oldest first, evaluated here by SCI
-   (`project`). The file is never held whole: `reducible` is what a
-   projection reduces, transduces or seqs, one chunk of the file in
-   memory at a time, and a `reduced` value stops the reading; `read`
-   is the vector for the few places that want it all. Compaction
+   (`project`). `reducible` is what a projection reduces, transduces
+   or seqs: the file's text read once, each event made as the
+   projection consumes it, a `reduced` value stopping the rest, so the
+   events are never all in memory at once; `read` is the vector for
+   the few places that want them all. Compaction
    summarizes what the model sees and leaves the file alone, so an
    event outlives every summary. The programs a bot writes append and
    read the same file in the same format (`starters/nbb/events.cljs`
@@ -51,78 +52,6 @@
     (catch :default _
       nil)))
 
-(def chunk-size
-  "How much of the file is in memory at a time."
-  65536)
-
-(defn- chunk-at
-  "The bytes of `file` from byte `position` on, at most `chunk-size`
-   of them; nil at the end. The file is opened for each chunk and
-   closed again, so nothing holds it between two."
-  [file position]
-  (let [fd (fs/openSync file "r")]
-    (try
-      (let [buffer (js/Buffer.alloc chunk-size)
-            n (fs/readSync fd buffer 0 chunk-size position)]
-        (when (pos? n)
-          (.subarray buffer 0 n)))
-      (finally
-        (fs/closeSync fd)))))
-
-(defn- with-carry
-  "The bytes of an unfinished line before `chunk`, then the chunk."
-  [carry chunk]
-  (if (pos? (.-length carry))
-    (js/Buffer.concat #js [carry chunk])
-    chunk))
-
-(defn- rest-from
-  "The bytes of `bytes` from `from` on, a copy of its own."
-  [bytes from]
-  (js/Buffer.from (.subarray bytes from)))
-
-(defn- reduce-lines
-  "`f` over the lines of `file`, oldest first, from `init`; a
-   `reduced` value stops the reading. A line is cut at the newline
-   byte before it is decoded, so a character that spans two chunks
-   stays whole; the last line needs no newline."
-  [file f init]
-  (loop [position 0
-         carry (js/Buffer.alloc 0)
-         acc init]
-    (if-let [chunk (chunk-at file position)]
-      (let [bytes (with-carry carry chunk)
-            [acc from] (loop [from 0
-                              acc acc]
-                         (let [at (.indexOf bytes 10 from)]
-                           (if (or (neg? at) (reduced? acc))
-                             [acc from]
-                             (recur (inc at) (f acc (.toString bytes "utf8" from at))))))]
-        (if (reduced? acc)
-          @acc
-          (recur (+ position (.-length chunk)) (rest-from bytes from) acc)))
-      (let [acc (if (pos? (.-length carry))
-                  (f acc (.toString carry "utf8"))
-                  acc)]
-        (if (reduced? acc) @acc acc)))))
-
-(defn- lines-from
-  "The lines of `file` from byte `position` on as a lazy seq, a chunk
-   at a time; `carry` the bytes of an unfinished line before it."
-  [file position carry]
-  (lazy-seq
-   (if-let [chunk (chunk-at file position)]
-     (let [bytes (with-carry carry chunk)
-           [lines from] (loop [from 0
-                               lines []]
-                          (let [at (.indexOf bytes 10 from)]
-                            (if (neg? at)
-                              [lines from]
-                              (recur (inc at) (conj lines (.toString bytes "utf8" from at))))))]
-       (concat lines (lines-from file (+ position (.-length chunk)) (rest-from bytes from))))
-     (when (pos? (.-length carry))
-       (list (.toString carry "utf8"))))))
-
 (defn- event-of
   "The event of a line of `file`, or nil for a blank line or one that
    does not read as a map, said on stderr."
@@ -134,35 +63,16 @@
           value
           (js/console.error "[events]" (str "a line of " file " does not read: " (subs text 0 (min 80 (count text))))))))))
 
-(defn- parsing
-  "`f` over the events of the lines of `file`, the lines that are
-   none skipped."
-  [file f]
-  (fn [acc text]
-    (if-some [event (event-of file text)]
-      (f acc event)
-      acc)))
-
 (defn reducible
-  "The events of `file`, oldest first: something to `reduce`,
-   `transduce` or `into` with one chunk of the file in memory at a
-   time (a `reduced` value stops the reading), and to `seq`, lazily.
-   No file is no events."
+  "The events of `file`, oldest first, as an eduction: something to
+   `reduce`, `transduce`, `into` or `seq`. The file's text is read
+   once; each event is made as it is consumed, and a `reduced` value
+   stops the rest. No file is no events."
   [file]
-  (reify
-    IReduce
-    (-reduce [this f]
-      (if-let [events (seq this)]
-        (reduce f (first events) (rest events))
-        (f)))
-    (-reduce [_ f init]
-      (if (fs/existsSync file)
-        (reduce-lines file (parsing file f) init)
-        init))
-    ISeqable
-    (-seq [_]
-      (when (fs/existsSync file)
-        (seq (keep #(event-of file %) (lines-from file 0 (js/Buffer.alloc 0))))))))
+  (eduction (keep #(event-of file %))
+            (if (fs/existsSync file)
+              (str/split-lines (fs/readFileSync file "utf8"))
+              [])))
 
 (defn read
   "Every event of `file` in one vector, oldest first, for the few
