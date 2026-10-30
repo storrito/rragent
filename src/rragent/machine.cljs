@@ -147,16 +147,14 @@
   (boolean (some-> value .-docs (aget "pi.live") .-run)))
 
 (defn- value!
-  "A new view value of the bot: into its map, with whether a run goes;
-   when the run just ended, the pane shows what the run made
-   (`rragent.artifacts/refollow!`, the screen stays put while a run
-   goes) and the bot's cost is read again (`refresh-spend!`)."
+  "A new view value of the bot: into its map, with whether a run goes
+   (`:working?`); when the run just ended, the bot's cost is read
+   again (`refresh-spend!`)."
   [path ^js value]
   (let [was (:working? (db/at @db/db path))
         now (running? value)]
     (swap! db/db db/update-at path assoc :value value :working? now)
     (when (and was (not now))
-      (artifacts/refollow! db/db path)
       (refresh-spend! (last path)))))
 
 (defn- refresh-spend!

@@ -20,7 +20,7 @@
    `viewState`), `:definition` (as `rragent.reload` last applied it),
    `:schedules/next`, `:failed`, the keys of its pane
    (`:artifacts/list`, `:artifacts/rev`, `:artifacts/current`,
-   `:artifacts/picked-at`, `:projects`, `:renders`) and the sidebar's
+   `:artifacts/folder`, `:projects`, `:renders`) and the sidebar's
    `:deleting?` and `:renaming?`; the handles are `:conversation`,
    `:view`, `:worker` (`rragent.codemode-worker`), `:reload`
    (`{:home :provider :text}`), `:schedule-source`

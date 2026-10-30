@@ -13,7 +13,7 @@
 (def tool
   (defineTool
    #js {:name "render"
-        :description (str "Renders an artifact project with its template's render script into artifacts/<name>.<ext> (an mp4 for a video), which the person sees beside the chat. "
+        :description (str "Renders an artifact project with its template's render script into artifacts/<name>.<ext> (an mp4 for a video). The person opens it from the card in the chat; name the file in your answer. "
                           "It takes a while; the preview beside the chat plays the project live, so render when the file itself is needed, not after every change.")
         :parameters (.Object Type #js {:name (.String Type #js {:description "The project's name, its folder under artifacts/"})})
         :execute (^:async fn [args api call-context]

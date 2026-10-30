@@ -263,6 +263,8 @@
                                (is (mentions? answer "Open: stories/a.html") "the page shows it as a hint")
                                (is (not (mentions? answer "on screen beside")) "not as text"))
                              (testing "a step in the pane is a step of the tab's, which its frame carries; a step back restores the pane and the step"
+                               (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "stories/a.html" :tab "t1"}))) "the person opens the file: the list browses its folder")
+                               (is (= {:current "stories/a.html" :folder "stories"} (artifacts/place (get-in @db/db [:bots id]))))
                                (let [pane-step #(:ui/step (second (find-tag % :ui/pane-history)))
                                      before (get-in @db/db [:bots id :pane/steps "t1"])]
                                  (is (= {:success? true} (await (command! base cookie :artifacts/open-folder {:bot id :path "" :tab "t1"}))))
@@ -291,7 +293,7 @@
                              (finally
                                (fs/rmSync (path/join dir "stories") #js {:recursive true :force true})
                                (artifacts/refresh! db/db (db/bot-path id) dir)
-                               (swap! db/db db/update-at (db/bot-path id) artifacts/browsed "")))))
+                               (swap! db/db db/update-at (db/bot-path id) #(-> % (artifacts/picked nil) (artifacts/browsed "")))))))
                        (testing "the settings in place of the chat, for this tab alone; a bot picked brings the chat back"
                          (is (= {:success? false :result {:error :no-tab}} (await (command! base cookie :settings/open nil))))
                          (is (= {:success? true} (await (command! base cookie :settings/open {:tab "t1"}))))
@@ -316,6 +318,9 @@
                            (is (not (mentions? frame "Paris.")) "the first bot's chat is not on it")
                            (is (= (fs/readFileSync "deploy/agent/AGENT.md" "utf8") (fs/readFileSync (path/join (home/bot-dir home id2) "AGENT.md") "utf8")) "the assistant's definition as it is")
                            (fs/writeFileSync (path/join (home/bot-dir home id2) "work" "artifacts" "card.html") "<h1>card</h1>")
+                           (let [frame (await (frame! #(mentions? % "card.html")))]
+                             (is (nil? (find-tag frame :ui/canvas)) "the file is on the list, the screen untouched until the person opens it"))
+                           (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id2 :path "card.html" :tab "t1"}))))
                            (let [frame (await (frame! #(find-tag % :ui/canvas)))]
                              (is (= (str "/bot/" id2 "/artifacts/card.html") (:ui/src (second (find-tag frame :ui/canvas))))))
                            (is (= 200 (.-status (await (js/fetch (str base "/bot/" id2 "/artifacts/card.html") #js {:headers #js {:cookie cookie}})))))
@@ -369,9 +374,8 @@
                              (await (other-none-within 500))
                              (await (none-within 300))
                              (fs/writeFileSync (path/join (home/bot-dir home id) "work" "artifacts" "note.html") "<h1>note</h1>")
-                             (is (= (str "/bot/" id "/artifacts/note.html")
-                                    (:ui/src (second (find-tag (await (frame! #(find-tag % :ui/canvas))) :ui/canvas))))
-                                 "the first bot's tab shows its new artifact")
+                             (let [frame (await (frame! #(mentions? % "note.html")))]
+                               (is (nil? (find-tag frame :ui/canvas)) "the first bot's tab lists its new artifact, and shows it only on a click"))
                              (is (true? (await (other-none-within 1500))) "the other bot's tab gets no frame of it")
                              (swap! db/db assoc-in [:bots id :worker] {:a "handle"})
                              (swap! db/db assoc-in [:bots id3 :reload :text] "changed")

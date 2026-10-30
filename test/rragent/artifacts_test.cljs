@@ -58,7 +58,7 @@
     (is (nil? (artifacts/renamed-path {:path "card.html" :kind :page} "../card")) "a name stays in its folder")
     (is (nil? (artifacts/renamed-path {:path "card.html" :kind :page} ".card")) "and does not hide the file")))
 
-(deftest list-and-follow-test
+(deftest list-test
   (let [root (temp-dir "rragent-artifacts-")
         dir (path/join root "artifacts")
         db (atom {})]
@@ -69,18 +69,22 @@
       (touch! dir "first.html" 1000)
       (touch! dir ".hidden/secret.html" 3000)
       (touch! dir "pictures/pool.png" 2000)
-      (testing "newest first, hidden left out, the newest on screen"
+      (testing "newest first, hidden left out; nothing on screen until the person picks"
         (artifacts/refresh! db dir)
         (is (= ["pictures/pool.png" "first.html"] (map :path (:artifacts/list @db))))
         (is (= 2000 (:artifacts/rev @db)))
-        (is (= "pictures/pool.png" (:artifacts/current @db))))
-      (testing "the person's pick holds until the agent writes something newer"
+        (is (nil? (:artifacts/current @db))))
+      (testing "the person's pick holds, whatever the agent writes; the list browses the pick's folder"
+        (artifacts/pick! db "pictures/pool.png")
+        (is (= "pictures" (:artifacts/folder @db)))
         (artifacts/pick! db "first.html")
         (artifacts/refresh! db dir)
         (is (= "first.html" (:artifacts/current @db)))
+        (is (= "" (:artifacts/folder @db)))
         (touch! dir "story.mp4" (+ (js/Date.now) 5000))
         (artifacts/refresh! db dir)
-        (is (= "story.mp4" (:artifacts/current @db))))
+        (is (= "first.html" (:artifacts/current @db)))
+        (is (= "story.mp4" (:path (first (:artifacts/list @db)))) "the new file is on the list, not on screen"))
       (testing "a directory with a package.json is one artifact, a project, timed by its newest file"
         (touch! dir "clip/package.json" 100)
         (touch! dir "clip/composition/index.html" 7000)
@@ -91,52 +95,32 @@
           (is (= {:path "clip" :kind :project :title "Clip" :mtime 7000} (dissoc clip :size)))
           (is (not-any? #(str/starts-with? (:path %) "clip/") listed))
           (is (= "story.mp4" (:path (first listed))) "the file from the future stays newest")))
-      (testing "while the agent works the screen stays put: what is shown, or the list; the newest takes it once the run is over"
-        (let [listed [{:path "new.html" :mtime 50} {:path "old.mp4" :mtime 10}]
-              facts {:artifacts/list listed}]
-          (is (= "old.mp4" (artifacts/follow {:artifacts/current "old.mp4" :artifacts/picked-at 20 :working? true} facts)) "a video being watched")
-          (is (= "old.mp4" (artifacts/follow {:artifacts/current "old.mp4" :working? true} facts)) "shown without a pick too")
-          (is (nil? (artifacts/follow {:artifacts/current nil :artifacts/picked-at 20 :working? true} facts)) "the list the person went back to")
-          (is (= "new.html" (artifacts/follow {:artifacts/current nil :working? true} facts)) "an empty screen follows the work")
-          (is (= "new.html" (artifacts/follow {:artifacts/current "old.mp4" :artifacts/picked-at 20 :working? false} facts)) "the run is over: what it made")))
-      (testing "a pick that disappeared falls back to the newest"
+      (testing "a pick that disappeared: the pane shows the list, nothing else takes its place"
         (artifacts/pick! db "first.html")
         (fs/rmSync (path/join dir "first.html"))
         (artifacts/refresh! db dir)
-        (is (= "story.mp4" (:artifacts/current @db))))
-      (testing "the video a render writes does not take the screen, and is news once the render is done"
-        (touch! dir "story.mp4" 1500)
+        (is (nil? (:current (artifacts/place @db))))
+        (is (= "" (:folder (artifacts/place @db)))))
+      (testing "the video a render writes is on the list while it is written, and does not take the screen when the render is done"
         (artifacts/pick! db "pictures/pool.png")
         (swap! db assoc-in [:renders "clip"] {:started (js/Date.now) :progress "30 %"})
         (touch! dir "clip.mp4" (+ (js/Date.now) 10000))
         (artifacts/refresh! db dir)
         (is (= "pictures/pool.png" (:artifacts/current @db)))
+        (is (some? (artifacts/writing @db {:path "clip.mp4"})))
         (swap! db assoc-in [:renders "clip" :exit] 0)
-        (artifacts/refollow! db)
-        (is (= "clip.mp4" (:artifacts/current @db))))
-      (testing "a working note does not take the screen from a creation, a creation does"
-        ;; the files from the future back in the past, so that only what
-        ;; is written now is news
-        (touch! dir "clip.mp4" 1600)
-        (artifacts/refresh! db dir)
-        (artifacts/pick! db "pictures/pool.png")
-        (touch! dir "notes/checks.md" (+ (js/Date.now) 20000))
         (artifacts/refresh! db dir)
         (is (= "pictures/pool.png" (:artifacts/current @db)))
-        (is (some #(= "notes/checks.md" (:path %)) (:artifacts/list @db)) "it is on the list")
-        (touch! dir "card.html" (+ (js/Date.now) 30000))
-        (artifacts/refresh! db dir)
-        (is (= "card.html" (:artifacts/current @db))))
-      (testing "back to the list, a note leaves it alone"
-        (touch! dir "card.html" 1700)
-        (artifacts/refresh! db dir)
+        (is (nil? (artifacts/writing @db {:path "clip.mp4"})))
+        (is (= "clip.mp4" (:path (artifacts/rendered (:artifacts/list @db) "clip"))) "the project's video, for the pane to offer")
+        (is (nil? (artifacts/rendered (:artifacts/list @db) "pictures")) "none for a folder"))
+      (testing "back to the list, nothing the agent writes takes the screen"
         (artifacts/pick! db nil)
         (touch! dir "notes/progress.md" (+ (js/Date.now) 40000))
-        (artifacts/refresh! db dir)
-        (is (nil? (:artifacts/current @db)))
         (touch! dir "pool2.png" (+ (js/Date.now) 50000))
         (artifacts/refresh! db dir)
-        (is (= "pool2.png" (:artifacts/current @db)) "the newest creation still takes the screen"))
+        (is (nil? (:artifacts/current @db)))
+        (is (= ["pool2.png" "notes/progress.md"] (map :path (take 2 (:artifacts/list @db)))) "both on the list"))
       (finally
         (fs/rmSync root #js {:recursive true :force true})))))
 
@@ -197,14 +181,14 @@
     (try
       (touch! dir "a/one.md" 1000)
       (artifacts/refresh! db dir)
-      (is (= ["a/one.md" "a"] [(:artifacts/current @db) (:artifacts/folder @db)]) "the newest file takes the screen, the list its folder")
-      (swap! db artifacts/browsed "")
-      (is (= "" (:artifacts/folder @db)))
+      (is (= {:current nil :folder ""} (artifacts/place @db)) "a new file: the list at the root, nothing on screen")
+      (swap! db artifacts/browsed "a")
+      (is (= "a" (:artifacts/folder @db)))
       (artifacts/refresh! db dir)
-      (is (= "" (:artifacts/folder @db)) "nothing new: the person's browsing stays")
+      (is (= "a" (:artifacts/folder @db)) "nothing new: the person's browsing stays")
       (touch! dir "b/two.md" (+ (js/Date.now) 5000))
       (artifacts/refresh! db dir)
-      (is (= ["b/two.md" "b"] [(:artifacts/current @db) (:artifacts/folder @db)]))
+      (is (= [nil "a"] [(:artifacts/current @db) (:artifacts/folder @db)]) "something new: the person's browsing stays too")
       (artifacts/pick! db "a/one.md")
       (is (= "a" (:artifacts/folder @db)) "a pick browses its folder")
       (artifacts/pick! db nil)
@@ -336,13 +320,14 @@
                (is (= [] (:artifacts/list @db)))
                (touch! dir "card.html" (js/Date.now))
                (await (sleep 400))
-               (testing "a written file is on the list and on screen"
+               (testing "a written file is on the list, the screen untouched"
                  (is (= ["card.html"] (map :path (:artifacts/list @db))))
-                 (is (= "card.html" (:artifacts/current @db))))
+                 (is (nil? (:artifacts/current @db))))
                (touch! dir "deep/pool.png" (+ (js/Date.now) 1000))
                (await (sleep 400))
                (testing "a file in a new folder below"
-                 (is (= "deep/pool.png" (:artifacts/current @db))))
+                 (is (= ["deep/pool.png" "card.html"] (map :path (:artifacts/list @db))))
+                 (is (nil? (:artifacts/current @db))))
                (finally
                  (stop)
                  (fs/rmSync root #js {:recursive true :force true}))))))
@@ -398,6 +383,18 @@
         (is (= ["showing"] (:class (second v))))
         (is (= "/artifacts/card.html" (:ui/src (second (find-tag v :ui/canvas)))))
         (is (= 3 (:ui/rev (second (find-tag v :ui/canvas)))))))
+    (testing "a project on screen: Make the video; Open the video beside it once a render wrote one, a step of the tab's; the progress and Stop while it runs"
+      (let [with-video (conj listed {:path "clip.mp4" :kind :video :title "Clip" :ext "mp4" :mtime 9 :size 100})
+            running {"clip" {:started 1 :progress "30 %"}}
+            bar (fn [& [more]] (find-tag (pane "clip" more) :div.bar))]
+        (is (some #{[:i18n :artifacts/render]} (nodes (bar))))
+        (is (nil? (find-tag (bar) :button.link.video)) "no video yet")
+        (is (= {:command/kind :artifacts/open :command/data {:bot "b1" :path "clip.mp4" :tab :ui/tabid}}
+               (get-in (second (find-tag (bar {:artifacts/list with-video}) :button.link.video)) [:on :click 0 1])))
+        (is (contains? (set (strings (i18n/translate (bar {:artifacts/list with-video}) :en))) "Open the video"))
+        (is (nil? (find-tag (bar {:artifacts/list with-video :renders running}) :button.link.video)) "the progress and Stop instead while it runs")
+        (is (some #{[:i18n :artifacts/render-stop]} (nodes (bar {:artifacts/list with-video :renders running}))))
+        (is (= "clip" (:artifacts/current (artifacts/picked {} "clip"))) "a project is picked like a file")))
     (testing "the folders of the level come first, one row each, the files of the other levels last, for the filter"
       (let [v (pane "card.html")
             keys-of (fn [v] (map #(:replicant/key (second %)) (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))))

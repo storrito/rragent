@@ -364,8 +364,10 @@ bot's tools write, shown by kind (`rragent.artifacts`); the pane shows
 the bot picked in the sidebar, nothing of the others. A page in an
 iframe that reloads in place when its file changes, an image, a video or
 an audio file as themselves, anything else as a download, a chooser over
-all of them. The newest thing the agent wrote takes the pane; a pick of
-the person holds until the agent writes something newer. A recursive
+all of them. Nothing but the person's own click moves the pane: a row
+of the list, a card or a link in the chat. What the agent writes shows
+up on the list, and reloads in place when it is the one on screen; the
+agent names what it made in its answer, where a click opens it. A recursive
 watch on the folder reports every change, and the folder is read again
 every two seconds besides.
 
@@ -387,7 +389,7 @@ a file at any level and names its folder. A recording
 (`artifacts/recordings/<stamp>/`, see [Screencasts](#screencasts)) is a
 folder titled by its time, with its length. The files under `notes/`
 are the agent's working notes: an ordinary folder on the list, but one
-that never takes the screen and gets no card in the chat.
+that gets no card in the chat.
 
 The agent knows what the pane shows: a message the person sends ends
 with the line `on screen beside the chat: artifacts/<path>`, the file
@@ -416,9 +418,11 @@ its package.json (`server.mjs`), the way it did before the templates.
 
 The `render` tool (`rragent.render`) runs the template's `render`
 script on the project and the file it writes, `artifacts/<name>.mp4`
-for a template that renders an mp4, shows up beside the chat like any
+for a template that renders an mp4, shows up on the list like any
 video; the pane has the same as a button, with the progress and a Stop
-while it runs. The render's lines are the running output of the tool
+while it runs, and "Open the video" once there is one (the pane does
+not move to it by itself, not even minutes after the person's own
+click). The render's lines are the running output of the tool
 call. Three more tools make material for a project through OpenRouter,
 the gateway's connector or the key, as the models reach it
 (`rragent.tools.media`, `rragent.openrouter`): `image`, a picture from a description

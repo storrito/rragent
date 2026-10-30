@@ -99,7 +99,7 @@
    the page, so the watch (`affected`) leaves them out of its
    comparison: a change of one pushes no frame."
   #{:value :definition :schedules/next :failed
-    :artifacts/list :artifacts/rev :artifacts/durations :artifacts/current :artifacts/picked-at :artifacts/folder :projects :renders
+    :artifacts/list :artifacts/rev :artifacts/durations :artifacts/current :artifacts/folder :projects :renders
     :artifacts/renaming :artifacts/deleting :pane/steps
     :runs :runs/values :runs/definitions
     :deleting? :renaming? :phone})
