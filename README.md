@@ -63,7 +63,7 @@ The bots' folders are named by their conversations (`rragent.bots`,
 
     agent.sqlite            the one storage: every bot's conversation and state
     bots/<id>/AGENT.md      the bot's definition, read again before every run
-    bots/<id>/work/         where its tools work: artifacts/ and uploads/ in it
+    bots/<id>/work/         where its tools work: artifacts/, uploads/ and programs/ in it
     shared/                 the folder every bot's bash reads and writes
     assistant.md            the generic definition a new bot starts from
     trash/<id>/             where a deleted bot's folder goes
@@ -557,17 +557,48 @@ process. The motion template evaluates in the namespace of
 duration 3)` shows at once, until the file is saved; HyperFrames does
 not take an eval.
 
+## Starters
+
+The programs a bot writes for its job (a pipeline, a scraper, a checker)
+are ClojureScript run by [nbb](https://github.com/babashka/nbb), the
+Node interpreter for ClojureScript: the generic definition says so under
+`## On this machine` (deploy/agent/AGENT.md), which every bot carries
+over into its own definition, so a run of the bot knows it too. The
+reason is who helps when a program does not work: the people behind the
+machine read Clojure, and a model left to itself picks Python. nbb was
+chosen over clojurific (a JVM at compile time, a project to set up, a
+build after every change), babashka (no npm) and squint (JavaScript
+semantics under Clojure syntax, and a misspelled function compiles
+without a word): real ClojureScript, no build, no configuration, npm
+packages and Node's own modules required directly, `node:sqlite` for
+state, `puppeteer-core` for the Chrome on the machine when a job needs
+a browser. A one-off command stays bash.
+
+A bot does not start from nothing: `starters/nbb/` is a how-to written
+for the bot (`README.md`: the folder layout, `run`, tests, promesa for
+promises, npm, the traps) with a working example beside it (JSON items
+in, the new and the changed ones out, the state in SQLite, tests), a
+few files to copy and reshape. The build copies it to
+`dist/starters/nbb`, so a release carries it and a bot reads it from
+there; a bot's programs live in `programs/<name>/` under its `work/`,
+beside `artifacts/` and out of the person's sight (the artifacts pane
+hides nothing, and `node_modules` is no sight for anyone). The images
+install nbb (`NBB_VERSION`, the version `package.json` pins for the
+tests); the Tests workflow runs the example's tests from the bundle's
+copy.
+
 ## Layout
 
 Two Vite builds, one dev server:
 
 - `vite.config.mjs` builds the server, a Node.js program, into
   `dist/rragent.js` (one file) and copies `templates/` next to it, each
-  template without its sources, tests and build files. Its dev server
-  compiles the page's bundle besides and runs the server entry in its ssr
-  environment, so `npm run dev` serves the page at :8080 with the scripts
-  coming from Vite at :5173, which hot reloads them; an nREPL server
-  evaluates in the running server.
+  template without its sources, tests and build files, and `starters/`,
+  the how-to and example of the bots' programs. Its dev server compiles
+  the page's bundle besides and runs the server entry in its ssr
+  environment, so `npm run dev` serves the page at :8080 with the
+  scripts coming from Vite at :5173, which hot reloads them; an nREPL
+  server evaluates in the running server.
 - `vite.client.config.mjs` builds the page's bundle (`rragent.client`, the
   rframes client with Replicant) into `dist/public/assets/` next to
   `public/app.css` and a `manifest.json` that names the bundle's scripts.

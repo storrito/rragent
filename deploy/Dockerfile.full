@@ -2,7 +2,8 @@
 # plus the `needs` of templates/*/TEMPLATE.md, which rragent.programs
 # looks for on the machine: ffmpeg (with the fonts) and Google Chrome for
 # the motion template, the HyperFrames CLI for the hyperframes template
-# besides. A template added later brings its needs to this list. The
+# besides, and nbb, which runs the programs a bot writes (the README's
+# Starters section). A template added later brings its needs to this list. The
 # skills clone and the generic AGENT.md are deploy/Dockerfile's (SKILLS_REPO,
 # SKILLS_BRANCH). Build from the repository's root after `npm run build`:
 #   docker build -f deploy/Dockerfile.full -t rragent-full .
@@ -12,6 +13,7 @@
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
 ARG HYPERFRAMES_VERSION=0.8.172
+ARG NBB_VERSION=1.6.214
 ARG SKILLS_REPO=storrito/agentitos
 ARG SKILLS_BRANCH=main
 
@@ -27,7 +29,8 @@ WORKDIR /home/sprite/rragent
 SHELL ["/bin/bash", "-lc"]
 RUN PUPPETEER_SKIP_DOWNLOAD=1 npm install -g --prefix ~/.local --ignore-scripts --no-fund --no-audit --progress=false \
       hyperframes@${HYPERFRAMES_VERSION} @hyperframes/player@${HYPERFRAMES_VERSION} \
-    && hyperframes --version && ffmpeg -version | head -1 && google-chrome --version
+      nbb@${NBB_VERSION} \
+    && hyperframes --version && nbb --version && ffmpeg -version | head -1 && google-chrome --version
 RUN git clone --depth 1 --branch "${SKILLS_BRANCH}" "https://github.com/${SKILLS_REPO}.git" /home/sprite/skills
 COPY --chown=sprite:sprite dist/ /home/sprite/rragent/dist/
 COPY --chown=sprite:sprite --chmod=700 deploy/start.sh /home/sprite/rragent/start.sh

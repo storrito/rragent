@@ -22,9 +22,13 @@ FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97
 
 ARG SKILLS_REPO=storrito/agentitos
 ARG SKILLS_BRANCH=main
+ARG NBB_VERSION=1.6.214
 
 USER sprite
 WORKDIR /home/sprite/rragent
+SHELL ["/bin/bash", "-lc"]
+# nbb runs the programs a bot writes (the README's Starters section)
+RUN npm install -g --prefix ~/.local --ignore-scripts --no-fund --no-audit --progress=false nbb@${NBB_VERSION} && nbb --version
 RUN git clone --depth 1 --branch "${SKILLS_BRANCH}" "https://github.com/${SKILLS_REPO}.git" /home/sprite/skills
 COPY --chown=sprite:sprite dist/ /home/sprite/rragent/dist/
 COPY --chown=sprite:sprite --chmod=700 deploy/start.sh /home/sprite/rragent/start.sh

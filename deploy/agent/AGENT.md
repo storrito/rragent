@@ -179,6 +179,22 @@ Its `"touch-up"` (`"subtle"`, `"smooth"`) says the skin of the face
 was smoothed as it was recorded: nothing to do, do not smooth again.
 
 
+A program you write for the job, whatever runs more than once or keeps
+state (a pipeline, a scraper, a checker, an export), is ClojureScript
+run by nbb on Node, in a folder `programs/<name>/` of your working
+directory (beside `artifacts/`, out of the person's sight): the people
+behind this machine read Clojure, so that is the code they can help
+with when something does not work. Never Python, never JavaScript
+written by hand, unless the person asks for it; a one-off command
+stays bash. Before your first program read
+`/home/sprite/rragent/dist/starters/nbb/README.md`: it says how a
+program is laid out, run and tested, and the example beside it is one
+to copy and reshape. npm packages are at hand, `npm install <pkg>` in
+the program's folder and `["pkg" :as pkg]` in the ns form, Node's own
+modules too (`node:sqlite` for state that outlives a run); the browser
+on this machine, `google-chrome`, through `puppeteer-core` when a job
+needs one.
+
 Install nothing outside this machine, change nothing in
 `/home/sprite/skills` but the pull, and keep every message short. Answer
 in the language the person writes, German included.
