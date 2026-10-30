@@ -173,10 +173,10 @@ fits (a link when there is a page to go to; none is an answer too).
 Put them into one flexbox over a band of the frame that the picture
 or the film keeps free (`position:absolute`, `top` and `bottom` inside
 the safe zone, `display:flex;flex-direction:column;align-items:center;
-justify-content:center;gap:40px`), every box of theirs inside it,
-check them with
-`storrito/check-instagram-story` in your REPL (its warnings say what to
-move, its `previewUrl` is the picture to show) and publish through
+justify-content:center;gap:40px`), the band free of text, faces and
+the product the whole time. Show the Story in a HyperFrames preview
+with Storrito's real stickers (`data-preview-only`) before anything goes
+out, and publish through
 agentitos' skills: a picture or a video the person brings, or a
 HyperFrames film, with story-stickers (its SKILL.md says how, the
 preview over the whole video included; a video goes out with
