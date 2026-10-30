@@ -951,9 +951,12 @@ downloads `rragent.tar.gz` and its `.sha256` from the release into a
 temp folder next to `dist/`, verifies the checksum, unpacks into
 `dist.new`, swaps it for `dist/` and ends the process with exit code
 75; `deploy/start.sh` starts it again on that code, from the new
-`dist/`, and the page reconnects as it does after any restart. A
-download or a checksum that fails leaves `dist/` as it was and the
-banner says why. Nothing is applied while a run goes. With
+`dist/`, and the page reconnects as it does after any restart; every
+frame names the server's version beside the bot's path, and a tab whose
+bundle is older reloads itself once (`rragent.client/url-alias`), so
+that the open tabs do not go on running the old client against the new
+server. A download or a checksum that fails leaves `dist/` as it was
+and the banner says why. Nothing is applied while a run goes. With
 `RRAGENT_UPDATE=auto`, which `start.sh` sets, a known update goes in by
 itself once the agent is idle the way the sleep watch sees it (no run,
 no render, no page connected), so an agent nobody opens profits too;

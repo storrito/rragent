@@ -25,7 +25,8 @@
             [rragent.messages :as messages]
             [rragent.recordings :as recordings]
             [rragent.runs :as runs]
-            [rragent.uploads :as uploads]))
+            [rragent.uploads :as uploads]
+            [rragent.version :as version]))
 
 (defn cut
   "At most `n` characters of `text`."
@@ -1567,7 +1568,9 @@
         artifacts? (or (seq (:artifacts/list pane)) (seq (:runs pane)))
         onboarding (when-not run onboarding)]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
-     [:ui/url {:ui/path (if run (runs/url id (:id run)) base)}]
+     ;; the version beside the path: a page whose bundle is older than
+     ;; the server reloads itself (`rragent.client/url-alias`)
+     [:ui/url {:ui/path (if run (runs/url id (:id run)) base) :ui/version version/version}]
      ;; the drawer state on a phone, toggled by labels, never rendered
      ;; with :checked so that the person's choice survives a frame
      [:input#nav.toggle {:type "checkbox"}]
