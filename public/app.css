@@ -3001,3 +3001,68 @@ form.secret-field .note {
     white-space: normal;
   }
 }
+
+/* A CSV file on screen (rragent.view/csv-view): the count above, the
+   table scrolling in its own box so that the header stays put. */
+.artifacts .document.csv {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.artifacts .document.csv .count {
+  margin: 10px 14px 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.artifacts .document.csv .table {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.artifacts .document.csv table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.artifacts .document.csv th,
+.artifacts .document.csv td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+/* a long cell wraps at its spaces within a capped width, a word longer
+   than that breaks; a date or a number never wraps (a cell's own
+   max-width is not honoured by the table's layout, the div's is) */
+.artifacts .document.csv td .cell {
+  max-width: 40ch;
+  overflow-wrap: break-word;
+}
+
+.artifacts .document.csv th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  border-bottom: 2px solid var(--line);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.artifacts .document.csv td {
+  font-variant-numeric: tabular-nums;
+}
+
+.artifacts .document.csv tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--panel) 88%, var(--line));
+}
+
+.artifacts .document.csv .hint {
+  margin: 8px 14px 12px;
+}

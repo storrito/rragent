@@ -19,6 +19,7 @@
   (:require [clojure.string :as str]
             [rragent.artifacts :as artifacts]
             [rragent.bots :as bots]
+            [rragent.csv :as csv]
             [rragent.dictation :as dictation]
             [rragent.markdown :as markdown]
             [rragent.recordings :as recordings]
@@ -882,12 +883,36 @@
    (when truncated?
      [:p.hint [:i18n :artifacts/truncated]])])
 
+(defn- csv-view
+  "A CSV file on screen as a table (`rragent.csv/table`): the first
+   row its header, sticky above the rows, the first `max-rows` rows,
+   the count above them; a note when this is the start of the file
+   only."
+  [{:keys [text truncated?]}]
+  (let [{:keys [header rows total cut?]} (csv/table text {:incomplete? truncated?})
+        columns (count header)]
+    [:div.document.csv
+     [:p.hint.count (if cut?
+                      [:i18n :csv/some {:shown (count rows) :rows total :columns columns}]
+                      [:i18n :csv/rows {:rows total :columns columns}])]
+     [:div.table
+      [:table
+       [:thead
+        [:tr (map-indexed (fn [i h] [:th {:replicant/key i} (if (str/blank? h) (str (inc i)) h)]) header)]]
+       [:tbody
+        (map-indexed (fn [i row]
+                       [:tr {:replicant/key i}
+                        (map-indexed (fn [j cell] [:td {:replicant/key j} [:div.cell cell]]) row)])
+                     rows)]]]
+     (when truncated?
+       [:p.hint [:i18n :artifacts/truncated]])]))
+
 (defn- content
   "The artifact on screen by its kind. `project` is the state of its
    process (`rragent.projects`), `render` the state of its render
    (`rragent.render`): the one of the project, or the one still writing
    a video; `text` the text of a text file, `bot` the bot's id."
-  [base {:keys [path kind mtime title] :as artifact} {:keys [project render text bot]}]
+  [base {:keys [path kind mtime title ext] :as artifact} {:keys [project render text bot]}]
   (case kind
     :page [:ui/canvas {:ui/src (artifact-url base path)
                        :ui/rev mtime
@@ -920,9 +945,10 @@
                                         :ui/rev ready-at
                                         :ui/title [:i18n :artifacts/creation]}])
                  :else [:div.placeholder [:i18n :artifacts/starting]]))
-    (:markdown :text) (if text
-                        (text-view kind text base bot path)
-                        [:div.placeholder [:i18n :artifacts/no-preview]])
+    (:markdown :text) (cond
+                        (nil? text) [:div.placeholder [:i18n :artifacts/no-preview]]
+                        (= "csv" ext) (csv-view text)
+                        :else (text-view kind text base bot path))
     [:div.placeholder [:i18n :artifacts/no-preview]]))
 
 (defn- file-actions

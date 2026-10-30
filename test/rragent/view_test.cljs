@@ -379,6 +379,37 @@
       (is (= "stories/" (screen {:artifacts/folder "stories"})))
       (is (nil? (screen {:artifacts/current "gone.html" :artifacts/folder "gone"})) "a pick and a folder gone since"))))
 
+(deftest csv-artifact-test
+  (let [pane {:artifacts/list [{:path "reviews.csv" :kind :text :ext "csv" :title "Reviews" :size 40 :mtime 1}]
+              :artifacts/current "reviews.csv"
+              :base "/bot/1"
+              :bot "1"}
+        shown (fn [text] (i18n/translate (view/artifacts (assoc pane :artifacts/text text)) :en))]
+    (testing "a CSV on screen is a table: the header, the rows, the count"
+      (let [page (shown {:text "guest,stars,text\nAnna,5,\"Great, really.\"\nTom,4,Noisy\n" :truncated? false})
+            table (find-tag page :table)
+            ths (map last (filter #(and (vector? %) (= :th (first %))) (nodes table)))
+            tds (map #(last (last %)) (filter #(and (vector? %) (= :td (first %))) (nodes table)))]
+        (is (some? (find-tag page :div.document.csv)))
+        (is (nil? (find-tag page :pre.plain)))
+        (is (= ["guest" "stars" "text"] ths))
+        (is (= ["Anna" "5" "Great, really." "Tom" "4" "Noisy"] tds))
+        (is (some #{"2 rows · 3 columns"} (strings page)))
+        (is (not-any? #(and (string? %) (str/includes? % "longer than this")) (strings page)))))
+    (testing "the start of a longer file: the cut row dropped, the note"
+      (let [page (shown {:text "a,b\n1,2\n3,4\n5," :truncated? true})
+            tds (map #(last (last %)) (filter #(and (vector? %) (= :td (first %))) (nodes (find-tag page :table))))]
+        (is (= ["1" "2" "3" "4"] tds))
+        (is (some #(and (string? %) (str/includes? % "longer than this")) (strings page)))))
+    (testing "another text file stays as it is"
+      (let [page (i18n/translate (view/artifacts (-> pane
+                                                     (assoc :artifacts/list [{:path "notes.txt" :kind :text :ext "txt" :title "Notes" :size 4 :mtime 1}]
+                                                            :artifacts/current "notes.txt"
+                                                            :artifacts/text {:text "a,b\n1,2" :truncated? false})))
+                                  :en)]
+        (is (some? (find-tag page :pre.plain)))
+        (is (nil? (find-tag page :table)))))))
+
 (deftest attachments-test
   (let [text "What is in it?\nimage: uploads/0a0b.png\nvideo: uploads/ab12.mp4\naudio: uploads/ff00.wav"
         c {:entries [(user 2 [{:type "text" :text text} {:type "image" :data "iVBOR" :mimeType "image/png"}])]
