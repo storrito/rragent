@@ -229,14 +229,25 @@
         (recur (into (vec (rest todo)) children) (+ total (usage-cost usage))))
       total)))
 
+(def compaction-focus
+  "What a compaction rragent starts asks its summary for besides
+   pi-durable's format: the files of the pictures the agent looked at,
+   which the model gets whole until the compaction
+   (`rragent.observations`) and not after it, so that the agent can
+   read them again."
+  (str "Under Critical Context, list the files of the pictures looked at in the summarized part "
+       "(read and tool results) that the work may still need, each by its exact path with a few words "
+       "on what it shows, so they can be read again; leave out pictures no longer relevant."))
+
 (defn ^:async compact-unless-compacting!
   "A manual compaction of the conversation `id` of `harness` admitted,
-   unless one runs for it already (`pi.live` of it lists it)."
+   unless one runs for it already (`pi.live` of it lists it), its
+   summary asked for the pictures' files (`compaction-focus`)."
   [harness id]
   (let [live (await (.snapshot harness LiveDoc id context))]
     (when (empty? (some-> live .-compactions array-seq))
       (when-let [conversation (await (.conversation harness id context))]
-        (await (.compact conversation js/undefined context))))))
+        (await (.compact conversation compaction-focus context))))))
 
 (defn context-budget
   "The extension that keeps every conversation within `budget` tokens of

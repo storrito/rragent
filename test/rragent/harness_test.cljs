@@ -108,9 +108,11 @@
            (let [home (test-home/make "AGENT.md" (str/replace test-home/definition-text "faux-1" "wide-1"))
                  {:keys [faux models]} (tools-test/faux-models {:models [{:id "wide-1" :contextWindow 1050000}]})
                  windows (atom [])
+                 asked (atom [])
                  answer (fn [text]
-                          (fn [_context _options _state model]
+                          (fn [context _options _state model]
                             (swap! windows conj (.-contextWindow model))
+                            (swap! asked conj (js/JSON.stringify (.-messages context)))
                             (tools-test/answer text)))
                  ;; some 25,000 tokens each, four characters a token
                  long-text (fn [word] (str/join " " (repeat 25000 word)))]
@@ -125,7 +127,8 @@
                             (is (= "Noted again." (await (harness/ask agent (long-text "blue")))))
                             (let [entry (await (compaction-entry (:root agent)))]
                               (is (some? entry) "an answer that read more than the budget compacts the conversation, its model's window far off")
-                              (is (str/includes? (js/JSON.stringify entry) "The person sent two long texts.") "the summary is the model's"))
+                              (is (str/includes? (js/JSON.stringify entry) "The person sent two long texts.") "the summary is the model's")
+                              (is (str/includes? (last @asked) (str "Additional focus: " harness/compaction-focus)) "asked for the pictures' files"))
                             (is (= [1050000 1050000 1050000] @windows) "the model keeps its own window, for the answers and the summary")
                             (finally
                               (await (harness/close agent))

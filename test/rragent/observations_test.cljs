@@ -56,7 +56,7 @@
   (testing "two turns or fewer: the same array"
     (let [messages #js [(user "one") (call "c1" "read" {:path "a.png"}) (result "c1" picture) (user "two")]]
       (is (identical? messages (observations/mask messages)))))
-  (testing "the texts before the last two turns shortened, a few pictures whole in any turn, the rest the same objects"
+  (testing "the texts before the last two turns shortened, pictures whole in any turn, the rest the same objects"
     (let [old-picture (result "c1" picture (text "a.png, 640×480"))
           old-text (result "c2" (text long-text))
           old-short (result "c3" (text "ok"))
@@ -73,7 +73,7 @@
           masked (observations/mask messages)]
       (is (not (identical? messages masked)))
       (is (= 13 (.-length masked)))
-      (is (identical? old-picture (aget masked 2)) "a picture of an earlier turn stays while there are few: the person may point at it")
+      (is (identical? old-picture (aget masked 2)) "a picture of an earlier turn stays: the person may point at it")
       (is (< (count (.-text (aget (.-content (aget masked 4)) 0))) 2200) "a long text shortened")
       (is (identical? old-short (aget masked 6)) "a short result stays the same object")
       (is (identical? kept-picture (aget masked 9)) "the turn before the running one is whole")
@@ -95,47 +95,22 @@
       (is (identical? skill (aget masked 2)))
       (is (identical? reference (aget masked 4)) "a file of a skill's folder")
       (is (identical? definition (aget masked 6)) "the bot's own definition")
-      (is (not (identical? other (aget masked 8))) "the same file through bash is a command's output")))
-  (testing "a picture whose call is unknown"
-    (let [messages (.concat #js [(user "one") (result "gone" picture (text "640×480"))] (.slice (frames 20) 1))
-          masked (aget (observations/mask messages) 1)]
-      (is (= "[A picture was here; earlier pictures are left out.]" (.-text (aget (.-content masked) 0))))
-      (is (= "640×480" (.-text (aget (.-content masked) 1))) "its text beside stays")
-      (is (= "gone" (.-toolCallId masked)) "the result keeps its call"))))
+      (is (not (identical? other (aget masked 8))) "the same file through bash is a command's output"))))
 
-(deftest dropped-pictures-test
-  (is (= [0 0 0 10 10 20] (mapv observations/dropped-pictures [0 10 19 20 29 30]))
-      "between 10 and 19 stay, the rest goes ten at a time"))
-
-(deftest limit-pictures-test
-  (testing "up to 19 pictures in one run, all whole"
-    (let [messages (frames 19)]
-      (is (identical? messages (observations/mask messages)))))
-  (testing "across turns too: 25 pictures, a few per message"
+(deftest pictures-test
+  (testing "pictures stay whole, however many and however old: a compaction takes them"
     (let [messages (into-array (mapcat (fn [k] [(user (str "Next " k))
                                                 (call (str "g" k) "read" {:path (str "g" k ".png")}) (result (str "g" k) picture)])
-                                       (range 25)))
-          results (filter #(= "toolResult" (.-role %)) (array-seq (observations/mask messages)))]
-      (is (= 15 (count (filter picture? results))) "the last 15, whatever their turn")))
-  (testing "25 pictures in one run: the first 10 as notes, the last 15 whole"
-    (let [masked (observations/mask (frames 25))
-          results (filter #(= "toolResult" (.-role %)) (array-seq masked))]
-      (is (= 15 (count (filter picture? results))))
-      (is (every? (complement picture?) (take 10 results)))
-      (is (every? picture? (drop 10 results)))
-      (is (= "[The picture frames/0.png was here; earlier pictures are left out. Read the file again to see it.]"
-             (.-text (aget (.-content (first results)) 0)))
-          "naming the frame its call read")))
-  (testing "a new picture leaves the start of the request as it was, for the cache"
-    (is (= (js->clj (.slice (observations/mask (frames 25)) 0 51))
-           (js->clj (.slice (observations/mask (frames 29)) 0 51)))))
-  (testing "pictures a skill holds are instructions: neither counted nor dropped"
-    (let [skill-picture (result "s1" picture)
-          messages (.concat #js [(user "Go") (call "s1" "read" {:path "/home/sprite/skills/platform-zones/zones.png"}) skill-picture]
-                            (.slice (frames 25) 1))
-          masked (observations/mask messages)]
-      (is (identical? skill-picture (aget masked 2)))
-      (is (= 16 (count (filter picture? (filter #(= "toolResult" (.-role %)) (array-seq masked)))))))))
+                                       (range 60)))]
+      (is (identical? messages (observations/mask messages)))))
+  (testing "in one long run too"
+    (let [messages (frames 60)]
+      (is (identical? messages (observations/mask messages)))))
+  (testing "beside a long text of an earlier turn, the picture stays and the text is shortened"
+    (let [old (result "c1" picture (text long-text))
+          masked (aget (observations/mask #js [(user "one") (call "c1" "read" {:path "a.png"}) old (user "two") (user "three")]) 2)]
+      (is (identical? picture (aget (.-content masked) 0)))
+      (is (< (count (.-text (aget (.-content masked) 1))) 2200)))))
 
 (deftest masked-request-test
   (async done
