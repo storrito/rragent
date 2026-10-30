@@ -37,7 +37,9 @@ whenever a file of it changes.
   `variables.json`; the file appears when the render is done (it is
   made in a hidden folder beside it). The preview plays the design
   live, so render only when the file itself is needed, not after every
-  change.
+  change. An element marked `data-preview-only` shows in the player but
+  not in the video: Instagram's stickers that Storrito lays over the
+  finished video itself (agentitos' story-stickers), a guide.
 - Several compositions, side by side: without `composition/index.html`,
   every folder `composition/<name>/` with its own `index.html` (a whole
   HyperFrames project: its `compositions/`, `assets/`) is shown in a

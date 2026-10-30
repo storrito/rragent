@@ -9,6 +9,13 @@
 // status is this script's. RRAGENT_RENDER_ARGS adds arguments for the
 // CLI, `--browser-gpu` on a machine with a graphics card for example.
 //
+// An element of index.html marked `data-preview-only` shows in the
+// player beside the chat but not in the video: Instagram's stickers that
+// Storrito lays over the finished video itself, a guide. The render then
+// takes a hidden copy of index.html without them, `.render-index.html`
+// beside it (so that every path in it stays the same), through the
+// CLI's --composition; the copy goes with the render.
+//
 // The CLI keeps its work folder (the frames, the compiled composition,
 // the sound) beside the file it writes, and rragent lists every file
 // under artifacts/ that is not hidden: rendering into artifacts/ itself
@@ -30,25 +37,64 @@ if (!projectDir || !out) {
 const target = path.resolve(out);
 const staging = path.join(path.dirname(target), `.render-${path.basename(target, path.extname(target))}`);
 const staged = path.join(staging, path.basename(target));
-// the folder gone; a CLI still writing into it after a stop may keep it, hidden, until the next render
+const composition = path.join(path.resolve(projectDir), "composition");
+const previewless = path.join(composition, ".render-index.html");
+// the folder and the copy gone; a CLI still writing into them after a stop may keep them, hidden, until the next render
 const clean = () => {
-  try {
-    fs.rmSync(staging, { recursive: true, force: true });
-  } catch {
-    // left for the next render's clean
+  for (const p of [staging, previewless]) {
+    try {
+      fs.rmSync(p, { recursive: true, force: true });
+    } catch {
+      // left for the next render's clean
+    }
   }
 };
 let stopping = false;
 clean();
 fs.mkdirSync(staging, { recursive: true });
 
-const composition = path.join(path.resolve(projectDir), "composition");
 const variables = path.join(path.resolve(projectDir), "variables.json");
 const cli = process.env.HYPERFRAMES || "hyperframes";
 const chrome = process.env.CHROME;
 const extra = (process.env.RRAGENT_RENDER_ARGS || "").trim().split(/\s+/).filter(Boolean);
 const args = ["render", ".", "--output", staged, ...extra];
 if (fs.existsSync(variables)) args.push("--variables-file", variables);
+
+// html without its elements marked data-preview-only: each from its
+// opening tag to its matching closing tag (one of the same name, the
+// nesting counted), or the tag alone when it is empty or self-closing
+const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+function withoutPreviewOnly(html) {
+  const marked = /<([a-zA-Z][\w-]*)\b[^>]*?\sdata-preview-only(?=[\s=>/])[^>]*>/;
+  let out = html;
+  for (let m = marked.exec(out); m; m = marked.exec(out)) {
+    const name = m[1].toLowerCase();
+    let end = m.index + m[0].length;
+    if (!VOID.has(name) && !m[0].endsWith("/>")) {
+      const tags = new RegExp(`<(/?)${name}\\b[^>]*>`, "gi");
+      tags.lastIndex = end;
+      let depth = 1;
+      for (let t = tags.exec(out); t; t = tags.exec(out)) {
+        depth += t[1] ? -1 : t[0].endsWith("/>") ? 0 : 1;
+        if (depth === 0) {
+          end = t.index + t[0].length;
+          break;
+        }
+      }
+      if (depth !== 0) end = out.length;
+    }
+    out = out.slice(0, m.index) + out.slice(end);
+  }
+  return out;
+}
+const index = path.join(composition, "index.html");
+if (fs.existsSync(index)) {
+  const html = fs.readFileSync(index, "utf8");
+  if (/\sdata-preview-only(?=[\s=>/])/.test(html)) {
+    fs.writeFileSync(previewless, withoutPreviewOnly(html));
+    args.push("--composition", path.basename(previewless));
+  }
+}
 
 const env = {
   ...process.env,
