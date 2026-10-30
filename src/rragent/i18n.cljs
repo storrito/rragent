@@ -36,7 +36,7 @@
    :artifacts/back "Artifacts"
    :artifacts/project "project"
    :artifacts/pick "Pick a file on the left."
-   :artifacts/truncated "The file is longer than this; download it from above for all of it."
+   :artifacts/truncated "The file is longer than this; download it from the menu of its row for all of it."
    :artifacts/files [:fn/str "{{:n}} files"]
    :artifacts/one-file "1 file"
    :artifacts/filter "Filter the list"
@@ -53,7 +53,7 @@
    :artifacts/render-failed [:fn/str "The video did not come out: {{:error}}"]
    :artifacts/creation "Your creation"
    :artifacts/empty "What the agent makes for you appears here."
-   :artifacts/no-preview "There is no preview for this file. Download it from above."
+   :artifacts/no-preview "There is no preview for this file. Download it from the menu of its row."
    :artifacts/starting "Starting this artifact …"
    :artifacts/stopped [:fn/str "This artifact's process stopped (exit {{:exit}}). Its .log says why; it is started again."]
 
@@ -315,7 +315,7 @@
    :artifacts/back "Artefakte"
    :artifacts/project "Projekt"
    :artifacts/pick "Wähle links eine Datei."
-   :artifacts/truncated "Die Datei ist länger als das hier; oben lässt sie sich ganz herunterladen."
+   :artifacts/truncated "Die Datei ist länger als das hier; über das Menü ihrer Zeile lässt sie sich ganz herunterladen."
    :artifacts/files [:fn/str "{{:n}} Dateien"]
    :artifacts/one-file "1 Datei"
    :artifacts/filter "Liste filtern"
@@ -332,7 +332,7 @@
    :artifacts/render-failed [:fn/str "Das Video ist nicht gelungen: {{:error}}"]
    :artifacts/creation "Dein Werk"
    :artifacts/empty "Was der Agent für dich macht, erscheint hier."
-   :artifacts/no-preview "Für diese Datei gibt es keine Vorschau. Lade sie oben herunter."
+   :artifacts/no-preview "Für diese Datei gibt es keine Vorschau. Lade sie über das Menü ihrer Zeile herunter."
    :artifacts/starting "Dieses Artefakt startet …"
    :artifacts/stopped [:fn/str "Der Prozess dieses Artefakts hat sich beendet (Exit {{:exit}}). Seine .log sagt warum; er wird neu gestartet."]
 
