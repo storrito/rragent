@@ -232,7 +232,9 @@ Stop that aborts the run, a program of the REPL in it ended with its
 worker thread. Everything of a bot is served under its page,
 `/bot/<id>/artifacts/…`, `/bot/<id>/uploads/…`, where the composer
 posts too, so a link or a picture in an answer that names
-`artifacts/<path>` or `uploads/<name>` points at that bot's file. The
+`artifacts/<path>` or `uploads/<name>` points at that bot's file; a
+link to an artifact opens it in the pane, where it can still be
+downloaded, an upload or an outside link in a new tab. The
 texts are English or German, by the browser's language or `?lang=de`.
 
 A chat with nothing in it opens with the skill's welcome
