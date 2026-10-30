@@ -3,7 +3,8 @@
    frame stream of the page it is on and renders every frame with
    Replicant, with aliases of our own: the composer, the canvas of the
    artifacts pane, the iframe that shows a page or a project and reloads
-   it in place (the canvas is rchat's), the filter above the pane's
+   it in place (the canvas is rchat's), the editor of a text file in
+   it (`rragent.client.editor`), the filter above the pane's
    list (`files-filter`), and the button of a ```hiccup block that
    sends the boxes ticked in it.
 
@@ -38,6 +39,7 @@
             [rframes.client.state :as state]
             [rframes.client.ui :as ui]
             [rragent.client.dictation :as dictation]
+            [rragent.client.editor :as editor]
             [rragent.client.icons :as icons]
             [rragent.client.phone :as phone]
             [rragent.client.recorder :as recorder]))
@@ -1234,6 +1236,8 @@
     :ui.alias/fn files-filter}
    {:ui.alias/kind :ui/canvas
     :ui.alias/fn canvas}
+   {:ui.alias/kind :ui/code-editor
+    :ui.alias/fn editor/code-editor}
    {:ui.alias/kind :ui/send-checked
     :ui.alias/fn send-checked}
    {:ui.alias/kind :ui/secret-field

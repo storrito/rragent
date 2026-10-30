@@ -29,7 +29,10 @@
   (is (= :page (artifacts/kind "guest-review_card.html")))
   (is (= :image (artifacts/kind "photos/Pool.JPG")))
   (is (= :video (artifacts/kind "story.mp4")))
-  (is (= :file (artifacts/kind "review-story.clj")))
+  (is (= :text (artifacts/kind "review-story.clj")) "a script opens in the editor")
+  (is (= :text (artifacts/kind "card/main.js")))
+  (is (= :text (artifacts/kind "card/style.css")))
+  (is (= :file (artifacts/kind "fonts/Inter.woff2")))
   (is (= :file (artifacts/kind "notes")))
   (is (= :markdown (artifacts/kind "youtube-title_and_description.md")))
   (is (= :text (artifacts/kind "notes/transcript.TXT")))
@@ -303,6 +306,30 @@
       (finally
         (fs/rmSync root #js {:recursive true :force true})))))
 
+(deftest write-test
+  (let [dir (temp-dir "rragent-write-")]
+    (try
+      (touch! dir "notes/todo.txt" 1000)
+      (touch! dir "card.html" 1000)
+      (testing "the text saved in the editor is written over the file, and nothing else"
+        (is (= :written (artifacts/write! dir "notes/todo.txt" "- buy milk\n- call Anna\n")))
+        (is (= "- buy milk\n- call Anna\n" (fs/readFileSync (path/join dir "notes/todo.txt") "utf8")))
+        (is (= :written (artifacts/write! dir "card.html" "")) "an emptied file is written too")
+        (is (= "" (fs/readFileSync (path/join dir "card.html") "utf8")))
+        (let [mtime (js/Math.round (.-mtimeMs (fs/statSync (path/join dir "card.html"))))]
+          (is (< 1000 mtime) "the file has a new time, the version the pane goes by")
+          (is (= {:text "" :truncated? false} (artifacts/text-of dir {:path "card.html" :kind :text :mtime mtime})) "the written text for the pane")))
+
+      (testing "nothing out of the folder, nothing hidden, and no new files: the editor changes files"
+        (is (= :outside (artifacts/write! dir "../todo.txt" "x")))
+        (is (= :outside (artifacts/write! dir ".env" "SECRET=1")))
+        (is (= :missing (artifacts/write! dir "notes/new.txt" "x")))
+        (is (= :missing (artifacts/write! dir "notes" "x")) "a folder is no file")
+        (is (not (fs/existsSync (path/join dir "notes/new.txt"))))
+        (is (not (fs/existsSync (path/join dir ".env")))))
+      (finally
+        (fs/rmSync dir #js {:recursive true :force true})))))
+
 (deftest text-of-test
   (let [dir (temp-dir "rragent-text-")]
     (touch! dir "notes.md" 1000)
@@ -426,7 +453,8 @@
                  (get-in (second (find-tag bar :button.link.crumb)) [:on :click 0 1])) "the project's crumb before the file's title leads back to the player")
           (is (= ["Clip" " ›"] (drop 2 (find-tag bar :button.link.crumb))))
           (is (= ["Index"] (rest (find-tag bar :span.title))))
-          (is (some #{[:pre.plain "<html>"]} (nodes v)) "the page inside a project is shown as its source")
+          (is (= {:ui/text "<html>" :ui/ext "html" :ui/path "clip/composition/index.html"}
+                 (select-keys (second (find-tag v :ui/code-editor)) [:ui/text :ui/ext :ui/path])) "the page inside a project is shown as its source, in the editor")
           (is (= "/artifacts/clip/composition/index.html?rev=8&raw" (:href (second (find-tag v :a.item)))) "Open takes the file as it is, not the project's page of it"))
         (is (= ["Card"] (rest (find-tag (find-tag (pane "card.html") :div.bar) :span.title))) "a file outside a project: the title alone")))
     (testing "the folders of the level come first, one row each, the files of the other levels last, for the filter"

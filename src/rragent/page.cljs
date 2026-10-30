@@ -171,7 +171,7 @@
   "The keys of the pane (`rragent.view/artifacts`), with the text of
    the artifact on screen when it is a text file."
   [{:keys [dir] :as bot}]
-  (let [pane (select-keys bot [:artifacts/list :artifacts/current :artifacts/folder :artifacts/durations :artifacts/renaming :artifacts/deleting :projects :renders :runs])
+  (let [pane (select-keys bot [:artifacts/list :artifacts/current :artifacts/folder :artifacts/durations :artifacts/renaming :artifacts/deleting :artifacts/editing :projects :renders :runs])
         current (some #(when (= (:artifacts/current bot) (:path %)) %) (:artifacts/list bot))]
     (cond-> pane
       current (assoc :artifacts/text (artifacts/text-of dir current)))))
@@ -536,6 +536,47 @@
     (do (swap! db/db clear-artifact-flags (:id bot))
         (command/accepted w))
     (command/rejected w :no-such-bot)))
+
+(defn- save-artifact-command
+  "The text of the editor written over the file
+   (`rragent.artifacts/write!`): the text file on screen, saved with
+   Ctrl+S or the Save of its strip (`rragent.client.editor`). The
+   folder is read again at once, so that the frame with the saved text
+   follows the answer, which marks the editor clean. Refused for a
+   file that is not on the list or not a text, for one longer than the
+   pane shows (`text-cap`: the editor has its start alone, a save
+   would cut the rest), and without a text."
+  [w]
+  (let [{:keys [path text]} (command/command-data w)
+        bot (bot-of-command w)
+        artifact (artifact-of bot path)]
+    (cond
+      (nil? artifact) (command/rejected w :no-such-artifact)
+      (not (artifacts/text-kinds (:kind artifact))) (command/rejected w :not-text)
+      (not (string? text)) (command/rejected w :no-text)
+      (> (:size artifact) artifacts/text-cap) (command/rejected w :truncated)
+      :else (let [outcome (artifacts/write! (:dir bot) path text)]
+              (if (= :written outcome)
+                (do (artifacts/refresh! db/db (db/bot-path (:id bot)) (:dir bot))
+                    (command/accepted w))
+                (command/rejected w outcome))))))
+
+(defn- edit-artifact-command
+  "Edit in the bar of a markdown file or a CSV: its text in the editor
+   in place of its view (`:on?`), or the view again
+   (`:artifacts/editing`, read by `rragent.view/artifacts`)."
+  [w]
+  (let [{:keys [path on?]} (command/command-data w)
+        bot (bot-of-command w)]
+    (cond
+      (nil? bot) (command/rejected w :no-such-bot)
+      (nil? (artifact-of bot path)) (command/rejected w :no-such-artifact)
+      :else (do (swap! db/db db/update-at (db/bot-path (:id bot))
+                       (fn [value]
+                         (if on?
+                           (assoc value :artifacts/editing path)
+                           (dissoc value :artifacts/editing))))
+                (command/accepted w)))))
 
 (defn- render-command
   "Make the video of the project on screen; the frames show the progress."
@@ -1174,6 +1215,10 @@
       :command/fn #'delete-artifact-command}
      {:command/kind :artifacts/keep
       :command/fn #'keep-artifact-command}
+     {:command/kind :artifacts/save
+      :command/fn #'save-artifact-command}
+     {:command/kind :artifacts/edit
+      :command/fn #'edit-artifact-command}
      {:command/kind :artifacts/render
       :command/fn #'render-command}
      {:command/kind :artifacts/render-stop
