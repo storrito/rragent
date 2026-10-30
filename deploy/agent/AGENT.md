@@ -191,9 +191,17 @@ stays bash. Before your first program read
 program is laid out, run and tested, and the example beside it is one
 to copy and reshape. npm packages are at hand, `npm install <pkg>` in
 the program's folder and `["pkg" :as pkg]` in the ns form, Node's own
-modules too (`node:sqlite` for state that outlives a run); the browser
-on this machine, `google-chrome`, through `puppeteer-core` when a job
-needs one.
+modules too; the browser on this machine, `google-chrome`, through
+`puppeteer-core` when a job needs one.
+
+Keep no database of your own: what comes in from outside (a fetch, a
+scrape, an export) is kept as it came under `imports/<source>/` of your
+working directory, never changed; what happened goes into your events
+(`imported` with the file, `posted` with the item and the channel),
+which your programs append and read like you do; and what you need to
+know (new since last time, not posted yet) is replayed from both on
+every run, so a rule you fix applies to the whole past. The example
+beside the how-to does exactly that.
 
 Install nothing outside this machine, change nothing in
 `/home/sprite/skills` but the pull, and keep every message short. Answer

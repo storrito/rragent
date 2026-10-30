@@ -20,7 +20,9 @@
         :description (str "Note an event for later: what happened, with a name for the kind of event and the details, for example "
                           "event \"review-posted\" with {id: 4711, stars: 5}. Events are never changed or lost, the conversation's "
                           "summaries leave them alone, and your runs see them as you do; `recall` reads them back. "
-                          "Use it for everything you must know in a later run: what was posted, what was seen, what was decided.")
+                          "Use it for everything you must know in a later run: what was posted, what was seen, what was decided. "
+                          "It is the bookkeeping of your programs too: what they imported (the file kept under imports/) and "
+                          "what was done with each item, which they append themselves; keep no database beside it.")
         :parameters (.Object Type #js {:event (.String Type #js {:description "The kind of event, a short name such as review-posted"})
                                        :data (.Optional Type (.Any Type #js {:description "The details, a JSON object"}))})
         :execute (^:async fn [args api call-context]
@@ -38,7 +40,8 @@
         :description (str "Your events, oldest first, as `events`: maps with :event, :at (milliseconds) and your own keys. "
                           "With `code`, Clojure evaluated with `events` bound, the value is the answer: a projection you write, "
                           "for example (->> events (filter #(= \"review-posted\" (:event %))) (map :id) set). "
-                          "Without code the events themselves. `event` and `since` narrow the events first.")
+                          "Without code the events themselves. `event` and `since` narrow the events first. "
+                          "Your programs' events are here too (imported, posted), so what was posted or imported is a projection, never a lookup elsewhere.")
         :parameters (.Object Type #js {:code (.Optional Type (.String Type #js {:description "Clojure over `events`"}))
                                        :event (.Optional Type (.String Type #js {:description "Only events of this kind"}))
                                        :since (.Optional Type (.String Type #js {:description "Only events from this time on, ISO 8601"}))})

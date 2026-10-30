@@ -9,9 +9,13 @@
    state to keep in step: a read model is a projection the bot writes
    as Clojure over the events, oldest first, evaluated here by SCI
    (`project`). Compaction summarizes what the model sees and leaves
-   the file alone, so an event outlives every summary. Before the
-   file, the events were entries of the kind `rragent.fact` in the
-   bot's conversation; `migrate!` writes those into the file once."
+   the file alone, so an event outlives every summary. The programs
+   a bot writes append and read the same file in the same format
+   (`starters/nbb/events.cljs` mirrors `line` and `read`): an import
+   they kept, a posting they made, which `recall` then answers from.
+   Before the file, the events were entries of the kind `rragent.fact`
+   in the bot's conversation; `migrate!` writes those into the file
+   once."
   (:require ["node:fs" :as fs]
             [cljs.reader :as reader]
             [clojure.string :as str]
