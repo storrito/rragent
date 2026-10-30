@@ -1,6 +1,6 @@
 (ns rragent.artifact-tools-test
   "The project and render tools through a tool-calling turn of the faux
-   model: the real templates copied into the agent's work folder, the
+   model: the real template copied into the agent's work folder, the
    HyperFrames render by the fake CLI, the lines of the render as the
    call's output; and the project tool refusing a template the
    definition does not allow."
@@ -13,6 +13,7 @@
             [rragent.render-test :as render-test]
             [rragent.templates :as templates]
             [rragent.test-home :as test-home]
+            [rragent.test-templates :as test-templates]
             [rragent.tools-test :as tools-test]
             [rragent.tools.project :as project-tool]))
 
@@ -25,16 +26,23 @@
          (map #(js/JSON.stringify (.-model %))))))
 
 (deftest templates-test
-  (is (= ["hyperframes" "motion"] (templates/names)) "the templates of the project, found without RRAGENT_TEMPLATES")
+  (is (= ["hyperframes"] (templates/names)) "the template of the project, found without RRAGENT_TEMPLATES")
   (testing "what the project tool tells the model"
     (let [all (project-tool/allowed {:templates nil})
           text (project-tool/description all)]
-      (is (= ["hyperframes" "motion"] (map :name all)))
-      (is (str/includes? text "motion, A motion design"))
+      (is (= ["hyperframes"] (map :name all)))
       (is (str/includes? text "hyperframes, A HyperFrames composition"))
       (is (str/includes? text "(renders mp4)"))
-      (is (= ["motion"] (map :name (project-tool/allowed {:templates ["motion" "nope"]}))) "an allowed template that is not installed is not offered")
-      (is (str/includes? (project-tool/description []) "no template")))))
+      (is (= ["hyperframes"] (map :name (project-tool/allowed {:templates ["hyperframes" "nope"]}))) "an allowed template that is not installed is not offered")
+      (is (str/includes? (project-tool/description []) "no template"))))
+  (testing "no kind named with two templates allowed: the question, nothing made"
+    (let [{:keys [restore!]} (test-templates/install! [test-templates/fake test-templates/static])]
+      (try
+        (is (= ["fake" "static"] (map :name (project-tool/allowed {:templates nil}))))
+        (is (thrown-with-msg? js/Error #"Which template\? One of: fake, static\."
+                              (project-tool/create! "/tmp/none" (project-tool/allowed {:templates nil}) "which" nil)))
+        (finally
+          (restore!))))))
 
 (deftest project-and-render-test
   (async done
@@ -43,8 +51,7 @@
                  {:keys [faux models]} (tools-test/faux-models)
                  {:keys [restore!]} (render-test/with-tools!)]
              (.setResponses faux #js [(tools-test/tool-call "project" {:action "create" :name "card" :kind "hyperframes"} "p1")
-                                      (tools-test/tool-call "project" {:action "create" :name "clip" :kind "motion"} "p0")
-                                      (tools-test/tool-call "project" {:action "create" :name "which"} "p4")
+                                      (tools-test/tool-call "project" {:action "create" :name "clip"} "p0")
                                       (tools-test/tool-call "project" {:action "list"} "p2")
                                       (tools-test/tool-call "render" {:name "card"} "r1")
                                       (tools-test/tool-call "project" {:action "log" :name "card"} "p3")
@@ -54,20 +61,18 @@
                  (is (= "The card is ready." (await (harness/ask agent "Make a card and render it."))))
                  (let [artifacts (path/join home "bots" "1" "work" "artifacts")
                        texts (await (results agent))]
-                   (testing "the templates' projects are in the work folder, each package naming its template, the notes answered"
+                   (testing "the template's project is in the work folder, its package naming the template, the notes answered"
                      (is (fs/existsSync (path/join artifacts "card" "composition" "index.html")))
                      (is (not (fs/existsSync (path/join artifacts "card" "serve"))) "the template's program stays with the template")
                      (is (= "hyperframes" (aget (js/JSON.parse (fs/readFileSync (path/join artifacts "card" "package.json") "utf8")) "template")))
                      (is (some #(str/includes? % "artifacts/card/ is ready, made from the template hyperframes") texts))
-                     (is (some #(str/includes? % "composition/index.html") texts) "the notes of the template")
-                     (is (fs/existsSync (path/join artifacts "clip" "design.cljs")))
-                     (is (= "motion" (aget (js/JSON.parse (fs/readFileSync (path/join artifacts "clip" "package.json") "utf8")) "template")))
-                     (is (some #(str/includes? % "artifacts/clip/ is ready, made from the template motion") texts)))
-                   (testing "no kind named with two templates allowed: the question"
-                     (is (some #(str/includes? % "Which template? One of: hyperframes, motion.") texts))
-                     (is (not (fs/existsSync (path/join artifacts "which")))))
-                   (testing "the list names them with their templates"
-                     (is (some #(and (str/includes? % "card (hyperframes): not running") (str/includes? % "clip (motion): not running")) texts)))
+                     (is (some #(str/includes? % "composition/index.html") texts) "the notes of the template"))
+                   (testing "no kind named: the one installed template, no question"
+                     (is (fs/existsSync (path/join artifacts "clip" "composition" "index.html")))
+                     (is (= "hyperframes" (aget (js/JSON.parse (fs/readFileSync (path/join artifacts "clip" "package.json") "utf8")) "template")))
+                     (is (some #(str/includes? % "artifacts/clip/ is ready, made from the template hyperframes") texts)))
+                   (testing "the list names them with their template"
+                     (is (some #(and (str/includes? % "card (hyperframes): not running") (str/includes? % "clip (hyperframes): not running")) texts)))
                    (testing "the render wrote the video through the template's script and said so"
                      (is (= "video\n" (fs/readFileSync (path/join artifacts "card.mp4") "utf8")))
                      (is (some #(str/includes? % "artifacts/card.mp4 is ready.") texts))
@@ -86,7 +91,7 @@
     (-> ((^:async fn []
            (let [home (test-home/make "AGENT.md" (str/replace test-home/definition-text "  model: faux-1\n" "  model: faux-1\n  templates: [hyperframes]\n"))
                  {:keys [faux models]} (tools-test/faux-models)]
-             (.setResponses faux #js [(tools-test/tool-call "project" {:action "create" :name "clip" :kind "motion"} "p1")
+             (.setResponses faux #js [(tools-test/tool-call "project" {:action "create" :name "clip" :kind "slides"} "p1")
                                       (tools-test/tool-call "project" {:action "create" :name "card"} "p2")
                                       (tools-test/answer "Done.")])
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
@@ -96,7 +101,7 @@
                  (let [artifacts (path/join home "bots" "1" "work" "artifacts")
                        texts (await (results agent))]
                    (testing "a template the definition does not allow is refused, with the allowed ones"
-                     (is (some #(str/includes? % "The template motion is not allowed for this agent, these are: hyperframes.") texts))
+                     (is (some #(str/includes? % "The template slides is not allowed for this agent, these are: hyperframes.") texts))
                      (is (not (fs/existsSync (path/join artifacts "clip")))))
                    (testing "the one allowed template needs no kind"
                      (is (fs/existsSync (path/join artifacts "card" "composition" "index.html")))))

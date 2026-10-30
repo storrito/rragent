@@ -1,8 +1,8 @@
 # rragent on a Sprite with everything the templates need: deploy/Dockerfile
 # plus the `needs` of templates/*/TEMPLATE.md, which rragent.programs
-# looks for on the machine: ffmpeg (with the fonts) and Google Chrome for
-# the motion template, the HyperFrames CLI for the hyperframes template
-# besides, and nbb, which runs the programs a bot writes (the README's
+# looks for on the machine: ffmpeg (with the fonts), Google Chrome and the
+# HyperFrames CLI for the hyperframes template, and nbb, which runs the
+# programs a bot writes (the README's
 # Starters section). A template added later brings its needs to this list. The
 # skills clone and the generic AGENT.md are deploy/Dockerfile's (SKILLS_REPO,
 # SKILLS_BRANCH). Build from the repository's root after `npm run build`:

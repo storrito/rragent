@@ -4,11 +4,8 @@ import cljf from 'clojurific/vite';
 // The server, a Node.js program: the :js-entries module below is the
 // bundle's only input (the plugin adds it to the build's inputs itself),
 // `vite build` writes it to dist/rragent.js. The page's bundle is a build
-// of its own, vite.client.config.mjs, into dist/public. The motion
-// template's program and page are two more builds, templates/motion/
-// vite.config.mjs and vite.client.config.mjs, run after these two by npm
-// run build, so that the template's dist/ is there when the plugin below
-// copies the templates.
+// of its own, vite.client.config.mjs, into dist/public; the plugin below
+// copies the templates next to them.
 //
 // The dev server compiles the page's bundle besides and runs the entry
 // (`rragent serve`, see rragent.main) in its ssr environment: the page at

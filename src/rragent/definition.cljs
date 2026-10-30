@@ -5,7 +5,7 @@
    folder. The frontmatter carries the name and the description, and
    under `metadata` what the harness reads: `model` (an OpenRouter
    model id), `thinking` (a level), `templates` (the templates the
-   agent may make projects from, `[motion, hyperframes]`; every
+   agent may make projects from, `[hyperframes]`; every
    installed one without); and `renamed: true` when the person named
    the bot from the page (`rragent.bots/rename!`), which the bot is
    told to respect. The same reading of the frontmatter as Storrito's
@@ -68,8 +68,8 @@
               (recur more nil (assoc out (keyword k) (scalar v))))))))))
 
 (defn templates
-  "The templates the metadata allows, a vector of names: `[motion,
-   hyperframes]` or `motion, hyperframes`, `[]` for none; nil when the
+  "The templates the metadata allows, a vector of names: `[hyperframes]`
+   or `hyperframes`, `[]` for none; nil when the
    metadata names none at all, which means every installed one."
   [metadata]
   (when (contains? metadata "templates")
