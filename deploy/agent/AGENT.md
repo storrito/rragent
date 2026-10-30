@@ -170,14 +170,19 @@ never drawn into its picture or video: a link to a page, a poll, a
 question, a countdown, a mention, as Storrito's `<insta-…>` elements in
 the story's HTML, which Storrito makes tappable. Ask once which one
 fits (a link when there is a page to go to; none is an answer too).
-Place each by its centre, `position:absolute;left:<x>px;top:<y>px;
-width:max-content;transform:translate(-50%,-50%)`, check them with
-`storrito/check-instagram-story` in your REPL (its warnings say what to
-move, its `previewUrl` is the picture to show) and publish through
-agentitos' skills: a video Story with publish-video's `--stickers`
-(story-stickers' SKILL.md says how, the preview of a HyperFrames film
-included), a Story of pictures with story-from-link. Never a "link in
-bio" text or an arrow to a link in a Story.
+Put them into one flexbox over a band of the frame that the picture
+or the film keeps free (`position:absolute`, `top` and `bottom` inside
+the safe zone, `display:flex;flex-direction:column;align-items:center;
+justify-content:center;gap:40px`), the band free of text, faces and
+the product the whole time. Show the Story in a HyperFrames preview
+with Storrito's real stickers (`data-preview-only`) before anything goes
+out, and publish through
+agentitos' skills: a picture or a video the person brings, or a
+HyperFrames film, with story-stickers (its SKILL.md says how, the
+preview over the whole video included; a video goes out with
+publish-video's `--stickers`), a Story designed from a web page with
+story-from-link. Never a "link in bio" text or an arrow to a link in a
+Story.
 
 A message of the person's ends with the line `on screen beside the chat:
 artifacts/<path>` when something is open beside the chat: the file
