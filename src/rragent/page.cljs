@@ -958,9 +958,13 @@
 
 (defn- ^:async artifacts-get
   "GET /bot/<id>/artifacts/<path>: a running project's page through the
-   proxy, else the file."
+   proxy, else the file; the file as it is when the query says `raw`
+   (`rragent.artifacts/raw-request?`), whatever the project's process
+   would make of it."
   [{:keys [projects-handle dir]} w]
-  (let [w (await (projects/handler projects-handle w))]
+  (let [w (if (artifacts/raw-request? (:ring/request w))
+            w
+            (await (projects/handler projects-handle w)))]
     (if (:ring/response w)
       w
       (artifacts/file-handler dir w))))

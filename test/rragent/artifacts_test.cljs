@@ -85,15 +85,21 @@
         (artifacts/refresh! db dir)
         (is (= "first.html" (:artifacts/current @db)))
         (is (= "story.mp4" (:path (first (:artifacts/list @db)))) "the new file is on the list, not on screen"))
-      (testing "a directory with a package.json is one artifact, a project, timed by its newest file"
+      (testing "a directory with a package.json is one artifact, a project, timed by its newest file; its files are on the list too, each naming it, a page in it as text"
         (touch! dir "clip/package.json" 100)
         (touch! dir "clip/composition/index.html" 7000)
+        (touch! dir "clip/composition/logo.png" 6000)
         (touch! dir "clip/.log" 9000)
+        (touch! dir "clip/node_modules/left-pad/index.js" 9500)
         (artifacts/refresh! db dir)
         (let [listed (:artifacts/list @db)
-              clip (some #(when (= "clip" (:path %)) %) listed)]
-          (is (= {:path "clip" :kind :project :title "Clip" :mtime 7000} (dissoc clip :size)))
-          (is (not-any? #(str/starts-with? (:path %) "clip/") listed))
+              of (fn [p] (some #(when (= p (:path %)) %) listed))]
+          (is (= {:path "clip" :kind :project :title "Clip" :mtime 7000} (dissoc (of "clip") :size)))
+          (is (= ["clip/composition/index.html" "clip/composition/logo.png" "clip/package.json"]
+                 (sort (map :path (filter #(str/starts-with? (:path %) "clip/") listed)))) "the files, not the hidden .log, not node_modules")
+          (is (= {:kind :text :ext "html" :project "clip" :title "Index"} (select-keys (of "clip/composition/index.html") [:kind :ext :project :title])) "a page inside a project is its source")
+          (is (= {:kind :image :project "clip"} (select-keys (of "clip/composition/logo.png") [:kind :project])))
+          (is (nil? (:project (of "first.html"))) "a file outside names no project")
           (is (= "story.mp4" (:path (first listed))) "the file from the future stays newest")))
       (testing "a pick that disappeared: the pane shows the list, nothing else takes its place"
         (artifacts/pick! db "first.html")
@@ -132,13 +138,20 @@
                 {:path "youtube/drafts/v2.mp4" :mtime 45 :size 60}
                 {:path "recordings/2026-10-21T11-56-03/screen.webm" :mtime 20 :size 1000}
                 {:path "recordings/2026-10-21T11-56-03/recording.json" :mtime 21 :size 5}
-                {:path "clip" :kind :project :mtime 5 :size 0}]]
-    (testing "the root: the folders by name, then the files by name"
+                {:path "clip" :kind :project :mtime 5 :size 0}
+                {:path "clip/composition/index.html" :kind :text :project "clip" :mtime 7 :size 3}
+                {:path "clip/package.json" :kind :text :project "clip" :mtime 2 :size 9}]]
+    (testing "the root: the folders by name, then the files by name; a project among the files, not a folder besides"
       (let [{:keys [folders files]} (artifacts/level listed "")]
         (is (= [{:path "recordings" :name "recordings" :title "Recordings" :kind :folder :count 2 :mtime 21 :size 1005}
                 {:path "youtube" :name "youtube" :title "Youtube" :kind :folder :count 4 :mtime 45 :size 211}]
                folders))
         (is (= ["clip" "final.mp4"] (map :path files)))))
+    (testing "inside a project: its files and folders as any folder's"
+      (let [{:keys [folders files]} (artifacts/level listed "clip")]
+        (is (= ["clip/composition"] (map :path folders)))
+        (is (= ["clip/package.json"] (map :path files)))
+        (is (artifacts/folder? listed "clip") "a folder to open")))
     (testing "the order of a folder on a computer: case aside, numbers as numbers"
       (is (= ["frame-2.png" "frame-10.png" "Thumb.png" "zebra.md"]
              (sort artifacts/by-name ["zebra.md" "frame-10.png" "Thumb.png" "frame-2.png"])))
@@ -305,7 +318,7 @@
                (artifacts/text-of dir {:path "notes.md" :kind :markdown :mtime 1001})))))
     (testing "the list names the extension of every file"
       (touch! dir "clip/package.json" 1000)
-      (is (= [["clip" nil] ["notes.md" "md"] ["pool.png" "png"]]
+      (is (= [["clip" nil] ["clip/package.json" "json"] ["notes.md" "md"] ["pool.png" "png"]]
              (map (juxt :path :ext) (sort-by :path (artifacts/list-files dir))))))))
 
 (deftest watch-test
@@ -395,6 +408,24 @@
         (is (nil? (find-tag (bar {:artifacts/list with-video :renders running}) :button.link.video)) "the progress and Stop instead while it runs")
         (is (some #{[:i18n :artifacts/render-stop]} (nodes (bar {:artifacts/list with-video :renders running}))))
         (is (= "clip" (:artifacts/current (artifacts/picked {} "clip"))) "a project is picked like a file")))
+    (testing "the way into a project's files: Files in its row's menu, the crumb in the bar; a file inside has the project's crumb back to the player and raw links"
+      (let [inside {:path "clip/composition/index.html" :kind :text :title "Index" :ext "html" :project "clip" :mtime 8 :size 300}
+            with-inside (conj listed inside)
+            open-folder {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path "clip" :tab :ui/tabid}}
+            v (pane "clip" {:artifacts/list with-inside})
+            row (some #(when (and (vector? %) (= "clip" (:replicant/key (second %)))) %) (nodes v))]
+        (is (= open-folder (get-in (second (find-tag row :button.item.files)) [:on :click 0 1])) "Files in the menu of the project's row")
+        (is (nil? (find-tag (some #(when (and (vector? %) (= "card.html" (:replicant/key (second %)))) %) (nodes v)) :button.item.files)) "not in a file's")
+        (is (= open-folder (get-in (second (find-tag (find-tag v :div.bar) :button.link.crumb)) [:on :click 0 1])) "the title of the project on screen is a crumb into its files")
+        (let [v (pane "clip/composition/index.html" {:artifacts/list with-inside :artifacts/folder "clip/composition" :artifacts/text {:text "<html>" :truncated? false}})
+              bar (find-tag v :div.bar)]
+          (is (= {:command/kind :artifacts/open :command/data {:bot "b1" :path "clip" :tab :ui/tabid}}
+                 (get-in (second (find-tag bar :button.link.crumb)) [:on :click 0 1])) "the project's crumb before the file's title leads back to the player")
+          (is (= ["Clip" " ›"] (drop 2 (find-tag bar :button.link.crumb))))
+          (is (= ["Index"] (rest (find-tag bar :span.title))))
+          (is (some #{[:pre.plain "<html>"]} (nodes v)) "the page inside a project is shown as its source")
+          (is (= "/artifacts/clip/composition/index.html?rev=8&raw" (:href (second (find-tag v :a.item)))) "Open takes the file as it is, not the project's page of it"))
+        (is (= ["Card"] (rest (find-tag (find-tag (pane "card.html") :div.bar) :span.title))) "a file outside a project: the title alone")))
     (testing "the folders of the level come first, one row each, the files of the other levels last, for the filter"
       (let [v (pane "card.html")
             keys-of (fn [v] (map #(:replicant/key (second %)) (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))))
