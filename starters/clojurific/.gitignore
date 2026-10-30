@@ -1,0 +1,8 @@
+node_modules
+dist
+target
+.cljf
+.cpcache
+.nrepl-port
+*.sqlite
+.clj-kondo/.cache

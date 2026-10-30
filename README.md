@@ -63,7 +63,7 @@ The bots' folders are named by their conversations (`rragent.bots`,
 
     agent.sqlite            the one storage: every bot's conversation and state
     bots/<id>/AGENT.md      the bot's definition, read again before every run
-    bots/<id>/work/         where its tools work: artifacts/ and uploads/ in it
+    bots/<id>/work/         where its tools work: artifacts/, uploads/ and programs/ in it
     shared/                 the folder every bot's bash reads and writes
     assistant.md            the generic definition a new bot starts from
     trash/<id>/             where a deleted bot's folder goes
@@ -551,17 +551,45 @@ process. The motion template evaluates in the namespace of
 duration 3)` shows at once, until the file is saved; HyperFrames does
 not take an eval.
 
+## Starters
+
+The programs a bot writes for its job (a pipeline, a scraper, a checker)
+are ClojureScript, compiled by clojurific and run by Node, like rragent
+itself: the generic definition says so under `## On this machine`
+(deploy/agent/AGENT.md), which every bot carries over into its own
+definition, so a run of the bot knows it too. The reason is who helps
+when a program does not work: the people behind the machine read
+Clojure, and a model left to itself picks Python. npm packages stay at
+hand through interop, Puppeteer for the Chrome on the machine when a
+job needs a browser; a few lines of JavaScript as build configuration
+are fine, a one-off command stays bash.
+
+A bot does not start from nothing: `starters/clojurific/` is a working
+program with its toolchain pinned (`package-lock.json`, clojurific and
+Vite at the versions rragent uses), `npm test`, `npm run build` and a
+`run` executable, and an example of what a bot's programs do (JSON
+items in, the new and the changed ones out, the state in SQLite through
+`node:sqlite`), with tests; its `README.md` is written for the bot.
+The build copies it to `dist/starters/clojurific`, so a release carries
+it and a bot copies it from there to `programs/<name>/` under its
+`work/`, beside `artifacts/` and out of the person's sight (the
+artifacts pane hides nothing, and `node_modules` is no sight for
+anyone). The image (deploy/Dockerfile.full) installs, tests and builds
+a copy once, so that the downloads of the first program are made
+before any bot runs; the Tests workflow does the same on every push.
+
 ## Layout
 
 Two Vite builds, one dev server:
 
 - `vite.config.mjs` builds the server, a Node.js program, into
   `dist/rragent.js` (one file) and copies `templates/` next to it, each
-  template without its sources, tests and build files. Its dev server
-  compiles the page's bundle besides and runs the server entry in its ssr
-  environment, so `npm run dev` serves the page at :8080 with the scripts
-  coming from Vite at :5173, which hot reloads them; an nREPL server
-  evaluates in the running server.
+  template without its sources, tests and build files, and `starters/`,
+  each starter without what an install or a build of it leaves behind.
+  Its dev server compiles the page's bundle besides and runs the server
+  entry in its ssr environment, so `npm run dev` serves the page at
+  :8080 with the scripts coming from Vite at :5173, which hot reloads
+  them; an nREPL server evaluates in the running server.
 - `vite.client.config.mjs` builds the page's bundle (`rragent.client`, the
   rframes client with Replicant) into `dist/public/assets/` next to
   `public/app.css` and a `manifest.json` that names the bundle's scripts.

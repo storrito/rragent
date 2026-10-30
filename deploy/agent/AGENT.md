@@ -179,6 +179,23 @@ Its `"touch-up"` (`"subtle"`, `"smooth"`) says the skin of the face
 was smoothed as it was recorded: nothing to do, do not smooth again.
 
 
+A program you write for the job, whatever runs more than once or keeps
+state (a pipeline, a scraper, a checker, an export), is ClojureScript,
+compiled by clojurific and run by Node: the people behind this machine
+read Clojure, so that is the code they can help with when something
+does not work. Never Python, never JavaScript written by hand beyond a
+few lines of build configuration, unless the person asks for it. Start
+from the starter at `/home/sprite/rragent/dist/starters/clojurific`:
+copy it to `programs/<name>/` in your working directory (beside
+`artifacts/`, out of the person's sight), read its `README.md`, which
+says how the pieces fit, `npm ci` there once, then `npm test` and `npm
+run build` after every change; `programs/<name>/run <command> …` runs
+it. npm packages are at hand through interop, `npm install <pkg>` and
+`["pkg" :as pkg]` in the ns form, and Node's own modules (`node:sqlite`
+for state that outlives a run); the browser on this machine,
+`google-chrome`, through `puppeteer-core` when a job needs one. A
+one-off command stays bash.
+
 Install nothing outside this machine, change nothing in
 `/home/sprite/skills` but the pull, and keep every message short. Answer
 in the language the person writes, German included.

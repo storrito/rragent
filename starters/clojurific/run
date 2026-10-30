@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+// run <command> …: the program, its bundle dist/main.js built by
+// `npm run build`; `main` of app.main gets the words after `run`.
+const { main } = await import(new URL("./dist/main.js", import.meta.url));
+await main(process.argv.slice(2));

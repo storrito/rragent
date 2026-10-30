@@ -46,7 +46,10 @@ export default ({ command }) => {
       // the executables, a built dist/), without its sources, tests and
       // build files. And the generic definition every new bot starts from
       // (deploy/agent/AGENT.md) as assistant.md with the sums of its earlier
-      // versions (deploy/agent/versions.txt), read by rragent.bots.
+      // versions (deploy/agent/versions.txt), read by rragent.bots. And the
+      // starters (starters/<name>, see the README's Starters section), the
+      // start of a program a bot writes, whole but for what an install or
+      // a build of one leaves behind.
       {
         name: 'rragent-templates',
         closeBundle() {
@@ -57,6 +60,10 @@ export default ({ command }) => {
             });
             cpSync('deploy/agent/AGENT.md', 'dist/assistant.md');
             cpSync('deploy/agent/versions.txt', 'dist/assistant-versions.txt');
+            cpSync('starters', 'dist/starters', {
+              recursive: true,
+              filter: (source) => !/(^|\/)(node_modules|dist|target|\.cljf|\.cpcache|\.nrepl-port|[^/]*\.sqlite)$/.test(source),
+            });
           }
         },
       },

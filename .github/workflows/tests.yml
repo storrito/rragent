@@ -25,7 +25,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.m2/repository
-          key: clojure-${{ hashFiles('deps.edn') }}
+          key: clojure-${{ hashFiles('deps.edn', 'starters/*/deps.edn') }}
       # the pictures the model gets are WebP made by ffmpeg (rragent.images):
       # a static build with libwebp and ffprobe, cached; Ubuntu's apt mirror
       # took 15 minutes for the package once
@@ -44,3 +44,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      # the starter a bot's programs begin from, starters/clojurific: the
+      # bundle carries it, its pinned toolchain installs, its tests pass
+      # and it builds (deploy/Dockerfile.full does the same once)
+      - run: test -f dist/starters/clojurific/package-lock.json
+      - run: npm ci && npm test && npm run build
+        working-directory: starters/clojurific

@@ -1,0 +1,7 @@
+;; The ClojureScript side of the program: its source folders and its
+;; Clojure(Script) libraries, from Clojars or git. npm packages go into
+;; package.json instead. The cljf launcher (which the Vite plugin runs)
+;; resolves this file with tools.deps; the Clojure CLI is not needed.
+{:paths ["src" "test"]
+ :deps {;; the compiler, pinned to the npm package's version
+        com.whimsical/clojurific {:mvn/version "0.12.7"}}}

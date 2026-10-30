@@ -34,3 +34,15 @@ COPY --chown=sprite:sprite --chmod=700 deploy/start.sh /home/sprite/rragent/star
 COPY --chown=sprite:sprite deploy/agent/ /home/sprite/rragent/agent/
 # the definition names the repository the skills come from
 RUN sed -i "s#github.com/SKILLS_REPO#github.com/${SKILLS_REPO}#" /home/sprite/rragent/agent/AGENT.md
+# The toolchain of the starter a bot's programs begin from
+# (dist/starters/clojurific, see the README's Starters section), warmed
+# up once: a copy of it is installed, tested and built, so that the npm
+# packages, the compiler with its dependencies from Maven and the
+# launcher's resolver are on the machine, and a bot's first program
+# builds without the downloads; the copy itself goes.
+RUN cp -r dist/starters/clojurific /tmp/starter \
+    && cd /tmp/starter \
+    && npm ci --no-fund --no-audit --progress=false \
+    && npm test \
+    && npm run build \
+    && rm -rf /tmp/starter

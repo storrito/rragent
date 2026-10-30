@@ -1,0 +1,10 @@
+;; The build options of cljf (clojurific): `cljf build @cljs.edn :test`
+;; compiles the namespaces of src/ and test/ for the tests under Node
+;; (npm test); the program's own build is vite.config.mjs.
+{:paths ["src" "test"]
+ :profiles {:test {:output-dir "target/test"
+                   ;; the generated namespace requires every *-test namespace
+                   ;; and runs them under Node; exit 1 when any failed
+                   :test-runner {:ns app.test-runner
+                                 :ns-regexp "-test$"
+                                 :runner cljf.esm.node-test/run}}}}
