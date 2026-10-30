@@ -391,7 +391,8 @@
             ths (map last (filter #(and (vector? %) (= :th (first %))) (nodes table)))
             tds (map #(last (last %)) (filter #(and (vector? %) (= :td (first %))) (nodes table)))]
         (is (some? (find-tag page :div.document.csv)))
-        (is (nil? (find-tag page :pre.plain)))
+        (is (nil? (find-tag page :ui/code-editor)) "the table, not the editor, until Edit")
+
         (is (= ["guest" "stars" "text"] ths))
         (is (= ["Anna" "5" "Great, really." "Tom" "4" "Noisy"] tds))
         (is (some #{"2 rows · 3 columns"} (strings page)))
