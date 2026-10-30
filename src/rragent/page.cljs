@@ -188,7 +188,7 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         run-id (shown-run tab-runs (:tabid w) (url-run w))
@@ -208,6 +208,7 @@
                     :conversation (if run
                                     (conversation (get-in bot [:runs/values run-id]))
                                     (conversation (:value bot)))
+                    :expanded (get expanded (:tabid w))
                     :artifacts (assoc (artifacts-pane bot)
                                       :pane/shown (get tab-panes (:tabid w) :artifacts)
                                       :pane/step (get-in bot [:pane/steps (:tabid w)])
@@ -241,12 +242,13 @@
    settings, the machine), when a bot came or went, or when what the sidebar shows
    of a bot changed (`sidebar-keys`, a run starting or ending); the
    tabs showing a bot whose other value keys (`bot-value-keys`)
-   changed; nil when only handles changed."
+   changed, and the tabs whose folded rows (`:expanded`) changed; nil
+   when only handles changed."
   [old new]
   (let [before (:bots old)
         after (:bots new)]
     (cond
-      (not= (dissoc old :bots) (dissoc new :bots))
+      (not= (dissoc old :bots :expanded) (dissoc new :bots :expanded))
       :all
 
       (not= (set (keys before)) (set (keys after)))
@@ -259,10 +261,14 @@
       (let [ids (set (for [id (keys after)
                            :when (not= (select-keys (get before id) bot-value-keys)
                                        (select-keys (get after id) bot-value-keys))]
-                       id))]
-        (when (seq ids)
+                       id))
+            tabs (set (for [tab (into (set (keys (:expanded old))) (keys (:expanded new)))
+                            :when (not= (get-in old [:expanded tab]) (get-in new [:expanded tab]))]
+                        tab))]
+        (when (or (seq ids) (seq tabs))
           (fn [w]
-            (contains? ids (:id (shown-bot after (:tabs new) (:tabid w) (url-bot w))))))))))
+            (or (contains? tabs (:tabid w))
+                (contains? ids (:id (shown-bot after (:tabs new) (:tabid w) (url-bot w)))))))))))
 
 (def ^:private stream
   "The view stream of a bot's page, POST /bot/<id>: the bot id of the
@@ -333,9 +339,13 @@
 
 (defn- chat-in
   "The atom's value with the chat in the tab `tab`: its settings
-   closed, when they were open."
+   closed, when they were open, and its folded rows closed: the chat is
+   built anew (keyed by the bot and the run), so every fold starts
+   closed in the browser too."
   [value tab]
-  (update value :settings-open (fnil disj #{}) tab))
+  (-> value
+      (update :settings-open (fnil disj #{}) tab)
+      (update :expanded dissoc tab)))
 
 (defn- ^:async run-show-command
   "The tab `tab` shows the run `run` of the bot `bot` from now on, or
@@ -634,6 +644,22 @@
     (do (swap! db/db chat-in tab)
         (command/accepted w))
     (command/rejected w :no-tab)))
+
+(defn- fold-command
+  "A folded row of the chat opened or closed in the tab `tab`
+   (`rragent.view/fold-actions`): the item `id` into or out of the
+   tab's `:expanded` set, which the next frame of that tab renders
+   with the body (`rragent.view/fold-body`). A frame carries the whole
+   page, so a row's command, output or input travels only to the tab
+   that looks at it."
+  [w]
+  (let [{:keys [tab id fold]} (command/command-data w)]
+    (cond
+      (nil? tab) (command/rejected w :no-tab)
+      (nil? id) (command/rejected w :no-id)
+      (not (#{:open :closed} fold)) (command/rejected w :no-state)
+      :else (do (swap! db/db update-in [:expanded tab] (fnil (if (= :open fold) conj disj) #{}) id)
+                (command/accepted w)))))
 
 (defn- registry
   "The machine's MCP servers (`rragent.mcp`)."
@@ -1233,6 +1259,8 @@
       :command/fn #'settings-close-command}
      {:command/kind :settings/section
       :command/fn #'settings-section-command}
+     {:command/kind :chat/fold
+      :command/fn #'fold-command}
      {:command/kind :mcp/test
       :command/fn #'mcp-test-command}
      {:command/kind :mcp/enable

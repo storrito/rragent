@@ -1509,6 +1509,14 @@ details.work.failed > summary {
   color: var(--warn);
 }
 
+/* the body of a fold nobody opened: a placeholder until the frame
+   that brings it (rragent.view/fold-body) */
+details.work > pre.pending {
+  color: var(--muted);
+  background: none;
+  padding: 2px 0 0;
+}
+
 pre {
   margin: 6px 0 0;
   padding: 10px;

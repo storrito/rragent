@@ -234,7 +234,9 @@ back. The rest of the page is the bot's: its
 conversation as a chat, user messages, the
 agent's answers rendered from their markdown (`rragent.markdown`:
 markdown-it's tokens walked into hiccup, so a tag the model writes is
-text, never HTML of the page), its tool calls folded with their output,
+text, never HTML of the page), its tool calls folded to a line, their
+command and output fetched when the line is opened (every frame
+carries the whole page, so a fold nobody looks at sends nothing),
 the answer streaming while a run goes, a composer at the bottom and a
 Stop that aborts the run, a program of the REPL in it ended with its
 worker thread. Everything of a bot is served under its page,
