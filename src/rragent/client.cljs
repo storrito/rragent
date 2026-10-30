@@ -42,7 +42,8 @@
             [rragent.client.editor :as editor]
             [rragent.client.icons :as icons]
             [rragent.client.phone :as phone]
-            [rragent.client.recorder :as recorder]))
+            [rragent.client.recorder :as recorder]
+            [rragent.version :as version]))
 
 (def max-side
   "Pixels on the long side of an uploaded image, pchat's."
@@ -982,14 +983,38 @@
              (swap! state/store dissoc :ui/context-open?)))))
       true))
 
+(def reloaded-key
+  "Where the tab notes the server version it reloaded for, so that a
+   page whose shim still hands out the old bundle reloads once, not
+   forever."
+  "rragent.reloaded-for")
+
+(defn- reload-for!
+  "The page reloaded for the server's `server-version`, once per
+   version and tab: after a self-update of the machine (`rragent.update`)
+   the stream reconnects on its own, but the bundle in the tab stays the
+   old one, and a command of the new page, or a reply it cannot read,
+   fails quietly. Nothing when this tab reloaded for that version
+   already."
+  [server-version]
+  (let [noted (try (js/sessionStorage.getItem reloaded-key) (catch :default _ nil))]
+    (when (not= noted server-version)
+      (try (js/sessionStorage.setItem reloaded-key server-version) (catch :default _ nil))
+      (js/console.info "[rragent]" (str "the page runs " version/version ", the machine " server-version ": reloading"))
+      (js/setTimeout #(js/location.reload) 0))))
+
 (defn url-alias
-  "`[:ui/url {:ui/path \"/bot/<id>\"}]` in a frame: the page of the bot
-   the server shows; when the address bar says another, it is corrected
-   in place, no entry in the history, its state kept (`pane-history`).
-   Renders nothing."
-  [{:keys [ui/path]} _children]
+  "`[:ui/url {:ui/path \"/bot/<id>\" :ui/version \"0.1.2\"}]` in a frame:
+   the page of the bot the server shows; when the address bar says
+   another, it is corrected in place, no entry in the history, its
+   state kept (`pane-history`); when the server's version is another
+   than this bundle's, the page reloads once (`reload-for!`). Renders
+   nothing."
+  [{:keys [ui/path ui/version]} _children]
   (when (and (seq path) (not= path js/location.pathname))
     (js/history.replaceState js/history.state "" (str path js/location.search)))
+  (when (and (seq version) (not= version version/version))
+    (reload-for! version))
   [:span.url {:hidden true}])
 
 (def theme-key

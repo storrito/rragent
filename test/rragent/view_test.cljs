@@ -169,6 +169,7 @@
                (get-in (second (find-tag p :button.new)) [:on :click 0 1]))
             "New bot asks for nothing: one click")
         (is (= "/bot/cc33dd44" (:ui/path (second (find-tag p :ui/url)))))
+        (is (= "0.0.0" (:ui/version (second (find-tag p :ui/url)))) "the server's version, for a page whose bundle is older to reload")
         (is (= "Counter" (last (find-tag p :h1))) "the header names the bot shown")
         (is (= 3 (count (filter #(and (vector? %) (= :details.actions (first %))) (nodes p)))) "every row has its menu")
         (is (= 3 (count (filter #{"Delete"} (strings p)))) "delete in every row's menu, one per bot")))
