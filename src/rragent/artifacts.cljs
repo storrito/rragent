@@ -25,7 +25,13 @@
    length its `recording.json` says (`recording-durations`).
 
    A directory with a package.json is a project, an artifact with a
-   process of its own whose page is shown through `rragent.projects`.
+   process of its own whose page is shown through `rragent.projects`;
+   its files are on the list as well, each with its `:project`, and
+   the person enters the project's folder from its row's menu, from
+   the crumb in the bar while the project is on screen, or by a link
+   to a file in it. A page inside a project is a text, its source: the
+   project's own row plays it. Its `node_modules` stay out
+   (`skipped-names`).
    The files under `notes/` are the agent's working notes (`note?`):
    an ordinary folder on the list, but no card in the chat. The person
    renames a file from its row (`rename!`, the extension stays) or
@@ -260,10 +266,16 @@
   [dir]
   (http/regular-file? (path/join dir "package.json")))
 
+(def skipped-names
+  "The names left out of a listing besides the hidden ones, with what
+   is below them: the dependencies a project installs, thousands of
+   files no one browses."
+  #{"node_modules"})
+
 (defn files
   "Every regular file below `dir`, `{:path relative :mtime :size}`, the
-   time in milliseconds; hidden names left out, with what is below
-   them."
+   time in milliseconds; hidden names and `skipped-names` left out,
+   with what is below them."
   [dir]
   (let [out (atom [])]
     ((fn step [sub]
@@ -273,7 +285,7 @@
                              #js []))]
          (let [name (.-name entry)
                relative (if (str/blank? sub) name (str sub "/" name))]
-           (when-not (str/starts-with? name ".")
+           (when-not (or (str/starts-with? name ".") (skipped-names name))
              (cond
                (.isDirectory entry)
                (step relative)
@@ -297,7 +309,9 @@
 
 (defn list-files
   "The artifacts of the directory, newest first: the files, and a project
-   directory as one artifact whose time is its newest file's."
+   directory as one artifact more, whose time is its newest file's. A
+   file below a project names it, `:project`; a page below one is a
+   `:text`, its source, since the project's row is what plays it."
   [dir]
   (if (directory? dir)
     (let [projects (->> (array-seq (fs/readdirSync dir #js {:withFileTypes true}))
@@ -314,9 +328,14 @@
                                   :size 0}))))
           project-names (set (map :path projects))
           plain (->> (files dir)
-                     (remove #(project-names (first (str/split (:path %) #"/"))))
                      (map (fn [{:keys [path] :as file}]
-                            (assoc file :kind (kind path) :title (title path) :ext (extension path)))))]
+                            (let [project (project-names (first (str/split path #"/")))
+                                  k (kind path)]
+                              (cond-> (assoc file
+                                             :kind (if (and project (= :page k)) :text k)
+                                             :title (title path)
+                                             :ext (extension path))
+                                project (assoc :project project))))))]
       (->> (concat projects plain)
            (sort-by :mtime >)
            (vec)))
@@ -338,12 +357,15 @@
    :size}`, `:kind :folder`, or `:recording` for a recording's, titled
    by its time, with the `:duration` `durations` (path to seconds)
    knows; the files by name (`by-name`), the folder's README first of
-   all."
+   all. A project is one of the files, not a folder besides: its row
+   is the way in (`rragent.view`), its files are the level below it."
   [listed folder & [durations]]
   (let [prefix (if (str/blank? folder) "" (str folder "/"))
         below (filter #(str/starts-with? (:path %) prefix) listed)
         {files false deeper true} (group-by #(str/includes? (subs (:path %) (count prefix)) "/") below)
+        projects (set (map :path (filter #(= :project (:kind %)) files)))
         folders (->> (group-by #(first (str/split (subs (:path %) (count prefix)) #"/")) deeper)
+                     (remove (fn [[name _]] (projects (str prefix name))))
                      (map (fn [[name entries]]
                             (let [path (str prefix name)
                                   recording (recording-title path)]
@@ -541,6 +563,14 @@
             (fs/mkdirSync (path/dirname target) #js {:recursive true})
             (fs/renameSync (path/join dir relative) target)
             target)))
+
+(defn raw-request?
+  "Whether the request asks for the file as it is, `raw` in its query:
+   the Open and Download of a row inside a project (`rragent.view`),
+   which the project's process would otherwise answer with its own
+   page of the file, or not at all (`rragent.projects/handler`)."
+  [request]
+  (boolean (re-find #"(?:^|&)raw(?:=|&|$)" (str (:query-string request)))))
 
 (defn file-handler
   "GET /artifacts/<path>: the file, never a hidden one."

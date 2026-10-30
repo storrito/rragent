@@ -35,6 +35,7 @@
    :artifacts/download "Download"
    :artifacts/back "Artifacts"
    :artifacts/project "project"
+   :artifacts/project-files "Files"
    :artifacts/pick "Pick a file on the left."
    :artifacts/truncated "The file is longer than this; download it from the menu of its row for all of it."
    :csv/rows [:fn/str "{{:rows}} rows · {{:columns}} columns"]
@@ -318,6 +319,7 @@
    :artifacts/download "Herunterladen"
    :artifacts/back "Artefakte"
    :artifacts/project "Projekt"
+   :artifacts/project-files "Dateien"
    :artifacts/pick "Wähle links eine Datei."
    :artifacts/truncated "Die Datei ist länger als das hier; über das Menü ihrer Zeile lässt sie sich ganz herunterladen."
    :csv/rows [:fn/str "{{:rows}} Zeilen · {{:columns}} Spalten"]

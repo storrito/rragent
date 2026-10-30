@@ -322,8 +322,12 @@
   (str base artifacts/url-prefix "/" path))
 
 (defn- src
-  [base {:keys [path mtime]}]
-  (str (artifact-url base path) "?rev=" mtime))
+  "The URL of the file with its time, so that a change reloads it; a
+   file inside a project as the file itself (`raw`,
+   `rragent.artifacts/raw-request?`), not what the project's process
+   makes of it."
+  [base {:keys [path mtime project]}]
+  (str (artifact-url base path) "?rev=" mtime (when project "&raw")))
 
 (def kind-icons
   "The icon of an artifact by its kind, in the pane's list and on a card;
@@ -973,15 +977,20 @@
 
 (defn- file-actions
   "The menu behind the three dots of a row, as the sidebar's
-   `bot-actions`: open and download (`file-links`), rename, and
-   delete, which arms the question in the row."
-  [base bot {:keys [path] :as artifact}]
+   `bot-actions`: open and download (`file-links`), a project's files
+   (its folder, `:artifacts/open-folder`), rename, and delete, which
+   arms the question in the row."
+  [base bot {:keys [path kind] :as artifact}]
   [:details.actions
    [:summary {:aria-label [:i18n :artifacts/actions]
               :title [:i18n :artifacts/actions]}
     "⋮"]
    [:div.items
     (file-links base artifact)
+    (when (= :project kind)
+      [:button.item.files {:on {:click [[:data/command {:command/kind :artifacts/open-folder
+                                                        :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
+       [:i18n :artifacts/project-files]])
     [:button.item {:on {:click [[:data/command {:command/kind :artifacts/rename-start
                                                 :command/data {:bot bot :path path}}]]}}
      [:i18n :artifacts/rename]]
@@ -1120,6 +1129,28 @@
      (for [file (sort-by :path artifacts/by-name (remove #(here (:path %)) list))]
        (file-row bot file (assoc opts :deep? true)))]))
 
+(defn- bar-title
+  "The title of the artifact on screen, in the bar. A project's is a
+   crumb into its files (`:artifacts/open-folder`); a file inside a
+   project has the project's crumb before it, the way back to the
+   player (`:artifacts/open`)."
+  [bot {:keys [path kind title project]}]
+  (cond
+    (= :project kind)
+    [:button.link.crumb {:on {:click [[:data/command {:command/kind :artifacts/open-folder
+                                                      :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
+     title " ›"]
+
+    project
+    (list
+     [:button.link.crumb {:on {:click [[:data/command {:command/kind :artifacts/open
+                                                       :command/data {:bot bot :path project :tab :ui/tabid}}]]}}
+      (artifacts/title project) " ›"]
+     [:span.title title])
+
+    :else
+    [:span.title title]))
+
 (defn- render-controls
   "The video of the project, made here on a click; its progress and Stop
    while it is made; once there is one (`video`, the file of the list
@@ -1248,7 +1279,7 @@
         (panes-nav (if activity? :activity :artifacts) runs)
         [:span.label [:i18n :page/artifacts]])
       (when artifact
-        [:span.title (:title artifact)])
+        (bar-title bot artifact))
       (when project?
         (render-controls bot (:path artifact) render (artifacts/rendered list (:path artifact))))]
      (if activity?

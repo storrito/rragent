@@ -413,7 +413,15 @@ fifteen idle minutes, restarted when it dies, its output in `.log` in
 the directory, its page proxied under `/bot/<id>/artifacts/<name>/` into the
 iframe (`rragent.proxy`, node:http, the upstream response streamed
 through); or a page of the project (`index.html`), served as it is, no
-process. A project without a template runs with Node on the `main` of
+process. The project's files are on the list as well: "Files" in its
+row's menu, or the crumb in the bar while the project is on screen,
+opens its folder; a link in the chat to a file in it opens the file,
+the list browsing inside; the crumb before the file's title leads back
+to the project's page. A page of the project (`composition/index.html`)
+is shown as text, its source, since the project's row is what plays
+it; Open and Download of a file inside a project take the file as it
+is (`?raw`), not what the project's process makes of it. The
+`node_modules` of a project stay out of the list. A project without a template runs with Node on the `main` of
 its package.json (`server.mjs`), the way it did before the templates.
 
 The `render` tool (`rragent.render`) runs the template's `render`
