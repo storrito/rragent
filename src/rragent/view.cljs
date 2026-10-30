@@ -1035,7 +1035,10 @@
    the folder when it is not the one browsed (`folder`), the size; the
    three dots with open, download, rename and delete (`file-actions`,
    the links from the `base` of the bot's page). A click opens the
-   file. The row
+   file; a double click on a project opens its files besides, the
+   desktop's shortcut for the Files of its menu (the clicks before it
+   open the project, so the player stays on screen, the list inside).
+   The row
    carries its title and path as `data-name` for the filter above the
    list (`:ui/files-filter`, `rragent.client`); a row of a file in
    another folder is `deep?`: there for the filter alone. A row whose
@@ -1058,8 +1061,10 @@
        (= path deleting) (file-confirm bot artifact)
        (= path renaming) (file-rename bot artifact)
        :else (list
-              [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open
-                                                         :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
+              [:button.row {:on (cond-> {:click [[:data/command {:command/kind :artifacts/open
+                                                                 :command/data {:bot bot :path path :tab :ui/tabid}}]]}
+                                  project? (assoc :dblclick [[:data/command {:command/kind :artifacts/open-folder
+                                                                             :command/data {:bot bot :path path :tab :ui/tabid}}]]))}
                [:span.icon (get kind-icons kind "📎")]
                [:span.name title]
                (into [:span.meta] (interpose " · " parts))]

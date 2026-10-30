@@ -415,7 +415,10 @@
             v (pane "clip" {:artifacts/list with-inside})
             row (some #(when (and (vector? %) (= "clip" (:replicant/key (second %)))) %) (nodes v))]
         (is (= open-folder (get-in (second (find-tag row :button.item.files)) [:on :click 0 1])) "Files in the menu of the project's row")
-        (is (nil? (find-tag (some #(when (and (vector? %) (= "card.html" (:replicant/key (second %)))) %) (nodes v)) :button.item.files)) "not in a file's")
+        (is (= open-folder (get-in (second (find-tag row :button.row)) [:on :dblclick 0 1])) "a double click on the row too")
+        (let [file-row (some #(when (and (vector? %) (= "card.html" (:replicant/key (second %)))) %) (nodes v))]
+          (is (nil? (find-tag file-row :button.item.files)) "not in a file's")
+          (is (nil? (get-in (second (find-tag file-row :button.row)) [:on :dblclick])) "no double click on a file"))
         (is (= open-folder (get-in (second (find-tag (find-tag v :div.bar) :button.link.crumb)) [:on :click 0 1])) "the title of the project on screen is a crumb into its files")
         (let [v (pane "clip/composition/index.html" {:artifacts/list with-inside :artifacts/folder "clip/composition" :artifacts/text {:text "<html>" :truncated? false}})
               bar (find-tag v :div.bar)]
