@@ -49,9 +49,6 @@
                                      (result (str "f" k) picture)])
                             (range n)))))
 
-(defn- picture? [^js m]
-  (some #(= "image" (.-type %)) (array-seq (.-content m))))
-
 (deftest mask-test
   (testing "two turns or fewer: the same array"
     (let [messages #js [(user "one") (call "c1" "read" {:path "a.png"}) (result "c1" picture) (user "two")]]
