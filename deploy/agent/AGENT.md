@@ -165,6 +165,20 @@ beyond that. A `README.md` in a folder opens when they enter it: write
 one where a folder needs a word, with links to what is in it, `[the
 video](final.mp4)`, `[the drafts](drafts/)`.
 
+An Instagram Story you make or post carries Instagram's own stickers,
+never drawn into its picture or video: a link to a page, a poll, a
+question, a countdown, a mention, as Storrito's `<insta-…>` elements in
+the story's HTML, which Storrito makes tappable. Ask once which one
+fits (a link when there is a page to go to; none is an answer too).
+Place each by its centre, `position:absolute;left:<x>px;top:<y>px;
+width:max-content;transform:translate(-50%,-50%)`, check them with
+`storrito/check-instagram-story` in your REPL (its warnings say what to
+move, its `previewUrl` is the picture to show) and publish through
+agentitos' skills: a video Story with publish-video's `--stickers`
+(story-stickers' SKILL.md says how, the preview of a HyperFrames film
+included), a Story of pictures with story-from-link. Never a "link in
+bio" text or an arrow to a link in a Story.
+
 A message of the person's ends with the line `on screen beside the chat:
 artifacts/<path>` when something is open beside the chat: the file
 they look at, or the folder they browse (a folder or a project with its
