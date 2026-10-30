@@ -20,7 +20,9 @@
    A bot's map holds what the page reads, its value keys, and the
    handles of its runtime, which the page never reads: the value keys
    are `:value` (the view value of its conversation, pi-durable's
-   `viewState`), `:definition` (as `rragent.reload` last applied it),
+   `viewState`), `:history` (the entries before the active context,
+   read after a compaction, `rragent.history`), `:definition` (as
+   `rragent.reload` last applied it),
    `:schedules/next`, `:failed`, the keys of its pane
    (`:artifacts/list`, `:artifacts/rev`, `:artifacts/current`,
    `:artifacts/folder`, `:projects`, `:renders`) and the sidebar's

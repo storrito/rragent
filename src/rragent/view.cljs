@@ -192,7 +192,7 @@
                            (tool-items message results slots)))
     "rragent.fact" [{:kind :note :id id :text [:i18n :chat/fact {:event (:event data)}]}]
     "pi.reset" [{:kind :note :id id :text [:i18n :chat/reset]}]
-    "pi.compaction" [{:kind :note :id id :text [:i18n :chat/compacted]}]
+    "pi.compaction" [{:kind :note :id id :text [:i18n :chat/compacted] :summary (text-of (:content (first model)))}]
     nil))
 
 (defn- committed?
@@ -416,7 +416,7 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted? author] :as item} {:keys [base bot expanded]}]
+  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted? author summary] :as item} {:keys [base bot expanded]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
@@ -458,7 +458,14 @@
 
     :note
     [:div.item.note {:replicant/key id}
-     [:p.text text]]))
+     [:p.text text]
+     ;; a compaction's note carries what the model keeps of the messages
+     ;; above it, folded like a tool's output
+     (when (seq summary)
+       [:details.work {:on (fold-actions id)}
+        [:summary [:i18n :chat/summary-kept]]
+        (fold-body (contains? expanded id)
+                   [:pre.output summary])])]))
 
 (defn welcome
   "A chat with nothing in it, opened by the bot's skill

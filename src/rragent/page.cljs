@@ -99,7 +99,7 @@
    source, the pane's handles), which change without a difference on
    the page, so the watch (`affected`) leaves them out of its
    comparison: a change of one pushes no frame."
-  #{:value :definition :schedules/next :failed
+  #{:value :history :definition :schedules/next :failed
     :artifacts/list :artifacts/rev :artifacts/durations :artifacts/current :artifacts/folder :projects :renders
     :artifacts/renaming :artifacts/deleting :pane/steps
     :runs :runs/values :runs/definitions
@@ -118,13 +118,18 @@
   "The view value of pi-durable as the data the view reads:
    `{:entries :live :inbox}`, the active transcript, the `pi.live`
    document (the running generation and its tool calls) and the
-   `pi.inbox` document (the queued inputs)."
-  [value]
-  (when value
-    (let [docs (.-docs value)]
-      {:entries (js->clj (.-entries value) :keywordize-keys true)
-       :live (js->clj (aget docs "pi.live") :keywordize-keys true)
-       :inbox (js->clj (aget docs "pi.inbox") :keywordize-keys true)})))
+   `pi.inbox` document (the queued inputs). With `history`, the bot's
+   `{:head :entries}` of the entries before the active context
+   (`rragent.history`), those go first: the page shows the whole
+   transcript, the model's view begins at the marker's note."
+  ([value]
+   (conversation value nil))
+  ([value history]
+   (when value
+     (let [docs (.-docs value)]
+       {:entries (into (vec (:entries history)) (js->clj (.-entries value) :keywordize-keys true))
+        :live (js->clj (aget docs "pi.live") :keywordize-keys true)
+        :inbox (js->clj (aget docs "pi.inbox") :keywordize-keys true)}))))
 
 (defn split-bot
   "`<id>/rest/of/it` of the wildcard into [id \"rest/of/it\"]."
@@ -208,7 +213,7 @@
                     :run run
                     :conversation (if run
                                     (conversation (get-in bot [:runs/values run-id]))
-                                    (conversation (:value bot)))
+                                    (conversation (:value bot) (:history bot)))
                     :expanded (get expanded (:tabid w))
                     :artifacts (assoc (artifacts-pane bot)
                                       :pane/shown (get tab-panes (:tabid w) :artifacts)
