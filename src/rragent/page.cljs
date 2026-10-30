@@ -72,6 +72,7 @@
             [rragent.onboarding :as onboarding]
             [rragent.openrouter :as openrouter]
             [rragent.phone :as phone]
+            [rragent.hyperframes-skills :as hyperframes-skills]
             [rragent.programs :as programs]
             [rragent.projects :as projects]
             [rragent.recordings :as recordings]
@@ -1411,6 +1412,11 @@
                              (:updater @db/db)))
     (println (update/report (:updater @db/db)))
     (println (programs/report (templates/all)))
+    ;; the HyperFrames skills a bot reads before a composition, on a
+    ;; machine made before the image installed them: in the background
+    (-> (hyperframes-skills/ensure!)
+        (.then println)
+        (.catch (fn [error] (js/console.error "[hyperframes skills]" error))))
     (println (codemode/report (machine/codemode)))
     (when-let [line (mcp/report (:mcp (machine/codemode)))]
       (println line))
