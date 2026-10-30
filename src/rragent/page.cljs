@@ -331,6 +331,12 @@
         (command/accepted w))
     (command/rejected w :no-such-bot)))
 
+(defn- chat-in
+  "The atom's value with the chat in the tab `tab`: its settings
+   closed, when they were open."
+  [value tab]
+  (update value :settings-open (fnil disj #{}) tab))
+
 (defn- ^:async run-show-command
   "The tab `tab` shows the run `run` of the bot `bot` from now on, or
    the bot's chat again for a nil run; the run's conversation followed
@@ -570,12 +576,6 @@
                       (js/console.error "[update]" (str error)))))
         (command/accepted w))
     (command/rejected w :no-updater)))
-
-(defn- chat-in
-  "The atom's value with the chat in the tab `tab`: its settings
-   closed, when they were open."
-  [value tab]
-  (update value :settings-open (fnil disj #{}) tab))
 
 (defn- settings-open-command
   "The settings in place of the chat, for the tab `tab` that asked

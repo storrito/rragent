@@ -22,6 +22,7 @@
    file and its artifacts are the run's too: a run writes where the
    bot and its other runs read (`rragent.events`,
    `rragent.tools.work/bot-dir`)."
+  (:refer-clojure :exclude [run!])
   (:require ["@earendil-works/pi-durable" :refer [configure defineTask]]
             [clojure.string :as str]
             [rragent.db :as db]
@@ -79,24 +80,6 @@
         (do (swap! gate assoc :holder next :queue (vec (rest queue)))
             (resolve true))
         (swap! gate assoc :holder nil)))))
-
-(defonce on-change
-  (atom nil))
-
-(defn watch!
-  "`f`, told the bot's conversation id whenever a run of the bot
-   starts, gets its conversation or ends; `rragent.machine` refreshes
-   the bot's runs for the page with it."
-  [f]
-  (reset! on-change f))
-
-(defn changed!
-  [bot-id]
-  (when-let [f @on-change]
-    (try
-      (f bot-id)
-      (catch :default e
-        (js/console.error "[runs]" (str e))))))
 
 (defonce on-change
   (atom nil))
