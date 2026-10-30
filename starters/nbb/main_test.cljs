@@ -44,6 +44,16 @@
   (is (= "example.com" (main/source-name "https://www.example.com/reviews?x=1")))
   (is (= "items" (main/source-name "artifacts/items.json"))))
 
+(deftest fresh-file-test
+  (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "imports-"))
+        first-file (main/fresh-file dir)]
+    (fs/writeFileSync first-file "[]")
+    (let [second-file (main/fresh-file dir)]
+      (is (str/ends-with? first-file ".json"))
+      (is (not= first-file second-file) "two imports in one millisecond keep both files")
+      (is (re-find #"(-2)?\.json$" second-file)))
+    (fs/rmSync dir #js {:recursive true :force true})))
+
 (deftest key-of-test
   (is (= "7" (main/key-of {:id 7 :text "x"})))
   (is (= (main/key-of {:a 1 :b 2}) (main/key-of {:b 2 :a 1})) "the keys' order does not count")

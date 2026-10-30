@@ -86,6 +86,17 @@
   []
   (str/replace (.toISOString (js/Date.)) #"[:.]" "-"))
 
+(defn fresh-file
+  "`<dir>/<stamp>.json`, with a count behind the stamp when an import
+   of the same millisecond is there already."
+  [dir]
+  (let [base (path/join dir (stamp))]
+    (loop [n 1]
+      (let [file (str base (when (< 1 n) (str "-" n)) ".json")]
+        (if (fs/existsSync file)
+          (recur (inc n))
+          file)))))
+
 (defn import!
   "`source` kept as it came under the imports as `<name>/<stamp>.json`
    and noted in the log; a promise of the event."
@@ -93,11 +104,11 @@
   (p/let [text (text-of source-arg)
           items (items-of text source-arg)
           dir (path/join imports (or source (source-name source-arg)))
-          file (path/join dir (str (stamp) ".json"))
+          _ (fs/mkdirSync dir #js {:recursive true})
+          file (fresh-file dir)
           data {:source source-arg
                 :file (path/relative (path/dirname events) file)
                 :count (count items)}]
-    (fs/mkdirSync dir #js {:recursive true})
     (fs/writeFileSync file text)
     (events/append! events "imported" data)
     data))
