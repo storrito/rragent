@@ -63,6 +63,7 @@
    :artifacts/stopped [:fn/str "This artifact's process stopped (exit {{:exit}}). Its .log says why; it is started again."]
 
    :chat/you "You"
+   :chat/from-bot [:fn/str "From the bot {{:name}}"]
    :chat/hook-called [:fn/str "Hook {{:name}} was called"]
    :chat/hook-event [:fn/str "{{:event}} · hook {{:name}}"]
    :chat/schedule-ran [:fn/str "Schedule {{:name}} ran"]
@@ -347,6 +348,7 @@
    :artifacts/stopped [:fn/str "Der Prozess dieses Artefakts hat sich beendet (Exit {{:exit}}). Seine .log sagt warum; er wird neu gestartet."]
 
    :chat/you "Du"
+   :chat/from-bot [:fn/str "Vom Bot {{:name}}"]
    :chat/hook-called [:fn/str "Hook {{:name}} wurde aufgerufen"]
    :chat/hook-event [:fn/str "{{:event}} · Hook {{:name}}"]
    :chat/schedule-ran [:fn/str "Zeitplan {{:name}} lief"]
