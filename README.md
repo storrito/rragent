@@ -414,8 +414,8 @@ the directory, its page proxied under `/bot/<id>/artifacts/<name>/` into the
 iframe (`rragent.proxy`, node:http, the upstream response streamed
 through); or a page of the project (`index.html`), served as it is, no
 process. The project's files are on the list as well: "Files" in its
-row's menu, or the crumb in the bar while the project is on screen,
-opens its folder; a link in the chat to a file in it opens the file,
+row's menu, a double click on its row, or the crumb in the bar while
+the project is on screen, opens its folder; a link in the chat to a file in it opens the file,
 the list browsing inside; the crumb before the file's title leads back
 to the project's page. A page of the project (`composition/index.html`)
 is shown as text, its source, since the project's row is what plays
