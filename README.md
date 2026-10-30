@@ -84,6 +84,14 @@ is armed for the earliest due schedule across all bots
 (`rragent.schedule/rearm!`), and a wake starts the runs of whichever
 bot's schedules are due, one run at a time on the machine; a hook or
 a schedule of the mode `message` reaches the bot's own chat instead.
+A bot messages another through its `bot` tool (`message`): a
+background task of the sender's conversation (`rragent.messages`,
+kind `rragent.message`) puts the text into the other bot's chat as an
+input it answers, an entry that names the sender, waits for the answer
+and brings it back into the sender's chat the same way, as a message
+from the other bot; both submissions carry the task's id as their
+request id, so a restart sends nothing twice. The page shows such a
+message with the bot's name in place of "You".
 The schedules and hooks are documents of each
 conversation, the events a file of its folder, `bots/<id>/events.edn`,
 one EDN map per line (`rragent.events`). A hook's address is the
