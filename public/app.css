@@ -28,7 +28,6 @@
   --syn-link: #4078f2;
 }
 
-
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
@@ -54,7 +53,6 @@
   }
 }
 
-
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #111315;
@@ -79,7 +77,6 @@
 }
 
 * {
-
   box-sizing: border-box;
 }
 
@@ -1040,7 +1037,6 @@ body {
   font-family: inherit;
   font-size: 11px;
 }
-
 
 .artifacts .bar button.link {
   padding: 0;

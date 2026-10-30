@@ -392,7 +392,6 @@
             tds (map #(last (last %)) (filter #(and (vector? %) (= :td (first %))) (nodes table)))]
         (is (some? (find-tag page :div.document.csv)))
         (is (nil? (find-tag page :ui/code-editor)) "the table, not the editor, until Edit")
-
         (is (= ["guest" "stars" "text"] ths))
         (is (= ["Anna" "5" "Great, really." "Tom" "4" "Noisy"] tds))
         (is (some #{"2 rows · 3 columns"} (strings page)))
@@ -474,7 +473,6 @@
         (is (nil? (find-tag page :ui/code-editor)))
         (is (nil? (find-tag page :button.link.edit)))
         (is (some #(and (string? %) (str/includes? % "no preview")) (strings page)))))))
-
 
 (deftest attachments-test
   (let [text "What is in it?\nimage: uploads/0a0b.png\nvideo: uploads/ab12.mp4\naudio: uploads/ff00.wav"

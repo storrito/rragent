@@ -395,7 +395,6 @@ person's changes otherwise, never forced; unsaved changes survive a
 look at another file. Edit, in the bar of a markdown file or a CSV,
 opens their text in the editor, Preview brings the view back. The
 filter above a long list finds
-
 a file at any level and names its folder. A recording
 (`artifacts/recordings/<stamp>/`, see [Screencasts](#screencasts)) is a
 folder titled by its time, with its length. The files under `notes/`

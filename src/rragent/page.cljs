@@ -172,7 +172,6 @@
    the artifact on screen when it is a text file."
   [{:keys [dir] :as bot}]
   (let [pane (select-keys bot [:artifacts/list :artifacts/current :artifacts/folder :artifacts/durations :artifacts/renaming :artifacts/deleting :artifacts/editing :projects :renders :runs])
-
         current (some #(when (= (:artifacts/current bot) (:path %)) %) (:artifacts/list bot))]
     (cond-> pane
       current (assoc :artifacts/text (artifacts/text-of dir current)))))
@@ -575,7 +574,6 @@
 
 (defn- render-command
   "Make the video of the project on screen; the frames show the progress."
-
   [w]
   (let [{:keys [path]} (command/command-data w)
         bot (bot-of-command w)]
@@ -1221,7 +1219,6 @@
       :command/fn #'save-artifact-command}
      {:command/kind :artifacts/edit
       :command/fn #'edit-artifact-command}
-
      {:command/kind :artifacts/render
       :command/fn #'render-command}
      {:command/kind :artifacts/render-stop

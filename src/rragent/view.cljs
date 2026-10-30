@@ -923,7 +923,6 @@
                                                    :command/data {:bot bot :path path :on? (not editing?)}}]]}}
    [:i18n (if editing? :artifacts/preview :artifacts/edit)]])
 
-
 (defn- csv-view
   "A CSV file on screen as a table (`rragent.csv/table`): the first
    row its header, sticky above the rows, the first `max-rows` rows,
@@ -958,7 +957,6 @@
    person asked for that, `editing?`, or when it has no view of its own
    (`previewed?`); `bot` the bot's id."
   [base {:keys [path kind mtime title ext] :as artifact} {:keys [project render text bot editing?]}]
-
   (case kind
     :page [:ui/canvas {:ui/src (artifact-url base path)
                        :ui/rev mtime
@@ -996,7 +994,6 @@
                         (and (not editing?) (= "csv" ext)) (csv-view text)
                         (and (not editing?) (= :markdown kind)) (markdown-view text base bot path)
                         :else (editor-view artifact text bot))
-
     [:div.placeholder [:i18n :artifacts/no-preview]]))
 
 (defn- file-links
@@ -1287,7 +1284,6 @@
    `:artifacts/editing`, the
    path of a row being renamed or asked about, `:artifacts/renaming`
    and `:artifacts/deleting`), `:projects` and `:renders`, the bot's
-
    `:runs` with the `:runs/current` a tab shows and which of the two
    lists it sees, `:pane/shown` (`:artifacts` or `:activity`,
    `activity`), and the
@@ -1304,7 +1300,6 @@
                    (some #(when (= (:artifacts/current pane) (:path %)) %) list))
         project? (= :project (:kind artifact))
         editing? (and (some? artifact) (= editing (:path artifact)))
-
         render (when artifact
                  (if project?
                    (get renders (:path artifact))
@@ -1336,7 +1331,6 @@
         (render-controls bot (:path artifact) render (artifacts/rendered list (:path artifact))))
       (when (and artifact text (previewed? artifact))
         (edit-toggle bot (:path artifact) editing?))]
-
      (if activity?
        [:div.split.activity
         (activity bot runs current)]
@@ -1350,7 +1344,6 @@
                                             :text text
                                             :bot bot
                                             :editing? editing?})
-
            (seq list) [:div.placeholder [:i18n :artifacts/pick]]
            :else [:div.placeholder [:i18n :artifacts/empty]])]])]))
 

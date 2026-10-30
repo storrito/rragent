@@ -7,7 +7,6 @@
    text file in an editor (`text-of`; the save writes it back,
    `write!`, and Edit in the bar opens a markdown file or a CSV in the
    editor too), anything else as a download. Nothing but the person's
-
    own click moves the pane: a row of the list, a card or a link in
    the chat (`rragent.markdown`); what the agent writes shows up on the
    list and reloads in place when it is on screen, and the agent names
@@ -51,7 +50,6 @@
        :artifacts/folder     the folder the person browses, \"\" the root
        :artifacts/editing    the markdown file or CSV whose text is in the editor
 
-
    It reads `:renders` (`rragent.render`): a file a render still
    writes is shown as is, with its progress. The files are served
    under `/artifacts/`."
@@ -77,7 +75,6 @@
    "clj" :text "cljs" :text "cljc" :text "bb" :text
    "sh" :text "py" :text "sql" :text})
 
-
 (defn extension
   "The extension of the file, lowercase, nil without one."
   [p]
@@ -93,7 +90,6 @@
   "The kinds shown as text: markdown rendered, the rest in the editor
    (`rragent.client.editor`); the kinds the editor saves (`write!`)."
   #{:markdown :text})
-
 
 (def text-cap
   "How much of a text file the pane shows."
@@ -567,7 +563,6 @@
               :written)))
 
 (defn- free-name
-
   "`target` when nothing is there, else the first of `name 2.ext`,
    `name 3.ext` and so on that is free."
   [target]

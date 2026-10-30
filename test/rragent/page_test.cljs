@@ -563,7 +563,6 @@
         (.finally done))))
 
 (defn- ^:async eventually
-
   "Polls `f` every 20 ms until it answers truthy, at most `ms`."
   [ms f]
   (let [until (+ (js/Date.now) ms)]

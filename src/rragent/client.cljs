@@ -8,7 +8,6 @@
    list (`files-filter`), and the button of a ```hiccup block that
    sends the boxes ticked in it.
 
-
    The composer takes files, the way pchat's does: an image picked,
    dropped or pasted goes up scaled and in one request, a video or an
    audio file in pieces of `piece-bytes` with its progress on its chip,
@@ -42,7 +41,6 @@
             [rragent.client.dictation :as dictation]
             [rragent.client.editor :as editor]
             [rragent.client.icons :as icons]
-
             [rragent.client.phone :as phone]
             [rragent.client.recorder :as recorder]))
 
@@ -1240,7 +1238,6 @@
     :ui.alias/fn canvas}
    {:ui.alias/kind :ui/code-editor
     :ui.alias/fn editor/code-editor}
-
    {:ui.alias/kind :ui/send-checked
     :ui.alias/fn send-checked}
    {:ui.alias/kind :ui/secret-field

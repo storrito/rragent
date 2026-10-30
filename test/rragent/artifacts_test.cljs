@@ -34,7 +34,6 @@
   (is (= :text (artifacts/kind "card/style.css")))
   (is (= :file (artifacts/kind "fonts/Inter.woff2")))
   (is (= :file (artifacts/kind "notes")))
-
   (is (= :markdown (artifacts/kind "youtube-title_and_description.md")))
   (is (= :text (artifacts/kind "notes/transcript.TXT")))
   (is (= :text (artifacts/kind "captions.srt")))
@@ -331,7 +330,6 @@
       (finally
         (fs/rmSync dir #js {:recursive true :force true})))))
 
-
 (deftest text-of-test
   (let [dir (temp-dir "rragent-text-")]
     (touch! dir "notes.md" 1000)
@@ -457,7 +455,6 @@
           (is (= ["Index"] (rest (find-tag bar :span.title))))
           (is (= {:ui/text "<html>" :ui/ext "html" :ui/path "clip/composition/index.html"}
                  (select-keys (second (find-tag v :ui/code-editor)) [:ui/text :ui/ext :ui/path])) "the page inside a project is shown as its source, in the editor")
-
           (is (= "/artifacts/clip/composition/index.html?rev=8&raw" (:href (second (find-tag v :a.item)))) "Open takes the file as it is, not the project's page of it"))
         (is (= ["Card"] (rest (find-tag (find-tag (pane "card.html") :div.bar) :span.title))) "a file outside a project: the title alone")))
     (testing "the folders of the level come first, one row each, the files of the other levels last, for the filter"
