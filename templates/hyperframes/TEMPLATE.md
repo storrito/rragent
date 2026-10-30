@@ -12,6 +12,24 @@ HTML with GSAP, the way the HyperFrames skills describe it. rragent
 shows it in the HyperFrames player beside the chat and loads it again
 whenever a file of it changes.
 
+- Read first, before any file of this project: the HyperFrames skills,
+  the framework's own how-tos, installed on this machine under
+  `~/.agents/skills/`, one folder per skill with a `SKILL.md` (a
+  `/name` in them is `~/.agents/skills/<name>/`). Begin with
+  `~/.agents/skills/hyperframes/SKILL.md`: the contract every
+  composition keeps, the work loop, and its table of what to read for
+  the kind of video asked for; read those files too, and `/media-use`
+  before any music, voice or picture. `hyperframes skills check` says
+  whether the skills are there and current, `hyperframes skills`
+  installs them. Not a line of the composition before this.
+- `composition/` is the project the skills speak of: `composition/index.html`
+  the root composition (below), `composition/compositions/` its scenes,
+  `composition/assets/` its media and fonts, `SPEC.md` and `REVIEW.md` at
+  its root. The CLI of this machine is `hyperframes`, run in
+  `composition/`, in place of the skills' `npx hyperframes`, so that the
+  installed version runs. The pane beside the chat is the preview: no
+  `hyperframes preview`, no desktop app, no `open`; the person sees
+  every saved change at once.
 - `composition/index.html`: the design. The root carries
   `data-composition-id`, `data-duration` (seconds), `data-width` and
   `data-height` (1080 by 1920 for a story); timed elements are
@@ -45,9 +63,9 @@ whenever a file of it changes.
   renders on its own, `hyperframes render` in its folder; the `render`
   tool takes only the single composition.
 - `hyperframes lint` in `composition/` finds mistakes in seconds;
-  `hyperframes check` plays the whole composition and takes minutes, so
-  leave it to the render.
+  `hyperframes check --json` plays the whole composition and takes
+  minutes: once after your last edit, as the skills say, not after
+  every change.
 - The page beside the chat is served by the template, not by a file of
-  this folder: nothing here needs a server. The `eval` tool does not
-  reach into this page.
+  this folder: nothing here needs a server.
 - `.log` has the output of the process, errors included.
