@@ -330,7 +330,7 @@
    (fold-body expanded?
               (list [:pre.command (tool-detail args)]
                     (when (seq result)
-                      [:pre.output (cut 2000 result)])))])
+                      [:pre.output result])))])
 
 (defn- media-view
   "The files attached to a message: a picture as a thumbnail, a clip as
@@ -438,7 +438,7 @@
      [:details.work {:on (fold-actions id)}
       [:summary label (when bytes (str " · " (human-size bytes)))]
       (fold-body (contains? expanded id)
-                 [:pre.output (cut 2000 text)])]]
+                 [:pre.output text])]]
 
     :assistant
     [:div.item.step {:replicant/key id
