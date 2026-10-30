@@ -724,6 +724,10 @@ Node 26 (`mise install`), Java 17 or later for the compiler.
     npm test         # the ClojureScript tests under Node
     npm run build    # dist/rragent.js and dist/public, the templates beside them, run with npm start
 
+The dev server runs the app while the compiler has warnings (clojurific
+0.12.12 and later); its hot reload pauses until they are fixed, and the
+page's overlay shows them, so a warning is worth fixing right away.
+
 An `.env` next to the project is never committed. On a Sprite the agent
 needs no key at all: the models, dictation, the media tools and the
 integrations come through the gateway (below). On a laptop,
