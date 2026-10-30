@@ -451,10 +451,19 @@
         (is (false? (:ui/field? short)))
         (is (true? (:ui/field? long)))
         (is (= "Liste filtern" (:ui/placeholder (second (find-tag (i18n/translate (pane "card.html") :de) :ui/files-filter)))))))
-    (testing "every row has its menu: rename, and delete, which asks in the row"
+    (testing "every row has its menu: open, download, rename, and delete, which asks in the row"
       (let [v (pane "card.html")
-            menus (filter #(and (vector? %) (= :details.actions (first %))) (nodes v))]
+            menus (filter #(and (vector? %) (= :details.actions (first %))) (nodes v))
+            links (fn [menu] (filter #(and (vector? %) (= :a.item (first %))) (nodes menu)))]
         (is (= 5 (count menus)) "the notes too")
+        (is (= [["/artifacts/card.html?rev=3" "_blank" nil] ["/artifacts/card.html?rev=3" nil "card.html"]]
+               (map #((juxt :href :target :download) (second %)) (links (first menus))))
+            "Open in a tab of its own, Download by the file's name")
+        (is (= [["/artifacts/clip/" "_blank" nil]]
+               (map #((juxt :href :target :download) (second %)) (links (second menus))))
+            "a project: Open alone, its page")
+        (is (= "plan.md" (:download (second (last (links (last menus)))))) "the file of another level too")
+        (is (nil? (find-tag (find-tag v :div.bar) :a.link)) "none in the bar")
         (is (= {:command/kind :artifacts/rename-start :command/data {:bot "b1" :path "card.html"}}
                (get-in (second (find-tag (first menus) :button.item)) [:on :click 0 1])))
         (is (= {:command/kind :artifacts/delete :command/data {:bot "b1" :path "card.html"}}
@@ -476,8 +485,8 @@
             unread (pane "notes/plan.md")]
         (is (some #{:div.document} (tags md)))
         (is (some #{:h1} (tags md)))
-        (is (contains? (strings (i18n/translate cut :en)) "The file is longer than this; download it from above for all of it."))
-        (is (contains? (strings (i18n/translate unread :en)) "There is no preview for this file. Download it from above."))))
+        (is (contains? (strings (i18n/translate cut :en)) "The file is longer than this; download it from the menu of its row for all of it."))
+        (is (contains? (strings (i18n/translate unread :en)) "There is no preview for this file. Download it from the menu of its row."))))
     (testing "no pick: the list alone, a word in the pane's place"
       (let [v (pane nil)]
         (is (nil? (find-tag v :button.link.back)))
@@ -500,6 +509,7 @@
         (is (some #{:div.placeholder} (tags starting)))
         (is (= "/artifacts/clip/" (:ui/src (second (find-tag ready :ui/canvas)))))
         (is (contains? (strings (i18n/translate ready :en)) "Make the video"))
+        (is (= [:button.link] (map first (filter #(and (vector? %) (#{:button.link :a.link} (first %))) (nodes (find-tag ready :div.bar))))) "the bar: the render alone, Open in the row's menu")
         (is (contains? (strings (i18n/translate rendering :en)) "Making the video 50 %"))
         (is (contains? (strings (i18n/translate rendering :de)) "Stopp"))
         (is (some #{:p.error} (tags failed)))
