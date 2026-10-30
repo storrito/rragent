@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "clojurific": "0.12.7",
+    "nbb": "1.6.214",
     "vite": "^8.3.4"
   }
 }

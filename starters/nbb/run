@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# run <command> …: the program from anywhere, the words after `run` for
+# main.cljs. A file you name is relative to where you are; the program
+# finds its own namespaces through the classpath given here.
+dir="$(cd "$(dirname "$0")" && pwd)"
+exec nbb --classpath "$dir" "$dir/main.cljs" "$@"

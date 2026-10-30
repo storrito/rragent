@@ -44,3 +44,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      # the how-to and example a bot's programs begin from, starters/nbb: the
+      # bundle carries it and its tests pass under the nbb the image installs
+      - run: ../../../node_modules/.bin/nbb main_test.cljs
+        working-directory: dist/starters/nbb
