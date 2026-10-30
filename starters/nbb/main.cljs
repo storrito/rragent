@@ -113,31 +113,38 @@
         (.digest "hex")
         (subs 0 16))))
 
+(defn- with-import
+  "`[order versions]` with the items of the import `file` (relative to
+   `root`) folded in: a key seen first joins the order, a later
+   version of an item wins. An import file that is gone is an error,
+   the files are kept."
+  [root [order versions] {:keys [file]}]
+  (let [path (path/resolve root file)]
+    (when-not (fs/existsSync path)
+      (throw (js/Error. (str "the import " file " is gone; the files under imports/ are kept"))))
+    (reduce (fn [[order versions] item]
+              (let [key (key-of item)]
+                [(if (contains? versions key) order (conj order key))
+                 (assoc versions key (assoc item :key key))]))
+            [order versions]
+            (items-of (fs/readFileSync path "utf8") file))))
+
 (defn replay
   "The items of every import the log names, in the order first seen,
-   each in its newest version (a later file wins), with its `:key`;
-   an import file that is gone is an error, the files are kept."
+   each in its newest version, with its `:key`: a transduce over the
+   log's `imported` events, the log never held whole."
   [events-file]
   (let [root (path/dirname events-file)
-        imports (events/of-kind (events/read events-file) "imported")
-        [order versions] (reduce (fn [[order versions] {:keys [file]}]
-                                   (let [path (path/resolve root file)]
-                                     (when-not (fs/existsSync path)
-                                       (throw (js/Error. (str "the import " file " is gone; the files under imports/ are kept"))))
-                                     (reduce (fn [[order versions] item]
-                                               (let [key (key-of item)]
-                                                 [(if (contains? versions key) order (conj order key))
-                                                  (assoc versions key (assoc item :key key))]))
-                                             [order versions]
-                                             (items-of (fs/readFileSync path "utf8") file))))
-                                 [[] {}]
-                                 imports)]
+        [order versions] (transduce (events/kind "imported")
+                                    (completing (partial with-import root))
+                                    [[] {}]
+                                    (events/reducible events-file))]
     (mapv versions order)))
 
 (defn new-items
   "The replayed items without those a `posted` event names by key."
   [events-file]
-  (let [posted (set (map :key (events/of-kind (events/read events-file) "posted")))]
+  (let [posted (into #{} (comp (events/kind "posted") (map :key)) (events/reducible events-file))]
     (remove #(posted (:key %)) (replay events-file))))
 
 (defn main

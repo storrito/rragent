@@ -598,7 +598,11 @@ the channel), appended by the program in the format of `rragent.events`
 (`starters/nbb/events.cljs` mirrors it), so `remember` and `recall`
 and the programs share one log; and what the bot needs to know (new
 since last time, not posted yet) is replayed from the files and the
-log on every run. A rule fixed later (how a bank's rows without ids
+log on every run. The log is never held whole, by the harness or by a
+program: `rragent.events/reducible` (and the starter's) reads it a
+chunk at a time for `reduce`, `transduce` and `seq`, a `reduced`
+value stops the reading, and `recall` hands the projection an
+eduction over it. A rule fixed later (how a bank's rows without ids
 are told apart) applies to the whole past; nothing is migrated.
 Replaying is fast enough at a customer's scale, and a snapshot event
 is the escape hatch nobody needs today. The build copies it to

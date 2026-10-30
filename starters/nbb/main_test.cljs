@@ -10,6 +10,7 @@
             [clojure.edn :as edn]
             [clojure.string :as str]
             [events]
+            [events-test]
             [main]
             [nbb.core :refer [*file*]]
             [promesa.core :as p]))
@@ -108,4 +109,5 @@
   (when-not (t/successful? m)
     (set! (.-exitCode js/process) 1)))
 
-(t/run-tests 'main-test)
+;; the log's own tests run with these, so that one command runs them all
+(t/run-tests 'events-test 'main-test)

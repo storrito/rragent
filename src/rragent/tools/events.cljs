@@ -46,6 +46,7 @@
                                        :event (.Optional Type (.String Type #js {:description "Only events of this kind"}))
                                        :since (.Optional Type (.String Type #js {:description "Only events from this time on, ISO 8601"}))})
         :execute (^:async fn [args api call-context]
-                   (let [all (events/read (await (file api call-context)))
-                         chosen (events/select all {:event (.-event args) :since (.-since args)})]
+                   ;; the log is reduced and seqed a chunk at a time, never held whole
+                   (let [chosen (eduction (events/selection {:event (.-event args) :since (.-since args)})
+                                          (events/reducible (await (file api call-context))))]
                      (work/text (events/project chosen (.-code args)))))}))
