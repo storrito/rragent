@@ -11,8 +11,7 @@
    shows its page in the iframe through a proxy under
    `/artifacts/<name>/` (`rragent.proxy`), passes a command posted
    from that page on to it, restarts it when it dies, and writes its
-   output to `.log` in the directory. An eval goes to the process the
-   same way (`eval!`), for a template that takes one. The port of
+   output to `.log` in the directory. The port of
    pchat.projects: one folder, no chats, and no nREPL reload, since a
    project's process reads its files again when they change.
 
@@ -438,53 +437,3 @@
       (assoc w :ring/response (await (proxy/request (:port (get @procs (key-of handle name))) "command" request)))
       w)))
 
-(def wake-ms
-  "How long a project that is started for an eval may take to answer."
-  15000)
-
-(defn- sleep
-  [ms]
-  (js/Promise. (fn [resolve] (js/setTimeout resolve ms))))
-
-(defn ^:async wake!
-  "The project's process running and ready, started when it does not
-   run: its port. Throws when there is no such project, when the pane
-   serves it as files, or when it does not come up."
-  [{:keys [procs db dir path] :as handle} name]
-  (when-not (contains? (set (names dir)) name)
-    (throw (js/Error. (str "artifacts/" name " is no project."))))
-  (when (static-template (project-dir handle name))
-    (throw (js/Error. (str "artifacts/" name " has no process: its template serves a page as it is."))))
-  (when-not (contains? @procs (key-of handle name))
-    (await (start! handle name)))
-  (loop [waited 0]
-    (let [{:keys [port exit]} (get @procs (key-of handle name))]
-      (cond
-        exit
-        (throw (js/Error. (str "artifacts/" name " exited with " exit ", its .log says why.")))
-
-        (await (answers? port))
-        (do (when (nil? (get-in (state handle) [:projects name :ready-at]))
-              (swap! db db/update-at path assoc-in [:projects name :ready-at] (js/Date.now)))
-            port)
-
-        (< wake-ms waited)
-        (throw (js/Error. (str "artifacts/" name " did not come up in " (/ wake-ms 1000) " s, its .log says why.")))
-
-        :else
-        (do (await (sleep 100))
-            (recur (+ waited 300)))))))
-
-(defn ^:async eval!
-  "`code` evaluated by the project's process, which takes it at `POST
-   /eval` when its template takes an eval (the README says what the
-   process must do): `{:status :text}`, the printed value with 200, the
-   error otherwise, 404 or 405 from a process that takes none."
-  [handle name code]
-  (let [port (await (wake! handle name))
-        response (await (js/fetch (str "http://127.0.0.1:" port "/eval")
-                                  #js {:method "POST"
-                                       :headers #js {"Content-Type" "text/plain; charset=utf-8"}
-                                       :body (str code)}))]
-    {:status (.-status response)
-     :text (await (.text response))}))

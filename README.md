@@ -450,9 +450,8 @@ any length into pieces of ten minutes (mono, 16 kHz, 48 kbit/s MP3,
 the audio alone of a video), each written down on its own, the times
 shifted; without ffmpeg a small file in a format the model reads goes
 whole. The
-`eval` tool with `project` evaluates in a project's process, for a
-template that takes an eval (below); without `project` it is the
-agent's REPL (`rragent.codemode`, see [Connectors and the REPL](#connectors-and-the-repl)).
+`eval` tool is the agent's REPL (`rragent.codemode`, see [Connectors
+and the REPL](#connectors-and-the-repl)).
 
 ## Templates
 
@@ -518,9 +517,12 @@ The template that comes with rragent:
   `@hf-progress` lines into the progress. Needs: chrome, ffmpeg,
   hyperframes (`npm install -g hyperframes @hyperframes/player`; the
   player and the runtime of a project's page come from the same
-  install). It takes no eval.
+  install). Its notes begin with the HyperFrames skills, the
+  framework's own how-tos, which the agent reads before it writes a
+  composition: the image installs them beside the CLI (`hyperframes
+  skills`, into `~/.agents/skills`, see [Deploy](#deploy)).
 
-### A template's page and the eval into it
+### A template's page
 
 A template's page lives in the iframe of the pane under
 `/bot/<id>/artifacts/<name>/` of rragent's origin (`RRAGENT_BASE` in
@@ -533,18 +535,6 @@ the page posts to the origin's `/command` goes to
 the project's process, which the Referer names, so an rframes page in
 the pane works unchanged. A picture, a video or a sound in the
 project's folder is served as the file it is, by rragent.
-
-Live coding against the pane is a founding decision, and the harness
-keeps the channel for it generic: the `eval` tool with `project`
-posts the code to `POST /eval` of the project's process (started when
-it does not run), the body the code as text. A template takes an eval
-when its `serve` answers that path: `200` with the printed value as
-text, an error status with the message; a process that does not serve
-it answers `404` or `405`, and the tool says the template takes no
-eval. What
-the eval changes shows on the page because the page follows the
-process. The HyperFrames template takes none; the channel waits for a
-template that does.
 
 ## Starters
 
@@ -940,7 +930,10 @@ the release workflow after the tarball is published) into the private
 package `ghcr.io/storrito/rragent-sprite`: `rragent-sprite:<x.y.z>`
 from `deploy/Dockerfile.full`, the bundle on the Sprites base image
 (`s2-default`, which brings Node through mise) with what the templates
-need, ffmpeg with the fonts, Google Chrome and the HyperFrames CLI.
+need, ffmpeg with the fonts, Google Chrome, the HyperFrames CLI and
+its skills (`hyperframes skills` installs the published set under
+`/home/sprite/.agents/skills`, which the template's notes have the
+agent read first).
 `latest` is the newest release of it, for a try by hand; a provisioner
 pins the version (below). `deploy/Dockerfile` is the same without the
 templates' programs, 1.3 GB smaller, for a build on a laptop (a render

@@ -1,9 +1,10 @@
 # rragent on a Sprite with everything the templates need: deploy/Dockerfile
 # plus the `needs` of templates/*/TEMPLATE.md, which rragent.programs
 # looks for on the machine: ffmpeg (with the fonts), Google Chrome and the
-# HyperFrames CLI for the hyperframes template, and nbb, which runs the
-# programs a bot writes (the README's
-# Starters section). A template added later brings its needs to this list. The
+# HyperFrames CLI for the hyperframes template, with the HyperFrames skills
+# the template's notes have the agent read before it writes a composition,
+# and nbb, which runs the programs a bot writes (the README's Starters
+# section). A template added later brings its needs to this list. The
 # skills clone and the generic AGENT.md are deploy/Dockerfile's (SKILLS_REPO,
 # SKILLS_BRANCH). Build from the repository's root after `npm run build`:
 #   docker build -f deploy/Dockerfile.full -t rragent-full .
@@ -12,7 +13,7 @@
 # section.
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
-ARG HYPERFRAMES_VERSION=0.8.172
+ARG HYPERFRAMES_VERSION=0.8.221
 ARG NBB_VERSION=1.6.214
 ARG SKILLS_REPO=storrito/agentitos
 ARG SKILLS_BRANCH=main
@@ -31,6 +32,11 @@ RUN PUPPETEER_SKIP_DOWNLOAD=1 npm install -g --prefix ~/.local --ignore-scripts 
       hyperframes@${HYPERFRAMES_VERSION} @hyperframes/player@${HYPERFRAMES_VERSION} \
       nbb@${NBB_VERSION} \
     && hyperframes --version && nbb --version && ffmpeg -version | head -1 && google-chrome --version
+# the HyperFrames skills, the framework's own how-tos: the CLI installs the
+# published set (github.com/heygen-com/hyperframes, through npx skills) under
+# ~/.agents/skills and ~/.claude/skills, where templates/hyperframes/TEMPLATE.md
+# sends the agent; check fails the build when the set is incomplete
+RUN hyperframes skills && hyperframes skills check
 RUN git clone --depth 1 --branch "${SKILLS_BRANCH}" "https://github.com/${SKILLS_REPO}.git" /home/sprite/skills
 COPY --chown=sprite:sprite dist/ /home/sprite/rragent/dist/
 COPY --chown=sprite:sprite --chmod=700 deploy/start.sh /home/sprite/rragent/start.sh
