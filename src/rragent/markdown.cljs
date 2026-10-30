@@ -13,7 +13,10 @@
 
    A link or a picture the agent names by its file, `artifacts/<path>`
    or `uploads/<name>`, points at the path the page serves it on, under
-   the bot's page (`:base`, `/bot/<id>`).
+   the bot's page (`:base`, `/bot/<id>`). A link to an artifact opens
+   it in the pane (`data-artifact`, `rragent.client`), where the person
+   can still download it; one opened in a new tab would download a CSV
+   or another file the browser does not show.
 
    The hiccup of a text is kept, by the text and the base, in a cache:
    the page is rendered again for every frame, a parse takes about a
@@ -90,19 +93,29 @@
     (when stack
       (str/join "/" stack))))
 
+(defn- artifact-path
+  "The path under artifacts/ that `url` names, `artifacts/<path>` with
+   or without a leading slash, the way `resolved` reads it; nil for any
+   other URL."
+  [url]
+  (when-let [[_ p] (re-find #"^/?artifacts/(.*)$" (str url))]
+    (resolved "" p)))
+
 (defn- open-attrs
   "The attributes of an opening token: a link opens in a new tab,
-   without a referrer; a link to a file of the bot points at the page's
-   path for it (`served`), any other href stays as the model wrote it.
-   In a file of the artifacts (`:folder`, where it lies), a relative
-   link leads to a file or a folder beside it: the page's path for it,
-   and `data-artifact` with the bot (`rragent.client` opens it in the
-   pane)."
+   without a referrer; an upload of the bot points at the page's path
+   for it (`served`), any other href stays as the model wrote it. A
+   link to an artifact, `artifacts/<path>` in the chat or in a file,
+   and in a file of the artifacts (`:folder`, where it lies) a relative
+   link to a file or a folder beside it, points at the page's path for
+   it, with `data-artifact` and the bot (`rragent.client` opens it in
+   the pane)."
   [^js token {:keys [base bot folder]}]
   (let [given (attrs token)]
     (if (= "link_open" (.-type token))
-      (if-let [p (when (and folder (relative? (:href given)))
-                   (resolved folder (:href given)))]
+      (if-let [p (or (artifact-path (:href given))
+                     (when (and folder (relative? (:href given)))
+                       (resolved folder (:href given))))]
         (assoc given :href (str base "/artifacts/" p) :data-artifact p :data-artifact-bot bot)
         (-> given
             (update :href #(served base %))

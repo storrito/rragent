@@ -953,16 +953,35 @@
                         :else (text-view kind text base bot path))
     [:div.placeholder [:i18n :artifacts/no-preview]]))
 
+(defn- file-links
+  "The links of a row's menu: Open, the file in a tab of its own, and
+   Download; a project's Open alone, its page."
+  [base {:keys [path kind] :as artifact}]
+  (if (= :project kind)
+    [:a.item {:href (str (artifact-url base path) "/")
+              :target "_blank"
+              :rel "noopener"}
+     [:i18n :artifacts/open]]
+    (list
+     [:a.item {:href (src base artifact)
+               :target "_blank"
+               :rel "noopener"}
+      [:i18n :artifacts/open]]
+     [:a.item {:href (src base artifact)
+               :download (last (str/split path #"/"))}
+      [:i18n :artifacts/download]])))
+
 (defn- file-actions
   "The menu behind the three dots of a row, as the sidebar's
-   `bot-actions`: rename, and delete, which arms the question in the
-   row."
-  [bot path]
+   `bot-actions`: open and download (`file-links`), rename, and
+   delete, which arms the question in the row."
+  [base bot {:keys [path] :as artifact}]
   [:details.actions
    [:summary {:aria-label [:i18n :artifacts/actions]
               :title [:i18n :artifacts/actions]}
     "⋮"]
    [:div.items
+    (file-links base artifact)
     [:button.item {:on {:click [[:data/command {:command/kind :artifacts/rename-start
                                                 :command/data {:bot bot :path path}}]]}}
      [:i18n :artifacts/rename]]
@@ -1005,13 +1024,15 @@
   "A row of the list: the icon of the kind, the title, and what tells
    two files of one title apart: the extension (a project as such),
    the folder when it is not the one browsed (`folder`), the size; the
-   three dots with rename and delete. A click opens the file. The row
+   three dots with open, download, rename and delete (`file-actions`,
+   the links from the `base` of the bot's page). A click opens the
+   file. The row
    carries its title and path as `data-name` for the filter above the
    list (`:ui/files-filter`, `rragent.client`); a row of a file in
    another folder is `deep?`: there for the filter alone. A row whose
    delete is armed asks, one being renamed is a field (`deleting`,
    `renaming`)."
-  [bot {:keys [path kind title ext size] :as artifact} {:keys [current renaming deleting folder deep?]}]
+  [bot {:keys [path kind title ext size] :as artifact} {:keys [base current renaming deleting folder deep?]}]
   (let [project? (= :project kind)
         own (artifacts/folder-of path)
         parts (remove nil? [(if project? [:i18n :artifacts/project] ext)
@@ -1033,7 +1054,7 @@
                [:span.icon (get kind-icons kind "📎")]
                [:span.name title]
                (into [:span.meta] (interpose " · " parts))]
-              (file-actions bot path)))]))
+              (file-actions base bot artifact)))]))
 
 (defn- folder-row
   "A row of a folder of the level: the icon, its name, how many files
@@ -1114,25 +1135,6 @@
                                                 :command/data {:bot bot :path path}}]]}}
      [:i18n :artifacts/render]]))
 
-(defn- actions
-  "Open and download links for a file; Open and the render for a project."
-  [base bot {:keys [path kind] :as artifact} render]
-  (if (= :project kind)
-    (list
-     [:a.link {:href (str (artifact-url base path) "/")
-               :target "_blank"
-               :rel "noopener"}
-      [:i18n :artifacts/open]]
-     (render-controls bot path render))
-    (list
-     [:a.link {:href (src base artifact)
-               :target "_blank"
-               :rel "noopener"}
-      [:i18n :artifacts/open]]
-     [:a.link {:href (src base artifact)
-               :download (last (str/split path #"/"))}
-      [:i18n :artifacts/download]])))
-
 (defn run-state-label
   [state]
   (case state
@@ -1187,9 +1189,10 @@
 
 (defn artifacts
   "The right half of the page: the list of the artifacts, newest first,
-   beside the one on screen, with its Open and Download links in the
-   bar; on a phone the list alone, or the one on screen with the way
-   back (`.showing`, the stylesheet). `pane` holds the keys of
+   each with Open and Download in the menu of its row (`file-actions`),
+   beside the one on screen, the render of a project in the bar; on a
+   phone the list alone, or the one on screen with the way back
+   (`.showing`, the stylesheet). `pane` holds the keys of
    `rragent.artifacts` (`:artifacts/list`, `:artifacts/current`, the
    `:artifacts/folder` browsed with the `:artifacts/durations` of the
    recordings, the `:artifacts/text` of a text file on screen, the
@@ -1237,14 +1240,14 @@
         [:span.label [:i18n :page/artifacts]])
       (when artifact
         [:span.title (:title artifact)])
-      (when artifact
-        (actions base bot artifact render))]
+      (when project?
+        (render-controls bot (:path artifact) render))]
      (if activity?
        [:div.split.activity
         (activity bot runs current)]
        [:div.split
         (when (seq list)
-          (file-list bot list (str folder) durations {:current (:artifacts/current pane) :renaming renaming :deleting deleting}))
+          (file-list bot list (str folder) durations {:base base :current (:artifacts/current pane) :renaming renaming :deleting deleting}))
         [:div.shown
          (cond
            artifact (content base artifact {:project (get projects (:path artifact))

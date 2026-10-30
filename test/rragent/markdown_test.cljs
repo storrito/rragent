@@ -104,6 +104,19 @@
     (is (= "/bot/ab12cd34/uploads/x.mp4" (attribute (markdown/parse "[clip](uploads/x.mp4)" {:base "/bot/ab12cd34"}) :a :href)))
     (is (= "/bot/ab12cd34/artifacts/card.html" (attribute (markdown/parse "[card](/artifacts/card.html)" {:base "/bot/ab12cd34"}) :a :href)))
     (is (= "docs/x.md" (attribute (markdown/parse "[x](docs/x.md)" {:base "/bot/ab12cd34"}) :a :href)) "any other relative link as it is"))
+  (testing "a link to an artifact opens it in the pane, where it can still be downloaded; an upload in a new tab"
+    (let [opts {:base "/bot/b1" :bot "b1"}]
+      (is (= {:href "/bot/b1/artifacts/reviews/five-star.csv" :data-artifact "reviews/five-star.csv" :data-artifact-bot "b1"}
+             (second (find-tag (markdown/parse "[72 reviews](artifacts/reviews/five-star.csv)" opts) :a))))
+      (is (= "reviews/five-star.csv" (attribute (markdown/parse "[x](/artifacts/reviews/five-star.csv)" opts) :a :data-artifact)) "with a leading slash too")
+      (is (= "reviews/notes.md" (attribute (markdown/parse "[x](artifacts/reviews/notes.md?x=1#limits)" opts) :a :data-artifact)) "its query and fragment left out")
+      (is (= "reviews/my file.csv" (attribute (markdown/parse "[x](artifacts/reviews/my%20file.csv)" opts) :a :data-artifact)) "decoded")
+      (is (= "work" (attribute (markdown/parse "[x](artifacts/work/)" opts) :a :data-artifact)) "a folder")
+      (is (nil? (attribute (markdown/parse "[x](artifacts/reviews/five-star.csv)" opts) :a :target)))
+      (is (nil? (attribute (markdown/parse "[clip](uploads/x.mp4)" opts) :a :data-artifact)))
+      (is (= "_blank" (attribute (markdown/parse "[clip](uploads/x.mp4)" opts) :a :target)))
+      (is (nil? (attribute (markdown/parse "[x](https://x.test/artifacts/a.csv)" opts) :a :data-artifact)) "an outside URL with the word in it is not one")
+      (is (= "https://x.test/artifacts/a.csv" (attribute (markdown/parse "[x](https://x.test/artifacts/a.csv)" opts) :a :href)))))
   (testing "a bare URL is a link"
     (is (= [[:p "see " [:a {:href "https://x.test/y" :target "_blank" :rel "noopener noreferrer"} "https://x.test/y"]]]
            (markdown/parse "see https://x.test/y"))))
@@ -122,11 +135,11 @@
       (is (= "youtube/my file.mp4" (attribute (markdown/parse "[x](my%20file.mp4)" opts) :a :data-artifact)))
       (is (= "/bot/b1/artifacts/youtube/frame.png" (attribute (markdown/parse "![f](frame.png)" opts) :img :src)))
       (is (= "card.html" (attribute (markdown/parse "[c](card.html)" (assoc opts :folder "")) :a :data-artifact)) "the root is a folder too"))
-    (testing "an absolute or an outside link in such a file is a link as anywhere, in a new tab"
+    (testing "an outside link in such a file is a link as anywhere, in a new tab; one to an artifact by its full path opens in the pane as in the chat"
       (is (= "https://x.test/" (attribute (markdown/parse "[x](https://x.test/)" opts) :a :href)))
       (is (= "_blank" (attribute (markdown/parse "[x](https://x.test/)" opts) :a :target)))
       (is (= "/bot/b1/artifacts/card.html" (attribute (markdown/parse "[c](/artifacts/card.html)" opts) :a :href)))
-      (is (nil? (attribute (markdown/parse "[c](/artifacts/card.html)" opts) :a :data-artifact)))
+      (is (= "card.html" (attribute (markdown/parse "[c](/artifacts/card.html)" opts) :a :data-artifact)))
       (is (= "../../x.md" (attribute (markdown/parse "[x](../../x.md)" opts) :a :href)) "one that leads above the artifacts stays as written")
       (is (= "docs/x.md" (attribute (markdown/parse "[x](docs/x.md)" {:base "/bot/b1"}) :a :href)) "in the chat, no folder, as before"))
     (testing "the path a relative link names"
