@@ -886,10 +886,10 @@
 (defn- csv-view
   "A CSV file on screen as a table (`rragent.csv/table`): the first
    row its header, sticky above the rows, the first `max-rows` rows,
-   the count above them; a note when this is the start of the file
-   only."
+   the count above them; a note when rows did not read as CSV, and one
+   when this is the start of the file only."
   [{:keys [text truncated?]}]
-  (let [{:keys [header rows total cut?]} (csv/table text {:incomplete? truncated?})
+  (let [{:keys [header rows total cut? errors]} (csv/table text {:incomplete? truncated?})
         columns (count header)]
     [:div.document.csv
      [:p.hint.count (if cut?
@@ -904,6 +904,8 @@
                        [:tr {:replicant/key i}
                         (map-indexed (fn [j cell] [:td {:replicant/key j} [:div.cell cell]]) row)])
                      rows)]]]
+     (when (pos? errors)
+       [:p.hint [:i18n :csv/errors {:n errors}]])
      (when truncated?
        [:p.hint [:i18n :artifacts/truncated]])]))
 

@@ -396,6 +396,9 @@
         (is (= ["Anna" "5" "Great, really." "Tom" "4" "Noisy"] tds))
         (is (some #{"2 rows · 3 columns"} (strings page)))
         (is (not-any? #(and (string? %) (str/includes? % "longer than this")) (strings page)))))
+    (testing "a row that does not read: the note under the table"
+      (let [page (shown {:text "a,b\n1,\"open\n3,4\n" :truncated? false})]
+        (is (some #(and (string? %) (str/includes? % "1 lines could not be read as CSV")) (strings page)))))
     (testing "the start of a longer file: the cut row dropped, the note"
       (let [page (shown {:text "a,b\n1,2\n3,4\n5," :truncated? true})
             tds (map #(last (last %)) (filter #(and (vector? %) (= :td (first %))) (nodes (find-tag page :table))))]
