@@ -1261,7 +1261,15 @@
    {:ui.action-enricher/kind :ui/screen
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/screen x)
-                               (screen)))}])
+                               (screen)))}
+   ;; the state of the <details> an action came from, :open or :closed,
+   ;; for the folded rows of the chat (`rragent.view/fold-actions`); a
+   ;; keyword, never false: the enrichment takes the first truthy claim,
+   ;; a false would leave the placeholder in the command
+   {:ui.action-enricher/kind :ui/fold
+    :ui.action-enricher/fn (fn [{:keys [ui.action/x replicant/dom-event]}]
+                             (when (= :ui/fold x)
+                               (if (some-> dom-event .-target .-open) :open :closed)))}])
 
 (defn init!
   "The page's runtime; on the phone's page (`#phone`, see

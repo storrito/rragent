@@ -12,6 +12,9 @@
        :tabs     {tabid bot-id}, the bot each tab picked in the sidebar
        :settings-open  #{tabid}, the tabs showing the settings in place
                  of the chat
+       :expanded {tabid #{item-id}}, the folded rows of the chat (tool
+                 calls, hook calls, schedule runs) each tab has open; a
+                 frame carries their body only for those
        :bots     {\"<conversation id>\" bot}, every open bot, by its id as a string
 
    A bot's map holds what the page reads, its value keys, and the

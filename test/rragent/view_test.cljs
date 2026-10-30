@@ -643,3 +643,33 @@
         (is (contains? text "From the bot Counter"))
         (is (contains? text "You"))
         (is (= "/bot/7" (:href (second link))))))))
+
+(deftest fold-test
+  (let [page (fn [expanded]
+               (i18n/translate (view/page {:agent {} :conversation conversation :locale :en :expanded expanded}) :en))
+        folds (fn [page]
+                (filter #(and (vector? %) (= :details.work (first %))) (nodes page)))
+        placeholder? #(= [:pre.output.pending "…"] (last %))]
+    (testing "a folded row sends its line and a placeholder, not its body: a frame is the whole page"
+      (let [page (page nil)
+            text (set (strings page))]
+        (is (contains? text "Fetched a page"))
+        (is (not (contains? text "https://x.test")) "the call's arguments stay on the server")
+        (is (not (contains? text "HTTP 200")) "its result too")
+        (is (contains? text "Hook deploy was called") "a hook's line")
+        (is (not (contains? text "Hook deploy was called.")) "not its input")
+        (is (= 4 (count (folds page))) "the tool call, two hooks and the schedule")
+        (is (every? placeholder? (folds page)))
+        (is (= {:toggle [[:data/command {:command/kind :chat/fold :command/data {:tab :ui/tabid :id "c1" :fold :ui/fold}}]]}
+               (:on (second (first (folds page)))))
+            "a toggle tells the server, the tab and the state filled in by the browser")
+        (is (= 6 (get-in (second (second (folds page))) [:on :toggle 0 1 :command/data :id])) "a call row by its entry id")
+        (is (= page (transit/read-str (transit/write-str page))))))
+    (testing "the rows the tab opened carry their body"
+      (let [page (page #{"c1" 6})
+            text (set (strings page))]
+        (is (contains? text "https://x.test"))
+        (is (contains? text "HTTP 200"))
+        (is (contains? text "Hook deploy was called."))
+        (is (not (contains? text "Hook \"drive\" (files) was called.\nBody:\n{}")) "a closed one does not")
+        (is (= 2 (count (filter placeholder? (folds page)))))))))

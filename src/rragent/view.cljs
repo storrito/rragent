@@ -301,16 +301,36 @@
             (not aborted?)
             (not streaming?))))
 
+(defn- fold-actions
+  "What a folded row's toggle sends: the item `id` and the state of the
+   fold now, `:open` or `:closed` (`:ui/fold`, read from the event by
+   `rragent.client`), for the tab (`:chat/fold`, `rragent.page`)."
+  [id]
+  {:toggle [[:data/command {:command/kind :chat/fold
+                            :command/data {:tab :ui/tabid :id id :fold :ui/fold}}]]})
+
+(defn- fold-body
+  "The body of a folded row: its `children` when the tab has the row
+   expanded, else a placeholder, so that the fold is never empty in the
+   moment between the click and the frame that brings the body. A frame
+   carries the whole page, so what no one looks at stays out of it."
+  [expanded? children]
+  (if expanded?
+    children
+    [:pre.output.pending "…"]))
+
 (defn- tool-view
-  [{:keys [name args done? error? result]}]
-  [:details.work {:class (when error? "failed")}
+  [{:keys [id name args done? error? result]} expanded?]
+  [:details.work {:class (when error? "failed")
+                  :on (fold-actions id)}
    [:summary (tool-label name)
     (cond
       (not done?) [:i18n :tool/running]
       error? [:i18n :tool/failed])]
-   [:pre.command (tool-detail args)]
-   (when (seq result)
-     [:pre.output (cut 2000 result)])])
+   (fold-body expanded?
+              (list [:pre.command (tool-detail args)]
+                    (when (seq result)
+                      [:pre.output (cut 2000 result)])))])
 
 (defn- media-view
   "The files attached to a message: a picture as a thumbnail, a clip as
@@ -396,7 +416,7 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted? author] :as item} {:keys [base bot]}]
+  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted? author] :as item} {:keys [base bot expanded]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
@@ -415,9 +435,10 @@
 
     :call
     [:div.item.step {:replicant/key id}
-     [:details.work
+     [:details.work {:on (fold-actions id)}
       [:summary label (when bytes (str " · " (human-size bytes)))]
-      [:pre.output (cut 2000 text)]]]
+      (fold-body (contains? expanded id)
+                 [:pre.output (cut 2000 text)])]]
 
     :assistant
     [:div.item.step {:replicant/key id
@@ -431,7 +452,7 @@
 
     :tool
     [:div.item.step {:replicant/key id}
-     (tool-view item)
+     (tool-view item (contains? expanded id))
      (when-let [path (made-path item)]
        (artifact-card base bot path))]
 
@@ -451,7 +472,9 @@
 (defn feed
   "The items of the conversation; with none shown yet, the skill's
    welcome, or the plain empty chat for a bot without one. `opts` has
-   the `:base` and `:bot` of the files and commands in the items."
+   the `:base` and `:bot` of the files and commands in the items, and
+   `:expanded`, the ids of the folded rows whose body the tab shows
+   (`fold-body`)."
   [items status onboarding opts]
   [:section.feed {:data-stick-to-end "true"}
    (let [shown (filter shown? items)]
@@ -1513,7 +1536,9 @@
    it cost so far with its subagents and runs, in place of the cost of
    the transcript, which a compaction shortens;
    `:conversation`, its transcript `{:entries :live
-   :inbox}`; `:artifacts`, its pane's keys; `:locale`; `:onboarding`,
+   :inbox}`; `:expanded`, the ids of the tool calls and calls whose
+   folded body this tab opened (`fold-body`; the rest send their line
+   alone); `:artifacts`, its pane's keys; `:locale`; `:onboarding`,
    the skill's welcome (`rragent.onboarding`) or nil; `:run`, a run
    of the bot the tab shows in place of its chat (`rragent.runs`,
    `{:id :state :trigger :started :line}`), its transcript then the
@@ -1526,7 +1551,7 @@
    whether this tab shows the settings in place of the bot's chat and
    pane (`settings`), `:settings-section` which of their sections, and
    `:mcp` what the MCP section shows (`mcp-section`)."
-  [{:keys [bots bot run conversation locale onboarding update note failed phone settings? settings-section mcp] pane :artifacts}]
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -1567,7 +1592,7 @@
             [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
           (when run
             (run-head id (:name bot) run))
-          (feed items status onboarding {:base base :bot id :empty (when run [:i18n :run/empty])})
+          (feed items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (when run [:i18n :run/empty])})
           (composer id base status (when fresh? (:placeholder onboarding)) phone (:id run))]
          ;; the handle between the chat and the pane, dragged to give one
          ;; more room (`rragent.client/splitter`); a phone has none

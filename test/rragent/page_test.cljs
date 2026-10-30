@@ -154,7 +154,7 @@
      :base (str "http://127.0.0.1:" (.-port (.address server)))
      :stop! (^:async fn []
               (sse/unwatch! db/db)
-              (swap! db/db dissoc :tabs :updater :settings-open)
+              (swap! db/db dissoc :tabs :updater :settings-open :expanded)
               (.closeAllConnections server)
               (await (js/Promise. (fn [resolve] (.close server resolve))))
               (await (machine/close-all!)))}))
@@ -308,6 +308,24 @@
                          (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))))
                          (await (frame! #(find-tag % :ui/composer)))
                          (is (= #{} (:settings-open @db/db))))
+                       (testing "a folded row's body travels only to the tab that opened it"
+                         (is (= {:success? false :result {:error :no-tab}} (await (command! base cookie :chat/fold {:id "c1" :fold :open}))))
+                         (is (= {:success? false :result {:error :no-id}} (await (command! base cookie :chat/fold {:tab "t1" :fold :open}))))
+                         (is (= {:success? false :result {:error :no-state}} (await (command! base cookie :chat/fold {:tab "t1" :id "c1" :fold :ui/fold}))) "a placeholder the browser did not fill is no state")
+                         (is (= {:success? true} (await (command! base cookie :chat/fold {:tab "t1" :id "c1" :fold :open}))))
+                         (let [frame (await (frame! #(mentions? % ":event \"asked\"")))]
+                           (is (= #{"c1"} (get-in @db/db [:expanded "t1"])))
+                           (is (= [[:data/command {:command/kind :chat/fold :command/data {:tab :ui/tabid :id "c1" :fold :ui/fold}}]]
+                                  (get-in (second (find-tag frame :details.work)) [:on :toggle]))
+                               "the row's toggle, with the tab and the state filled in by the browser"))
+                         (is (= {:success? true} (await (command! base cookie :chat/fold {:tab "t1" :id "c1" :fold :closed}))))
+                         (await (frame! #(not (mentions? % ":event \"asked\""))))
+                         (is (= #{} (get-in @db/db [:expanded "t1"])))
+                         (is (= {:success? true} (await (command! base cookie :chat/fold {:tab "t1" :id "c1" :fold :open}))))
+                         (await (frame! #(mentions? % ":event \"asked\"")))
+                         (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))) "the chat built anew: every fold closed")
+                         (await (frame! #(not (mentions? % ":event \"asked\""))))
+                         (is (nil? (get-in @db/db [:expanded "t1"]))))
                        (testing "a second bot by one click: made from the assistant's text, shown in this tab as New bot, its chat and its files its own"
                          (is (= {:success? true} (await (command! base cookie :bot/create {:tab "t1"}))))
                          (let [id2 (:id (second (machine/listed)))
@@ -449,6 +467,16 @@
       (let [pred (page/affected old (assoc-in old [:bots "7" :value] (view-value false)))]
         (is (false? (pred shows-1)))
         (is (true? (pred shows-7)))))
+    (testing "a fold opened or closed goes to its tab alone"
+      (let [pred (page/affected old (assoc-in old [:expanded "t1"] #{"c1"}))]
+        (is (fn? pred))
+        (is (true? (pred shows-1)))
+        (is (false? (pred shows-7))))
+      (let [opened (assoc-in old [:expanded "t1"] #{"c1"})
+            pred (page/affected opened (assoc-in opened [:expanded "t1"] #{}))]
+        (is (true? (pred shows-1)))
+        (is (false? (pred shows-7))))
+      (is (nil? (page/affected (assoc-in old [:expanded "t1"] #{"c1"}) (assoc-in old [:expanded "t1"] #{"c1"})))))
     (testing "a handle changes nothing"
       (is (nil? (page/affected old (assoc-in old [:bots "1" :worker] {:w 2}))))
       (is (nil? (page/affected old (assoc-in old [:bots "1" :reload :text] "y"))))
@@ -482,6 +510,10 @@
                    {:keys [frame!]} (frames! reader decoder buffer)
                    agent (machine/agent)]
                (try
+                 ;; a fold sends its body only to a tab that opened it
+                 ;; (`:chat/fold`): this tab opens the programs' rows first
+                 (doseq [call ["e1" "e2" "e3"]]
+                   (is (= {:success? true} (await (command! base cookie :chat/fold {:tab "t2" :id call :fold :open})))))
                  (testing "the main thread is free while a program blocks in a call: the page answers meanwhile"
                    (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Call slowly."}))))
                    (let [running (await (frame! #(mentions? % "Evaluated")))
