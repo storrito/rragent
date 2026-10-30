@@ -7,9 +7,10 @@
    `events.edn`, what the bot noted for later (`rragent.events`),
    and `work/`, where the bot's tools read and write, with
    `work/artifacts/`, what the pane shows, `work/uploads/`, what
-   the person attached to a message, and `work/programs/`, the programs
+   the person attached to a message, `work/programs/`, the programs
    the bot writes (`deploy/agent/AGENT.md` tells it how, from the
-   bundle's `starters/`), which the bot makes itself. `home`, `database` and `bot-dir`
+   bundle's `starters/`), and `work/imports/`, what those programs
+   fetched or scraped, kept as it came; the bot makes both itself. `home`, `database` and `bot-dir`
    are the machine's; the other functions take a bot's folder."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]))

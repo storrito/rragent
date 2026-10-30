@@ -63,7 +63,7 @@ The bots' folders are named by their conversations (`rragent.bots`,
 
     agent.sqlite            the one storage: every bot's conversation and state
     bots/<id>/AGENT.md      the bot's definition, read again before every run
-    bots/<id>/work/         where its tools work: artifacts/, uploads/ and programs/ in it
+    bots/<id>/work/         where its tools work: artifacts/, uploads/, programs/ and imports/ in it
     shared/                 the folder every bot's bash reads and writes
     assistant.md            the generic definition a new bot starts from
     trash/<id>/             where a deleted bot's folder goes
@@ -573,9 +573,27 @@ a browser. A one-off command stays bash.
 
 A bot does not start from nothing: `starters/nbb/` is a how-to written
 for the bot (`README.md`: the folder layout, `run`, tests, promesa for
-promises, npm, the traps) with a working example beside it (JSON items
-in, the new and the changed ones out, the state in SQLite, tests), a
-few files to copy and reshape. The build copies it to
+promises, npm, the traps) with a working example beside it, a few files
+to copy and reshape. The example is event-sourced, and the definition
+asks for that shape: a program keeps no database; what came in (a
+fetch, a scrape, an export) is kept as it came under `work/imports/
+<source>/<stamp>.json`, never changed; what happened is an event in the
+bot's log (`imported` with the file, `posted` with the item's key and
+the channel), appended by the program in the format of `rragent.events`
+(`starters/nbb/events.cljs` mirrors it), so `remember` and `recall`
+and the programs share one log; and what the bot needs to know (new
+since last time, not posted yet) is replayed from the files and the
+log on every run. The events are never all in memory at once:
+`rragent.events/reducible` (and the starter's) is an eduction over
+the file's lines for `reduce`, `transduce` and `seq`, each event made
+as the projection consumes it, a `reduced` value stopping the rest,
+and `recall` hands the projection an eduction over it. A reader that
+takes the file a chunk at a time was tried and taken out again
+(commit b9f5f0b): a log grows by a line per import and per posting,
+and the complexity is not worth it below a hundred megabytes. A rule fixed later (how a bank's rows without ids
+are told apart) applies to the whole past; nothing is migrated.
+Replaying is fast enough at a customer's scale, and a snapshot event
+is the escape hatch nobody needs today. The build copies it to
 `dist/starters/nbb`, so a release carries it and a bot reads it from
 there; a bot's programs live in `programs/<name>/` under its `work/`,
 beside `artifacts/` and out of the person's sight (the artifacts pane

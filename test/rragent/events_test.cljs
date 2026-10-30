@@ -78,3 +78,37 @@
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest reducible-test
+  (let [home (test-home/make)
+        file (home/events-file home)
+        n 3000]
+    (try
+      (dotimes [i n]
+        (events/append! file (if (odd? i) "odd" "even") {:n i :text "grüß ✓ naïve"} (* 1000 i)))
+      (testing "every event, oldest first, whole"
+        (let [all (into [] (events/reducible file))]
+          (is (= n (count all)))
+          (is (= (range n) (map :n all)))
+          (is (every? #(= "grüß ✓ naïve" (:text %)) all))
+          (is (= all (events/read file)))))
+      (testing "a transduce, a reduced value that stops the reading, a seq"
+        (is (= 1500 (transduce (events/selection {:event "odd"}) (completing (fn [acc _] (inc acc))) 0 (events/reducible file))))
+        (is (= 7 (reduce (fn [acc {:keys [n]}] (if (= 7 n) (reduced n) acc)) nil (events/reducible file))))
+        (is (= [0 1 2] (into [] (comp (take 3) (map :n)) (events/reducible file))))
+        (is (= 5 (:n (first (filter #(= 5 (:n %)) (events/reducible file)))))))
+      (testing "recall's shape: an eduction of the selection, the bot's idioms over it"
+        (let [chosen (eduction (events/selection {:event "odd" :since "1970-01-01T00:00:10Z"}) (events/reducible file))]
+          (is (= "1495" (events/project chosen "(count events)")))
+          (is (= "#{11 13}" (events/project chosen "(->> events (map :n) (take 2) set)")))
+          (is (= (str (reduce + (filter odd? (range 10 n)))) (events/project chosen "(reduce (fn [acc e] (+ acc (:n e))) 0 events)")))
+          (is (str/starts-with? (events/project chosen nil) "[{:n 11,") "without code the events themselves, a vector")))
+      (testing "a Windows line end, a blank line, a line that is no map, and no newline at the end"
+        (fs/writeFileSync file "{:event \"a\" :at 1}\r\n\n{:event \"b\" :at 2}\n[:a :vector]\n{:event \"c\" :at 3}")
+        (is (= ["a" "b" "c"] (map :event (events/reducible file)))))
+      (testing "no file is no events"
+        (fs/rmSync file)
+        (is (= [] (into [] (events/reducible file))))
+        (is (nil? (seq (events/reducible file)))))
+      (finally
+        (fs/rmSync home #js {:recursive true :force true})))))
