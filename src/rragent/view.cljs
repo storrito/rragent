@@ -22,6 +22,7 @@
             [rragent.csv :as csv]
             [rragent.dictation :as dictation]
             [rragent.markdown :as markdown]
+            [rragent.messages :as messages]
             [rragent.recordings :as recordings]
             [rragent.runs :as runs]
             [rragent.uploads :as uploads]))
@@ -134,6 +135,17 @@
                :id id}
               (:content (first model))))
 
+(defn- message-item
+  "A message from another bot of the machine, or its answer to one of
+   this bot's (`rragent.messages/kind`): a user item whose author is
+   that bot, its name a link to its page, with the text as the bot
+   wrote it, not the words around it the model got."
+  [id {:keys [from name text]}]
+  {:kind :user
+   :id id
+   :author {:name (str name) :url (bots/url from)}
+   :text (str text)})
+
 (defn- hook-label
   "What a hook's call was: the event's line when the call carried a
    Storrito integration trigger event (`rragent.hooks/event-line`),
@@ -170,6 +182,7 @@
   [{:keys [id kind model data]} results slots]
   (case kind
     "pi.user" [(user-item id model)]
+    "rragent.message" [(message-item id data)]
     "rragent.hook" [(call-item id (hook-label data) data model)]
     "rragent.schedule" [(call-item id [:i18n :chat/schedule-ran {:name (:name data)}] data model)]
     "rragent.run-report" [(call-item id (report-label data) data model)]
@@ -208,20 +221,24 @@
 
 (defn- queued-items
   "The inputs waiting in the inbox for the run to end, as pending user
-   messages at the end of the feed."
+   messages at the end of the feed; a bot's message among them as
+   its message."
   [inbox]
-  (for [{:keys [id mode content]} (:items inbox)
+  (for [{:keys [id mode content entry]} (:items inbox)
         :when (not= "write" mode)]
-    (with-media {:kind :user
-                 :id id
-                 :pending? true}
-                content)))
+    (if (= messages/kind (:kind entry))
+      (assoc (message-item id (:data entry)) :pending? true)
+      (with-media {:kind :user
+                   :id id
+                   :pending? true}
+                  content))))
 
 (defn- person-answer?
   "A message of the person's, sent or waiting; a hook's call or a
-   schedule's run is a `:call` and answers nothing."
-  [{:keys [kind]}]
-  (= :user kind))
+   schedule's run is a `:call` and answers nothing, and a bot's
+   message has an author."
+  [{:keys [kind author]}]
+  (and (= :user kind) (nil? author)))
 
 (defn- answered
   "The answers before the person's last message marked `:answered?`:
@@ -379,12 +396,14 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted?] :as item} {:keys [base bot]}]
+  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted? author] :as item} {:keys [base bot]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
                      :class (when pending? "pending")}
-     [:div.label [:i18n :chat/you]]
+     [:div.label (if author
+                   [:a {:href (:url author)} [:i18n :chat/from-bot {:name (:name author)}]]
+                   [:i18n :chat/you])]
      (when (seq text)
        [:p.text text])
      (when (seq media)

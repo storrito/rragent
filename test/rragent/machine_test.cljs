@@ -20,11 +20,14 @@
             [rragent.home :as home]
             [rragent.hooks :as hooks]
             [rragent.machine :as machine]
+            [rragent.messages :as messages]
+            [rragent.page :as page]
             [rragent.runs :as runs]
             [rragent.schedule :as schedule]
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]
+            [rragent.view :as view]
             [rragent.wake :as wake]))
 
 (defn- sleep
@@ -268,3 +271,90 @@
       (is (nil? (machine/context-window "unknown-9")))
       (finally
         (swap! db/db assoc :machine before)))))
+
+(defn- ^:async entries-of
+  "The entries of a conversation, oldest first, each `{:kind :data
+   :content}`, the content the text its first model message carries."
+  [conversation]
+  (let [page (await (.entries conversation #js {:order "ascending"} 100 js/undefined harness/context))]
+    (->> (array-seq (.-items page))
+         (mapv (fn [entry]
+                 {:kind (.-kind entry)
+                  :data (js->clj (.-data entry) :keywordize-keys true)
+                  :content (let [content (some-> (.-model entry) (aget 0) .-content)]
+                             (if (string? content)
+                               content
+                               (apply str (map #(.-text %) (array-seq (or content #js []))))))})))))
+
+(defn- last-message
+  "The last message of a request to the faux model, as text with its
+   role, which says what the request answers."
+  [context]
+  (let [message (last (array-seq (.-messages context)))]
+    (str (.-role message) ": " (js/JSON.stringify (.-content message)))))
+
+(deftest bot-message-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)
+                 counter-id (atom nil)
+                 by-request (fn [context]
+                              (let [last (last-message context)]
+                                (cond
+                                  (str/includes? last "Ask the counter") (tools-test/tool-call "bot" {:action "message" :id "1" :text "Hello me."} "m0")
+                                  (str/includes? last "That is you") (tools-test/tool-call "bot" {:action "message" :id "99" :text "Anyone?"} "m1")
+                                  (str/includes? last "No bot 99") (tools-test/tool-call "bot" {:action "message" :id @counter-id :text "How many did you count?"} "m2")
+                                  (str/includes? last "Sent to Counter") (tools-test/answer "Asked.")
+                                  (str/includes? last "How many did you count?") (tools-test/answer "Seven.")
+                                  (str/includes? last "answers your message: Seven.") (tools-test/answer "The counter says seven.")
+                                  :else (tools-test/answer (str "Unexpected: " last)))))]
+             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
+             (.setResponses faux #js [by-request by-request by-request by-request by-request by-request])
+             (try
+               (let [[first-bot] (await (open! home models))
+                     watcher (:conversation first-bot)
+                     {:keys [id]} (await (machine/create! {:name "Counter" :instructions "Count."}))
+                     counter (:conversation (machine/bot id))]
+                 (reset! counter-id id)
+                 (is (= "Asked." (await (harness/ask-in watcher "Ask the counter how many it counted."))) "the call answers at once, the run ends")
+                 (let [texts (await (results watcher))]
+                   (testing "a message to oneself and to a bot that is not there are errors the model reads"
+                     (is (str/includes? (get texts "m0") "That is you"))
+                     (is (str/includes? (get texts "m1") (str "No bot 99 on this machine. The bots:\nwatcher (1): running\nCounter (" id "): idle"))))
+                   (is (= (str "Sent to Counter (" id "). Its answer arrives in this chat as a message from it once it has answered; until then go on, or end your answer.")
+                          (get texts "m2"))))
+                 (loop [n 0]
+                   (when (and (< n 100)
+                              (not (some #(= "The counter says seven." (:content %)) (await (entries-of watcher)))))
+                     (await (sleep 100))
+                     (recur (inc n))))
+                 (let [in-counter (await (entries-of counter))
+                       in-watcher (await (entries-of watcher))
+                       message (first (filter #(= "rragent.message" (:kind %)) in-counter))
+                       answer (first (filter #(= "rragent.message" (:kind %)) in-watcher))]
+                   (testing "the message is in the counter's chat as an entry that names the sender, the words around it for the model"
+                     (is (= {:from 1 :name "watcher" :text "How many did you count?"} (:data message)))
+                     (is (str/starts-with? (:content message) "A message from watcher (bot 1 of this machine): How many did you count?"))
+                     (is (some #(= "Seven." (:content %)) in-counter) "which the counter answered in its own chat"))
+                   (testing "the answer is in the watcher's chat as a message from the counter, which the watcher answered"
+                     (is (= {:from (js/Number id) :name "Counter" :text "Seven." :answer true} (:data answer)))
+                     (is (str/starts-with? (:content answer) (str "Counter (bot " id ") answers your message: Seven.")))
+                     (is (= "The counter says seven." (:content (last in-watcher)))))
+                   (testing "the task of the message, in the watcher's conversation, is over"
+                     (let [page (await (.commit (:harness (machine/agent))
+                                                (fn [tx] (.scanTasks tx #js {:conversationId 1 :kind messages/kind} 10))
+                                                harness/context))
+                           [task] (array-seq (.-items page))]
+                       (is (= 1 (count (array-seq (.-items page)))))
+                       (is (= "terminal" (.. task -state -status)))
+                       (is (= "answered" (.. task -state -outcome -result -state)))))
+                   (testing "the page's items show both as the bots' messages"
+                     (is (= [:user "Counter" "Seven."]
+                            ((juxt :kind (comp :name :author) :text)
+                             (first (filter :author (view/items (page/conversation (:value (machine/bot "1"))))))))))))
+               (finally
+                 (await (machine/close-all!))
+                 (test-home/remove! home))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))

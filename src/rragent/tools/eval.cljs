@@ -11,28 +11,13 @@
    what it remembers is appended to the bot's events file after it
    (`rragent.events`). Stop ends the
    program with its worker, so does the timeout; the next call starts
-   a fresh worker and says that the defs are gone. With `project` the
-   code goes to that artifact's process instead
-   (`rragent.projects/eval!`), live coding against the pane for a
-   template that takes an eval."
+   a fresh worker and says that the defs are gone."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
-            [rragent.codemode :as codemode]
             [rragent.codemode-worker :as codemode-worker]
-            [rragent.db :as db]
             [rragent.events :as events]
-            [rragent.projects :as projects]
             [rragent.tools.events :as events-tool]
             [rragent.tools.work :as work]))
-
-(def max-chars
-  codemode/max-chars)
-
-(defn- cut
-  [printed]
-  (if (< max-chars (count printed))
-    (str (subs printed 0 max-chars) " … (cut at " max-chars " characters)")
-    printed))
 
 (def max-images
   "The pictures of one program's MCP calls that reach the model."
@@ -75,17 +60,6 @@
       (throw (js/Error. error))
       (output text images))))
 
-(defn ^:async evaluate-in-project
-  "`code` evaluated by the project's process; its answer, or a throw
-   with the error, or with the word that the template takes no eval."
-  [api call-context project code]
-  (let [handle (projects/handle {:db db/db :path (await (work/bot-path api call-context)) :dir (work/artifacts-dir api)})
-        {:keys [status text]} (await (projects/eval! handle project code))]
-    (cond
-      (= 200 status) (cut text)
-      (#{404 405} status) (throw (js/Error. (str "artifacts/" project " takes no eval: its template has no eval endpoint.")))
-      :else (throw (js/Error. text)))))
-
 (def description
   (str "Your REPL: run a Clojure program (SCI) in your own process. Start with (help): it lists the functions that reach "
        "the organization's connectors through the Sprites gateway, (connectors), (call provider path opts), composio/search, "
@@ -100,9 +74,7 @@
        "There is no JavaScript, no file system and no environment in it: files are for read, write, edit and bash, public web pages for fetch. "
        "What a service finishes later (a story or post being published, a render, an import) you do not wait for: once the service "
        "has taken it, answer with what it said, a preview link included, and look at its status again when the person asks; "
-       "no sleep in between, the person waits for every second of your turn. "
-       "With `project`, the code is evaluated by that artifact project's process instead, where its template takes an eval "
-       "(a motion design: in the namespace of design.cljs, a redefined function shows on the page at once, until the file is saved)."))
+       "no sleep in between, the person waits for every second of your turn."))
 
 (defn tool
   "The tool over the REPL `codemode`: a program runs in the worker of
@@ -111,11 +83,7 @@
   (defineTool
    #js {:name "eval"
         :description description
-        :parameters (.Object Type #js {:code (.String Type #js {:description "Clojure code"})
-                                       :project (.Optional Type (.String Type #js {:description "An artifact project's name: evaluate in its process"}))})
+        :parameters (.Object Type #js {:code (.String Type #js {:description "Clojure code"})})
         :execute (^:async fn [args api call-context]
-                   (let [project (not-empty (.-project args))]
-                     (if project
-                       (work/text (await (evaluate-in-project api call-context project (.-code args))))
-                       (await (evaluate (codemode-worker/of codemode (await (work/bot-id api call-context)))
-                                        api call-context (.-code args))))))}))
+                   (await (evaluate (codemode-worker/of codemode (await (work/bot-id api call-context)))
+                                    api call-context (.-code args))))}))

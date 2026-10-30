@@ -234,7 +234,7 @@
       (is (= "card/pool.png" (:data-artifact (second (card (made "write" {:path "/home/sprite/rragent/agent/bots/1/work/artifacts/card/pool.png"} "ok"))))))
       (is (= "story.mp4" (:data-artifact (second (card (made "render" {:name "story"} "artifacts/story.mp4 is ready."))))))
       (is (= "card/pool.png" (:data-artifact (second (card (made "image" {:file "card/pool.png"} "artifacts/card/pool.png: 12345 bytes, model x"))))))
-      (is (= "clip" (:data-artifact (second (card (made "project" {:name "clip"} "artifacts/clip/ is ready, made from the template motion"))))))
+      (is (= "clip" (:data-artifact (second (card (made "project" {:name "clip"} "artifacts/clip/ is ready, made from the template hyperframes"))))))
       (is (= [:i18n :artifacts/project] (last (find-tag (card (made "project" {:name "clip"} "artifacts/clip/ is ready")) :span.meta)))))
     (testing "no card for a file elsewhere, a working note, a failed call, or a call still running"
       (is (nil? (card (made "write" {:path "notes/todo.md"} "ok"))))
@@ -560,3 +560,25 @@
     (is (some #(= [:i18n :mcp/title] %) (tree-seq coll? seq tree)) "the MCP section when the tab picked it")
     (is (not (some #(= [:i18n :updates/title] %) (tree-seq coll? seq tree)))))
   (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil))) "the updates without a pick"))
+
+(deftest message-items-test
+  (let [conversation {:entries [(user 1 "Ask the counter.")
+                                {:id 2 :kind "rragent.message" :data {:from 7 :name "Counter" :text "Seven." :answer true}
+                                 :model [{:role "user" :content "Counter (bot 7) answers your message: Seven.\n\nTell the person what matters to them of it."}]}]
+                      :live {}
+                      :inbox {:items [{:id "s1" :mode "followUp"
+                                       :content "A message from Watcher (bot 1 of this machine): How many?"
+                                       :entry {:kind "rragent.message" :data {:from 1 :name "Watcher" :text "How many?"}}}]}}
+        items (view/items conversation)
+        [person answer queued] items]
+    (testing "a bot's message is a user item with the bot as its author and its own words as the text"
+      (is (= {:kind :user :id 2 :author {:name "Counter" :url "/bot/7"} :text "Seven."} answer))
+      (is (= {:kind :user :id "s1" :author {:name "Watcher" :url "/bot/1"} :text "How many?" :pending? true} queued) "one waiting in the inbox too")
+      (is (nil? (:author person))))
+    (testing "the feed shows the bot's name, a link to its page, in place of You"
+      (let [feed (i18n/translate (view/feed items :ready nil {:base "/bot/1/artifacts" :bot "1"}) :en)
+            text (set (strings feed))
+            link (find-tag feed :a)]
+        (is (contains? text "From the bot Counter"))
+        (is (contains? text "You"))
+        (is (= "/bot/7" (:href (second link))))))))

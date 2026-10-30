@@ -92,7 +92,7 @@
   [templates]
   (str "An artifact with a page of its own, for anything that moves or that the person should play with. "
        "Everything made for the person goes under artifacts/, which they browse beside the chat like a folder on their computer: keep what belongs together in a folder, the many small things (check frames, drafts, notes) in one of their own. "
-       "`create` with a name and a kind starts one from a template in artifacts/<name>/ and answers with the template's notes on how to work with it"
+       "`create` with a name and a kind starts one from a template in artifacts/<name>/ and answers with the template's notes: what to read before the first file, and how to work with it"
        (if (seq templates)
          (str ". The templates: "
               (str/join "; " (for [{:keys [name description renders]} templates]

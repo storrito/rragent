@@ -121,17 +121,6 @@
                    (is (= "<h1>static</h1>" (await (transit/read-body body)))))
                  (is (= 302 (:status (:ring/response (await (projects/handler handle (w "page")))))))
                  (is (nil? (:ring/response (await (projects/handler handle (w "page/style.css")))))))
-               (testing "an eval goes to the process, which answers; a project that does not run is started for it"
-                 (is (= {:status 200 :text "(+ 1 2)"} (-> (await (projects/eval! handle "card" "(+ 1 2)")) (update :text str/upper-case))))
-                 (is (= {:status 400 :text "boom failed"} (await (projects/eval! handle "card" "boom"))))
-                 (projects/stop! handle "card")
-                 (is (= {:status 200 :text "AGAIN"} (await (projects/eval! handle "card" "again"))))
-                 (is (number? (get-in @db [:projects "card" :ready-at]))))
-               (testing "no eval into a page, or into no project"
-                 (let [error (await (-> (projects/eval! handle "page" "x") (.catch identity)))]
-                   (is (str/includes? (.-message error) "has no process")))
-                 (let [error (await (-> (projects/eval! handle "nope" "x") (.catch identity)))]
-                   (is (str/includes? (.-message error) "no project"))))
                (testing "a project whose template is gone is noted as failed, its .log saying why"
                  (projects/stop! handle "card")
                  (fs/writeFileSync (path/join dir "card" "package.json") "{\"template\": \"gone\"}")
