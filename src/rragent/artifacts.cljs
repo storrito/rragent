@@ -3,8 +3,11 @@
    `work/artifacts/` of the agent's folder (`rragent.home`), shown by
    kind. A page in an iframe that reloads when its file changes
    (rchat's canvas alias, `rragent.client`), an image, a video, an audio
-   file as themselves, markdown rendered, a text file as it is
-   (`text-of`), anything else as a download. Nothing but the person's
+   file as themselves, markdown rendered, a CSV as a table, any other
+   text file in an editor (`text-of`; the save writes it back,
+   `write!`, and Edit in the bar opens a markdown file or a CSV in the
+   editor too), anything else as a download. Nothing but the person's
+
    own click moves the pane: a row of the list, a card or a link in
    the chat (`rragent.markdown`); what the agent writes shows up on the
    list and reloads in place when it is on screen, and the agent names
@@ -46,6 +49,8 @@
        :artifacts/durations  {\"recordings/<stamp>\" seconds}, the recordings' lengths
        :artifacts/current    the path on screen
        :artifacts/folder     the folder the person browses, \"\" the root
+       :artifacts/editing    the markdown file or CSV whose text is in the editor
+
 
    It reads `:renders` (`rragent.render`): a file a render still
    writes is shown as is, with its progress. The files are served
@@ -67,7 +72,11 @@
    "mp3" :audio "wav" :audio "m4a" :audio "ogg" :audio
    "md" :markdown "markdown" :markdown
    "txt" :text "json" :text "csv" :text "srt" :text "vtt" :text "log" :text
-   "edn" :text "yaml" :text "yml" :text "xml" :text})
+   "edn" :text "yaml" :text "yml" :text "xml" :text "toml" :text "ini" :text
+   "js" :text "mjs" :text "cjs" :text "ts" :text "css" :text
+   "clj" :text "cljs" :text "cljc" :text "bb" :text
+   "sh" :text "py" :text "sql" :text})
+
 
 (defn extension
   "The extension of the file, lowercase, nil without one."
@@ -81,8 +90,10 @@
   (get kinds (extension p) :file))
 
 (def text-kinds
-  "The kinds shown as text: markdown rendered, the rest as it is."
+  "The kinds shown as text: markdown rendered, the rest in the editor
+   (`rragent.client.editor`); the kinds the editor saves (`write!`)."
   #{:markdown :text})
+
 
 (def text-cap
   "How much of a text file the pane shows."
@@ -541,7 +552,22 @@
     :else (do (fs/renameSync (path/join dir from) (path/join dir to))
               :renamed)))
 
+(defn write!
+  "The text written over the file `relative` of the folder: what the
+   person saved in the editor (`rragent.client.editor`,
+   `:artifacts/save` of `rragent.page`). Answers `:written`, or
+   `:outside` for a path that leaves the folder or hides, `:missing`
+   for a file that is not there: the editor changes files, it makes
+   none."
+  [dir relative text]
+  (cond
+    (not (inside? dir relative)) :outside
+    (not (http/regular-file? (path/join dir relative))) :missing
+    :else (do (fs/writeFileSync (path/join dir relative) (str text) "utf8")
+              :written)))
+
 (defn- free-name
+
   "`target` when nothing is there, else the first of `name 2.ext`,
    `name 3.ext` and so on that is free."
   [target]

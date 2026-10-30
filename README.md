@@ -384,7 +384,18 @@ drafts](drafts/)`, opens that file or folder in the pane
 header row sticky, the first 500 rows and the count above them
 (`rragent.csv`, read by PapaParse: a byte order mark, quotes, the
 separator detected; a row that does not read as CSV is counted in a
-note). The filter above a long list finds
+note). Any other text file, the source of a page inside a project, a
+script, a JSON, notes, is in an editor (CodeMirror,
+`rragent.client.editor`), its syntax colored by its extension,
+Clojure's by nextjournal's clojure-mode with its structural editing;
+Ctrl+S or the Save under the editor writes the file back
+(`:artifacts/save`). What the agent writes to the file meanwhile
+replaces the text while nothing is unsaved, and is offered beside the
+person's changes otherwise, never forced; unsaved changes survive a
+look at another file. Edit, in the bar of a markdown file or a CSV,
+opens their text in the editor, Preview brings the view back. The
+filter above a long list finds
+
 a file at any level and names its folder. A recording
 (`artifacts/recordings/<stamp>/`, see [Screencasts](#screencasts)) is a
 folder titled by its time, with its length. The files under `notes/`

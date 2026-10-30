@@ -515,7 +515,55 @@
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 
+(deftest editor-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [models]} (tools-test/faux-models)]
+             (let [{:keys [id base stop!]} (await (start! home models))
+                   cookie (await (login base "s3cret"))
+                   dir (path/join (home/bot-dir home id) "work" "artifacts")
+                   bot-path (db/bot-path id)]
+               (try
+                 (fs/mkdirSync (path/join dir "notes") #js {:recursive true})
+                 (fs/writeFileSync (path/join dir "notes" "todo.txt") "- milk\n")
+                 (fs/writeFileSync (path/join dir "README.md") "# Hello\n")
+                 (fs/writeFileSync (path/join dir "card.html") "<h1>card</h1>")
+                 (artifacts/refresh! db/db bot-path dir)
+                 (testing "the text of the editor is written over the file; the list has the new time at once, so that the frame with the text follows"
+                   (let [before (:mtime (some #(when (= "notes/todo.txt" (:path %)) %) (get-in @db/db (conj bot-path :artifacts/list))))]
+                     (await (js/Promise. (fn [resolve] (js/setTimeout resolve 5))))
+                     (is (= {:success? true} (await (command! base cookie :artifacts/save {:bot id :path "notes/todo.txt" :text "- milk\n- call Anna\n"}))))
+                     (is (= "- milk\n- call Anna\n" (fs/readFileSync (path/join dir "notes" "todo.txt") "utf8")))
+                     (let [{:keys [mtime size]} (some #(when (= "notes/todo.txt" (:path %)) %) (get-in @db/db (conj bot-path :artifacts/list)))]
+                       (is (< before mtime))
+                       (is (= 19 size)))
+
+                     (is (= {:success? true} (await (command! base cookie :artifacts/save {:bot id :path "README.md" :text "# Hello\n\nWorld.\n"}))) "a markdown file is a text too")
+                     (is (= "# Hello\n\nWorld.\n" (fs/readFileSync (path/join dir "README.md") "utf8")))))
+                 (testing "nothing but a text file on the list, and only a text"
+                   (is (= {:success? false :result {:error :no-such-artifact}} (await (command! base cookie :artifacts/save {:bot id :path "notes/new.txt" :text "x"}))))
+                   (is (not (fs/existsSync (path/join dir "notes" "new.txt"))))
+                   (is (= {:success? false :result {:error :no-such-artifact}} (await (command! base cookie :artifacts/save {:bot "99" :path "notes/todo.txt" :text "x"}))))
+                   (is (= {:success? false :result {:error :not-text}} (await (command! base cookie :artifacts/save {:bot id :path "card.html" :text "<h1>x</h1>"}))) "a page is played, not edited")
+                   (is (= "<h1>card</h1>" (fs/readFileSync (path/join dir "card.html") "utf8")))
+                   (is (= {:success? false :result {:error :no-text}} (await (command! base cookie :artifacts/save {:bot id :path "notes/todo.txt" :text 7}))))
+                   (is (= "- milk\n- call Anna\n" (fs/readFileSync (path/join dir "notes" "todo.txt") "utf8"))))
+                 (testing "Edit puts a markdown file's text in the editor, Preview takes it back"
+                   (is (= {:success? true} (await (command! base cookie :artifacts/edit {:bot id :path "README.md" :on? true}))))
+                   (is (= "README.md" (get-in @db/db (conj bot-path :artifacts/editing))))
+                   (is (= {:success? true} (await (command! base cookie :artifacts/edit {:bot id :path "README.md" :on? false}))))
+                   (is (nil? (get-in @db/db (conj bot-path :artifacts/editing))))
+                   (is (= {:success? false :result {:error :no-such-artifact}} (await (command! base cookie :artifacts/edit {:bot id :path "gone.md" :on? true}))))
+                   (is (= {:success? false :result {:error :no-such-bot}} (await (command! base cookie :artifacts/edit {:bot "99" :path "README.md" :on? true})))))
+                 (finally
+                   (await (stop!))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
 (defn- ^:async eventually
+
   "Polls `f` every 20 ms until it answers truthy, at most `ms`."
   [ms f]
   (let [until (+ (js/Date.now) ms)]

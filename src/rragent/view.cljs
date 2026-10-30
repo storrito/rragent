@@ -874,18 +874,55 @@
   [render]
   [:i18n :artifacts/rendering {:progress (or (:progress render) "")}])
 
-(defn- text-view
-  "A text file on screen: markdown rendered (`rragent.markdown`, the
-   links in it to the files and folders beside the file, `:folder`),
-   the rest as it is; a note when this is the start of it only
-   (`rragent.artifacts/text-of`)."
-  [kind {:keys [text truncated?]} base bot path]
+(defn- markdown-view
+  "A markdown file on screen, rendered (`rragent.markdown`, the links
+   in it to the files and folders beside the file, `:folder`); a note
+   when this is the start of it only (`rragent.artifacts/text-of`)."
+  [{:keys [text truncated?]} base bot path]
   [:div.document
-   (if (= :markdown kind)
-     (into [:div.markdown] (markdown/hiccup text {:base base :bot bot :folder (artifacts/folder-of path)}))
-     [:pre.plain text])
+   (into [:div.markdown] (markdown/hiccup text {:base base :bot bot :folder (artifacts/folder-of path)}))
    (when truncated?
      [:p.hint [:i18n :artifacts/truncated]])])
+
+(defn- editor-view
+  "A text file on screen in the editor (`[:ui/code-editor]`,
+   `rragent.client.editor`): its text and the version of it, the
+   file's time, the extension for the syntax, and the words of the
+   strip under the editor. Read only when this is the start of the
+   file alone, which the note says: a save would cut the rest."
+  [{:keys [path ext mtime]} {:keys [text truncated?]} bot]
+  [:div.document.code
+   [:ui/code-editor {:ui/bot bot
+                     :ui/path path
+                     :ui/ext ext
+                     :ui/rev mtime
+                     :ui/text text
+                     :ui/read-only? (boolean truncated?)
+                     :ui/save-label [:i18n :editor/save]
+                     :ui/saving-label [:i18n :editor/saving]
+                     :ui/unsaved-label [:i18n :editor/unsaved]
+                     :ui/failed-label [:i18n :editor/failed]
+                     :ui/disk-label [:i18n :editor/disk]
+                     :ui/reload-label [:i18n :editor/reload]}]
+   (when truncated?
+     [:p.hint [:i18n :artifacts/truncated]])])
+
+(defn- previewed?
+  "Whether the text file has a view of its own besides the editor: a
+   markdown file rendered, a CSV as a table (`edit-toggle`)."
+  [{:keys [kind ext]}]
+  (or (= :markdown kind)
+      (and (= :text kind) (= "csv" ext))))
+
+(defn- edit-toggle
+  "Edit, in the bar of a markdown file or a CSV, puts the file's text
+   in the editor in place of its view; Preview brings the view back
+   (`:artifacts/edit`)."
+  [bot path editing?]
+  [:button.link.edit {:on {:click [[:data/command {:command/kind :artifacts/edit
+                                                   :command/data {:bot bot :path path :on? (not editing?)}}]]}}
+   [:i18n (if editing? :artifacts/preview :artifacts/edit)]])
+
 
 (defn- csv-view
   "A CSV file on screen as a table (`rragent.csv/table`): the first
@@ -917,8 +954,11 @@
   "The artifact on screen by its kind. `project` is the state of its
    process (`rragent.projects`), `render` the state of its render
    (`rragent.render`): the one of the project, or the one still writing
-   a video; `text` the text of a text file, `bot` the bot's id."
-  [base {:keys [path kind mtime title ext] :as artifact} {:keys [project render text bot]}]
+   a video; `text` the text of a text file, in the editor when the
+   person asked for that, `editing?`, or when it has no view of its own
+   (`previewed?`); `bot` the bot's id."
+  [base {:keys [path kind mtime title ext] :as artifact} {:keys [project render text bot editing?]}]
+
   (case kind
     :page [:ui/canvas {:ui/src (artifact-url base path)
                        :ui/rev mtime
@@ -953,8 +993,10 @@
                  :else [:div.placeholder [:i18n :artifacts/starting]]))
     (:markdown :text) (cond
                         (nil? text) [:div.placeholder [:i18n :artifacts/no-preview]]
-                        (= "csv" ext) (csv-view text)
-                        :else (text-view kind text base bot path))
+                        (and (not editing?) (= "csv" ext)) (csv-view text)
+                        (and (not editing?) (= :markdown kind)) (markdown-view text base bot path)
+                        :else (editor-view artifact text bot))
+
     [:div.placeholder [:i18n :artifacts/no-preview]]))
 
 (defn- file-links
@@ -1241,8 +1283,11 @@
    `rragent.artifacts` (`:artifacts/list`, `:artifacts/current`, the
    `:artifacts/folder` browsed with the `:artifacts/durations` of the
    recordings, the `:artifacts/text` of a text file on screen, the
+   markdown file or CSV whose text is in the editor,
+   `:artifacts/editing`, the
    path of a row being renamed or asked about, `:artifacts/renaming`
    and `:artifacts/deleting`), `:projects` and `:renders`, the bot's
+
    `:runs` with the `:runs/current` a tab shows and which of the two
    lists it sees, `:pane/shown` (`:artifacts` or `:activity`,
    `activity`), and the
@@ -1253,11 +1298,13 @@
    buttons go through. What it shows is
    its `data-screen` (`rragent.artifacts/screen`), which a message of
    the tab carries while the pane is in sight (`:ui/screen`)."
-  [{:keys [artifacts/list artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting projects renders runs runs/current pane/shown base bot] :as pane}]
+  [{:keys [artifacts/list artifacts/folder artifacts/durations artifacts/text artifacts/renaming artifacts/deleting artifacts/editing projects renders runs runs/current pane/shown base bot] :as pane}]
   (let [activity? (and (= :activity shown) (seq runs))
         artifact (when-not activity?
                    (some #(when (= (:artifacts/current pane) (:path %)) %) list))
         project? (= :project (:kind artifact))
+        editing? (and (some? artifact) (= editing (:path artifact)))
+
         render (when artifact
                  (if project?
                    (get renders (:path artifact))
@@ -1286,7 +1333,10 @@
       (when artifact
         (bar-title bot artifact))
       (when project?
-        (render-controls bot (:path artifact) render (artifacts/rendered list (:path artifact))))]
+        (render-controls bot (:path artifact) render (artifacts/rendered list (:path artifact))))
+      (when (and artifact text (previewed? artifact))
+        (edit-toggle bot (:path artifact) editing?))]
+
      (if activity?
        [:div.split.activity
         (activity bot runs current)]
@@ -1298,7 +1348,9 @@
            artifact (content base artifact {:project (get projects (:path artifact))
                                             :render render
                                             :text text
-                                            :bot bot})
+                                            :bot bot
+                                            :editing? editing?})
+
            (seq list) [:div.placeholder [:i18n :artifacts/pick]]
            :else [:div.placeholder [:i18n :artifacts/empty]])]])]))
 

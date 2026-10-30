@@ -17,7 +17,17 @@
   --on-accent: #ffffff;
   --code-bg: #f1efeb;
   --code-text: #2b2f36;
+  /* the syntax in the editor (rragent.client.editor) */
+  --syn-keyword: #a626a4;
+  --syn-atom: #986801;
+  --syn-string: #50a14f;
+  --syn-comment: #9a9da3;
+  --syn-tag: #e45649;
+  --syn-attribute: #4078f2;
+  --syn-punctuation: #5c6370;
+  --syn-link: #4078f2;
 }
+
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -33,8 +43,17 @@
     --on-accent: #ffffff;
     --code-bg: #0b0c0e;
     --code-text: #c5cad1;
+    --syn-keyword: #c678dd;
+    --syn-atom: #d19a66;
+    --syn-string: #98c379;
+    --syn-comment: #7f848e;
+    --syn-tag: #e06c75;
+    --syn-attribute: #61afef;
+    --syn-punctuation: #9da5b4;
+    --syn-link: #61afef;
   }
 }
+
 
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -49,9 +68,18 @@
   --on-accent: #ffffff;
   --code-bg: #0b0c0e;
   --code-text: #c5cad1;
+  --syn-keyword: #c678dd;
+  --syn-atom: #d19a66;
+  --syn-string: #98c379;
+  --syn-comment: #7f848e;
+  --syn-tag: #e06c75;
+  --syn-attribute: #61afef;
+  --syn-punctuation: #9da5b4;
+  --syn-link: #61afef;
 }
 
 * {
+
   box-sizing: border-box;
 }
 
@@ -840,21 +868,179 @@ body {
   background: var(--panel);
 }
 
-.artifacts .document pre.plain {
-  margin: 0;
-  padding: 0;
-  max-height: none;
-  overflow: visible;
-  background: none;
-  color: var(--text);
-  font-size: 13px;
-  white-space: pre-wrap;
-}
-
 .artifacts .document .hint {
   margin-top: 12px;
   font-size: 13px;
 }
+
+/* A text file in the editor (rragent.client.editor): CodeMirror fills
+   the document, its own scroller inside; the strip under it shows
+   while there is something to say. The colors of the editor are the
+   page's, over CodeMirror's base theme, hence the depth of the
+   selectors; the syntax's are the --syn- variables above. */
+.artifacts .document.code {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.artifacts .document.code .hint {
+  margin: 8px 14px 10px;
+}
+
+.code-editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.code-editor .surface {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.code-editor .cm-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.code-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.code-editor .cm-editor .cm-scroller {
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  line-height: 1.5;
+}
+
+.code-editor .cm-editor .cm-content {
+  padding: 10px 0;
+  caret-color: var(--text);
+}
+
+.code-editor .cm-editor .cm-cursor,
+.code-editor .cm-editor .cm-dropCursor {
+  border-left-color: var(--text);
+}
+
+.code-editor .cm-editor .cm-gutters {
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.code-editor .cm-editor .cm-activeLine,
+.code-editor .cm-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.code-editor .cm-editor .cm-selectionBackground,
+.code-editor .cm-editor.cm-focused .cm-selectionBackground,
+.code-editor .cm-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.code-editor .cm-editor .cm-selectionMatch {
+  background: color-mix(in srgb, var(--warn) 25%, transparent);
+}
+
+.code-editor .cm-editor .cm-matchingBracket,
+.code-editor .cm-editor.cm-focused .cm-matchingBracket {
+  outline: 1px solid color-mix(in srgb, var(--ok) 60%, transparent);
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+}
+
+.code-editor .cm-editor .cm-searchMatch {
+  background: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+
+.code-editor .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: color-mix(in srgb, var(--warn) 60%, transparent);
+}
+
+.code-editor .cm-editor .cm-panels {
+  border-color: var(--line);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.code-editor .cm-editor .cm-panel input,
+.code-editor .cm-editor .cm-panel button {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.code-editor .cm-editor .cm-tooltip {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.code-editor .cm-editor .cm-tooltip-autocomplete ul li[aria-selected] {
+  background: color-mix(in srgb, var(--accent) 15%, var(--panel));
+  color: var(--text);
+}
+
+.code-editor .strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.code-editor .strip.quiet {
+  display: none;
+}
+
+.code-editor .strip .note.error {
+  color: var(--accent);
+}
+
+.code-editor .strip button.save {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.code-editor .strip button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-editor .strip button.link:hover {
+  text-decoration: underline;
+}
+
+.code-editor .strip kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+}
+
 
 .artifacts .bar button.link {
   padding: 0;

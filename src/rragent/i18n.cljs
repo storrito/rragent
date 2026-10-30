@@ -38,6 +38,15 @@
    :artifacts/project-files "Files"
    :artifacts/pick "Pick a file on the left."
    :artifacts/truncated "The file is longer than this; download it from the menu of its row for all of it."
+   :artifacts/edit "Edit"
+   :artifacts/preview "Preview"
+   :editor/unsaved "Unsaved changes"
+   :editor/save "Save"
+   :editor/saving "Saving …"
+   :editor/failed "The file could not be saved."
+   :editor/disk "The file changed on disk meanwhile."
+   :editor/reload "Take that version"
+
    :csv/rows [:fn/str "{{:rows}} rows · {{:columns}} columns"]
    :csv/some [:fn/str "The first {{:shown}} of {{:rows}} rows · {{:columns}} columns"]
    :csv/errors [:fn/str "{{:n}} lines could not be read as CSV; the table may be off there."]
@@ -322,6 +331,15 @@
    :artifacts/project-files "Dateien"
    :artifacts/pick "Wähle links eine Datei."
    :artifacts/truncated "Die Datei ist länger als das hier; über das Menü ihrer Zeile lässt sie sich ganz herunterladen."
+   :artifacts/edit "Bearbeiten"
+   :artifacts/preview "Vorschau"
+   :editor/unsaved "Ungespeicherte Änderungen"
+   :editor/save "Speichern"
+   :editor/saving "Speichern …"
+   :editor/failed "Die Datei ließ sich nicht speichern."
+   :editor/disk "Die Datei hat sich inzwischen auf der Platte geändert."
+   :editor/reload "Diese Version nehmen"
+
    :csv/rows [:fn/str "{{:rows}} Zeilen · {{:columns}} Spalten"]
    :csv/some [:fn/str "Die ersten {{:shown}} von {{:rows}} Zeilen · {{:columns}} Spalten"]
    :csv/errors [:fn/str "{{:n}} Zeilen ließen sich nicht als CSV lesen; die Tabelle kann dort abweichen."]

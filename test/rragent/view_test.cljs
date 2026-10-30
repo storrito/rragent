@@ -404,14 +404,76 @@
             tds (map #(last (last %)) (filter #(and (vector? %) (= :td (first %))) (nodes (find-tag page :table))))]
         (is (= ["1" "2" "3" "4"] tds))
         (is (some #(and (string? %) (str/includes? % "longer than this")) (strings page)))))
-    (testing "another text file stays as it is"
+    (testing "another text file is in the editor"
       (let [page (i18n/translate (view/artifacts (-> pane
                                                      (assoc :artifacts/list [{:path "notes.txt" :kind :text :ext "txt" :title "Notes" :size 4 :mtime 1}]
                                                             :artifacts/current "notes.txt"
                                                             :artifacts/text {:text "a,b\n1,2" :truncated? false})))
                                   :en)]
-        (is (some? (find-tag page :pre.plain)))
-        (is (nil? (find-tag page :table)))))))
+        (is (some? (find-tag page :ui/code-editor)))
+        (is (nil? (find-tag page :table)))))
+    (testing "Edit in the bar puts the CSV's text in the editor, Preview the table back"
+      (let [page (shown {:text "a,b\n1,2\n" :truncated? false})
+            toggle (find-tag page :button.link.edit)]
+        (is (= "Edit" (last toggle)))
+        (is (= {:command/kind :artifacts/edit :command/data {:bot "1" :path "reviews.csv" :on? true}}
+               (second (first (get-in toggle [1 :on :click]))))))
+      (let [page (i18n/translate (view/artifacts (assoc pane
+                                                        :artifacts/editing "reviews.csv"
+                                                        :artifacts/text {:text "a,b\n1,2\n" :truncated? false}))
+                                 :en)
+            toggle (find-tag page :button.link.edit)]
+        (is (nil? (find-tag page :table)))
+        (is (some? (find-tag page :ui/code-editor)))
+        (is (= "Preview" (last toggle)))
+        (is (false? (get-in (second (first (get-in toggle [1 :on :click]))) [:command/data :on?])))))))
+
+(deftest editor-test
+  (let [pane {:artifacts/list [{:path "card/main.js" :kind :text :ext "js" :title "Main" :size 40 :mtime 7 :project "card"}
+                               {:path "README.md" :kind :markdown :ext "md" :title "README" :size 12 :mtime 3}
+                               {:path "card" :kind :project :title "Card" :size 0 :mtime 7}]
+              :base "/bot/1"
+              :bot "1"}
+        shown (fn [current text & [editing]]
+                (i18n/translate (view/artifacts (cond-> (assoc pane
+                                                               :artifacts/current current
+                                                               :artifacts/text text)
+                                                  editing (assoc :artifacts/editing editing)))
+                                :en))]
+    (testing "a text file is in the editor: the bot, the path, the text, its time as the version, the extension for the syntax, the words of the strip"
+      (let [page (shown "card/main.js" {:text "const a = 1;\n" :truncated? false})
+            [_ attrs] (find-tag page :ui/code-editor)]
+        (is (some? (find-tag page :div.document.code)))
+        (is (= {:ui/bot "1" :ui/path "card/main.js" :ui/ext "js" :ui/rev 7 :ui/text "const a = 1;\n" :ui/read-only? false}
+               (select-keys attrs [:ui/bot :ui/path :ui/ext :ui/rev :ui/text :ui/read-only?])))
+        (is (= ["Save" "Saving …" "Unsaved changes" "The file could not be saved." "The file changed on disk meanwhile." "Take that version"]
+               (map attrs [:ui/save-label :ui/saving-label :ui/unsaved-label :ui/failed-label :ui/disk-label :ui/reload-label])))
+        (is (nil? (find-tag page :button.link.edit)) "nothing to toggle: the editor is the view")
+        (is (not-any? #(and (string? %) (str/includes? % "longer than this")) (strings page)))))
+    (testing "the start of a long file is read only, with the note"
+      (let [page (shown "card/main.js" {:text "const" :truncated? true})
+            [_ attrs] (find-tag page :ui/code-editor)]
+        (is (true? (:ui/read-only? attrs)))
+        (is (some #(and (string? %) (str/includes? % "longer than this")) (strings page)))))
+    (testing "a markdown file is rendered, with Edit in the bar; editing, its text is in the editor, with Preview"
+      (let [page (shown "README.md" {:text "# Hello\n" :truncated? false})]
+        (is (some? (find-tag page :div.markdown)))
+        (is (nil? (find-tag page :ui/code-editor)))
+        (is (= "Edit" (last (find-tag page :button.link.edit)))))
+      (let [page (shown "README.md" {:text "# Hello\n" :truncated? false} "README.md")
+            [_ attrs] (find-tag page :ui/code-editor)]
+        (is (nil? (find-tag page :div.markdown)))
+        (is (= "md" (:ui/ext attrs)))
+        (is (= "Preview" (last (find-tag page :button.link.edit)))))
+      (let [page (shown "card/main.js" {:text "x" :truncated? false} "README.md")]
+        (is (some? (find-tag page :ui/code-editor)) "another file's editing does not matter here")
+        (is (nil? (find-tag page :button.link.edit)))))
+    (testing "a text file that could not be read has no editor"
+      (let [page (shown "README.md" nil)]
+        (is (nil? (find-tag page :ui/code-editor)))
+        (is (nil? (find-tag page :button.link.edit)))
+        (is (some #(and (string? %) (str/includes? % "no preview")) (strings page)))))))
+
 
 (deftest attachments-test
   (let [text "What is in it?\nimage: uploads/0a0b.png\nvideo: uploads/ab12.mp4\naudio: uploads/ff00.wav"
