@@ -828,9 +828,9 @@
    frame with a new `:ui/step`, a move the person made in this tab
    (`rragent.page/move-pane!`), is a new entry, so that the back and
    forward buttons, the mouse's too, step through the folders and the
-   files as through the bots; any other move (the agent's newest file
-   taking the screen, a step in another tab of the bot) changes the
-   entry in place. A step back or forward asks the server for the pane
+   files as through the bots; any other move (a step in another tab of
+   the bot, a file on screen that is gone) changes the entry in
+   place. A step back or forward asks the server for the pane
    of its entry with its step (`:artifacts/show`, the popstate
    listener); the frames that still carry the bot and the step from
    before leave the entry alone. Renders nothing."

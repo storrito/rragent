@@ -4,16 +4,18 @@
    kind. A page in an iframe that reloads when its file changes
    (rchat's canvas alias, `rragent.client`), an image, a video, an audio
    file as themselves, markdown rendered, a text file as it is
-   (`text-of`), anything else as a download. The newest change the
-   agent makes becomes the one on screen, unless the person picked
-   another one since; a pick of nil is the list alone. The port of pchat.artifacts to one folder: an
+   (`text-of`), anything else as a download. Nothing but the person's
+   own click moves the pane: a row of the list, a card or a link in
+   the chat (`rragent.markdown`); what the agent writes shows up on the
+   list and reloads in place when it is on screen, and the agent names
+   what it made in the chat, where a click opens it. A pick of nil is
+   the list alone. The port of pchat.artifacts to one folder: an
    agent has one conversation and one pane, no chats.
 
    The person browses the folder as one on their computer, one level
    at a time (`level`, `crumbs`): the folders of a level first, then
-   its files, both by name, a folder as one row until it is opened
-   (the newest change takes the screen, so the list need not say what
-   is new). Nothing is
+   its files, both by name, a folder as one row until it is opened.
+   Nothing is
    hidden but the dot files: the agent keeps a level short by putting
    what belongs together into folders. A `README.md` in a folder is
    its first file and opens when the person enters the folder
@@ -25,9 +27,9 @@
    A directory with a package.json is a project, an artifact with a
    process of its own whose page is shown through `rragent.projects`.
    The files under `notes/` are the agent's working notes (`note?`):
-   never the newest change that takes the screen, and no card in the
-   chat. The person renames a file from its row (`rename!`, the
-   extension stays) or deletes it (`trash!`, into the bot's trash).
+   an ordinary folder on the list, but no card in the chat. The person
+   renames a file from its row (`rename!`, the extension stays) or
+   deletes it (`trash!`, into the bot's trash).
 
    The keys this namespace owns in the bot's map of the db
    (`rragent.db`, under the bot's `path`; the map itself for a test's
@@ -37,15 +39,11 @@
        :artifacts/rev        the newest modification time
        :artifacts/durations  {\"recordings/<stamp>\" seconds}, the recordings' lengths
        :artifacts/current    the path on screen
-       :artifacts/picked-at  when the person picked it, to know what is newer
        :artifacts/folder     the folder the person browses, \"\" the root
 
-   It reads `:working?` (`rragent.machine`): while a run goes the
-   screen stays put, see `follow`.
-
    It reads `:renders` (`rragent.render`): a file a render still
-   writes is shown as is, with its progress, and does not take the
-   screen. The files are served under `/artifacts/`."
+   writes is shown as is, with its progress. The files are served
+   under `/artifacts/`."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
@@ -411,77 +409,41 @@
 
 (defn writing
   "The render that is still writing the artifact (`rragent.render`: the
-   file of a project while the render runs), or nil. Such a file is no
-   news, it changes with every frame."
+   file of a project while the render runs), or nil."
   [{:keys [renders]} {:keys [path]}]
   (when-let [name (render-name path)]
     (let [render (get renders name)]
       (when (and (:started render) (nil? (:exit render)))
         render))))
 
-(defn follow
-  "The artifact on screen after the folder changed: the newest finished
-   file when it is newer than the person's pick, what they picked while
-   it exists, the list alone when they went back to it and nothing
-   newer came, the newest otherwise. While the agent works (`:working?`
-   of the bot, `rragent.machine`) the screen stays where it is, a video
-   playing or the list: the agent writes file after file then, and
-   what it made takes the screen once the run is over (`refollow!`);
-   only an empty screen follows the work live. A video a render still
-   writes changes with every frame and does not take the screen by
-   itself; it is news once the render is done. A note (`note?`) is no
-   news either: it does not take the screen from a creation."
-  [{:keys [artifacts/current artifacts/picked-at working?] :as value} {listed :artifacts/list}]
-  (let [finished (remove #(or (writing value %) (note? (:path %))) listed)
-        newest (or (first finished) (first listed))
-        shown (some #(when (= current (:path %)) %) listed)]
-    (cond
-      (nil? newest) nil
-      (and working? shown) (:path shown)
-      (and working? (nil? current) picked-at) nil
-      (> (:mtime newest) (or picked-at 0)) (:path newest)
-      shown (:path shown)
-      (and (nil? current) picked-at) nil
-      :else (:path newest))))
-
-(defn- showing
-  "`value` with `current` on screen; the list browsing its folder when
-   it is another artifact than before, so that the row of what is on
-   screen is in sight (the person's own browsing stays while the
-   screen does not change)."
-  [value current]
-  (cond-> (assoc value :artifacts/current current)
-    (and current (not= current (:artifacts/current value))) (assoc :artifacts/folder (folder-of current))))
+(defn rendered
+  "The video of the project `name` among the list, the file its render
+   wrote (`render-name`), or nil: what the pane offers to open once a
+   render is done, the person's click, not a move of its own."
+  [listed name]
+  (some #(when (and (= :video (:kind %)) (= name (render-name (:path %)))) %) listed))
 
 (defn refresh!
   "Puts the facts of the folder into the bot's map at `path` of the db
-   when they changed, and moves the screen to the newest change."
+   when they changed. The screen stays where it is: what is on it
+   reloads in place, what is gone is shown as the list (`place`)."
   ([db dir]
    (refresh! db [] dir))
   ([db path dir]
    (let [new-facts (facts dir)]
      (when (not= (:artifacts/list new-facts) (:artifacts/list (db/at @db path)))
-       (swap! db db/update-at path
-              (fn [value]
-                (let [value (merge value new-facts)]
-                  (showing value (follow value new-facts))))))
+       (swap! db db/update-at path merge new-facts))
      new-facts)))
-
-(defn refollow!
-  "Moves the screen as after a change of the folder, for news that is no
-   change of a file: a render that is done makes its video the newest
-   finished file."
-  ([db]
-   (refollow! db []))
-  ([db path]
-   (swap! db db/update-at path (fn [value] (showing value (follow value value))))))
 
 (defn picked
   "The bot's map `value` with `p` picked by the person, or the list
-   alone (nil); the list browses the folder of the pick."
+   alone (nil); the list browses the folder of the pick when it is
+   another artifact than before, so that the row of what is on screen
+   is in sight (the person's own browsing stays while the screen does
+   not change)."
   [value p]
-  (-> (showing value p)
-      (assoc :artifacts/picked-at (js/Date.now))))
+  (cond-> (assoc value :artifacts/current p)
+    (and p (not= p (:artifacts/current value))) (assoc :artifacts/folder (folder-of p))))
 
 (defn pick!
   "The person picked `p`, or went back to the list (nil) (`picked`)."

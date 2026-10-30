@@ -135,7 +135,9 @@
 
 (defn- finish!
   "The exit of the process into the db: the error with the reason,
-   nothing of it after a stop; the finished file is news for the pane."
+   nothing of it after a stop. The finished file is on the list, and
+   the pane offers to open it (`rragent.view`); the screen does not
+   move by itself."
   [{:keys [db path] :as handle} name exit lines errors]
   (let [{:keys [stopped? timed-out?]} (get @(table handle) name)]
     (swap! (table handle) dissoc name)
@@ -151,7 +153,6 @@
 
                            (and (not timed-out?) (not (zero? exit)))
                            (assoc :error (error-of exit lines errors))))))))
-    (artifacts/refollow! db path)
     (get-in (db/at @db path) [:renders name])))
 
 (defn- refuse!

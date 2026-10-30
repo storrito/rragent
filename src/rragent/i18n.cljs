@@ -51,6 +51,7 @@
    :artifacts/delete-yes "Delete"
    :artifacts/keep "Keep"
    :artifacts/render "Make the video"
+   :artifacts/render-open "Open the video"
    :artifacts/rendering [:fn/str "Making the video {{:progress}}"]
    :artifacts/render-stop "Stop"
    :artifacts/render-failed [:fn/str "The video did not come out: {{:error}}"]
@@ -333,6 +334,7 @@
    :artifacts/delete-yes "Löschen"
    :artifacts/keep "Behalten"
    :artifacts/render "Video erstellen"
+   :artifacts/render-open "Video öffnen"
    :artifacts/rendering [:fn/str "Video wird erstellt {{:progress}}"]
    :artifacts/render-stop "Stopp"
    :artifacts/render-failed [:fn/str "Das Video ist nicht gelungen: {{:error}}"]

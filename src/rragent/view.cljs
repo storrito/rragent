@@ -1122,8 +1122,10 @@
 
 (defn- render-controls
   "The video of the project, made here on a click; its progress and Stop
-   while it is made."
-  [bot path render]
+   while it is made; once there is one (`video`, the file of the list
+   the render wrote), the way to open it, a step of the tab's like a
+   row's click: the pane never moves to it by itself."
+  [bot path render video]
   (if (and (:started render) (nil? (:exit render)))
     [:span.rendering
      (rendering render)
@@ -1131,9 +1133,16 @@
      [:button.link {:on {:click [[:data/command {:command/kind :artifacts/render-stop
                                                  :command/data {:bot bot :path path}}]]}}
       [:i18n :artifacts/render-stop]]]
-    [:button.link {:on {:click [[:data/command {:command/kind :artifacts/render
-                                                :command/data {:bot bot :path path}}]]}}
-     [:i18n :artifacts/render]]))
+    (list
+     (when video
+       (list
+        [:button.link.video {:on {:click [[:data/command {:command/kind :artifacts/open
+                                                          :command/data {:bot bot :path (:path video) :tab :ui/tabid}}]]}}
+         [:i18n :artifacts/render-open]]
+        " · "))
+     [:button.link {:on {:click [[:data/command {:command/kind :artifacts/render
+                                                 :command/data {:bot bot :path path}}]]}}
+      [:i18n :artifacts/render]])))
 
 (defn run-state-label
   [state]
@@ -1241,7 +1250,7 @@
       (when artifact
         [:span.title (:title artifact)])
       (when project?
-        (render-controls bot (:path artifact) render))]
+        (render-controls bot (:path artifact) render (artifacts/rendered list (:path artifact))))]
      (if activity?
        [:div.split.activity
         (activity bot runs current)]
