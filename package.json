@@ -31,6 +31,7 @@
     "@yume-chan/stream-extra": "2.6.1",
     "croner": "^10.0.1",
     "markdown-it": "15.0.3",
+    "papaparse": "5.7.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

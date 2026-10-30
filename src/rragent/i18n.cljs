@@ -37,6 +37,9 @@
    :artifacts/project "project"
    :artifacts/pick "Pick a file on the left."
    :artifacts/truncated "The file is longer than this; download it from the menu of its row for all of it."
+   :csv/rows [:fn/str "{{:rows}} rows · {{:columns}} columns"]
+   :csv/some [:fn/str "The first {{:shown}} of {{:rows}} rows · {{:columns}} columns"]
+   :csv/errors [:fn/str "{{:n}} lines could not be read as CSV; the table may be off there."]
    :artifacts/files [:fn/str "{{:n}} files"]
    :artifacts/one-file "1 file"
    :artifacts/filter "Filter the list"
@@ -316,6 +319,9 @@
    :artifacts/project "Projekt"
    :artifacts/pick "Wähle links eine Datei."
    :artifacts/truncated "Die Datei ist länger als das hier; über das Menü ihrer Zeile lässt sie sich ganz herunterladen."
+   :csv/rows [:fn/str "{{:rows}} Zeilen · {{:columns}} Spalten"]
+   :csv/some [:fn/str "Die ersten {{:shown}} von {{:rows}} Zeilen · {{:columns}} Spalten"]
+   :csv/errors [:fn/str "{{:n}} Zeilen ließen sich nicht als CSV lesen; die Tabelle kann dort abweichen."]
    :artifacts/files [:fn/str "{{:n}} Dateien"]
    :artifacts/one-file "1 Datei"
    :artifacts/filter "Liste filtern"

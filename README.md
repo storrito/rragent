@@ -378,7 +378,11 @@ their own, folders within folders as the work calls for them, and no
 rule beyond that. A `README.md` in a folder opens when the person enters
 it, rendered; a relative link in it, `[the video](final.mp4)`, `[the
 drafts](drafts/)`, opens that file or folder in the pane
-(`rragent.markdown`, `data-artifact`). The filter above a long list finds
+(`rragent.markdown`, `data-artifact`). A CSV shows as a table with its
+header row sticky, the first 500 rows and the count above them
+(`rragent.csv`, read by PapaParse: a byte order mark, quotes, the
+separator detected; a row that does not read as CSV is counted in a
+note). The filter above a long list finds
 a file at any level and names its folder. A recording
 (`artifacts/recordings/<stamp>/`, see [Screencasts](#screencasts)) is a
 folder titled by its time, with its length. The files under `notes/`
