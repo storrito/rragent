@@ -68,9 +68,9 @@
       (js-delete env "RRAGENT_HYPERFRAMES")
       (testing "an empty PATH misses every program"
         (is (= ["chrome" "ffmpeg" "hyperframes"] (programs/missing ["chrome" "ffmpeg" "hyperframes"])))
-        (is (= "The template motion needs chrome, ffmpeg on this machine, which is not installed, so no render: the operator installs it."
-               (programs/not-ready-message "motion" ["chrome" "ffmpeg"])))
-        (is (nil? (programs/not-ready-message "motion" []))))
+        (is (= "The template hyperframes needs chrome, ffmpeg, hyperframes on this machine, which is not installed, so no render: the operator installs it."
+               (programs/not-ready-message "hyperframes" ["chrome" "ffmpeg" "hyperframes"])))
+        (is (nil? (programs/not-ready-message "hyperframes" []))))
       (let [{:keys [tools restore!]} (with-tools!)]
         (try
           (testing "a Chrome by any of its names counts, a program from the environment too"

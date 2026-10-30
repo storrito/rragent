@@ -101,8 +101,8 @@
        "What a service finishes later (a story or post being published, a render, an import) you do not wait for: once the service "
        "has taken it, answer with what it said, a preview link included, and look at its status again when the person asks; "
        "no sleep in between, the person waits for every second of your turn. "
-       "With `project`, the code is evaluated by that artifact project's process instead, where its template takes an eval "
-       "(a motion design: in the namespace of design.cljs, a redefined function shows on the page at once, until the file is saved)."))
+       "With `project`, the code is evaluated by that artifact project's process instead, where its template takes an eval: "
+       "the template's notes say whether it does, a HyperFrames composition takes none."))
 
 (defn tool
   "The tool over the REPL `codemode`: a program runs in the worker of

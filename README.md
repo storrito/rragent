@@ -44,8 +44,8 @@ serves the conversation, the tools, schedules and hooks are there, and so
 is the REPL with the connectors of the Sprite's gateway as functions
 (Storrito's procedures and Composio's meta tools among them, see
 [Connectors and the REPL](#connectors-and-the-repl)). The artifacts pane
-shows what the agent makes, runs the projects of the templates (a motion
-design, a HyperFrames composition) and renders their videos.
+shows what the agent makes, runs the projects of the templates (a
+HyperFrames composition) and renders their videos.
 
 ## Bots
 
@@ -496,35 +496,14 @@ build copies each template without them into `dist/templates`. A
 folder without a `TEMPLATE.md` is no template.
 
 The agent's definition names the templates it may use,
-`metadata.templates: [motion, hyperframes]` in its `AGENT.md`; every
+`metadata.templates: [hyperframes]` in its `AGENT.md`; every
 installed one when it names none, none with `[]` (the page watcher of
 `deploy/examples/watcher/AGENT.md`). The `project` tool refuses the
 others, with the allowed ones in the error. The templates are read
 when the agent opens, not again with the file.
 
-The two templates that come with rragent:
+The template that comes with rragent:
 
-- `motion`: a motion design, pchat's template on Node. `design.cljs` is
-  the namespace `design` with `size`, `duration`, `design-view` (the
-  frame at a time, a pure function of the data and the time, hiccup)
-  and `controls`, with [fnmotion](https://github.com/simplemono/fnmotion)'s
-  `core`, `timeline` and `captions` at hand; `design.edn` the data, kept
-  across restarts and written by the controls. The template's program
-  (`rragent.motion.*` under `templates/motion/src`, built into
-  `templates/motion/dist/motion.js` with the page's bundle in
-  `dist/public`, see the Layout) evaluates the file with SCI
-  (`rragent.motion.design`), plays it on a page of rframes with
-  fnmotion's server-side player ported to Node (`rragent.motion.player`:
-  play, a scrubber, the audio tracks in step), loads the file again when
-  it is saved, an error shown on the page, and takes an eval into the
-  design's namespace. Its `render` is fnmotion's render half ported to
-  Node (`rragent.motion.render`): every frame as HTML by Replicant's
-  string renderer, a few headless Chromes driven over the DevTools
-  protocol with Node's WebSocket screenshot them side by side, ffmpeg
-  encodes the screenshots in order and mixes the `:audio` tracks of
-  `design.edn` in (`{:src "music.mp3" :volume 0.6 :fade-out 1}`, with
-  `:start`, `:duration`, `:media-start`, `:fade-in`, `:loop?`). Needs:
-  chrome, ffmpeg.
 - `hyperframes`: a [HyperFrames](https://github.com/heygen-com/hyperframes)
   composition, `composition/index.html` with GSAP, shown in the
   HyperFrames player by the template's `serve`, a small Node server
@@ -548,9 +527,9 @@ A template's page lives in the iframe of the pane under
 the process's environment), so it reaches its own
 process through that path: a relative `assets/app.js` on the page is
 proxied to `/assets/app.js` of the process, a stream the process holds
-open comes through as it comes (the motion page is an rframes page: it
-opens its frame stream on its own path and gets a frame on every
-change). A command the page posts to the origin's `/command` goes to
+open comes through as it comes (an rframes page opens its frame
+stream on its own path and gets a frame on every change). A command
+the page posts to the origin's `/command` goes to
 the project's process, which the Referer names, so an rframes page in
 the pane works unchanged. A picture, a video or a sound in the
 project's folder is served as the file it is, by rragent.
@@ -564,10 +543,8 @@ text, an error status with the message; a process that does not serve
 it answers `404` or `405`, and the tool says the template takes no
 eval. What
 the eval changes shows on the page because the page follows the
-process. The motion template evaluates in the namespace of
-`design.cljs` as it runs, so `(defn design-view ...)` or `(def
-duration 3)` shows at once, until the file is saved; HyperFrames does
-not take an eval.
+process. The HyperFrames template takes none; the channel waits for a
+template that does.
 
 ## Starters
 
@@ -617,14 +594,6 @@ Two Vite builds, one dev server:
   The server serves `dist/public` and reads the manifest for the head of the
   page (`rragent.assets`); under the dev server it reads Vite's manifest in
   `dist/` instead and points the scripts at Vite.
-- The motion template has two builds of its own, `templates/motion/
-  vite.config.mjs` (its program, `rragent.motion.main`, into
-  `templates/motion/dist/motion.js`, which its `serve` and `render` import)
-  and `vite.client.config.mjs` (its page's bundle, `rragent.motion.client`,
-  into `templates/motion/dist/public`, served by the project's process).
-  They compile from the root's classpath, `templates/motion/src` is on it
-  for that; the harness's bundle requires nothing of it. `npm run
-  build:templates` runs them, `npm run build` runs them first.
 
 ## Screencasts
 
@@ -753,10 +722,9 @@ a udev rule for the phone.
 Node 26 (`mise install`), Java 17 or later for the compiler.
 
     npm ci
-    npm run build:templates  # the motion template's program and page, once; the dev server runs them as built
     npm run dev      # the dev server serves the page at :8080, hot reloads it, nREPL in .nrepl-port
-    npm test         # the ClojureScript tests under Node, the templates' too
-    npm run build    # the templates, then dist/rragent.js and dist/public, run with npm start
+    npm test         # the ClojureScript tests under Node
+    npm run build    # dist/rragent.js and dist/public, the templates beside them, run with npm start
 
 An `.env` next to the project is never committed. On a Sprite the agent
 needs no key at all: the models, dictation, the media tools and the

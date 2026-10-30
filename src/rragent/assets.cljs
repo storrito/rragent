@@ -5,8 +5,7 @@
    the cljf plugin writes there, and the server serves them. Under the
    dev server (`npm run dev`, which sets RRAGENT_VITE to its address)
    they come from the dev server, which hot reloads them: its manifest
-   in dist/ names them. A program built from the same sources (the
-   motion template's) finds its own bundle the same way, `built`."
+   in dist/ names them."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             ["node:url" :as url]))

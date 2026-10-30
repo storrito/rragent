@@ -1,8 +1,4 @@
-{:paths ["src" "test"
-         ;; the motion template's program and tests (templates/motion), an
-         ;; entry of its own build, see its vite.config.mjs; the harness's
-         ;; bundle (rragent.main) requires nothing of it
-         "templates/motion/src" "templates/motion/test"]
+{:paths ["src" "test"]
  :deps {;; the compiler; the cljf launcher (which the Vite plugin runs) adds it
         ;; itself when it is missing, listing it pins the version
         com.whimsical/clojurific {:mvn/version "0.12.7"}
@@ -21,23 +17,7 @@
         {:git/url "https://github.com/simplemono/rframes.git"
          :git/sha "986826428665e0ee6d9de6affeb1dcb266b670c1"
          :deps/root "client"}
-        no.cjohansen/replicant {:mvn/version "2026.07.1"}
-        ;; the motion template (templates/motion): fnmotion's pure parts
-        ;; (core, timeline, captions, cljc) for the design files and the
-        ;; player; its JVM parts and their dependencies are excluded,
-        ;; rragent.motion.render is the Node port of fnmotion.render, and
-        ;; its Replicant is a git coordinate tools.deps cannot compare with
-        ;; the one above
-        io.github.simplemono/fnmotion
-        {:git/url "https://github.com/simplemono/fnmotion.git"
-         :git/sha "727c668e158f4e21ab669fce012d68adeb6eca16"
-         :exclusions [no.cjohansen/replicant
-                      io.github.simplemono/rframes$server
-                      babashka/fs
-                      babashka/process
-                      org.babashka/http-client
-                      cheshire/cheshire
-                      hiccup/hiccup]}}
+        no.cjohansen/replicant {:mvn/version "2026.07.1"}}
  ;; Clojurific replaces stock ClojureScript, which must not be on the classpath
  ;; too. The cljf launcher drops it itself; with the Clojure CLI
  ;; (clojure -M:cljs -m cljf.esm build ...) this alias overrides it with

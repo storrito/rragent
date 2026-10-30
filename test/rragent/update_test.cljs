@@ -128,9 +128,9 @@
    (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-release-"))
          dist (path/join dir "dist")
          tarball (path/join dir "rragent.tar.gz")]
-     (fs/mkdirSync (path/join dist "templates" "motion") #js {:recursive true})
+     (fs/mkdirSync (path/join dist "templates" "hyperframes") #js {:recursive true})
      (fs/writeFileSync (path/join dist "rragent.js") (str "// rragent " version "\n"))
-     (fs/writeFileSync (path/join dist "templates" "motion" "TEMPLATE.md") "new")
+     (fs/writeFileSync (path/join dist "templates" "hyperframes" "TEMPLATE.md") "new")
      (let [result (child/spawnSync "tar" #js ["-czf" tarball "-C" dist "."] #js {:encoding "utf8"})]
        (when-not (= 0 (.-status result))
          (throw (js/Error. (str "tar: " (.-stderr result))))))
@@ -245,7 +245,7 @@
                    (await (with-stderr (fn [] first-click))))
                  (is (= [75] @exits))
                  (is (= "// rragent 0.1.3\n" (bundle-of install)) "the new bundle is dist/")
-                 (is (= "new" (fs/readFileSync (path/join install "dist" "templates" "motion" "TEMPLATE.md") "utf8")))
+                 (is (= "new" (fs/readFileSync (path/join install "dist" "templates" "hyperframes" "TEMPLATE.md") "utf8")))
                  (is (not (fs/existsSync (path/join install "dist" "public" "app.css"))) "nothing of the old dist/ remains")
                  (is (= ["dist"] (vec (fs/readdirSync install))) "no dist.old, no dist.new, no temp folder")
                  (is (= :applying (get-in @db [:update :state])))

@@ -66,7 +66,7 @@
 
 (defn report
   "One line per template on what is there and what is missing, for the
-   start: `motion: chrome at /usr/bin/google-chrome, ffmpeg missing`."
+   start: `hyperframes: chrome at /usr/bin/google-chrome, ffmpeg missing`."
   [templates]
   (str/join "\n"
             (for [{:keys [name needs]} templates]
