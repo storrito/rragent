@@ -2,28 +2,26 @@
   "What the model is sent of its tools' earlier results. A text of a
    tool result of a turn before the last `kept-turns` (a turn: a
    message of the person and what followed it) longer than `text-chars`
-   goes as its start and end. The pictures of tool results go by their
-   number, not their turn (`limit-pictures`): the last `kept-pictures`
-   or a few more whole, the earlier ones as a line that names their
-   file. A few pictures cost little and are what the person points at
-   later (\"the frame from before\"); many pile up in one long run too,
-   a subagent's, which gets one message and looks at frame after frame
-   where no turn ends.
+   goes as its start and end. Pictures stay whole until a compaction
+   takes them into its summary, which names their files
+   (`rragent.harness/compaction-focus`): a picture left out of a request
+   changes its start and the provider reads all after it anew, while a
+   cached picture costs little (some 1,000 to 1,600 tokens read at a
+   tenth or less of the price), and the compaction while the person is
+   away (`rragent.away`) and the one at the budget clear them anyway.
    The conversation keeps every result whole, the chat shows it whole,
    the summary of a compaction reads it whole; only the request is
    lighter (pi-durable's `beforeRequest`, for that request only).
-   Results are most of what fills a conversation (pictures the agent
-   looked at, a command's output, a page it fetched) and what an
-   earlier turn needed of them is in the agent's answers; the agent
-   reads a file or runs the tool again for the rest. What the agent
-   read of a skill (`instructions?`) is no result but its instructions,
-   and stays whole. Without a model call and the same for every model,
-   as observation masking is in Lindenbauer et al. 2025 (\"The
-   Complexity Trap\"): half the cost of the whole results, and as good
-   as a summary. The line between kept and masked moves only with a new
-   message of the person, and the pictures go in steps of
-   `picture-step`, so the requests of a run start as the one before
-   and the provider's cache holds."
+   Results are most of what fills a conversation (a command's output, a
+   page it fetched) and what an earlier turn needed of them is in the
+   agent's answers; the agent runs the tool again for the rest. What
+   the agent read of a skill (`instructions?`) is no result but its
+   instructions, and stays whole. Without a model call and the same for
+   every model, as observation masking is in Lindenbauer et al. 2025
+   (\"The Complexity Trap\"): half the cost of the whole results, and as
+   good as a summary. The line between kept and masked moves only with
+   a new message of the person, so the requests of a run start as the
+   one before and the provider's cache holds."
   (:require ["@earendil-works/pi-durable" :refer [GenerationTask defineExtension hook]]))
 
 (def kept-turns
@@ -38,19 +36,6 @@
 (def kept-chars
   "What a shortened text keeps of its start and of its end each."
   1000)
-
-(def kept-pictures
-  "The pictures of tool results the model gets at least, the last ones:
-   a picture is some 1,000 to 1,600 tokens, whatever its format, and a
-   subagent looked at 13 in the middle, at 50 at most."
-  10)
-
-(def picture-step
-  "How many pictures go at once once there are more than
-   `kept-pictures`: the model gets between `kept-pictures` and
-   `kept-pictures` + `picture-step` - 1 of them, and the start of the
-   request changes only with every `picture-step`-th picture."
-  10)
 
 (defn boundary
   "The index of the first message of the last `kept-turns` turns of
@@ -95,31 +80,9 @@
            "\n\n[… " (- n (* 2 kept-chars)) " characters of this earlier result are left out here; run the tool again for all of it …]\n\n"
            (subs text (- n kept-chars))))))
 
-(defn picture-note
-  "What stands for an earlier picture of a tool result, naming the file
-   when the call's `args` have its `path`."
-  [args]
-  (if-let [path (some-> args (aget "path"))]
-    (str "[The picture " path " was here; earlier pictures are left out. Read the file again to see it.]")
-    "[A picture was here; earlier pictures are left out.]"))
-
-(defn- note-pictures
-  "The tool result `m` with the pictures that `drop?` takes (by their
-   index among its blocks) as notes; `m` itself when none."
-  [^js m args drop?]
-  (let [content (vec (array-seq (.-content m)))
-        noted (into [] (map-indexed (fn [j ^js c]
-                                      (if (and (= "image" (.-type c)) (drop? j))
-                                        #js {:type "text" :text (picture-note args)}
-                                        c)))
-                    content)]
-    (if (every? true? (map identical? content noted))
-      m
-      (js/Object.assign #js {} m #js {:content (into-array noted)}))))
-
 (defn mask-result
-  "The tool result `m` with its long texts shortened, its pictures left
-   to `limit-pictures`; `m` itself when nothing changed."
+  "The tool result `m` with its long texts shortened, its pictures as
+   they are; `m` itself when nothing changed."
   [^js m]
   (let [content (vec (array-seq (.-content m)))
         shortened (mapv (fn [^js c]
@@ -133,54 +96,21 @@
       m
       (js/Object.assign #js {} m #js {:content (into-array shortened)}))))
 
-(defn dropped-pictures
-  "How many of `n` pictures go as notes: none up to `kept-pictures`,
-   past that a multiple of `picture-step`, so that `kept-pictures` and
-   fewer than `picture-step` more stay."
-  [n]
-  (if (<= n kept-pictures)
-    0
-    (* picture-step (quot (- n kept-pictures) picture-step))))
-
-(defn limit-pictures
-  "The messages `ms` (a vector) with the first pictures of tool results
-   (`dropped-pictures` of them, instructions aside) as notes and the
-   last ones whole; `by-id` the calls (`calls`)."
-  [ms by-id]
-  (let [positions (for [[i ^js m] (map-indexed vector ms)
-                        :when (and (= "toolResult" (.-role m))
-                                   (not (instructions? (get by-id (.-toolCallId m)))))
-                        [j ^js c] (map-indexed vector (array-seq (.-content m)))
-                        :when (= "image" (.-type c))]
-                    [i j])
-        dropped (take (dropped-pictures (count positions)) positions)
-        by-message (reduce (fn [acc [i j]] (update acc i (fnil conj #{}) j)) {} dropped)]
-    (if (empty? by-message)
-      ms
-      (into []
-            (map-indexed (fn [i ^js m]
-                           (if-let [blocks (by-message i)]
-                             (note-pictures m (:args (get by-id (.-toolCallId m))) blocks)
-                             m)))
-            ms))))
-
 (defn mask
   "The JS array `messages` with the texts of the tool results before
-   `boundary` shortened (`mask-result`) and their pictures limited
-   (`limit-pictures`), instructions aside (`instructions?`); the same
-   array when nothing changed."
+   `boundary` shortened (`mask-result`), instructions aside
+   (`instructions?`); the same array when nothing changed."
   [messages]
   (let [ms (vec (array-seq messages))
         b (boundary ms)
         by-id (calls ms)
-        turned (into []
-                     (map-indexed (fn [i ^js m]
-                                    (let [call (get by-id (.-toolCallId m))]
-                                      (if (and (< i b) (= "toolResult" (.-role m)) (not (instructions? call)))
-                                        (mask-result m)
-                                        m))))
-                     ms)
-        out (limit-pictures turned by-id)]
+        out (into []
+                  (map-indexed (fn [i ^js m]
+                                 (let [call (get by-id (.-toolCallId m))]
+                                   (if (and (< i b) (= "toolResult" (.-role m)) (not (instructions? call)))
+                                     (mask-result m)
+                                     m))))
+                  ms)]
     (if (every? true? (map identical? ms out))
       messages
       (into-array out))))
