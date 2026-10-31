@@ -60,6 +60,7 @@
             [rragent.tools.render :as render-tool]
             [rragent.tools.report :as report-tool]
             [rragent.tools.schedule :as schedule-tool]
+            [rragent.tools.share :as share-tool]
             [rragent.tools.skill :as skill-tool]
             [rragent.tools.subagent :as subagent-tool]
             [rragent.tools.transcribe :as transcribe-tool]
@@ -78,7 +79,7 @@
   (defineExtension #js {:name "rragent"
                         :tools #js [events-tool/remember events-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
                                     (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)
-                                    (transcribe-tool/tool codemode) report-tool/tool skill-tool/tool]
+                                    (transcribe-tool/tool codemode) report-tool/tool skill-tool/tool share-tool/tool]
                         :tasks #js [schedule/Task runs/Task]}))
 
 (def redacted-keys

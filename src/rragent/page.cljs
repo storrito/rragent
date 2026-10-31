@@ -36,8 +36,10 @@
    built client under `/app.css` and `/assets/*`; all behind the token
    (`rragent.auth`); `POST /hook/<name>/<secret>` outside it, tried on
    every bot, the hooks' own secrets are their keys (`rragent.hooks`),
-   and `POST /composio/event` outside it too, Composio's deliveries,
-   their signatures their keys (`rragent.composio-events`).
+   `POST /composio/event` outside it too, Composio's deliveries,
+   their signatures their keys (`rragent.composio-events`), and
+   `/s/<token>/*` (GET and HEAD), the files of a folder a bot shares
+   (`rragent.shares`), the token the whole key.
    The commands `:settings/open` and `:settings/close` put the settings
    in place of the chat for a tab and bring the chat back
    (`rragent.view/settings`); `:update/check` is the settings' lookup
@@ -84,6 +86,7 @@
             [rragent.rframes.transit :as transit]
             [rragent.runs :as runs]
             [rragent.secrets :as secrets]
+            [rragent.shares :as shares]
             [rragent.sprite :as sprite]
             [rragent.starting :as starting]
             [rragent.templates :as templates]
@@ -1327,17 +1330,29 @@
             :headers {"Content-Type" "application/json"}
             :body (js/JSON.stringify (clj->js body))})))
 
+(defn- ^:async share-handler
+  "`GET /s/<token>/<path>`, and its HEAD: a file of a folder a bot
+   shares (`rragent.shares`), no cookie asked."
+  [w]
+  (await (shares/handler {:home (machine/home)
+                          :shares (fn [] (.snapshot (:harness (machine/agent)) shares/Shares harness/context))}
+                         w)))
+
 (defn open-register
-  "The routes outside the token: the hooks, Composio's events, and the
+  "The routes outside the token: the hooks, Composio's events, the
    pairing of a phone (`rragent.phone`), which lets the phone in with
-   the token's cookie."
+   the token's cookie, and the shared folders (`rragent.shares`)."
   [token]
   [{:ring/route [:post "/hook/*"]
     :ring/handler #'hook-handler}
    {:ring/route [:post composio-setup/event-path]
     :ring/handler #'composio-event-handler}
    {:ring/route [:get (str phone/pair-prefix "/*")]
-    :ring/handler (fn [w] (phone/pair-handler token w))}])
+    :ring/handler (fn [w] (phone/pair-handler token w))}
+   {:ring/route [:get (str shares/prefix "/*")]
+    :ring/handler #'share-handler}
+   {:ring/route [:head (str shares/prefix "/*")]
+    :ring/handler #'share-handler}])
 
 (defn handler
   "The ring handler: the open routes as they are, everything else behind
