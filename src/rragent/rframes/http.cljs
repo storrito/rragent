@@ -153,24 +153,47 @@
    rest with its next range request."
   (* 4 1024 1024))
 
+(defn unsatisfiable?
+  "Whether a Range header asks for bytes a file of `length` bytes does not
+   have: well-formed, `bytes=` with a position, and yet no range of
+   `parse-range`. Such a request gets a 416; a malformed header, or one
+   whose first byte lies behind its last, is ignored instead (RFC 9110)."
+  [header length]
+  (boolean
+   (when-let [[_ from to] (re-matches #"bytes=(\d*)-(\d*)" (str/trim (or header "")))]
+     (and (or (seq from) (seq to))
+          (not (and (seq from) (seq to) (< (parse-long to) (parse-long from))))
+          (nil? (parse-range header length))))))
+
 (defn file-response
   "Serves `file`, a path. A range request gets a 206, which <video> and
-   <audio> need for seeking. The body is a read stream of the file."
+   <audio> need for seeking, one for bytes the file does not have a 416.
+   The body is a read stream of the file; a HEAD gets the headers alone,
+   the Content-Length of the body it does not carry among them."
   [request file]
   (let [length (.-size (fs/statSync file))
+        head? (= :head (:request-method request))
+        range (get-in request [:headers "range"])
         headers {"Content-Type" (content-type (path/basename file))
                  "Accept-Ranges" "bytes"
-                 "Cache-Control" "no-cache"}]
-    (if-let [[start end] (parse-range (get-in request [:headers "range"]) length)]
+                 "Cache-Control" "no-cache"}
+        stream (fn [options]
+                 (when-not head?
+                   (if options (fs/createReadStream file options) (fs/createReadStream file))))]
+    (if-let [[start end] (parse-range range length)]
       (let [end (min end (+ start (dec max-range-bytes)))]
         {:status 206
          :headers (assoc headers
                          "Content-Range" (str "bytes " start "-" end "/" length)
                          "Content-Length" (inc (- end start)))
-         :body (fs/createReadStream file #js {:start start :end end})})
-      {:status 200
-       :headers (assoc headers "Content-Length" length)
-       :body (fs/createReadStream file)})))
+         :body (stream #js {:start start :end end})})
+      (if (unsatisfiable? range length)
+        {:status 416
+         :headers (assoc headers "Content-Range" (str "bytes */" length))
+         :body ""}
+        {:status 200
+         :headers (assoc headers "Content-Length" length)
+         :body (stream nil)}))))
 
 (defn files
   "A register entry that serves files on `path`: the one file `root` for a

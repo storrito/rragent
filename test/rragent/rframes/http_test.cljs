@@ -26,6 +26,19 @@
   (is (nil? (http/parse-range "items=0-1" 1000)))
   (is (nil? (http/parse-range nil 1000))))
 
+(deftest unsatisfiable-test
+  (testing "a well-formed range the file has no bytes for"
+    (is (true? (http/unsatisfiable? "bytes=1000-" 1000)))
+    (is (true? (http/unsatisfiable? "bytes=1000-2000" 1000)))
+    (is (true? (http/unsatisfiable? "bytes=-0" 1000)))
+    (is (true? (http/unsatisfiable? "bytes=-5" 0))))
+  (testing "a range the file has, a malformed header, a first byte behind the last, no header: ignored, not 416"
+    (is (false? (http/unsatisfiable? "bytes=0-" 1000)))
+    (is (false? (http/unsatisfiable? "items=0-1" 1000)))
+    (is (false? (http/unsatisfiable? "bytes=-" 1000)))
+    (is (false? (http/unsatisfiable? "bytes=5-2" 1000)))
+    (is (false? (http/unsatisfiable? nil 1000)))))
+
 (deftest files-test
   (async done
     (-> ((^:async fn []
@@ -44,6 +57,20 @@
                    (is (= 206 status))
                    (is (= "bytes 2-5/10" (get headers "Content-Range")))
                    (is (= "2345" (await (transit/read-body body))))))
+               (testing "a range the file has no bytes for: 416 with the length, no body"
+                 (let [{:keys [status headers body]} (http/file-response {:headers {"range" "bytes=10-"}} file)]
+                   (is (= 416 status))
+                   (is (= "bytes */10" (get headers "Content-Range")))
+                   (is (= "" body))))
+               (testing "a HEAD: the headers of the GET, no body"
+                 (let [{:keys [status headers body]} (http/file-response {:request-method :head :headers {}} file)]
+                   (is (= 200 status))
+                   (is (= 10 (get headers "Content-Length")))
+                   (is (nil? body)))
+                 (let [{:keys [status headers body]} (http/file-response {:request-method :head :headers {"range" "bytes=2-5"}} file)]
+                   (is (= 206 status))
+                   (is (= 4 (get headers "Content-Length")))
+                   (is (nil? body))))
                (testing "without a range the whole file"
                  (let [{:keys [status body]} (http/file-response {:headers {}} file)]
                    (is (= 200 status))

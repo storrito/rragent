@@ -27,6 +27,7 @@
             [rragent.mcp :as mcp]
             [rragent.secrets :as secrets]
             [rragent.page :as page]
+            [rragent.shares :as shares]
             [rragent.rframes.http :as http]
             [rragent.rframes.sse :as sse]
             [rragent.rframes.transit :as transit]
@@ -812,6 +813,71 @@
                  (finally
                    (.abort controller)
                    (.abort other)
+                   (await (stop!))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest share-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (.setResponses faux #js [(tools-test/tool-call "share" {:action "create" :folder "artifacts/gallery"} "s1")
+                                      (tools-test/answer "The gallery is shared.")
+                                      (tools-test/tool-call "share" {:action "stop" :folder "gallery"} "s2")
+                                      (tools-test/answer "The gallery is private again.")])
+             (let [{:keys [id base stop!]} (await (start! home models))
+                   controller (js/AbortController.)
+                   bot-url (str base "/bot/" id)
+                   gallery (path/join (home/bot-dir home (js/Number id)) "work" "artifacts" "gallery")
+                   doc! (^:async fn [] (or (await (.snapshot (:harness (machine/agent)) shares/Shares harness/context)) #js {}))]
+               (try
+                 (fs/mkdirSync (path/join gallery "notes") #js {:recursive true})
+                 (fs/writeFileSync (path/join gallery "index.html") "<h1>Gallery</h1>")
+                 (fs/writeFileSync (path/join gallery "clip.bin") "0123456789")
+                 (fs/writeFileSync (path/join gallery "notes" "draft.md") "d")
+                 (let [cookie (await (login base "s3cret"))
+                       {:keys [reader decoder]} (await (stream bot-url cookie controller "t1"))
+                       {buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
+                       {:keys [frame!]} (frames! reader decoder buffer)]
+                   (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Share the gallery."}))))
+                   (await (frame! #(mentions? % "The gallery is shared.")))
+                   (let [doc (await (doc!))
+                         [token] (js/Object.keys doc)
+                         link (str base "/s/" token "/")]
+                     (is (= 1 (count (js/Object.keys doc))))
+                     (is (= (js/Number id) (.-bot (aget doc token))))
+                     (is (= "gallery" (.-folder (aget doc token))))
+                     (testing "the link works without the cookie: the index, a file, its HEAD, a range; the page's own routes stay behind the token"
+                       (let [index (await (js/fetch link))]
+                         (is (= 200 (.-status index)))
+                         (is (= "<h1>Gallery</h1>" (await (.text index))))
+                         (is (= "noindex, nofollow" (.get (.-headers index) "x-robots-tag"))))
+                       (let [bare (await (js/fetch (str base "/s/" token) #js {:redirect "manual"}))]
+                         (is (= 302 (.-status bare)))
+                         (is (= (str "/s/" token "/") (.get (.-headers bare) "location"))))
+                       (let [head (await (js/fetch (str link "clip.bin") #js {:method "HEAD"}))]
+                         (is (= 200 (.-status head)))
+                         (is (= "10" (.get (.-headers head) "content-length")))
+                         (is (= "" (await (.text head)))))
+                       (let [part (await (js/fetch (str link "clip.bin") #js {:headers #js {:range "bytes=0-3"}}))]
+                         (is (= 206 (.-status part)))
+                         (is (= "bytes 0-3/10" (.get (.-headers part) "content-range")))
+                         (is (= "0123" (await (.text part)))))
+                       (is (= 416 (.-status (await (js/fetch (str link "clip.bin") #js {:headers #js {:range "bytes=50-"}})))))
+                       (is (= 404 (.-status (await (js/fetch (str link "notes/draft.md"))))) "a note stays private")
+                       (is (= 404 (.-status (await (js/fetch (str link "..%2F..%2FAGENT.md"))))) "nothing above the folder")
+                       (is (= 404 (.-status (await (js/fetch (str base "/s/wrong/index.html"))))))
+                       (is (= 403 (.-status (await (js/fetch (str bot-url "/artifacts/gallery/index.html"))))) "the artifacts themselves stay behind the token")
+                       (is (= 403 (.-status (await (js/fetch (str link "index.html") #js {:method "POST" :body "x"})))) "only GET and HEAD reach a share"))
+                     (testing "stopped: the link is dead at once"
+                       (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Make it private."}))))
+                       (await (frame! #(mentions? % "The gallery is private again.")))
+                       (is (= 404 (.-status (await (js/fetch link)))))
+                       (is (empty? (js/Object.keys (await (doc!))))))))
+                 (finally
+                   (.abort controller)
                    (await (stop!))
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
