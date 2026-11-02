@@ -529,6 +529,19 @@
       (let [page (shown "card/main.js" {:text "x" :truncated? false} "README.md")]
         (is (some? (find-tag page :ui/code-editor)) "another file's editing does not matter here")
         (is (nil? (find-tag page :button.link.edit)))))
+    (testing "Edit in the menu of a text file's row opens it in the editor, a step of the tab's; a project's menu has none"
+      (let [page (shown "card/main.js" {:text "x" :truncated? false})
+            menu-of (fn [path]
+                      (some #(when (and (vector? %) (= :li (first %)) (#{path (str "deep:" path)} (:replicant/key (second %))))
+                               (find-tag % :details.actions))
+                            (nodes page)))
+            edit (fn [path] (find-tag (menu-of path) :button.item.edit))]
+        (is (= {:command/kind :artifacts/edit :command/data {:bot "1" :path "README.md" :on? true :tab :ui/tabid}}
+               (get-in (second (edit "README.md")) [:on :click 0 1])))
+        (is (= "Edit" (last (edit "README.md"))))
+        (is (= "card/main.js" (get-in (second (edit "card/main.js")) [:on :click 0 1 :command/data :path])) "a code file's row too")
+        (is (some? (menu-of "card")))
+        (is (nil? (edit "card")) "a project is played, not edited")))
     (testing "a text file that could not be read has no editor"
       (let [page (shown "README.md" nil)]
         (is (nil? (find-tag page :ui/code-editor)))

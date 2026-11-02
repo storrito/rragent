@@ -1160,9 +1160,11 @@
 
 (defn- file-actions
   "The menu behind the three dots of a row, as the sidebar's
-   `bot-actions`: open and download (`file-links`), a project's files
-   (its folder, `:artifacts/open-folder`), rename, and delete, which
-   arms the question in the row."
+   `bot-actions`: open and download (`file-links`), a text file in the
+   editor (`:artifacts/edit`, a markdown file's or a CSV's text in
+   place of its view), a project's files (its folder,
+   `:artifacts/open-folder`), rename, and delete, which arms the
+   question in the row."
   [base bot {:keys [path kind] :as artifact}]
   [:details.actions
    [:summary {:aria-label [:i18n :artifacts/actions]
@@ -1170,6 +1172,10 @@
     "⋮"]
    [:div.items
     (file-links base artifact)
+    (when (#{:markdown :text} kind)
+      [:button.item.edit {:on {:click [[:data/command {:command/kind :artifacts/edit
+                                                       :command/data {:bot bot :path path :on? true :tab :ui/tabid}}]]}}
+       [:i18n :artifacts/edit]])
     (when (= :project kind)
       [:button.item.files {:on {:click [[:data/command {:command/kind :artifacts/open-folder
                                                         :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
