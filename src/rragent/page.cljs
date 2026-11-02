@@ -1199,7 +1199,8 @@
 
       (str/starts-with? rest (str (subs recordings/path-prefix 1) "/"))
       (await (recordings/handler (:dir bot)
-                                 {:phone-done? (fn [stamp] (phone/done? db/db (db/bot-path id) stamp))}
+                                 {:phone-done? (fn [stamp] (phone/done? db/db (db/bot-path id) stamp))
+                                  :phone-pauses (fn [stamp] (phone/pauses-of db/db (db/bot-path id) stamp))}
                                  (with-subpath w rest (subs recordings/path-prefix 1))))
 
       (str/starts-with? rest (str (subs phone/path-prefix 1) "/"))
