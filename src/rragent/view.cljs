@@ -19,6 +19,7 @@
   (:require [clojure.string :as str]
             [rragent.artifacts :as artifacts]
             [rragent.bots :as bots]
+            [rragent.costs :as costs]
             [rragent.csv :as csv]
             [rragent.definition :as definition]
             [rragent.dictation :as dictation]
@@ -300,7 +301,7 @@
       {:used (reduce + 0 (map #(or % 0) [input output cacheRead cacheWrite]))
        :cost (let [costs (keep #(get-in % [:cost :total]) usages)]
                (when (seq costs)
-                 (reduce + 0 costs)))})))
+                 (costs/priced (reduce + 0 costs))))})))
 
 (defn- shown?
   "An assistant message that only carried tool calls has no text and is
@@ -1695,7 +1696,7 @@
            [:input#view-chat.toggle {:type "radio" :name "view"}]
            [:input#view-made.toggle {:type "radio" :name "view"}]))
         (header bot status (cond-> (context-usage conversation)
-                             (and (:spend bot) (not run)) (assoc :cost (:spend bot)))
+                             (and (:spend bot) (not run)) (assoc :cost (costs/priced (:spend bot))))
                 (when-not run
                   {:bot id :running? (compacting? (:live conversation))}))
         (when artifacts?

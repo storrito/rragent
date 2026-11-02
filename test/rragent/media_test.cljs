@@ -90,8 +90,9 @@
              ;; no gateway: the key of the environment
              (let [codemode (codemode/handle none)]
                (testing "a picture, with the ratio, lands under artifacts/"
-                 (let [line (await (media/image! {:codemode codemode :dir dir :work (path/dirname dir) :prompt "a pool" :file "card/pool" :ratio "9:16"}))]
+                 (let [{:keys [line cost]} (await (media/image! {:codemode codemode :dir dir :work (path/dirname dir) :prompt "a pool" :file "card/pool" :ratio "9:16"}))]
                    (is (str/starts-with? line "artifacts/card/pool.png: 5 bytes, $0.070, model "))
+                   (is (= 0.07 cost) "OpenRouter's charge, for the ledger")
                    (is (= "a png" (fs/readFileSync (path/join dir "card" "pool.png") "utf8")))
                    (is (= "Bearer k3y" (:auth (last @seen))))
                    (is (= "9:16" (get-in (last @seen) [:body :aspect_ratio])))))
@@ -100,13 +101,15 @@
                  (is (str/starts-with? (get-in (last @seen) [:body :input_references 0 :image_url :url]) "data:image/png;base64,"))
                  (is (fs/existsSync (path/join dir "drawing.png"))))
                (testing "a voice into the project's folder"
-                 (let [line (await (media/voice! {:codemode codemode :dir dir :project "card" :text "Hello there" :voice "george"}))]
+                 (let [{:keys [line cost]} (await (media/voice! {:codemode codemode :dir dir :project "card" :text "Hello there" :voice "george"}))]
+                   (is (= 0.00022 cost) "the voice's estimate, two cents a thousand characters")
                    (is (str/starts-with? line "artifacts/card/voice.mp3: 9 bytes"))
                    (is (str/includes? line "voice george"))
                    (is (= "george" (get-in (last @seen) [:body :voice])))
                    (is (= "mp3 bytes" (fs/readFileSync (path/join dir "card" "voice.mp3") "utf8")))))
                (testing "music from the audio chunks of the stream"
-                 (let [line (await (media/music! {:codemode codemode :dir dir :project "card" :prompt "calm piano" :file "calm.mp3"}))]
+                 (let [{:keys [line cost]} (await (media/music! {:codemode codemode :dir dir :project "card" :prompt "calm piano" :file "calm.mp3"}))]
+                   (is (= 0.04 cost))
                    (is (str/starts-with? line "artifacts/card/calm.mp3: 5 bytes"))
                    (is (str/includes? line "$0.040"))
                    (is (= "music" (fs/readFileSync (path/join dir "card" "calm.mp3") "utf8")))
@@ -146,15 +149,15 @@
              (fs/mkdirSync (path/join dir "card"))
              (let [codemode (codemode/handle (:url @gateway))]
                (testing "a picture through the gateway's openrouter connection"
-                 (is (str/starts-with? (await (media/image! {:codemode codemode :dir dir :work (path/dirname dir) :prompt "a pool" :file "card/pool.png"}))
+                 (is (str/starts-with? (:line (await (media/image! {:codemode codemode :dir dir :work (path/dirname dir) :prompt "a pool" :file "card/pool.png"})))
                                        "artifacts/card/pool.png: 5 bytes, $0.070, model "))
                  (is (= "a png" (fs/readFileSync (path/join dir "card" "pool.png") "utf8"))))
                (testing "a voice"
-                 (is (str/starts-with? (await (media/voice! {:codemode codemode :dir dir :project "card" :text "Hello there"}))
+                 (is (str/starts-with? (:line (await (media/voice! {:codemode codemode :dir dir :project "card" :text "Hello there"})))
                                        "artifacts/card/voice.mp3: 9 bytes"))
                  (is (= "mp3 bytes" (fs/readFileSync (path/join dir "card" "voice.mp3") "utf8"))))
                (testing "music"
-                 (let [line (await (media/music! {:codemode codemode :dir dir :project "card" :prompt "calm piano"}))]
+                 (let [{line :line} (await (media/music! {:codemode codemode :dir dir :project "card" :prompt "calm piano"}))]
                    (is (str/starts-with? line "artifacts/card/music.mp3: 5 bytes"))
                    (is (str/includes? line "$0.040"))
                    (is (= "music" (fs/readFileSync (path/join dir "card" "music.mp3") "utf8"))))))))

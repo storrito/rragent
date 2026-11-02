@@ -25,6 +25,7 @@
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-durable" :refer [ProviderDoc]]
             [clojure.string :as str]
+            [rragent.costs :as costs]
             [rragent.rframes.transit :as transit]))
 
 (def path
@@ -196,6 +197,8 @@
                                                      provider (assoc :sessionId (.-sessionId provider))))))]
       (when (= "error" (.-stopReason message))
         (throw (js/Error. (str "The model answered with an error: " (.-errorMessage message)))))
+      ;; OpenRouter's charge in place of the catalog's estimate, for the log line
+      (costs/adopt! message)
       {:text (accepted words (answer-text message))
        :usage (js->clj (.-usage message) :keywordize-keys true)
        :ms (- (js/Date.now) started)

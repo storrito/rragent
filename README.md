@@ -33,7 +33,9 @@ or a call starts a *run*, a conversation of its own that does the job
 and ends with one line for the bot's activity (`rragent.runs`, see
 [docs/runs-and-skills.md](docs/runs-and-skills.md)). A folder of what
 it made goes behind a public link when the person wants to show it to
-someone (`rragent.shares`, see [docs/shares.md](docs/shares.md)). A long job
+someone (`rragent.shares`, see [docs/shares.md](docs/shares.md)). What
+the answers cost is what OpenRouter charged for them, read off every
+answer's stream (`rragent.costs`, see [docs/costs.md](docs/costs.md)). A long job
 it can hand to a subagent (`rragent.tools.subagent`): a conversation owned
 by the tool call, with the agent's model, tools and instructions, whose
 answer alone enters the transcript. It ends with the call, so it is a
