@@ -223,17 +223,19 @@
     [{:kind :note :id "retry" :text [:i18n :chat/retry {:error (str error)}]}]))
 
 (defn- queued-items
-  "The inputs waiting in the inbox for the run to end, as pending user
-   messages at the end of the feed; a bot's message among them as
-   its message."
+  "The inputs waiting in the inbox, as pending user messages at the end
+   of the feed: the person's, which steer the run and reach the model
+   after its current tool call (`:steer?`), and follow-ups, which wait
+   for the run to end; a bot's message among them as its message."
   [inbox]
   (for [{:keys [id mode content entry]} (:items inbox)
         :when (not= "write" mode)]
     (if (= messages/kind (:kind entry))
       (assoc (message-item id (:data entry)) :pending? true)
-      (with-media {:kind :user
-                   :id id
-                   :pending? true}
+      (with-media (cond-> {:kind :user
+                           :id id
+                           :pending? true}
+                    (= "steer" mode) (assoc :steer? true))
                   content))))
 
 (defn- person-answer?
@@ -425,7 +427,7 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media screen bytes pending? streaming? answered? error aborted? author summary] :as item} {:keys [base bot expanded]}]
+  [{:keys [kind id label text media screen bytes pending? steer? streaming? answered? error aborted? author summary] :as item} {:keys [base bot expanded]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
@@ -440,7 +442,7 @@
      (when (seq screen)
        [:p.hint [:i18n :chat/on-screen {:path screen}]])
      (when pending?
-       [:p.hint [:i18n :chat/queued]])]
+       [:p.hint [:i18n (if steer? :chat/steers :chat/queued)]])]
 
     :call
     [:div.item.step {:replicant/key id}

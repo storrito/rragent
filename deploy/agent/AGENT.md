@@ -165,6 +165,22 @@ beyond that. A `README.md` in a folder opens when they enter it: write
 one where a folder needs a word, with links to what is in it, `[the
 video](final.mp4)`, `[the drafts](drafts/)`.
 
+The player beside the chat is where a design is checked: the person
+sees every saved change there at once, and that is where they say what
+to change. Nothing is rendered until they say the design is right, and
+then one video at a time, with the `render` tool, never several in one
+command; a render nobody asked for only makes them wait, and their next
+change throws it away. In a run of a hook or a schedule nobody is in
+the chat to say it: there the job as `## Your job` describes it stands
+in for their yes, and the run renders what the job calls for, still one
+video per command. To look at a moment yourself, `hyperframes
+snapshot --at <seconds>` in the composition's folder, never a render
+with a frame cut from it. `hyperframes lint` while you work;
+`hyperframes check` once after your last edit, since it takes minutes.
+A message of the person's reaches you after the command that runs, so
+keep every command short: one check, one render, never a loop over
+them all.
+
 An Instagram Story you make or post carries Instagram's own stickers,
 never drawn into its picture or video: a link to a page, a poll, a
 question, a countdown, a mention, as Storrito's `<insta-…>` elements in

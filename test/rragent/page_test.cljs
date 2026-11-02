@@ -527,9 +527,17 @@
                      (is (mentions? running "Stop") "the run goes")
                      (is (mentions? running "(:status slow)") "the program is on the page")
                      (is (= 200 (.-status (await (within 1000 (js/fetch bot-url #js {:headers #js {:cookie cookie}}))))) "the shim answers")
-                     (let [answer (await (frame! #(mentions? % "Slow done.")))]
+                     (testing "a message sent meanwhile steers the run: pending on the page until the model reads it after the call"
+                       (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Also this."}))))
+                       (is (= ["steer"] (map :mode (get-in (page/conversation (:value (machine/bot id))) [:inbox :items]))) "queued as a steer, not a follow-up")
+                       (is (mentions? (await (frame! #(mentions? % "Also this."))) "Reaches the bot after its current step") "pending on the page, and said so"))
+                     (let [answer (await (frame! #(mentions? % "Slow done.")))
+                           entries (:entries (page/conversation (:value (machine/bot id))))
+                           index-of (fn [s] (some (fn [[i entry]] (when (str/includes? (pr-str entry) s) i)) (map-indexed vector entries)))]
                        (is (<= 2000 (- (js/Date.now) at)) "the call was still blocked when the shim answered")
-                       (is (mentions? answer "=> 200") "the call's answer, from the worker"))))
+                       (is (mentions? answer "=> 200") "the call's answer, from the worker")
+                       (is (< (index-of "Also this.") (index-of "Slow done.")) "the steer joined the run: read before its answer, no run of its own")
+                       (is (empty? (get-in (page/conversation (:value (machine/bot id))) [:inbox :items])) "nothing left waiting"))))
                  (testing "Stop ends a program that never would, within a second; the model reads that the call was aborted"
                    (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Loop."}))))
                    (await (frame! #(mentions? % "(loop [] (recur))")))
