@@ -1,6 +1,7 @@
 (ns rragent.uploads
   "Files the person attaches to a message: a video or an audio clip, a
-   picture pasted, dropped or picked. They land in `work/uploads/` of
+   picture pasted, dropped or picked, a document, a text or data file,
+   an archive (the kinds of `rragent.file-kinds`). They land in `work/uploads/` of
    the agent's folder (`rragent.home`), where the agent, whose tools
    work in `work/`, reaches a file as `uploads/<name>`, and the message
    names them, one line per file, `video: uploads/ab12.mp4` (`line`); a
@@ -10,7 +11,8 @@
    and end. The port of pchat.uploads to Node streams.
 
    `POST /upload` takes the file as the request body with its media
-   type. A picture is content-addressed, named by the hash of its bytes,
+   type, and its name (`?name=`) for a file the browser types poorly,
+   whose extension names its kind. A picture is content-addressed, named by the hash of its bytes,
    so the same picture twice is one file; the browser scales it before,
    `image-max-bytes` is the cap. A clip is written to disk as it comes:
    the browser sends it in pieces, `?id=<hex>&offset=<n>&total=<n>` on
@@ -24,6 +26,7 @@
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
+            [rragent.file-kinds :as file-kinds]
             [rragent.images :as images]
             [rragent.rframes.http :as http]
             [rragent.rframes.transit :as transit]))
@@ -73,20 +76,21 @@
    "audio/x-flac" ["flac" :audio]})
 
 (def kinds
-  "The kind of a stored file by its extension: a pasted text is a
-   `.txt` (`keep-long-text!`)."
-  (assoc (into (into {} (vals media))
-               (map (fn [extension] [extension :image]))
-               (vals images))
-         "txt" :text))
+  "The kind of a stored file by its extension: the clips and pictures
+   above, the texts and documents of `rragent.file-kinds` (a pasted
+   text is a `.txt`, `keep-long-text!`)."
+  (-> (into {} (vals media))
+      (into (map (fn [extension] [extension :image])) (vals images))
+      (into (map (fn [extension] [extension :text])) file-kinds/texts)
+      (into (map (fn [extension] [extension :file])) file-kinds/documents)))
 
 (defn- extension-of
   [file-name]
   (str/lower-case (or (second (re-find #"\.([^./]+)$" (str file-name))) "")))
 
 (defn kind
-  "`:video`, `:audio`, `:image` or `:text` for the name of a stored
-   file, else nil."
+  "`:video`, `:audio`, `:image`, `:text` or `:file` for the name of a
+   stored file, else nil."
   [file-name]
   (kinds (extension-of file-name)))
 
@@ -274,9 +278,20 @@
               :else
               (respond w 200 {:received length})))))))
 
+(defn- file-name-param
+  "The file's own name from the query, `?name=`, decoded; nil without
+   one or when it does not decode."
+  [params]
+  (try
+    (some-> (get params "name") js/decodeURIComponent)
+    (catch :default _
+      nil)))
+
 (defn ^:async handler
-  "`POST /upload` into `dir`: a picture content-addressed, a clip as it
-   comes, any other type a 415; the URLs answered under `base`."
+  "`POST /upload` into `dir`: a picture content-addressed, a clip or
+   any other file of `rragent.file-kinds` as it comes, in pieces or
+   whole, under the extension of its type or its name; a type and name
+   that say nothing a 415; the URLs answered under `base`."
   [dir base w]
   (let [request (:ring/request w)
         type (content-type request)
@@ -286,14 +301,18 @@
       (images type)
       (await (whole! dir base w (images type) image-max-bytes))
 
-      (not (media type))
-      (respond w 415 {:error :not-media})
-
-      (get params "id")
-      (await (piece! dir base w (first (media type)) params))
-
       :else
-      (await (whole! dir base w (first (media type)) max-bytes)))))
+      (let [extension (or (first (media type))
+                          (file-kinds/extension (file-name-param params) type))]
+        (cond
+          (nil? extension)
+          (respond w 415 {:error :not-taken})
+
+          (get params "id")
+          (await (piece! dir base w extension params))
+
+          :else
+          (await (whole! dir base w extension max-bytes)))))))
 
 (defn file-handler
   "`GET /uploads/<name>`: the file of `dir`, never a hidden one (a part
@@ -319,7 +338,7 @@
 (def line-pattern
   "A line the page adds to a message for each attached file: its kind,
    then its path under the agent's working directory."
-  #"(?m)^(video|audio|image|text): (uploads/[A-Za-z0-9]+\.[a-z0-9]+)$")
+  #"(?m)^(video|audio|image|text|file): (uploads/[A-Za-z0-9]+\.[a-z0-9]+)$")
 
 (defn line
   "The line of a message that names an attached file."

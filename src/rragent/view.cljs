@@ -22,6 +22,7 @@
             [rragent.csv :as csv]
             [rragent.definition :as definition]
             [rragent.dictation :as dictation]
+            [rragent.file-kinds :as file-kinds]
             [rragent.markdown :as markdown]
             [rragent.messages :as messages]
             [rragent.models :as models]
@@ -344,8 +345,10 @@
                       [:pre.output result])))])
 
 (defn- media-view
-  "The files attached to a message: a picture as a thumbnail, a clip as
-   its name, each a link to the file under the bot's page."
+  "The files attached to a message: a picture as a thumbnail, any other
+   file as its name behind the icon of its kind
+   (`rragent.file-kinds/icon`), each a link to the file under the
+   bot's page."
   [base media]
   [:div.looks
    (for [{:keys [kind name]} media
@@ -362,7 +365,7 @@
                  :href url
                  :target "_blank"
                  :rel "noopener"}
-        (if (= :audio kind) "🎵 " "🎬 ")
+        (str (file-kinds/icon kind) " ")
         name]))])
 
 (defn- artifact-url

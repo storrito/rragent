@@ -9,9 +9,10 @@
    sends the boxes ticked in it.
 
    The composer takes files, the way pchat's does: an image picked,
-   dropped or pasted goes up scaled and in one request, a video or an
-   audio file in pieces of `piece-bytes` with its progress on its chip,
-   and a message sent while clips go up goes once the last is in
+   dropped or pasted goes up scaled and in one request, a video, an
+   audio file, a document or a text or data file (`rragent.file-kinds`)
+   in pieces of `piece-bytes` with its progress on its chip,
+   and a message sent while files go up goes once the last is in
    (`rragent.uploads` on the server). The attachments are client state
    beside the draft, a frame from the server does not reset them. Files
    dragged over the page bring up a veil that takes them anywhere, as in
@@ -44,6 +45,7 @@
             [rragent.client.icons :as icons]
             [rragent.client.phone :as phone]
             [rragent.client.recorder :as recorder]
+            [rragent.file-kinds :as file-kinds]
             [rragent.version :as version]))
 
 (def max-side
@@ -209,8 +211,11 @@
       (= 429 status)
       (<= 500 status)))
 
-(defn- upload-clip!
-  "Uploads a video or an audio file in pieces. Its chip is in the
+(defn- upload-file!
+  "Uploads a file in pieces: a video, an audio clip, a document, a text
+   or data file (`rragent.file-kinds`), sent as `type` with its name
+   (`?name=`, the extension the server stores it under), its chip of
+   `kind` until the server names the stored file. The chip is in the
    attachments from the start, `:uploading?` with its `:progress`; the
    last answer turns it into `{:name :url :kind :size}` of the stored
    file. A piece that fails goes again after the pauses of
@@ -219,8 +224,8 @@
    what it holds (409, `:received`), and the upload goes on from there,
    so what a broken piece left is kept. A chip the person removes stops
    the upload after the piece under way."
-  [store attachments-key upload-url ^js file]
-  (let [type (clip-type file)
+  [store attachments-key upload-url ^js file type kind]
+  (let [type (if (str/blank? type) "application/octet-stream" type)
         id (random-id)
         total (.-size file)
         chip (str "uploading-" id)
@@ -232,14 +237,15 @@
                                 (mapv #(if (= chip (:chip %)) (f %) %) attachments))))]
     (add-attachment! store attachments-key {:name chip
                                             :chip chip
-                                            :kind (if (str/starts-with? type "audio/") :audio :video)
+                                            :kind kind
                                             :file-name (.-name file)
                                             :size total
                                             :uploading? true
                                             :progress 0})
     ((fn step [offset attempt]
        (let [end (min total (+ offset piece-bytes))]
-         (send-piece! (str upload-url "?id=" id "&offset=" offset "&total=" total)
+         (send-piece! (str upload-url "?id=" id "&offset=" offset "&total=" total
+                           "&name=" (js/encodeURIComponent (str (.-name file))))
                       (.slice file offset end)
                       type
                       {:on-progress (fn [loaded]
@@ -275,11 +281,18 @@
      0 0)))
 
 (defn- upload-all!
+  "Uploads what the person picked, pasted or dropped: a clip, or any
+   file of `rragent.file-kinds`, in pieces, a picture scaled; a file of
+   another kind is left out, with a word in the console."
   [store attachments-key upload-url files]
   (doseq [^js file files]
-    (cond
-      (clip-type file) (upload-clip! store attachments-key upload-url file)
-      (image-file? file) (upload-image! store attachments-key upload-url file))))
+    (let [clip (clip-type file)
+          kind (file-kinds/kind (.-name file))]
+      (cond
+        clip (upload-file! store attachments-key upload-url file clip (if (str/starts-with? clip "audio/") :audio :video))
+        (image-file? file) (upload-image! store attachments-key upload-url file)
+        kind (upload-file! store attachments-key upload-url file (str (.-type file)) kind)
+        :else (js/console.warn "[upload] not a file the agent is handed:" (.-name file))))))
 
 (defonce ^:private inner-drag*
   ;; a drag that started on the page, a picture of the transcript say:
@@ -378,10 +391,12 @@
   (let [mb (/ size 1024 1024)]
     (str (if (< mb 10) (.toFixed mb 1) (js/Math.round mb)) " MB")))
 
-(defn- clip-chip
+(defn- file-chip
+  "The chip of an attached file that is no picture: the icon of its
+   kind, its name and size, and how its upload goes."
   [{:keys [kind file-name name size uploading? progress retry failed?]} uploading-label failed-label]
   [:span.clip
-   [:span.icon (if (= :audio kind) "🎵" "🎬")]
+   [:span.icon (file-kinds/icon kind)]
    [:span.file (short-name (or file-name name))]
    [:small (megabytes size)
     (cond
@@ -401,7 +416,7 @@
         (if (= :image kind)
           [:img {:src url
                  :alt (str name)}]
-          (clip-chip attachment uploading-label failed-label))
+          (file-chip attachment uploading-label failed-label))
         [:button.remove {:type "button"
                          :title (or remove-title "Remove")
                          :on {:click (fn [_event]
@@ -676,10 +691,10 @@
                          :dictate-stop-title dictate-stop-title
                          :transcribing-title transcribing-title
                          :failed-title dictation-failed-title})
-      [:label.attach {:title (or attach-title "Attach an image, a video or an audio file")}
+      [:label.attach {:title (or attach-title "Attach a file")}
        icons/paperclip
        [:input {:type "file"
-                :accept "image/*,video/*,audio/*,.mkv,.flac,.m4a"
+                :accept (str "image/*,video/*,audio/*,.mkv,.flac,.m4a," file-kinds/accept)
                 :multiple true
                 :style {:display "none"}
                 :on {:change (fn [^js event]

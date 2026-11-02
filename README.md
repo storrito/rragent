@@ -294,20 +294,26 @@ skills write against, with the inputs added:
     ```
 
 A message can carry files, the way pchat's can: the attach button
-takes an image, a video or an audio file, a picture can be pasted, and
+takes a picture, a video, an audio clip, and any file the agent can
+read or open: a PDF, an Office document, a text or data file
+(Markdown, CSV, JSON, code), a subtitle file, an archive, a font (the
+lists are in `rragent.file-kinds`); a picture can be pasted, and
 files dragged over the page bring up a veil that takes them anywhere
 (the way ChatGPT, LibreChat and Open WebUI do; a file dropped beside it
 never replaces the page in the tab). A picture goes up scaled
-to 1600 pixels on its long side and is stored content-addressed; a clip
-goes up in pieces of 8 MB (`POST /upload?id=<hex>&offset=<n>&total=<n>`,
+to 1600 pixels on its long side and is stored content-addressed; a clip,
+or any other file, goes up in pieces of 8 MB (`POST /upload?id=<hex>&offset=<n>&total=<n>`,
 appended to a part file and renamed when the last piece is in, ten
 gigabytes at most), with its progress on its chip. A message can be
 files alone, without a text; sent while clips go up, it goes once the
 last is in, and the button says so (a click on it, a failed upload or a
 clip taken off keeps the message instead). The files land in `work/uploads/` of the bot's
 folder (`rragent.uploads`) and the message names each one on a line of
-its own, `video: uploads/ab12.mp4`, `audio: …` or `image: …`, so the
-agent reaches the file from its working directory with its tools; a
+its own, `video: uploads/ab12.mp4`, `audio: …`, `image: …`, `text: …`
+(a file the agent reads as it is) or `file: …` (one it opens with the
+machine's commands, which `rragent.binary` names when a tool reads
+it raw), so the agent reaches the file from its working directory
+with its tools; a
 picture goes to the model as an image block besides, when the model
 takes images (pi-ai puts a placeholder where one was when it does not,
 so a picture then goes as its line and a note). A text pasted past

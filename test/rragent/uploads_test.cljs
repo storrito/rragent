@@ -31,16 +31,20 @@
   (is (= :audio (uploads/kind "ff00.wav")))
   (is (= :image (uploads/kind "ff00.png")))
   (is (= :text (uploads/kind "notes.txt")) "a pasted text")
-  (is (nil? (uploads/kind "notes.pdf")))
+  (is (= :file (uploads/kind "notes.pdf")) "a document")
+  (is (= :text (uploads/kind "sales.csv")) "a data file")
+  (is (= :file (uploads/kind "pack.zip")) "an archive")
+  (is (nil? (uploads/kind "setup.exe")))
   (is (nil? (uploads/kind "notes"))))
 
 (deftest lines-test
-  (let [text "Make a short of this\nvideo: uploads/ab12cd.mp4\naudio: uploads/ff00.wav\nimage: uploads/0a0b.png\ntext: uploads/77aa.txt"]
+  (let [text "Make a short of this\nvideo: uploads/ab12cd.mp4\naudio: uploads/ff00.wav\nimage: uploads/0a0b.png\ntext: uploads/77aa.txt\nfile: uploads/99bb.pdf"]
     (testing "the lines that name files"
       (is (= [{:kind :video :name "ab12cd.mp4"}
               {:kind :audio :name "ff00.wav"}
               {:kind :image :name "0a0b.png"}
-              {:kind :text :name "77aa.txt"}]
+              {:kind :text :name "77aa.txt"}
+              {:kind :file :name "99bb.pdf"}]
              (uploads/attachments text)))
       (is (= "Make a short of this" (uploads/without-lines text))))
     (testing "a message without files is left as it is"
@@ -179,10 +183,35 @@
                  (is (= 404 (.-status (await (js/fetch (str base "/uploads/../AGENT.md"))))))
                  (fs/rmSync (path/join dir ".abc.mp4.part")))
                (testing "what is refused: another type, an empty body"
-                 (is (= [415 {:error :not-media}] (await (post "application/zip" (bytes-of 10)))))
+                 (is (= [415 {:error :not-taken}] (await (post "application/x-msdownload" (bytes-of 10) "name=setup.exe"))) "a file of a kind the agent is not handed")
+                 (is (= [415 {:error :not-taken}] (await (post "application/octet-stream" (bytes-of 10)))) "nor one that neither its type nor a name says anything about")
                  (is (= [400 {:error :empty}] (await (post "video/mp4" (js/Uint8Array. 0)))))
                  (is (= [400 {:error :empty}] (await (post "image/png" (js/Uint8Array. 0)))))
                  (is (empty? (part-files dir))))
+               (testing "a document, a text or data file: under the extension of its name, or of the browser's type when it comes without a name, in one request or in pieces"
+                 (let [[status {:keys [name url kind size]}] (await (post "application/pdf" (bytes-of 500) "name=Q3%20report.pdf"))]
+                   (is (= 200 status))
+                   (is (re-matches #"[0-9a-f]{32}\.pdf" name))
+                   (is (= (str "/uploads/" name) url))
+                   (is (= :file kind))
+                   (is (= 500 size)))
+                 (let [[status {:keys [name kind]}] (await (post "application/octet-stream" (bytes-of 40) "name=main.clj"))]
+                   (is (= 200 status) "a code file the browser gives no type")
+                   (is (re-matches #"[0-9a-f]{32}\.clj" name))
+                   (is (= :text kind)))
+                 (let [[status {:keys [name kind]}] (await (post "application/zip" (bytes-of 60)))]
+                   (is (= 200 status) "an archive without a name, by its type")
+                   (is (re-matches #"[0-9a-f]{32}\.zip" name))
+                   (is (= :file kind)))
+                 (let [id "aabbccddeeff00112233445566778899"
+                       data (bytes-of 30)]
+                   (is (= [200 {:received 20}] (await (post "text/csv" (.slice data 0 20) (str "id=" id "&offset=0&total=30&name=sales.csv")))))
+                   (let [[status {:keys [name kind size]}] (await (post "text/csv" (.slice data 20 30) (str "id=" id "&offset=20&total=30&name=sales.csv")))]
+                     (is (= 200 status))
+                     (is (= (str id ".csv") name))
+                     (is (= :text kind))
+                     (is (= 30 size))
+                     (is (= (vec data) (vec (fs/readFileSync (path/join dir name))))))))
                (finally
                  (.close server)
                  (fs/rmSync (path/dirname dir) #js {:recursive true :force true}))))))
