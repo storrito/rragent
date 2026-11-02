@@ -542,6 +542,22 @@
         (is (= "card/main.js" (get-in (second (edit "card/main.js")) [:on :click 0 1 :command/data :path])) "a code file's row too")
         (is (some? (menu-of "card")))
         (is (nil? (edit "card")) "a project is played, not edited")))
+    (testing "the menu's item reads Preview while the markdown file's text is in the editor, the view back; a code file's stays Edit, the editor is its view"
+      (let [page (shown "README.md" {:text "# Hello\n" :truncated? false} "README.md")
+            item-of (fn [path]
+                      (some #(when (and (vector? %) (= :li (first %)) (#{path (str "deep:" path)} (:replicant/key (second %))))
+                               (find-tag % :button.item.edit))
+                            (nodes page)))]
+        (is (= "Preview" (last (item-of "README.md"))))
+        (is (= {:command/kind :artifacts/edit :command/data {:bot "1" :path "README.md" :on? false :tab :ui/tabid}}
+               (get-in (second (item-of "README.md")) [:on :click 0 1])))
+        (is (= "Edit" (last (item-of "card/main.js")))))
+      (let [page (shown "card/main.js" {:text "x" :truncated? false} "card/main.js")
+            item (some #(when (and (vector? %) (= :li (first %)) (#{"card/main.js" "deep:card/main.js"} (:replicant/key (second %))))
+                          (find-tag % :button.item.edit))
+                       (nodes page))]
+        (is (= "Edit" (last item)) "a code file's menu never reads Preview")
+        (is (true? (get-in (second item) [:on :click 0 1 :command/data :on?])))))
     (testing "a text file that could not be read has no editor"
       (let [page (shown "README.md" nil)]
         (is (nil? (find-tag page :ui/code-editor)))

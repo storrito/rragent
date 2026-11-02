@@ -108,7 +108,7 @@
    comparison: a change of one pushes no frame."
   #{:value :history :definition :schedules/next :failed
     :artifacts/list :artifacts/rev :artifacts/durations :artifacts/current :artifacts/folder :projects :renders
-    :artifacts/renaming :artifacts/deleting :pane/steps
+    :artifacts/renaming :artifacts/deleting :artifacts/editing :pane/steps
     :runs :runs/values :runs/definitions
     :deleting? :renaming? :phone})
 
@@ -618,8 +618,9 @@
 (defn- edit-artifact-command
   "Edit, in the bar of a markdown file or a CSV, or in the menu of a
    text file's row: the file on screen with its text in the editor in
-   place of its view (`:on?`), a step of the tab `tab` when it was not
-   on screen (`move-pane!`); or the view again (`:artifacts/editing`,
+   place of its view (`:on?`); Preview, in the same two places, the
+   file on screen with its view again. A step of the tab `tab` when
+   the file was not on screen (`move-pane!`; `:artifacts/editing`,
    read by `rragent.view/artifacts`)."
   [w]
   (let [{:keys [path on? tab]} (command/command-data w)
@@ -627,9 +628,9 @@
     (cond
       (nil? bot) (command/rejected w :no-such-bot)
       (nil? (artifact-of bot path)) (command/rejected w :no-such-artifact)
-      on? (do (move-pane! bot tab #(assoc (artifacts/picked % path) :artifacts/editing path))
-              (command/accepted w))
-      :else (do (swap! db/db db/update-at (db/bot-path (:id bot)) #(dissoc % :artifacts/editing))
+      :else (do (move-pane! bot tab #(cond-> (artifacts/picked % path)
+                                       on? (assoc :artifacts/editing path)
+                                       (not on?) (dissoc :artifacts/editing)))
                 (command/accepted w)))))
 
 (defn- render-command

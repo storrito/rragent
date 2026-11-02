@@ -469,6 +469,12 @@
         (is (true? (pred shows-1)))
         (is (false? (pred shows-7)))
         (is (true? (pred (w "t9" "1"))) "a tab without a pick shows the bot of its URL")))
+    (testing "Edit or Preview alone, the file on screen already, is a change of the pane: to the tabs showing the bot"
+      (let [pred (page/affected old (assoc-in old [:bots "1" :artifacts/editing] "README.md"))]
+        (is (fn? pred))
+        (is (true? (pred shows-1)))
+        (is (false? (pred shows-7))))
+      (is (fn? (page/affected (assoc-in old [:bots "1" :artifacts/editing] "README.md") old)) "Preview, the key gone, too"))
     (testing "a new view value with the run as it was: the same, to its tabs"
       (let [pred (page/affected old (assoc-in old [:bots "7" :value] (view-value false)))]
         (is (false? (pred shows-1)))
@@ -657,7 +663,12 @@
                    (let [step (get-in @db/db (conj bot-path :pane/steps "t1"))]
                      (is (string? step))
                      (is (= {:success? true} (await (command! base cookie :artifacts/edit {:bot id :path "notes/todo.txt" :on? true :tab "t1"}))))
-                     (is (= step (get-in @db/db (conj bot-path :pane/steps "t1"))))))
+                     (is (= step (get-in @db/db (conj bot-path :pane/steps "t1"))))
+                     (testing "Preview from the menu of another row puts that file on screen with its view, a step too"
+                       (is (= {:success? true} (await (command! base cookie :artifacts/edit {:bot id :path "README.md" :on? false :tab "t1"}))))
+                       (is (= {:current "README.md" :folder ""} (artifacts/place (get-in @db/db bot-path))))
+                       (is (nil? (get-in @db/db (conj bot-path :artifacts/editing))))
+                       (is (not= step (get-in @db/db (conj bot-path :pane/steps "t1")))))))
                  (finally
                    (await (stop!))
                    (test-home/remove! home)))))))
