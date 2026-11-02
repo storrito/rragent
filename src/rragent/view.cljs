@@ -1161,11 +1161,12 @@
 (defn- file-actions
   "The menu behind the three dots of a row, as the sidebar's
    `bot-actions`: open and download (`file-links`), a text file in the
-   editor (`:artifacts/edit`, a markdown file's or a CSV's text in
-   place of its view), a project's files (its folder,
-   `:artifacts/open-folder`), rename, and delete, which arms the
-   question in the row."
-  [base bot {:keys [path kind] :as artifact}]
+   editor (`:artifacts/edit`), which reads Preview instead for a
+   markdown file or a CSV whose text is in the editor (`editing`, the
+   pane's `:artifacts/editing`): the view back, as the toggle in the
+   bar; a project's files (its folder, `:artifacts/open-folder`),
+   rename, and delete, which arms the question in the row."
+  [base bot {:keys [path kind] :as artifact} editing]
   [:details.actions
    [:summary {:aria-label [:i18n :artifacts/actions]
               :title [:i18n :artifacts/actions]}
@@ -1173,9 +1174,10 @@
    [:div.items
     (file-links base artifact)
     (when (#{:markdown :text} kind)
-      [:button.item.edit {:on {:click [[:data/command {:command/kind :artifacts/edit
-                                                       :command/data {:bot bot :path path :on? true :tab :ui/tabid}}]]}}
-       [:i18n :artifacts/edit]])
+      (let [editing? (and (previewed? artifact) (= editing path))]
+        [:button.item.edit {:on {:click [[:data/command {:command/kind :artifacts/edit
+                                                         :command/data {:bot bot :path path :on? (not editing?) :tab :ui/tabid}}]]}}
+         [:i18n (if editing? :artifacts/preview :artifacts/edit)]]))
     (when (= :project kind)
       [:button.item.files {:on {:click [[:data/command {:command/kind :artifacts/open-folder
                                                         :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
@@ -1232,8 +1234,9 @@
    list (`:ui/files-filter`, `rragent.client`); a row of a file in
    another folder is `deep?`: there for the filter alone. A row whose
    delete is armed asks, one being renamed is a field (`deleting`,
-   `renaming`)."
-  [bot {:keys [path kind title ext size] :as artifact} {:keys [base current renaming deleting folder deep?]}]
+   `renaming`); the menu of a text file's row knows which file's text
+   is in the editor (`editing`, `file-actions`)."
+  [bot {:keys [path kind title ext size] :as artifact} {:keys [base current renaming deleting editing folder deep?]}]
   (let [project? (= :project kind)
         own (artifacts/folder-of path)
         parts (remove nil? [(if project? [:i18n :artifacts/project] ext)
@@ -1257,7 +1260,7 @@
                [:span.icon (get kind-icons kind "📎")]
                [:span.name title]
                (into [:span.meta] (interpose " · " parts))]
-              (file-actions base bot artifact)))]))
+              (file-actions base bot artifact editing)))]))
 
 (defn- folder-row
   "A row of a folder of the level: the icon, its name, how many files
@@ -1486,7 +1489,7 @@
         (activity bot runs current)]
        [:div.split
         (when (seq list)
-          (file-list bot list (str folder) durations {:base base :current (:artifacts/current pane) :renaming renaming :deleting deleting}))
+          (file-list bot list (str folder) durations {:base base :current (:artifacts/current pane) :renaming renaming :deleting deleting :editing editing}))
         [:div.shown
          (cond
            artifact (content base artifact {:project (get projects (:path artifact))
