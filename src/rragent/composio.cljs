@@ -51,12 +51,26 @@
   "Where a tool-router session is made."
   "/api/v3.1/tool_router/session")
 
+(defn session-path-of
+  "Where the session `id` is changed."
+  [id]
+  (str session-path "/" id))
+
+(def instant-config
+  "The session's Instant tools: allowed, every answer naming what its
+   call charged. An Instant tool is a service Composio runs on its own
+   account (Firecrawl, search, data APIs), without an account of the
+   person's; it charges the project's Composio balance, which Storrito
+   bills to the organization with the agent's usage. The project must
+   allow them too (Storrito's server makes the agents' projects so)."
+  {:return_instant_charge true})
+
 (def session-config
-  "How the agent's session is made: no Instant tools (they charge the
-   project's Composio balance), no workbench sandbox and no raw proxy
-   (the agent gets the services' tools, nothing more), the connection
-   manager on, so that the agent connects an account in the chat."
-  {:instant false
+  "How the agent's session is made: Instant tools allowed
+   (`instant-config`), no workbench sandbox and no raw proxy (the agent
+   gets the services' tools, nothing more), the connection manager on,
+   so that the agent connects an account in the chat."
+  {:instant instant-config
    :workbench {:enable false}
    :proxy_execute {:enable false}
    :manage_connections {:enable true}})

@@ -836,7 +836,14 @@ try); `rragent serve` says how many tries it took when more than one.
   for its user id, the machine's `agent:` label
   (`rragent.composio-setup`; `COMPOSIO_SESSION_ID` names one made
   elsewhere instead), and so are its connected accounts and its
-  triggers, managed from the REPL. The setup also subscribes the
+  triggers, managed from the REPL. The session allows Composio's
+  Instant tools (services Composio runs on its own accounts, like
+  Firecrawl, without an account of the person's; each answer names
+  what it charged), which charge the project's Composio balance and
+  Storrito bills to the organization with the agent's usage; a session
+  an earlier run made without them is switched once (`PATCH`, noted in
+  the session document), one of the environment is left as it was
+  made. The setup also subscribes the
   project's webhook to the page, `POST /composio/event`, outside the
   token: every event of the agent's triggers comes straight to the
   machine, which wakes it, verified by its Standard Webhooks
