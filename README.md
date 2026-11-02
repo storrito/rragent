@@ -659,14 +659,21 @@ Chrome's screen picker and shows the screen live beside the camera; the
 test and Start record that screen, and Start opens the picker itself
 when none is chosen yet. Chrome's own Stop sharing lets the screen go,
 or ends a recording. While it records, the panel is a bar with the
-time, when the recording started and Stop, and the live views of all
+time, when the recording started, Pause and Stop, and the live views of all
 that is recorded under it, which *Hide live views* folds away
 (remembered in the browser); the screen's own live view is in the
 screen's recording while it shows. The pieces go to the machine as they are recorded
 (`rragent.recordings`), into `artifacts/recordings/<stamp>/`:
 `screen.webm`, `webcam.webm` and `recording.json` with the devices and
 when each recorder started (remuxed by ffmpeg when the machine has one,
-so that the files carry their duration). When the recording ends the
+so that the files carry their duration). Pause holds every recorder of
+the recording at once, the laptop's and the phone's (told through the
+machine like Start and Stop, and at its next hello when its page
+missed it), and Resume lets them go on: the files go on where they
+held, without the paused time, the time in the bar stands still, and
+`recording.json` names the pauses (`pauses`, the clock times in
+milliseconds each began and ended), so that what happened meanwhile,
+like the agent's own record, can be set on the recording's time. When the recording ends the
 draft names the files; the person tells the agent how the two go
 together, and the agent aligns them by their waveforms and composes the
 video. Chrome on a desktop only. A laptop without a microphone, or

@@ -80,18 +80,30 @@
                      (is (str/starts-with? (str (.get (.-headers response) "set-cookie")) "rragent=") "the token's cookie"))
                    (is (= 404 (.-status (await (js/fetch url #js {:redirect "manual"})))) "the code is gone")))
                (testing "the phone's hello is in the bot's map, the panel sees it while fresh"
-                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :facing "environment"}))))
+                 (is (= [200 {:ok true :stop false :pause false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :facing "environment"}))))
                  (is (= {:device "Pixel 8" :facing "environment"} (phone/status (:phone @db)))))
                (testing "a stop the phone missed is in the answer to its hello, for the recording it is on only"
-                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"}))))
+                 (is (= [200 {:ok true :stop false :pause false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"}))))
                  (is (= [200 {:phones 0}] (await (post "/bot/7/phone/stop" {:stamp "2026-10-22T16-00-00"}))) "nobody listened")
-                 (is (= [200 {:ok true :stop true}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"}))))
-                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-05-00"}))) "another recording goes on")
-                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8"}))) "a phone that records nothing")
+                 (is (= [200 {:ok true :stop true :pause false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"}))))
+                 (is (= [200 {:ok true :stop false :pause false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-05-00"}))) "another recording goes on")
+                 (is (= [200 {:ok true :stop false :pause false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8"}))) "a phone that records nothing")
                  (doseq [n (range phone/stopped-kept)]
                    (await (post "/bot/7/phone/stop" {:stamp (str "2026-10-23T00-00-" n)})))
-                 (is (= [200 {:ok true :stop false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"})))
+                 (is (= [200 {:ok true :stop false :pause false}] (await (post "/bot/7/phone/hello" {:device "Pixel 8" :recording "2026-10-22T16-00-00"})))
                      "only the latest stops are kept"))
+               (testing "a pause the phone missed is in the answer to its hello while it lasts, for the recording it is on only; a stop ends it"
+                 (let [on "2026-10-22T17-00-00"
+                       hello #(post "/bot/7/phone/hello" {:device "Pixel 8" :recording %})]
+                   (is (= [200 {:phones 0}] (await (post "/bot/7/phone/pause" {:stamp on}))))
+                   (is (= [200 {:ok true :stop false :pause true}] (await (hello on))))
+                   (is (= [200 {:ok true :stop false :pause false}] (await (hello "2026-10-22T17-05-00"))) "another recording goes on")
+                   (is (= [200 {:phones 0}] (await (post "/bot/7/phone/resume" {:stamp on}))))
+                   (is (= [200 {:ok true :stop false :pause false}] (await (hello on))) "resumed")
+                   (await (post "/bot/7/phone/pause" {:stamp on}))
+                   (await (post "/bot/7/phone/stop" {:stamp on}))
+                   (is (= [200 {:ok true :stop true :pause false}] (await (hello on))) "stopped while paused: stopped, no pause left")
+                   (is (= [400 {:error :no-stamp}] (await (post "/bot/7/phone/pause" {}))))))
                (testing "start and stop reach a phone listening, with the stamp"
                  (is (= [200 {:phones 0}] (await (post "/bot/7/phone/start" {:stamp stamp}))) "nobody listens yet")
                  (let [response (await (js/fetch (str base "/bot/7/phone/events")))
@@ -117,6 +129,12 @@
                      (is (= ["phone.mp4" "recording.json" "screen.webm"] (sort (array-seq (fs/readdirSync (recordings/folder dir stamp)))))))
                    (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {}}))) "no files is no recording")
                    (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {"tablet" "mp4"}}))) "a name that is not ours")))
+               (testing "pause and resume reach a phone listening, with the stamp"
+                 (let [response (await (js/fetch (str base "/bot/7/phone/events")))
+                       event (read-event response)]
+                   (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                   (is (= [200 {:phones 1}] (await (post "/bot/7/phone/pause" {:stamp "2026-10-22T18-00-00"}))))
+                   (is (= ["pause" {"stamp" "2026-10-22T18-00-00"}] (await event)))))
                (testing "a test clip of the phone: asked for, sent to the hidden test folder, finished by the phone, named for the laptop, served"
                  (let [response (await (js/fetch (str base "/bot/7/phone/events")))
                        event (read-event response)]

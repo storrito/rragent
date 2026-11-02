@@ -19,7 +19,9 @@
    `POST .../phone/stop` go to every phone listening (a stop is kept
    too: a phone whose page was in the background missed the event, and
    its next hello, which names the recording it is on, is answered with
-   `stop`), and
+   `stop`); `POST .../phone/pause` and `.../phone/resume` hold the
+   phone's recorder and let it go on, kept the same way (the hello's
+   `pause` says whether the recording it is on is paused now), and
    `POST .../phone/test` asks for a clip of a few seconds, which the
    phone records, sends up and finishes itself; `GET .../phone/test`
    names that clip for the laptop's panel. When the phone's last piece
@@ -175,13 +177,15 @@
 (defn hello!
   "The phone's hello in the bot's map: its device, its camera, when.
    The answer: whether the recording the phone is on (`recording`) was
-   stopped meanwhile."
+   stopped meanwhile, and whether it is paused now."
   [db path {:keys [device facing recording]}]
   (swap! db db/update-at path update :phone merge {:device (str device)
                                                     :facing (str facing)
                                                     :seen (js/Date.now)})
-  {:ok true
-   :stop (boolean (some #{(str recording)} (get-in (db/at @db path) [:phone :stopped])))})
+  (let [phone (:phone (db/at @db path))]
+    {:ok true
+     :stop (boolean (some #{(str recording)} (:stopped phone)))
+     :pause (contains? (set (:paused phone)) (str recording))}))
 
 (def stopped-kept
   "How many stopped recordings the bot's map keeps for a phone that
@@ -194,6 +198,14 @@
   [db path stamp]
   (swap! db db/update-at path update-in [:phone :stopped]
          (fn [kept] (vec (take-last stopped-kept (conj (vec kept) (str stamp)))))))
+
+(defn paused!
+  "The laptop paused the recording `stamp` (`paused?`), or let it go
+   on: a phone that missed the event hears of it at its next hello."
+  [db path stamp paused?]
+  (swap! db db/update-at path update-in [:phone :paused]
+         (fn [kept] (let [kept (set kept)]
+                      (if paused? (conj kept (str stamp)) (disj kept (str stamp)))))))
 
 (defn done!
   "The phone's file of the recording `stamp` is up; for the test, the
@@ -307,8 +319,8 @@
 
 (defn ^:async post!
   "`POST /bot/<id>/phone/<action>`: `code` makes a pairing code (the
-   link for the QR), `hello` is the phone's presence, `start` and
-   `stop` go to the phones, `done` marks the phone's file of a
+   link for the QR), `hello` is the phone's presence, `start`, `pause`,
+   `resume` and `stop` go to the phones, `done` marks the phone's file of a
    recording as up, `frame` is the phone's still."
   [{:keys [db path bot]} action w]
   (case action
@@ -321,9 +333,15 @@
               (if (seq (str stamp))
                 (uploads/respond w 200 {:phones (send-phones! bot :start {:stamp (str stamp)})})
                 (uploads/respond w 400 {:error :no-stamp})))
+    ("pause" "resume") (let [{:keys [stamp]} (await (body w))]
+                         (if (seq (str stamp))
+                           (do (paused! db path stamp (= "pause" action))
+                               (uploads/respond w 200 {:phones (send-phones! bot (keyword action) {:stamp (str stamp)})}))
+                           (uploads/respond w 400 {:error :no-stamp})))
     "stop" (let [{:keys [stamp]} (await (body w))]
              (when (seq (str stamp))
-               (stopped! db path stamp))
+               (stopped! db path stamp)
+               (paused! db path stamp false))
              (uploads/respond w 200 {:phones (send-phones! bot :stop {:stamp (str stamp)})}))
     "test" (let [{:keys [seconds]} (await (body w))]
              (uploads/respond w 200 {:phones (send-phones! bot :test {:stamp "test" :seconds (or seconds 5)})}))

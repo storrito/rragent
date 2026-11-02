@@ -4,7 +4,8 @@
    machine every few seconds, and listens for the laptop's start and
    stop: on start it records its camera and microphone at full
    quality into `phone.<webm|mp4>` of the recording, the pieces up as
-   they come, the uploaders of `rragent.client.recorder`; on stop it
+   they come, the uploaders of `rragent.client.recorder`; on pause and
+   resume its recorder holds and goes on with the laptop's; on stop it
    sends the last pieces and tells the machine its file is up. Stills
    of the camera go up as fast as the network takes them, the phone's
    preview in the laptop's panel. The screen stays on while it records. Rendered by Replicant from the
@@ -74,13 +75,13 @@
                  :headers #js {"Content-Type" "application/transit+json"}
                  :body (t/write (t/writer :json) data)}))
 
-(declare stop!)
+(declare stop! pause! resume!)
 
 (defn- hello!
   "The phone's presence for the laptop's panel, with the recording it
-   is on: when the laptop stopped that one and the page missed the
-   event (Android pauses a page in the background), the answer says
-   so and the recording stops."
+   is on: when the laptop stopped or paused that one, or let it go on,
+   and the page missed the event (Android pauses a page in the
+   background), the answer says so and the recorder follows."
   []
   (let [{:keys [status stamp]} @state*
         recording (when (= :recording status) stamp)]
@@ -89,10 +90,12 @@
                          recording (assoc :recording recording)))
         (.then (fn [^js response] (.text response)))
         (.then (fn [text]
-                 (when (and recording
-                            (:stop (t/read (t/reader :json) text))
-                            (= recording (:stamp @state*)))
-                   (stop!))))
+                 (let [answer (t/read (t/reader :json) text)]
+                   (when (and recording (= recording (:stamp @state*)))
+                     (cond
+                       (:stop answer) (stop!)
+                       (:pause answer) (pause! recording)
+                       :else (resume! recording))))))
         (.catch (fn [_] nil)))))
 
 (defn- mime-type
@@ -180,9 +183,12 @@
       nil)))
 
 (defn- tick!
+  "The seconds recorded, the pauses not counted."
   []
   (when-let [since (:since @session*)]
-    (let [seconds (js/Math.floor (/ (- (js/performance.now) since) 1000))]
+    (let [{:keys [paused-ms paused-since]} @session*
+          now (js/performance.now)
+          seconds (js/Math.floor (/ (- now since (or paused-ms 0) (if paused-since (- now paused-since) 0)) 1000))]
       (when (not= seconds (:seconds @state*))
         (swap! state* assoc :seconds seconds)))))
 
@@ -211,7 +217,7 @@
     (finally
       (some-> (:wake @session*) (.release))
       (some-> (:timer @session*) js/clearInterval)
-      (swap! session* dissoc :recorder :uploader :since :wake :timer))))
+      (swap! session* dissoc :recorder :uploader :since :wake :timer :paused-ms :paused-since))))
 
 (defn- start!
   "The laptop started the recording `stamp`: this camera records into
@@ -243,13 +249,37 @@
       (.start recorder recorder/piece-ms)
       (when seconds
         (js/setTimeout stop! (* 1000 seconds)))
-      (swap! state* assoc :status (if seconds :testing :recording) :stamp stamp :seconds 0 :error nil :tested? false))))
+      (swap! state* assoc :status (if seconds :testing :recording) :stamp stamp :seconds 0 :error nil :tested? false :paused? false))))
 
 (defn- stop!
+  "Ends the recording, paused or not."
   []
   (when-let [^js recorder (:recorder @session*)]
-    (when (= "recording" (.-state recorder))
-      (.stop recorder))))
+    (when (not= "inactive" (.-state recorder))
+      (.stop recorder)
+      (swap! state* assoc :paused? false))))
+
+(defn- pause!
+  "The laptop paused the recording `stamp`: the recorder holds, the
+   clock stands still."
+  [stamp]
+  (when-let [^js recorder (:recorder @session*)]
+    (when (and (= stamp (:stamp @state*)) (= "recording" (.-state recorder)))
+      (.pause recorder)
+      (swap! session* assoc :paused-since (js/performance.now))
+      (swap! state* assoc :paused? true))))
+
+(defn- resume!
+  "The laptop let the recording `stamp` go on."
+  [stamp]
+  (when-let [^js recorder (:recorder @session*)]
+    (when (and (= stamp (:stamp @state*)) (= "paused" (.-state recorder)))
+      (.resume recorder)
+      (swap! session* (fn [{:keys [paused-since] :as session}]
+                        (-> session
+                            (update :paused-ms (fnil + 0) (- (js/performance.now) (or paused-since (js/performance.now))))
+                            (dissoc :paused-since))))
+      (swap! state* assoc :paused? false))))
 
 (defn- listen!
   "The laptop's start and stop, server-sent events."
@@ -260,6 +290,10 @@
                          (let [data (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true)]
                            (start! (:stamp data)))))
     (.addEventListener source "stop" (fn [_] (stop!)))
+    (doseq [[kind act!] [["pause" pause!] ["resume" resume!]]]
+      (.addEventListener source kind
+                         (fn [^js event]
+                           (act! (:stamp (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true))))))
     (.addEventListener source "test"
                        (fn [^js event]
                          (let [data (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true)]
@@ -284,7 +318,7 @@
   (str (quot (or seconds 0) 60) ":" (.padStart (str (rem (or seconds 0) 60)) 2 "0")))
 
 (defn- view
-  [{:keys [status seconds error listening? stamp tested?] bot-name :name}]
+  [{:keys [status seconds error listening? stamp tested? paused?] bot-name :name}]
   [:div.phone
    [:header
     [:strong (words :title)]
@@ -299,7 +333,7 @@
                                      (set! (.-srcObject ^js node) stream)
                                      (some-> (.play ^js node) (.catch (fn [_] nil)))))}]
     (when (#{:recording :testing} status)
-      [:div.badge [:span.dot] (clock seconds)])]
+      [:div.badge {:class (when paused? "paused")} [:span.dot] (clock seconds)])]
    [:div.state {:class (name status)}
     (case status
       :connecting (words :connecting)
@@ -308,7 +342,7 @@
                tested? (words :tested)
                :else (words :waiting))
       :testing (words :testing)
-      :recording (words :recording)
+      :recording (if paused? (words :paused) (words :recording))
       :uploading (words :uploading)
       :done (str/replace (words :done) "{stamp}" (str stamp))
       :failed (str/replace (words :failed) "{error}" (str error))
