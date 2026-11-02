@@ -295,6 +295,13 @@
                                             (with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0 :cost {:total 0.5}})
                                             (user 3 "more")
                                             (with-usage 4 {:input 5200 :output 1000 :cacheRead 700000 :cacheWrite 69000 :cost {:total 1.25}})]}))))
+    (testing "the cost as the person pays it: times RRAGENT_COST_FACTOR"
+      (let [env (.-env js/process)]
+        (try
+          (aset env "RRAGENT_COST_FACTOR" "1.3")
+          (is (= 0.65 (:cost (view/context-usage {:entries [(with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0 :cost {:total 0.5}})]}))))
+          (finally
+            (js-delete env "RRAGENT_COST_FACTOR")))))
     (testing "without an answer there is nothing to show; without prices no cost"
       (is (nil? (view/context-usage {:entries [(user 1 "hi")]})))
       (is (= {:used 1200 :cost nil}

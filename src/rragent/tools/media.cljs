@@ -16,6 +16,7 @@
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
+            [rragent.costs :as costs]
             [rragent.openrouter :as openrouter]
             [rragent.tools.work :as work]))
 
@@ -65,6 +66,16 @@
   (when (number? cost)
     (str ", $" (.toFixed cost 3))))
 
+(defn- result
+  "The tool's result: the line for the model, and the charge as the
+   call's usage (`rragent.costs/tool-usage`), which the conversation's
+   ledger adds to its tools."
+  [{:keys [line cost]}]
+  (let [out (work/text line)]
+    (when (number? cost)
+      (aset out "usage" (costs/tool-usage cost)))
+    out))
+
 ;;; image
 
 (def image-model
@@ -86,7 +97,8 @@
         (throw (js/Error. (str "There is no picture " from " under artifacts/."))))))
 
 (defn ^:async image!
-  "The picture written; answers the line for the model."
+  "The picture written; answers the line for the model and the charge,
+   `{:line :cost}`."
   [{:keys [codemode dir work prompt file ratio from]}]
   (check-path file)
   (let [route (openrouter/route! codemode "picture")
@@ -106,7 +118,9 @@
           extension (case type "image/jpeg" "jpg" "image/webp" "webp" "image/gif" "gif" "png")
           target (path/join dir (if (seq (path/extname file)) file (str file "." extension)))]
       (write! target bytes)
-      (str "artifacts/" (path/relative dir target) ": " (.-length bytes) " bytes" (cost-text (some-> body .-usage .-cost)) ", model " image-model))))
+      (let [cost (some-> body .-usage .-cost)]
+        {:line (str "artifacts/" (path/relative dir target) ": " (.-length bytes) " bytes" (cost-text cost) ", model " image-model)
+         :cost cost}))))
 
 (defn image
   "The tool for the agent whose REPL is `codemode`."
@@ -122,7 +136,7 @@
                                        :ratio (.Optional Type (.String Type #js {:description "1:1, 9:16, 16:9, 4:5, 3:4 ..."}))
                                        :from (.Optional Type (.String Type #js {:description "A picture under artifacts/ to start from"}))})
         :execute (^:async fn [args api _call-context]
-                   (work/text (await (image! {:codemode codemode
+                   (result (await (image! {:codemode codemode
                                               :dir (work/artifacts-dir api)
                                               :work (work/dir api)
                                               :prompt (.-prompt args)
@@ -152,11 +166,13 @@
       (when (zero? (.-length bytes))
         (throw (js/Error. "The voice service sent no audio.")))
       (write! target bytes)
-      (str "artifacts/" (path/relative dir target) ": " (.-length bytes) " bytes"
-           (when-let [seconds (seconds-of target)] (str ", " seconds " s"))
-           ;; the voice service bills per character, two cents a thousand
-           ", about $" (.toFixed (* 0.00002 (count text)) 4)
-           ", voice " voice ", model " voice-model))))
+      ;; the voice service answers no charge: it bills per character, two cents a thousand
+      (let [cost (* 0.00002 (count text))]
+        {:line (str "artifacts/" (path/relative dir target) ": " (.-length bytes) " bytes"
+                    (when-let [seconds (seconds-of target)] (str ", " seconds " s"))
+                    ", about $" (.toFixed cost 4)
+                    ", voice " voice ", model " voice-model)
+         :cost cost}))))
 
 (defn voice
   "The tool for the agent whose REPL is `codemode`."
@@ -170,7 +186,7 @@
                                        :file (.Optional Type (.String Type #js {:description "The file in the project's folder, voice.mp3 by default"}))
                                        :voice (.Optional Type (.String Type #js {:description "The voice, sarah by default"}))})
         :execute (^:async fn [args api _call-context]
-                   (work/text (await (voice! {:codemode codemode
+                   (result (await (voice! {:codemode codemode
                                               :dir (work/artifacts-dir api)
                                               :project (.-project args)
                                               :text (.-text args)
@@ -224,10 +240,11 @@
       (when (zero? (.-length bytes))
         (throw (js/Error. "The music service sent no audio.")))
       (write! target bytes)
-      (str "artifacts/" (path/relative dir target) ": " (.-length bytes) " bytes"
-           (when-let [seconds (seconds-of target)] (str ", " seconds " s"))
-           (cost-text cost)
-           ", model " model))))
+      {:line (str "artifacts/" (path/relative dir target) ": " (.-length bytes) " bytes"
+                  (when-let [seconds (seconds-of target)] (str ", " seconds " s"))
+                  (cost-text cost)
+                  ", model " model)
+       :cost cost})))
 
 (defn music
   "The tool for the agent whose REPL is `codemode`."
@@ -242,7 +259,7 @@
                                        :file (.Optional Type (.String Type #js {:description "The file in the project's folder, music.mp3 by default"}))
                                        :long (.Optional Type (.Boolean Type #js {:description "True: a whole song"}))})
         :execute (^:async fn [args api _call-context]
-                   (work/text (await (music! {:codemode codemode
+                   (result (await (music! {:codemode codemode
                                               :dir (work/artifacts-dir api)
                                               :project (.-project args)
                                               :prompt (.-prompt args)

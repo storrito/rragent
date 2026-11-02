@@ -36,6 +36,7 @@
             [rragent.binary :as binary]
             [rragent.bots :as bots]
             [rragent.codemode :as codemode]
+            [rragent.costs :as costs]
             [rragent.codemode-worker :as codemode-worker]
             [rragent.db :as db]
             [rragent.events :as events]
@@ -294,6 +295,7 @@
                    (.install (extension codemode))
                    (.install subagent-tool/extension)
                    (.install (redaction home))
+                   (.install (costs/extension))
                    (.install binary/extension)
                    (.install observations/extension)
                    (.install warm-summary/extension))]

@@ -15,7 +15,9 @@
    small, this is the net under it. The last request of each provider
    session, a conversation's, is kept (`last-request`), for a summary
    that asks the same again and reads it from the provider's cache
-   (`rragent.warm-summary`).")
+   (`rragent.warm-summary`). The stream of every good answer is split
+   for OpenRouter's charge in it (`rragent.costs/tee`)."
+  (:require [rragent.costs :as costs]))
 
 (def warn-bytes
   "The body size from which a request is logged, a sign that the
@@ -144,7 +146,7 @@
                                                            (mb bytes) ", " (mb images) " of it pictures; answered as an overflow, the conversation is compacted"))
                                     (overflow-response status size))
                                 response)))
-                     response)))))
+                     (costs/tee response))))))
       (fetch input init))))
 
 (def original-fetch
