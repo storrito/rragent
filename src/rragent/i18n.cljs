@@ -83,6 +83,7 @@
    :chat/ready "Ready"
    :chat/empty "Nothing here yet. Write the first message."
    :chat/queued "Waits for the current run to end"
+   :chat/steers "Reaches the bot after its current step"
    :chat/on-screen [:fn/str "Open: {{:path}}"]
    :chat/reset "The context started over."
    :chat/compacted "From here on the model reads a summary of the messages above."
@@ -377,6 +378,7 @@
    :chat/ready "Bereit"
    :chat/empty "Noch nichts hier. Schreib die erste Nachricht."
    :chat/queued "Wartet, bis der laufende Durchgang endet"
+   :chat/steers "Erreicht den Bot nach seinem aktuellen Schritt"
    :chat/on-screen [:fn/str "Geöffnet: {{:path}}"]
    :chat/reset "Der Kontext hat neu begonnen."
    :chat/compacted "Ab hier liest das Modell eine Zusammenfassung der Nachrichten oben."

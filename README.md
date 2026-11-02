@@ -245,7 +245,12 @@ command and output fetched when the line is opened (every frame
 carries the whole page, so a fold nobody looks at sends nothing),
 the answer streaming while a run goes, a composer at the bottom and a
 Stop that aborts the run, a program of the REPL in it ended with its
-worker thread. Everything of a bot is served under its page,
+worker thread. A message sent while a run goes steers it (pi-durable's
+`whenBusy "steer"`): the model reads it after its current tool call,
+not once the run ends, so a change of mind does not wait for work it
+makes moot; the page shows it as pending until then. A hook's call, a
+schedule's run and a bot's message are follow-ups, each a run of its
+own once the current one ends. Everything of a bot is served under its page,
 `/bot/<id>/artifacts/…`, `/bot/<id>/uploads/…`, where the composer
 posts too, so a link or a picture in an answer that names
 `artifacts/<path>` or `uploads/<name>` points at that bot's file; a

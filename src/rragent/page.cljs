@@ -307,7 +307,11 @@
    `rragent.uploads/keep-long-text!`), and last a line for what the
    pane of the tab showed, its `:screen`
    (`rragent.artifacts/screen-line`), so that \"this\" and \"here\" mean
-   it; the answer arrives as frames."
+   it; the answer arrives as frames. While a run goes, the message
+   steers it (pi-durable's `whenBusy`): the model reads it after its
+   current tool call, not once the run ends, so a change of mind does
+   not wait for work it makes moot. A hook's call, a schedule's run and
+   a bot's message stay follow-ups, each a run of its own."
   [w]
   (let [{:keys [text attachments screen run]} (command/command-data w)
         text (str/trim (str text))
@@ -327,7 +331,7 @@
             content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
-            draft #js {:type "input" :content (clj->js content)}]
+            draft #js {:type "input" :content (clj->js content) :whenBusy "steer"}]
         ;; a run keeps the instructions it started with; the bot reads its file again
         (if run
           (await (.submit conversation draft harness/context))

@@ -48,7 +48,12 @@
     (testing "the partial streams, the queued input is pending"
       (is (true? (:streaming? (nth items 7))))
       (is (= "Looking" (:text (nth items 7))))
-      (is (true? (:pending? (nth items 8)))))))
+      (is (true? (:pending? (nth items 8)))))
+    (testing "the person's message steers the run and says so; a follow-up waits for the run to end"
+      (let [[steer follow-up] (take-last 2 (view/items (assoc-in conversation [:inbox :items] [{:id "s2" :mode "steer" :content "Faster."}
+                                                                                                {:id "s1" :mode "followUp" :content "And Spain?"}])))]
+        (is (= {:kind :user :id "s2" :text "Faster." :pending? true :steer? true} (select-keys steer [:kind :id :text :pending? :steer?])))
+        (is (= {:kind :user :id "s1" :text "And Spain?" :pending? true} (select-keys follow-up [:kind :id :text :pending? :steer?])))))))
 
 (deftest partial-test
   (testing "a committed answer is no partial any more"

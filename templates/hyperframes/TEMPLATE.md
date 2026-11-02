@@ -62,8 +62,9 @@ whenever a file of it changes.
   every folder `composition/<name>/` with its own `index.html` (a whole
   HyperFrames project: its `compositions/`, `assets/`) is shown in a
   player of its own, titled by its `<title>`, without controls. Each
-  renders on its own, `hyperframes render` in its folder; the `render`
-  tool takes only the single composition.
+  renders on its own, `hyperframes render` in its folder, one at a time
+  and only once the person says it is right, like the single one; the
+  `render` tool takes only the single composition.
 - `hyperframes lint` in `composition/` finds mistakes in seconds;
   `hyperframes check --json` plays the whole composition and takes
   minutes: once after your last edit, as the skills say, not after
