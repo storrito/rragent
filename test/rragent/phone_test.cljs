@@ -57,7 +57,7 @@
                            {:ring/route [:get "/pair/*"]
                             :ring/handler (fn [w] (phone/pair-handler "secret" w))}
                            {:ring/route [:post "/bot/7/record/*"]
-                            :ring/handler (fn [w] (recordings/handler dir {:phone-done? #(phone/done? db [] %)} w))}
+                            :ring/handler (fn [w] (recordings/handler dir {:phone-done? #(phone/done? db [] %) :phone-pauses #(phone/pauses-of db [] %)} w))}
                            {:ring/route [:get "/bot/7/record/*"]
                             :ring/handler (fn [w] (recordings/get-handler dir w))}]
                  server (await (http/listen (http/ring-handler (constantly register)) 0))
@@ -122,11 +122,14 @@
                    (is (= [400 {:error :bad-piece}] (await (post (str "/bot/7/record/" stamp "/phone?offset=5&ext=mkv") "x" "video/mp4"))) "an extension that is not ours")
                    (is (= [409 {:error :phone-uploading}]
                           (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {"screen" "webm" "phone" "mp4"}}))))
-                   (is (= [200 {:ok true}] (await (post "/bot/7/phone/done" {:stamp stamp}))))
+                   (is (= [200 {:ok true}] (await (post "/bot/7/phone/done" {:stamp stamp :pauses [{:from 1000 :to 4000} {:from "x"}]}))))
                    (let [[status value] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {"screen" "webm" "phone" "mp4"}}))]
                      (is (= 200 status))
                      (is (= {:folder (str "recordings/" stamp) :files ["phone.mp4" "screen.webm"]} value))
-                     (is (= ["phone.mp4" "recording.json" "screen.webm"] (sort (array-seq (fs/readdirSync (recordings/folder dir stamp)))))))
+                     (is (= ["phone.mp4" "recording.json" "screen.webm"] (sort (array-seq (fs/readdirSync (recordings/folder dir stamp))))))
+                     (is (= [{"from" 1000 "to" 4000}]
+                            (get (js->clj (js/JSON.parse (fs/readFileSync (path/join (recordings/folder dir stamp) "recording.json") "utf8"))) "phone-pauses"))
+                         "the phone's own pauses, the malformed one left out"))
                    (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {}}))) "no files is no recording")
                    (is (= [400 {:error :bad-files}] (await (post (str "/bot/7/record/" stamp "/finish") {:started {} :files {"tablet" "mp4"}}))) "a name that is not ours")))
                (testing "pause and resume reach a phone listening, with the stamp"

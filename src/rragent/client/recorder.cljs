@@ -886,6 +886,17 @@
       (js/console.error "[recorder] phone" error)
       nil)))
 
+(defn- tell-phone!
+  "A word to the phones about the recording going on (pause, resume,
+   stop), after the words before it: sent one after the other, they
+   reach the machine in the order they were said, so a quick Pause and
+   Resume never arrive the other way round."
+  [action data]
+  (swap! session* update :told
+         (fn [chain]
+           (.then (or chain (js/Promise.resolve nil))
+                  (fn [_] (post-phone! action data))))))
+
 (declare finish!)
 
 (defn- end-pause!
@@ -911,7 +922,7 @@
         (when (= "recording" (.-state recorder))
           (.pause recorder)))
       (when (:phone? @session*)
-        (post-phone! "pause" {:stamp (:stamp @session*)}))
+        (tell-phone! "pause" {:stamp (:stamp @session*)}))
       (swap! session* assoc :paused-since (js/performance.now) :pause-from (js/Date.now))
       (update! store assoc :paused? true))))
 
@@ -925,7 +936,7 @@
         (when (= "paused" (.-state recorder))
           (.resume recorder)))
       (when (:phone? @session*)
-        (post-phone! "resume" {:stamp (:stamp @session*)}))
+        (tell-phone! "resume" {:stamp (:stamp @session*)}))
       (end-pause!)
       (update! store assoc :paused? false))))
 
@@ -939,7 +950,7 @@
     (end-pause!)
     (update! store assoc :status :finishing :paused? false)
     (when (:phone? @session*)
-      (post-phone! "stop" {:stamp (:stamp @session*)}))
+      (tell-phone! "stop" {:stamp (:stamp @session*)}))
     (if-let [recorders (seq (vals (:recorders @session*)))]
       (doseq [{:keys [^js recorder]} recorders]
         (when (not= "inactive" (.-state recorder))
@@ -1055,6 +1066,10 @@
    files (waiting for the phone's when there is one), and the draft
    names them."
   [store]
+  ;; a pause still going on when the recorders stopped by themselves
+  ;; (the only microphone unplugged) ends here
+  (end-pause!)
+  (update! store assoc :paused? false)
   (let [{:keys [recorders base started mime ctx phone? webcam-frames webcam-ms pauses]} @session*
         {:keys [store-key labels]} ctx
         webcam (get recorders "webcam")

@@ -673,7 +673,12 @@ missed it), and Resume lets them go on: the files go on where they
 held, without the paused time, the time in the bar stands still, and
 `recording.json` names the pauses (`pauses`, the clock times in
 milliseconds each began and ended), so that what happened meanwhile,
-like the agent's own record, can be set on the recording's time. When the recording ends the
+like the agent's own record, can be set on the recording's time. The
+phone holds a moment later, when the word reaches it (at once while it
+listens, at its next hello when it missed it): its own times are
+`phone-pauses`, so that its file can be laid onto the laptop's piece by
+piece. Pause, Resume and Stop go to the machine one after the other, in
+the order they were pressed. When the recording ends the
 draft names the files; the person tells the agent how the two go
 together, and the agent aligns them by their waveforms and composes the
 video. Chrome on a desktop only. A laptop without a microphone, or

@@ -208,12 +208,29 @@
                       (if paused? (conj kept (str stamp)) (disj kept (str stamp)))))))
 
 (defn done!
-  "The phone's file of the recording `stamp` is up; for the test, the
-   file's name and when, for the laptop's panel (`test-of`)."
-  [db path stamp file]
+  "The phone's file of the recording `stamp` is up, with the times its
+   recorder held (`pauses`, `[{:from :to}]` in milliseconds of the
+   phone's clock: it holds a moment after the laptop), which go into
+   recording.json (`pauses-of`); for the test, the file's name and
+   when, for the laptop's panel (`test-of`). The recording is over: it
+   is paused no more."
+  [db path stamp file & [pauses]]
   (if (= "test" (str stamp))
     (swap! db db/update-at path assoc-in [:phone :test] {:file (str file) :at (js/Date.now)})
-    (swap! db db/update-at path update-in [:phone :done] (fnil conj #{}) (str stamp))))
+    (swap! db db/update-at path update :phone
+           (fn [phone]
+             (cond-> (-> phone
+                         (update :done (fnil conj #{}) (str stamp))
+                         (update :paused (fn [kept] (disj (set kept) (str stamp)))))
+               (seq pauses) (update :pauses (fn [kept]
+                                              (into {} (take-last stopped-kept
+                                                                  (conj (vec kept) [(str stamp) (vec pauses)]))))))))))
+
+(defn pauses-of
+  "The phone's pauses of the recording `stamp`, as it said them when
+   its file was up; nil without any."
+  [db path stamp]
+  (get-in (db/at @db path) [:phone :pauses (str stamp)]))
 
 (defn test-of
   "The phone's last test clip, `{:file :at}`, or nil."
@@ -345,9 +362,9 @@
              (uploads/respond w 200 {:phones (send-phones! bot :stop {:stamp (str stamp)})}))
     "test" (let [{:keys [seconds]} (await (body w))]
              (uploads/respond w 200 {:phones (send-phones! bot :test {:stamp "test" :seconds (or seconds 5)})}))
-    "done" (let [{:keys [stamp file]} (await (body w))]
+    "done" (let [{:keys [stamp file pauses]} (await (body w))]
              (if (seq (str stamp))
-               (do (done! db path stamp file)
+               (do (done! db path stamp file (filter #(and (number? (:from %)) (number? (:to %))) pauses))
                    (uploads/respond w 200 {:ok true}))
                (uploads/respond w 400 {:error :no-stamp})))
     "frame" (if-let [bytes (await (uploads/read-body (:body (:ring/request w)) max-frame-bytes))]

@@ -75,7 +75,7 @@
                  :headers #js {"Content-Type" "application/transit+json"}
                  :body (t/write (t/writer :json) data)}))
 
-(declare stop! pause! resume!)
+(declare stop! pause! resume! end-pause!)
 
 (defn- hello!
   "The phone's presence for the laptop's panel, with the recording it
@@ -84,7 +84,10 @@
    background), the answer says so and the recorder follows."
   []
   (let [{:keys [status stamp]} @state*
-        recording (when (= :recording status) stamp)]
+        recording (when (= :recording status) stamp)
+        ;; a pause or resume heard after this hello was sent is newer
+        ;; than its answer, which then says nothing of the pause
+        heard (:heard @state* 0)]
     (-> (post! "hello" (cond-> {:device (:device @state*)
                                 :facing (:facing @state*)}
                          recording (assoc :recording recording)))
@@ -94,6 +97,7 @@
                    (when (and recording (= recording (:stamp @state*)))
                      (cond
                        (:stop answer) (stop!)
+                       (not= heard (:heard @state* 0)) nil
                        (:pause answer) (pause! recording)
                        :else (resume! recording))))))
         (.catch (fn [_] nil)))))
@@ -209,7 +213,7 @@
           (throw (js/Error. (str "The test clip was not kept (" (.-status response) ")."))))
         (await (post! "done" {:stamp stamp :file (str "phone." ext)}))
         (swap! state* assoc :status :ready :tested? true))
-      (do (await (post! "done" {:stamp stamp}))
+      (do (await (post! "done" {:stamp stamp :pauses (:pauses @session* [])}))
           (swap! state* assoc :status :done :stamp stamp)))
     (catch :default error
       (js/console.error "[phone]" error)
@@ -217,7 +221,7 @@
     (finally
       (some-> (:wake @session*) (.release))
       (some-> (:timer @session*) js/clearInterval)
-      (swap! session* dissoc :recorder :uploader :since :wake :timer :paused-ms :paused-since))))
+      (swap! session* dissoc :recorder :uploader :since :wake :timer :paused-ms :paused-since :pause-from :pauses))))
 
 (defn- start!
   "The laptop started the recording `stamp`: this camera records into
@@ -244,6 +248,7 @@
              :uploader up
              :ext ext
              :since (js/performance.now)
+             :pauses []
              :timer (js/setInterval tick! 250))
       (wake!)
       (.start recorder recorder/piece-ms)
@@ -256,8 +261,23 @@
   []
   (when-let [^js recorder (:recorder @session*)]
     (when (not= "inactive" (.-state recorder))
+      (end-pause!)
       (.stop recorder)
       (swap! state* assoc :paused? false))))
+
+(defn- end-pause!
+  "The pause going on, if one is, ended now: its length off the clock,
+   its clock times among the file's `:pauses`, which the machine writes
+   into recording.json as the phone's own (`phone-pauses`): the phone
+   holds a moment after the laptop, when the word reaches it."
+  []
+  (swap! session* (fn [{:keys [paused-since pause-from] :as session}]
+                    (if paused-since
+                      (-> session
+                          (update :paused-ms (fnil + 0) (- (js/performance.now) paused-since))
+                          (update :pauses (fnil conj []) {:from pause-from :to (js/Date.now)})
+                          (dissoc :paused-since :pause-from))
+                      session))))
 
 (defn- pause!
   "The laptop paused the recording `stamp`: the recorder holds, the
@@ -266,7 +286,7 @@
   (when-let [^js recorder (:recorder @session*)]
     (when (and (= stamp (:stamp @state*)) (= "recording" (.-state recorder)))
       (.pause recorder)
-      (swap! session* assoc :paused-since (js/performance.now))
+      (swap! session* assoc :paused-since (js/performance.now) :pause-from (js/Date.now))
       (swap! state* assoc :paused? true))))
 
 (defn- resume!
@@ -275,10 +295,7 @@
   (when-let [^js recorder (:recorder @session*)]
     (when (and (= stamp (:stamp @state*)) (= "paused" (.-state recorder)))
       (.resume recorder)
-      (swap! session* (fn [{:keys [paused-since] :as session}]
-                        (-> session
-                            (update :paused-ms (fnil + 0) (- (js/performance.now) (or paused-since (js/performance.now))))
-                            (dissoc :paused-since))))
+      (end-pause!)
       (swap! state* assoc :paused? false))))
 
 (defn- listen!
@@ -293,6 +310,7 @@
     (doseq [[kind act!] [["pause" pause!] ["resume" resume!]]]
       (.addEventListener source kind
                          (fn [^js event]
+                           (swap! state* update :heard (fnil inc 0))
                            (act! (:stamp (js->clj (js/JSON.parse (.-data event)) :keywordize-keys true))))))
     (.addEventListener source "test"
                        (fn [^js event]

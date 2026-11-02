@@ -191,7 +191,7 @@
    once it is done (its answer was lost on the way), the end answers as
    it did, from `recording.json`; asked again while it is still at work
    (ffmpeg takes a while), it answers 503 and the laptop asks later."
-  [dir {:keys [phone-done?]} w stamp]
+  [dir {:keys [phone-done? phone-pauses]} w stamp]
   (let [facts (try
                 (await (transit/read-stream (:body (:ring/request w))))
                 (catch :default _
@@ -234,7 +234,10 @@
                          made))]
             (fs/writeFileSync (path/join (folder dir stamp) "recording.json")
                               (js/JSON.stringify (clj->js (cond-> (assoc facts :files made)
-                                                            (seq made) (assoc :duration (media/seconds-of (path/join (folder dir stamp) (first made))))))
+                                                            (seq made) (assoc :duration (media/seconds-of (path/join (folder dir stamp) (first made))))
+                                                            ;; the phone held a moment after the laptop: its own times
+                                                            (and (contains? files "phone") phone-pauses (seq (phone-pauses stamp)))
+                                                            (assoc :phone-pauses (vec (phone-pauses stamp)))))
                                                  nil 2))
             (uploads/respond w 200 {:folder (str "recordings/" stamp)
                                     :files made}))
