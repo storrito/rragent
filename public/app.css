@@ -2437,6 +2437,16 @@ pre {
   font-weight: 600;
 }
 
+/* Paused: the dot holds still and greys, the time with it. */
+.recorder .live.paused .dot {
+  background: var(--muted);
+  animation: none;
+}
+
+.recorder .live.paused .time {
+  color: var(--muted);
+}
+
 .recorder .live .started {
   color: var(--muted);
   font-size: 13px;
@@ -2568,6 +2578,11 @@ pre {
   border-radius: 50%;
   background: var(--accent);
   animation: pulse 1.2s ease-in-out infinite;
+}
+
+.phone .badge.paused .dot {
+  background: #9ca3af;
+  animation: none;
 }
 
 .phone .state {

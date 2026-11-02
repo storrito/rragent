@@ -14,8 +14,12 @@
    camera (remembered in the browser), shows the camera live with the
    level of the microphone, makes a test recording of five seconds to
    play back, and starts: Chrome asks which screen. While it records,
-   the panel is a bar with the time and Stop; Chrome's own Stop sharing
-   ends it too.
+   the panel is a bar with the time, Pause and Stop; Chrome's own Stop
+   sharing ends it too. Pause holds every recorder of the recording at
+   once, the laptop's and the phone's (`pause!`, `resume!`): the files
+   go on where they held, the clock stands still, and `recording.json`
+   names the pauses (`:pauses`, the clock times they began and ended),
+   so that the times of what happened meanwhile can be taken out.
 
    What is recorded is a set of sources (`:sources`): the screen, the
    webcam, a phone, the microphone alone, any of them ticked. The
@@ -36,7 +40,8 @@
    (`:opening`, `:ready`, `:testing`, `:recording`, `:finishing`,
    `:failed`), the `:devices`, the `:mic` and `:camera` chosen, the
    `:sources` ticked, the `:pair` (the link and its QR while shown),
-   the `:seconds` recorded, the `:tests` (the clips of the last test,
+   the `:seconds` recorded (the pauses not counted), `:paused?`, the
+   `:tests` (the clips of the last test,
    one per source: object URLs of the laptop's, the phone's on the
    machine) and the `:error`.
    The webcam's picture can go through the effects
@@ -332,7 +337,9 @@
     (when (and analyser meter)
       (.setProperty (.-style ^js meter) "--level" (str (min 1 (* 8 (level analyser samples))))))
     (when (and since (#{:recording :testing} status))
-      (let [seconds (js/Math.floor (/ (- (js/performance.now) since) 1000))]
+      (let [{:keys [paused-ms paused-since]} @session*
+            now (js/performance.now)
+            seconds (js/Math.floor (/ (- now since (or paused-ms 0) (if paused-since (- now paused-since) 0)) 1000))]
         (when (not= seconds (:seconds (:ui/recorder @store)))
           (update! store assoc :seconds seconds))))))
 
@@ -374,7 +381,7 @@
    warns by (`:effects-fps`), and, while the webcam records them live,
    the frames and the time of its file, for `recording.json`."
   [store frames ms]
-  (when (= :recording (:status (:ui/recorder @store)))
+  (when (and (= :recording (:status (:ui/recorder @store))) (not (:paused? (:ui/recorder @store))))
     (swap! session* (fn [s]
                       (-> s
                           (update :webcam-frames (fnil + 0) frames)
@@ -879,21 +886,74 @@
       (js/console.error "[recorder] phone" error)
       nil)))
 
+(defn- tell-phone!
+  "A word to the phones about the recording going on (pause, resume,
+   stop), after the words before it: sent one after the other, they
+   reach the machine in the order they were said, so a quick Pause and
+   Resume never arrive the other way round."
+  [action data]
+  (swap! session* update :told
+         (fn [chain]
+           (.then (or chain (js/Promise.resolve nil))
+                  (fn [_] (post-phone! action data))))))
+
 (declare finish!)
 
+(defn- end-pause!
+  "The pause going on, if one is, ended now: its length off the clock,
+   its clock times among the recording's `:pauses`."
+  []
+  (swap! session* (fn [{:keys [paused-since pause-from] :as session}]
+                    (if paused-since
+                      (-> session
+                          (update :paused-ms (fnil + 0) (- (js/performance.now) paused-since))
+                          (update :pauses (fnil conj []) {:from pause-from :to (js/Date.now)})
+                          (dissoc :paused-since :pause-from))
+                      session))))
+
+(defn pause!
+  "Holds the recording: every recorder here pauses, the phone is told,
+   the clock stands still; nothing is recorded until `resume!`. The
+   files go on where they held, no gap in them."
+  [store]
+  (let [{:keys [status paused?]} (:ui/recorder @store)]
+    (when (and (= :recording status) (not paused?))
+      (doseq [{:keys [^js recorder]} (vals (:recorders @session*))]
+        (when (= "recording" (.-state recorder))
+          (.pause recorder)))
+      (when (:phone? @session*)
+        (tell-phone! "pause" {:stamp (:stamp @session*)}))
+      (swap! session* assoc :paused-since (js/performance.now) :pause-from (js/Date.now))
+      (update! store assoc :paused? true))))
+
+(defn resume!
+  "Lets the paused recording go on: the recorders here, the phone, the
+   clock."
+  [store]
+  (let [{:keys [status paused?]} (:ui/recorder @store)]
+    (when (and (= :recording status) paused?)
+      (doseq [{:keys [^js recorder]} (vals (:recorders @session*))]
+        (when (= "paused" (.-state recorder))
+          (.resume recorder)))
+      (when (:phone? @session*)
+        (tell-phone! "resume" {:stamp (:stamp @session*)}))
+      (end-pause!)
+      (update! store assoc :paused? false))))
+
 (defn stop!
-  "Ends the recording: the recorders stop, the phone is told, the last
-   pieces go up, then the recording is finished on the server
-   (`finish!`); with the phone alone there is no recorder here and
-   the end is asked for at once."
+  "Ends the recording, paused or not: the recorders stop, the phone is
+   told, the last pieces go up, then the recording is finished on the
+   server (`finish!`); with the phone alone there is no recorder here
+   and the end is asked for at once."
   [store]
   (when (= :recording (:status (:ui/recorder @store)))
-    (update! store assoc :status :finishing)
+    (end-pause!)
+    (update! store assoc :status :finishing :paused? false)
     (when (:phone? @session*)
-      (post-phone! "stop" {:stamp (:stamp @session*)}))
+      (tell-phone! "stop" {:stamp (:stamp @session*)}))
     (if-let [recorders (seq (vals (:recorders @session*)))]
       (doseq [{:keys [^js recorder]} recorders]
-        (when (= "recording" (.-state recorder))
+        (when (not= "inactive" (.-state recorder))
           (.stop recorder)))
       (finish! store))))
 
@@ -1006,7 +1066,11 @@
    files (waiting for the phone's when there is one), and the draft
    names them."
   [store]
-  (let [{:keys [recorders base started mime ctx phone? webcam-frames webcam-ms]} @session*
+  ;; a pause still going on when the recorders stopped by themselves
+  ;; (the only microphone unplugged) ends here
+  (end-pause!)
+  (update! store assoc :paused? false)
+  (let [{:keys [recorders base started mime ctx phone? webcam-frames webcam-ms pauses]} @session*
         {:keys [store-key labels]} ctx
         webcam (get recorders "webcam")
         ;; the webcam's background, when it went through the effects
@@ -1027,6 +1091,7 @@
                                                     :devices (labels-of store)
                                                     :mime mime
                                                     :files files}
+                                             (seq pauses) (assoc :pauses (vec pauses))
                                              (and effects (not (:failed made)))
                                              (assoc :effects (effects/facts effects (if (:frames made)
                                                                                       (effects/fps (:frames made) (* 1000 (:seconds made)))
@@ -1173,13 +1238,15 @@
                :stopped {}
                :webcam-frames 0
                :webcam-ms 0
+               :pauses []
+               :paused-ms 0
                :since (js/performance.now))
         ;; the preview leaves the computer to the recording
         (when local
           (effects/preview-every! effects-handle 3))
         (doseq [{:keys [^js recorder]} (vals recorders)]
           (.start recorder piece-ms))
-        (update! store assoc :status :recording :seconds 0 :error nil :started-at (js/Date.now))))))
+        (update! store assoc :status :recording :paused? false :seconds 0 :error nil :started-at (js/Date.now))))))
 
 (defn start!
   "Starts the recording from the click (Chrome asks which screen only
@@ -1531,14 +1598,15 @@
    translated; `phone` the phone connected, from the frame
    (`rragent.phone/status`)."
   [store state labels phone]
-  (let [{:keys [status devices mic camera seconds tests error phone-waiting? minimized? started-at effects-progress] :as recorder} (:ui/recorder state)
+  (let [{:keys [status devices mic camera seconds tests error phone-waiting? minimized? started-at effects-progress paused?] :as recorder} (:ui/recorder state)
         ticked (or (:sources recorder) default-sources)]
     (when status
       [:div.recorder {:replicant/key "recorder"
                       :class (when (and minimized? (#{:recording :finishing} status)) "minimized")}
        (if (#{:recording :finishing} status)
          (list
-          [:div.live {:replicant/key "live"}
+          [:div.live {:replicant/key "live"
+                      :class (when paused? "paused")}
            [:span.dot]
            [:span.time (clock seconds)]
            (when started-at
@@ -1548,12 +1616,17 @@
                          effects-progress (str/replace (or (:effects-applying labels) "Putting the effects on the webcam … {percent} %. Keep this page open.")
                                                        "{percent}" (str (js/Math.floor (* 100 effects-progress))))
                          (= :finishing status) (:saving labels)
+                         paused? (or (:paused labels) "Paused: nothing is recorded until you resume.")
                          (contains? ticked :screen) (:recording labels)
                          (= #{:mic} ticked) (:recording-audio labels)
                          :else (:recording-local labels))]
            [:button.link {:type "button"
                           :on {:click (fn [_] (toggle-minimized! store))}}
             (if minimized? (:show-live labels) (:hide-live labels))]
+           (when (= :recording status)
+             [:button {:type "button"
+                       :on {:click (fn [_] (if paused? (resume! store) (pause! store)))}}
+              (if paused? (or (:resume labels) "Resume") (or (:pause labels) "Pause"))])
            (when (= :recording status)
              [:button.primary {:type "button"
                                :on {:click (fn [_] (stop! store))}}
