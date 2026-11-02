@@ -4,9 +4,10 @@
 // chat (see TEMPLATE.md). It serves the project's composition/index.html
 // with the HyperFrames runtime and the values of its variables.json, the
 // page with the HyperFrames player and one control per declared
-// variable, and `rev`, the newest change of the files and the layout of
-// the players, which the page polls to load the composition again at the
-// same position, or itself when the layout changed. The player
+// variable, and `rev`, the newest change of each part of the project and
+// the layout of the players, which the page polls to load a changed
+// composition again at the same position, or itself when the layout
+// changed. The player
 // and the runtime come from the HyperFrames install of the machine:
 // HYPERFRAMES in the environment names the CLI (rragent sets it), else
 // the one on the PATH. Plain JavaScript on node:http, no dependencies.
@@ -206,20 +207,34 @@ function compositions() {
     .sort();
 }
 
-// The newest change of the composition and of the values.
-function rev() {
+// The newest change of a file below dir, 0 for none.
+function newestBelow(dir) {
   let newest = 0;
-  const walk = (dir) => {
-    for (const entry of fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : []) {
-      if (entry.name.startsWith(".")) continue;
-      const file = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(file);
-      else if (entry.isFile()) newest = Math.max(newest, Math.round(fs.statSync(file).mtimeMs));
-    }
-  };
-  walk(compositionDir);
-  if (fs.existsSync(variablesFile)) newest = Math.max(newest, Math.round(fs.statSync(variablesFile).mtimeMs));
+  for (const entry of fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : []) {
+    if (entry.name.startsWith(".")) continue;
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) newest = Math.max(newest, newestBelow(file));
+    else if (entry.isFile()) newest = Math.max(newest, Math.round(fs.statSync(file).mtimeMs));
+  }
   return newest;
+}
+
+// The newest change of each part of the project: of every composition
+// of a series under its name, and under "" of the rest (a single
+// composition, what the series shares, the values). A change of one
+// composition loads its player again, a change of the rest all of them.
+function revs() {
+  const names = new Set(compositions());
+  const parts = { "": 0 };
+  for (const entry of fs.existsSync(compositionDir) ? fs.readdirSync(compositionDir, { withFileTypes: true }) : []) {
+    if (entry.name.startsWith(".")) continue;
+    const file = path.join(compositionDir, entry.name);
+    if (entry.isDirectory() && names.has(entry.name)) parts[entry.name] = newestBelow(file);
+    else if (entry.isDirectory()) parts[""] = Math.max(parts[""], newestBelow(file));
+    else if (entry.isFile()) parts[""] = Math.max(parts[""], Math.round(fs.statSync(file).mtimeMs));
+  }
+  if (fs.existsSync(variablesFile)) parts[""] = Math.max(parts[""], Math.round(fs.statSync(variablesFile).mtimeMs));
+  return parts;
 }
 
 // What the page is built from besides what the compositions show: which
@@ -245,7 +260,7 @@ function layout() {
 
 // What the page was built from, for it to compare with `/rev`.
 function served() {
-  return { rev: rev(), layout: layout() };
+  return { revs: revs(), layout: layout() };
 }
 
 // The composition page for the player: the values, the registry of the
@@ -286,7 +301,8 @@ hyperframes-player { display: block; flex: none; }
 }`;
 
 // Runs in the browser: the controls from /variables, a change posted
-// back, and the players loaded again at their position when rev changes;
+// back, and a player loaded again at its position when its composition
+// changes, all of them when the rest of the project does;
 // the page built anew when the layout does. The page carries what it was
 // built from (window.__served): a build that lands before the first look
 // at rev is a change too, not where the page starts from.
@@ -329,25 +345,33 @@ const script = `
       });
     }).catch(function () {});
   }
-  function reloadPlayers(now) {
+  function reloadPlayers(before, now) {
+    var all = before[""] !== now[""];
     document.querySelectorAll("hyperframes-player").forEach(function (player) {
+      var part = player.dataset.part, rev = now[""] + "-" + (now[part] || 0);
+      if (!all && before[part] === now[part]) return;
       var t = player.currentTime || 0, src = player.getAttribute("src").replace(/\\?rev=.*$/, "");
       player.addEventListener("ready", function () { player.seek(t); }, {once: true});
-      player.setAttribute("src", src + "?rev=" + now);
+      player.setAttribute("src", src + "?rev=" + rev);
     });
   }
   setInterval(function () {
     fetch("rev").then(function (r) { return r.json(); }).then(function (now) {
       if (now.layout !== served.layout) { location.reload(); return; }
-      if (now.rev !== served.rev) { served = now; reloadPlayers(now.rev); loadControls(); }
+      if (JSON.stringify(now.revs) !== JSON.stringify(served.revs)) {
+        var before = served.revs;
+        served = now;
+        reloadPlayers(before, now.revs);
+        if (before[""] !== now.revs[""]) loadControls();
+      }
     }).catch(function () {});
   }, 1000);
   document.addEventListener("DOMContentLoaded", loadControls);
 })();`;
 
-function player(src, html, widthRule) {
+function player(src, part, html, widthRule) {
   const [width, height] = size(html);
-  return `<hyperframes-player src="${src}" controls style="aspect-ratio: ${width} / ${height}; width: ${widthRule(width, height)}"></hyperframes-player>`;
+  return `<hyperframes-player src="${src}" data-part="${escapeHtml(part)}" controls style="aspect-ratio: ${width} / ${height}; width: ${widthRule(width, height)}"></hyperframes-player>`;
 }
 
 function page() {
@@ -359,10 +383,10 @@ function page() {
       ? `<div class="series">${names
           .map((name) => {
             const html = fs.readFileSync(path.join(compositionDir, name, "index.html"), "utf8");
-            return `<figure>${player(`composition/${name}/index.html`, html, (w, h) => `calc(62vh * ${w} / ${h}); max-width: 100%`)}<figcaption>${escapeHtml(title(html) || name)}</figcaption></figure>`;
+            return `<figure>${player(`composition/${name}/index.html`, name, html, (w, h) => `calc(62vh * ${w} / ${h}); max-width: 100%`)}<figcaption>${escapeHtml(title(html) || name)}</figcaption></figure>`;
           })
           .join("")}</div>`
-      : `<div class="artifact">${player("composition/index.html", indexHtml(), (w, h) => `min(100%, calc(70vh * ${w} / ${h}))`)}<div class="controls" id="controls"></div></div>`;
+      : `<div class="artifact">${player("composition/index.html", "", indexHtml(), (w, h) => `min(100%, calc(70vh * ${w} / ${h}))`)}<div class="controls" id="controls"></div></div>`;
   return (
     `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">` +
     `<title>artifact</title><style>${styles}</style><script src="vendor/hyperframes-player.js"></script>` +
