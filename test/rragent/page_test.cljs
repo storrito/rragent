@@ -650,6 +650,14 @@
                    (is (nil? (get-in @db/db (conj bot-path :artifacts/editing))))
                    (is (= {:success? false :result {:error :no-such-artifact}} (await (command! base cookie :artifacts/edit {:bot id :path "gone.md" :on? true}))))
                    (is (= {:success? false :result {:error :no-such-bot}} (await (command! base cookie :artifacts/edit {:bot "99" :path "README.md" :on? true})))))
+                 (testing "Edit from the menu of a row puts the file on screen in the editor, a step of the tab's; the same again moves nothing"
+                   (is (= {:success? true} (await (command! base cookie :artifacts/edit {:bot id :path "notes/todo.txt" :on? true :tab "t1"}))))
+                   (is (= {:current "notes/todo.txt" :folder "notes"} (artifacts/place (get-in @db/db bot-path))))
+                   (is (= "notes/todo.txt" (get-in @db/db (conj bot-path :artifacts/editing))))
+                   (let [step (get-in @db/db (conj bot-path :pane/steps "t1"))]
+                     (is (string? step))
+                     (is (= {:success? true} (await (command! base cookie :artifacts/edit {:bot id :path "notes/todo.txt" :on? true :tab "t1"}))))
+                     (is (= step (get-in @db/db (conj bot-path :pane/steps "t1"))))))
                  (finally
                    (await (stop!))
                    (test-home/remove! home)))))))

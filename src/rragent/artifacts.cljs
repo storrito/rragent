@@ -53,7 +53,7 @@
        :artifacts/durations  {\"recordings/<stamp>\" seconds}, the recordings' lengths
        :artifacts/current    the path on screen
        :artifacts/folder     the folder the person browses, \"\" the root
-       :artifacts/editing    the markdown file or CSV whose text is in the editor
+       :artifacts/editing    the file whose text is in the editor in place of its view (a markdown file, a CSV)
 
    It reads `:renders` (`rragent.render`): a file a render still
    writes is shown as is, with its progress. The files are served

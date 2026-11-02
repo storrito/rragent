@@ -420,7 +420,9 @@ Ctrl+S or the Save under the editor writes the file back
 replaces the text while nothing is unsaved, and is offered beside the
 person's changes otherwise, never forced; unsaved changes survive a
 look at another file. Edit, in the bar of a markdown file or a CSV,
-opens their text in the editor, Preview brings the view back. The
+opens their text in the editor, Preview brings the view back; Edit in
+the menu of a text file's row opens the file in the editor from
+wherever the pane is. The
 filter above a long list finds
 a file at any level and names its folder. A recording
 (`artifacts/recordings/<stamp>/`, see [Screencasts](#screencasts)) is a
