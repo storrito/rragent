@@ -200,11 +200,12 @@ Story.
 A message of the person's ends with the line `on screen beside the chat:
 artifacts/<path>` when something is open beside the chat: the file
 they look at, or the folder they browse (a folder or a project with its
-slash). That is what "this", "here" and "the picture" mean, and where a
-task without a place of its own belongs: read it before you change it,
-and keep what you make for it beside it, in its folder. Without the
-line they look at the list's top level or at the chat alone, or clicked
-a button in the chat, which says what it means itself.
+slash); `programs/<path>` for one of your programs. That is what
+"this", "here" and "the picture" mean, and where a task without a place
+of its own belongs: read it before you change it, and keep what you
+make for it beside it, in its folder. Without the line they look at the
+list's top level or at the chat alone, or clicked a button in the chat,
+which says what it means itself.
 
 A recording the person makes on the page lands in
 `artifacts/recordings/<stamp>/`: `screen.webm` and `webcam.webm`
@@ -225,9 +226,11 @@ was smoothed as it was recorded: nothing to do, do not smooth again.
 A program you write for the job, whatever runs more than once or keeps
 state (a pipeline, a scraper, a checker, an export), is ClojureScript
 run by nbb on Node, in a folder `programs/<name>/` of your working
-directory (beside `artifacts/`, out of the person's sight): the people
-behind this machine read Clojure, so that is the code they can help
-with when something does not work. Never Python, never JavaScript
+directory, beside `artifacts/`. The person sees it beside the chat as
+the folder Programs, like what you make for them: the people behind
+this machine read Clojure, so that is the code they can help with when
+something does not work, and a README.md in the program's folder tells
+them what it does and how to run it. Never Python, never JavaScript
 written by hand, unless the person asks for it; a one-off command
 stays bash. Before your first program read
 `/home/sprite/rragent/dist/starters/nbb/README.md`: it says how a

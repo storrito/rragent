@@ -578,6 +578,12 @@ body {
   font-size: 13px;
 }
 
+.bar .context .usage button.compact {
+  align-self: flex-start;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
 .bar .status::before {
   content: "";
   display: inline-block;

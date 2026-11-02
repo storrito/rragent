@@ -276,6 +276,12 @@
   [live]
   (if (:run live) :working :ready))
 
+(defn compacting?
+  "Whether a compaction of the conversation runs: `pi.live` lists it
+   (`rragent.harness/compacting?` reads the same of the view value)."
+  [live]
+  (boolean (seq (:compactions live))))
+
 (defn context-usage
   "How full the model's context is, from the usage pi notes on every
    assistant message: the tokens of the newest request, prompt (cached
@@ -499,13 +505,17 @@
 
 (defn header
   "The bot's name, how full the model's context is (`:ui/context`, a
-   ring that opens the usage card, which names the model,
-   `rragent.client`), whether a run goes, and the button that switches
-   between the light and the dark theme (`:ui/theme-toggle`, client
-   state, see `rragent.client`). The running version of rragent is the
-   settings' (`updates-section`). On a phone the sidebar is a drawer;
-   the label opens it (the checkbox in `page`)."
-  [{:keys [name model context-window]} status usage]
+   ring that opens the usage card, which names the model and holds the
+   button that summarizes the older messages now, `rragent.client`),
+   whether a run goes, and the button that switches between the light
+   and the dark theme (`:ui/theme-toggle`, client state, see
+   `rragent.client`). `compaction` is the card's button: `{:bot <the
+   id of the conversation it summarizes, the bot's> :running? <whether
+   a compaction runs, `compacting?`>}`, nil on a run's page, whose
+   transcript is not the bot's to summarize. The running version of
+   rragent is the settings' (`updates-section`). On a phone the
+   sidebar is a drawer; the label opens it (the checkbox in `page`)."
+  [{:keys [name model context-window]} status usage compaction]
   [:header.bar
    [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
    [:h1 name]
@@ -514,6 +524,8 @@
                    :ui/window context-window
                    :ui/cost (:cost usage)
                    :ui/model model
+                   :ui/bot (:bot compaction)
+                   :ui/compacting? (:running? compaction)
                    :ui/labels {:title [:i18n :context/title]
                                :model [:i18n :context/model]
                                :used [:i18n :context/used]
@@ -522,7 +534,9 @@
                                :cost [:i18n :context/cost]
                                :hint [:i18n :context/hint]
                                :ring [:i18n :context/ring]
-                               :close [:i18n :context/close]}}])
+                               :close [:i18n :context/close]
+                               :compact [:i18n :context/compact]
+                               :compacting [:i18n :context/compacting]}}])
    [:span.status {:class (clojure.core/name status)}
     (case status
       :working [:i18n :chat/working]
@@ -1592,7 +1606,9 @@
            [:input#view-chat.toggle {:type "radio" :name "view"}]
            [:input#view-made.toggle {:type "radio" :name "view"}]))
         (header bot status (cond-> (context-usage conversation)
-                             (and (:spend bot) (not run)) (assoc :cost (:spend bot))))
+                             (and (:spend bot) (not run)) (assoc :cost (:spend bot)))
+                (when-not run
+                  {:bot id :running? (compacting? (:live conversation))}))
         (when artifacts?
           (views))
         [:div.body

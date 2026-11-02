@@ -19,7 +19,12 @@
    its files, both by name, a folder as one row until it is opened.
    Nothing is
    hidden but the dot files: the agent keeps a level short by putting
-   what belongs together into folders. A `README.md` in a folder is
+   what belongs together into folders. The programs the agent writes
+   for its job, `work/programs/` beside the artifacts (`rragent.home`),
+   are on the list as the root's folder `programs/` (`programs-folder`,
+   `root-of`): the person sees the code that runs for them and can
+   show it to someone who reads Clojure, while the agent keeps
+   reaching it as `programs/<name>/`. A `README.md` in a folder is
    its first file and opens when the person enters the folder
    (`readme`); the links in it lead to the files and folders beside it
    (`rragent.markdown`). A recording (`rragent.recordings`,
@@ -41,7 +46,7 @@
 
    The keys this namespace owns in the bot's map of the db
    (`rragent.db`, under the bot's `path`; the map itself for a test's
-   plain atom):
+   plain atom; `dir` is the artifacts' folder, `work/artifacts/`):
 
        :artifacts/list       [{:path :kind :title :ext :mtime :size} ...], newest first
        :artifacts/rev        the newest modification time
@@ -57,6 +62,7 @@
             ["node:path" :as path]
             [clojure.string :as str]
             [rragent.db :as db]
+            [rragent.home :as home]
             [rragent.rframes.http :as http]))
 
 (def url-prefix
@@ -91,6 +97,42 @@
    (`rragent.client.editor`); the kinds the editor saves (`write!`)."
   #{:markdown :text})
 
+(def programs-folder
+  "The folder of the root that holds the bot's programs: not a folder
+   of the artifacts but `work/programs/` beside them (`rragent.home`),
+   on the list as if it lay under them, so that the person sees what
+   runs for them. A folder of this name under artifacts/ itself stays
+   off the list, so that a path in `programs/` means one thing."
+  "programs")
+
+(defn program?
+  "Whether the path is the programs folder or lies in it."
+  [p]
+  (let [p (str p)]
+    (or (= programs-folder p)
+        (str/starts-with? p (str programs-folder "/")))))
+
+(defn programs-dir
+  "The programs' folder on disk, beside the artifacts' `dir`."
+  [dir]
+  (home/programs-dir (path/dirname dir)))
+
+(defn root-of
+  "Where a path of the list lies on disk: `[folder relative]`, the
+   artifacts' `dir` with the path as it is, or the programs' folder
+   with the rest of a path in `programs/` (\"\" for the folder itself)."
+  [dir p]
+  (let [p (str p)]
+    (if (program? p)
+      [(programs-dir dir) (subs p (min (count p) (inc (count programs-folder))))]
+      [dir p])))
+
+(defn file-of
+  "The file on disk of a path of the list (`root-of`)."
+  [dir p]
+  (let [[root relative] (root-of dir p)]
+    (path/join root relative)))
+
 (def text-cap
   "How much of a text file the pane shows."
   (* 256 1024))
@@ -108,7 +150,7 @@
     (let [key [dir path mtime]]
       (or (get @text-cache key)
           (when-let [value (try
-                             (let [file (path/join dir path)
+                             (let [file (file-of dir path)
                                    size (.-size (fs/statSync file))
                                    fd (fs/openSync file "r")
                                    buffer (js/Buffer.alloc (min size text-cap))
@@ -199,8 +241,10 @@
 (def screen-pattern
   "The line of what the pane shows, the last of a message: the page
    adds it at the end, after the lines of the attached files, so that
-   a line of the same words the person wrote is not taken for it."
-  (re-pattern (str "\\n" screen-prefix "artifacts/([^\\n]*)$")))
+   a line of the same words the person wrote is not taken for it. The
+   path under `artifacts/` in the first group, a program's path, as
+   the agent reaches it, in the second (`screen-line`)."
+  (re-pattern (str "\\n" screen-prefix "(?:artifacts/([^\\n]*)|(" programs-folder "/[^\\n]*))$")))
 
 (defn screen-line
   "The line the page adds to a message of the person's, what the pane
@@ -210,19 +254,22 @@
    that shows the list at the root or is out of sight (a phone in the
    chat), a message from a button in the chat, which names no screen,
    and what the list no longer has, or what is no path at all (a tab
-   with a page older than `:ui/screen` sends the keyword)."
+   with a page older than `:ui/screen` sends the keyword). The path
+   as the agent reaches it from its working directory: under
+   `artifacts/`, or a program's as it is (`programs-folder`)."
   [{listed :artifacts/list} shown]
   (when (and (string? shown)
              (or (some #(= shown (screen {:artifacts/list [%] :artifacts/current (:path %)})) listed)
                  (and (str/ends-with? shown "/")
                       (= shown (screen {:artifacts/list listed :artifacts/folder (subs shown 0 (dec (count shown)))})))))
-    (str screen-prefix "artifacts/" shown)))
+    (str screen-prefix (if (program? shown) shown (str "artifacts/" shown)))))
 
 (defn screen-of
-  "The path the screen line of a message's text names, under
-   `artifacts/`, or nil."
+  "The path of the list the screen line of a message's text names,
+   or nil."
   [text]
-  (second (re-find screen-pattern (str text))))
+  (let [[_ artifact program] (re-find screen-pattern (str text))]
+    (or artifact program)))
 
 (defn without-screen-line
   "The text of a message without its screen line."
@@ -251,11 +298,13 @@
       (vec (map-indexed (fn [i name] {:path (str/join "/" (take (inc i) parts)) :name name}) parts)))))
 
 (defn inside?
-  "Whether `relative` names something inside `dir`: not blank, no
-   hidden part, and resolving below the folder, not beside or above it."
+  "Whether `relative` names something inside the artifacts `dir`, or
+   inside the programs for a path in `programs/` (`root-of`): not
+   blank, no hidden part, and resolving below its folder, not beside
+   or above it."
   [dir relative]
-  (let [root (path/resolve dir)
-        relative (str relative)]
+  (let [[root relative] (root-of dir relative)
+        root (path/resolve root)]
     (and (not (str/blank? relative))
          (not (hidden? relative))
          (str/starts-with? (path/resolve root relative) (str root path/sep)))))
@@ -314,17 +363,28 @@
       (reduce max times)
       (js/Math.round (.-mtimeMs (fs/statSync dir))))))
 
+(defn- program-files
+  "The bot's programs as files of the list, each under `programs/`
+   (`programs-folder`): the files of the folder beside the artifacts
+   (`programs-dir`), none when there is no such folder."
+  [dir]
+  (map (fn [file] (update file :path #(str programs-folder "/" %)))
+       (files (programs-dir dir))))
+
 (defn list-files
   "The artifacts of the directory, newest first: the files, and a project
    directory as one artifact more, whose time is its newest file's. A
    file below a project names it, `:project`; a page below one is a
-   `:text`, its source, since the project's row is what plays it."
+   `:text`, its source, since the project's row is what plays it. The
+   bot's programs among them under `programs/` (`program-files`), in
+   place of a folder of that name in the directory itself."
   [dir]
   (if (directory? dir)
     (let [projects (->> (array-seq (fs/readdirSync dir #js {:withFileTypes true}))
                         (filter (fn [^js entry]
                                   (and (.isDirectory entry)
                                        (not (str/starts-with? (.-name entry) "."))
+                                       (not= programs-folder (.-name entry))
                                        (project? (path/join dir (.-name entry))))))
                         (map (fn [^js entry]
                                (let [name (.-name entry)]
@@ -334,7 +394,8 @@
                                   :mtime (newest-mtime (path/join dir name))
                                   :size 0}))))
           project-names (set (map :path projects))
-          plain (->> (files dir)
+          plain (->> (concat (remove #(program? (:path %)) (files dir))
+                             (program-files dir))
                      (map (fn [{:keys [path] :as file}]
                             (let [project (project-names (first (str/split path #"/")))
                                   k (kind path)]
@@ -544,8 +605,8 @@
   [dir from to]
   (cond
     (not (and (inside? dir from) (inside? dir to))) :outside
-    (fs/existsSync (path/join dir to)) :exists
-    :else (do (fs/renameSync (path/join dir from) (path/join dir to))
+    (fs/existsSync (file-of dir to)) :exists
+    :else (do (fs/renameSync (file-of dir from) (file-of dir to))
               :renamed)))
 
 (defn write!
@@ -558,8 +619,8 @@
   [dir relative text]
   (cond
     (not (inside? dir relative)) :outside
-    (not (http/regular-file? (path/join dir relative))) :missing
-    :else (do (fs/writeFileSync (path/join dir relative) (str text) "utf8")
+    (not (http/regular-file? (file-of dir relative))) :missing
+    :else (do (fs/writeFileSync (file-of dir relative) (str text) "utf8")
               :written)))
 
 (defn- free-name
@@ -579,10 +640,10 @@
   [dir trash relative]
   (cond
     (not (inside? dir relative)) :outside
-    (not (fs/existsSync (path/join dir relative))) :missing
+    (not (fs/existsSync (file-of dir relative))) :missing
     :else (let [target (free-name (path/join trash relative))]
             (fs/mkdirSync (path/dirname target) #js {:recursive true})
-            (fs/renameSync (path/join dir relative) target)
+            (fs/renameSync (file-of dir relative) target)
             target)))
 
 (defn raw-request?
@@ -594,11 +655,13 @@
   (boolean (re-find #"(?:^|&)raw(?:=|&|$)" (str (:query-string request)))))
 
 (defn file-handler
-  "GET /artifacts/<path>: the file, never a hidden one."
+  "GET /artifacts/<path>: the file, never a hidden one; a path in
+   `programs/` from the programs' folder (`root-of`)."
   [dir w]
   (let [subpath (str (get-in w [:ring/route-params :*]))
         file (when-not (hidden? subpath)
-               (http/resolve-file dir subpath))]
+               (let [[root relative] (root-of dir subpath)]
+                 (http/resolve-file root relative)))]
     (assoc w :ring/response
            (if file
              (http/file-response (:ring/request w) file)
@@ -614,14 +677,16 @@
   2000)
 
 (defn watch!
-  "The bot's map at `path` of the db follows the folder: a recursive
-   watch reports every change, the folder is read again after a short
-   pause, and every two seconds besides. Answers a function that ends
-   the watch."
+  "The bot's map at `path` of the db follows the folder, and the
+   programs' folder beside it (`programs-dir`), both made when
+   missing: a recursive watch reports every change, the folders are
+   read again after a short pause, and every two seconds besides.
+   Answers a function that ends the watch."
   ([db dir]
    (watch! db [] dir))
   ([db path dir]
   (fs/mkdirSync dir #js {:recursive true})
+  (fs/mkdirSync (programs-dir dir) #js {:recursive true})
   (refresh! db path dir)
   (let [pending (atom nil)
         refresh (fn []
@@ -633,14 +698,18 @@
         soon (fn []
                (when-not @pending
                  (reset! pending (js/setTimeout refresh debounce-ms))))
-        watcher (try
-                  (fs/watch dir #js {:recursive true :persistent false} (fn [_ _] (soon)))
-                  (catch :default e
-                    (js/console.error "[artifacts] no watch on" dir (str e))
-                    nil))
+        watchers (doall
+                  (keep (fn [folder]
+                          (try
+                            (fs/watch folder #js {:recursive true :persistent false} (fn [_ _] (soon)))
+                            (catch :default e
+                              (js/console.error "[artifacts] no watch on" folder (str e))
+                              nil)))
+                        [dir (programs-dir dir)]))
         timer (js/setInterval refresh poll-ms)]
     (.unref timer)
     (fn []
-      (some-> watcher .close)
+      (doseq [^js watcher watchers]
+        (.close watcher))
       (js/clearInterval timer)
       (some-> @pending js/clearTimeout)))))

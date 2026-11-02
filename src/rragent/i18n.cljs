@@ -293,6 +293,8 @@
    :context/hint "A full context makes the model slow and forgetful. A new bot starts with an empty one; it can read this one's files."
    :context/ring "Context: {percent} % used"
    :context/close "Close"
+   :context/compact "Summarize older messages now"
+   :context/compacting "Summarizing older messages …"
    :bot/new "New bot"
    :bot/new-at [:fn/str "New bot · {{:time}}"]
    :bot/name "Name"
@@ -589,6 +591,8 @@
    :context/hint "Ein voller Kontext macht das Modell langsam und vergesslich. Ein neuer Bot fängt mit leerem Kontext an; er kann die Dateien dieses Bots lesen."
    :context/ring "Kontext: {percent} % belegt"
    :context/close "Schließen"
+   :context/compact "Ältere Nachrichten jetzt zusammenfassen"
+   :context/compacting "Ältere Nachrichten werden zusammengefasst …"
    :bot/new "Neuer Bot"
    :bot/new-at [:fn/str "Neuer Bot · {{:time}}"]
    :bot/name "Name"
