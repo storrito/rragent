@@ -260,6 +260,33 @@
       (fs/writeFileSync file (str (with-renamed (with-name head name)) body)))
     name))
 
+(defn- with-metadata
+  "The frontmatter `head` with `key: value` under `metadata:`: the
+   key's line replaced when it is there, added right under `metadata:`
+   else, with a `metadata:` block after the name when there is none."
+  [head key value]
+  (let [line (str "  " key ": " value)]
+    (cond
+      (re-find (re-pattern (str "(?m)^  " key ":")) head)
+      (str/replace head (re-pattern (str "(?m)^  " key ":.*$")) line)
+
+      (re-find #"(?m)^metadata:" head)
+      (str/replace head #"(?m)^(metadata:.*)$" (str "$1\n" line))
+
+      :else
+      (str/replace head #"(?m)^(name:.*)$" (str "$1\nmetadata:\n" line)))))
+
+(defn set-metadata!
+  "The `key` of the bot's definition metadata set to `value` in its
+   file (`model` and `thinking`, the switch under the composer), which
+   the reload picks up (`rragent.reload`). Answers the value."
+  [home id key value]
+  (let [file (or (home/definition-file (home/bot-dir home id))
+                 (throw (js/Error. (str "The bot " id " has no definition file."))))
+        [head body] (split-frontmatter (fs/readFileSync file "utf8"))]
+    (fs/writeFileSync file (str (with-metadata head key value) body))
+    value))
+
 (defn trash!
   "The bot's folder moved to `<home>/trash/<id>` (an earlier folder of
    the id there is removed first). Answers whether there was one."

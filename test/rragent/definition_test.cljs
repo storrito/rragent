@@ -23,11 +23,20 @@
       (let [{:keys [name model thinking instructions folder]} (definition/definition (home/definition-file home))]
         (is (= "watcher" name))
         (is (= "faux-1" model) "the model from the metadata")
-        (is (nil? thinking))
+        (is (= "high" thinking) "the default level, the file names none")
         (is (= (path/resolve home) folder))
         (is (str/includes? instructions (str "Your folder is " folder ".")) "<skill> means the folder"))
       (finally
         (test-home/remove! home)))))
+
+(deftest thinking-test
+  (testing "the level the file names; the default without"
+    (let [home (test-home/make "AGENT.md" (str/replace test-home/definition-text "  model: faux-1\n" "  model: faux-1\n  thinking: low\n"))]
+      (try
+        (is (= "low" (:thinking (definition/definition (home/definition-file home)))))
+        (finally
+          (test-home/remove! home))))
+    (is (= "high" definition/default-thinking))))
 
 (deftest templates-test
   (testing "the templates the agent may use, nil for every installed one"

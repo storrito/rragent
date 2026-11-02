@@ -1145,6 +1145,113 @@ body {
   outline: none;
 }
 
+/* The switch under the composer: a pill that names the model and the
+   thinking level, like the Claude app's, which opens the menu above it
+   (rragent.view/model-switch); the runtime closes the menu on a click
+   elsewhere, as the rows' menus (details.actions). */
+.composer .tools {
+  display: flex;
+  flex: 1 1 100%;
+  justify-content: flex-end;
+}
+
+.composer .switch {
+  position: relative;
+}
+
+.composer .switch summary {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.composer .switch summary::-webkit-details-marker {
+  display: none;
+}
+
+.composer .switch summary .model {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.composer .switch .items {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 280px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+.composer .switch .group {
+  padding: 8px 10px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.composer .switch p.hint {
+  margin: 0;
+  padding: 0 10px 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.composer .switch .item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer .switch .item:hover {
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+}
+
+.composer .switch .item .name {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.composer .switch .item.chosen .name::after {
+  content: "✓";
+  color: var(--accent);
+}
+
+.composer .switch .item .hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.composer .switch .item .hint.more {
+  color: var(--warn);
+}
+
 button {
   padding: 8px 12px;
   border: 1px solid var(--line);

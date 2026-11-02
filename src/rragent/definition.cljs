@@ -4,7 +4,8 @@
    the agent's instructions, `<skill>` and `<agent>` in it meaning the
    folder. The frontmatter carries the name and the description, and
    under `metadata` what the harness reads: `model` (an OpenRouter
-   model id), `thinking` (a level), `templates` (the templates the
+   model id), `thinking` (a level, `default-thinking` without),
+   `templates` (the templates the
    agent may make projects from, `[hyperframes]`; every
    installed one without); and `renamed: true` when the person named
    the bot from the page (`rragent.bots/rename!`), which the bot is
@@ -16,6 +17,14 @@
 
 (def default-model
   "openai/gpt-6.1-sol")
+
+(def default-thinking
+  "The thinking level of a definition that names none. pi-durable would
+   run the model with none (`off`), for which pi-ai sends the models
+   the page offers (`rragent.models`) no effort at all, leaving the
+   choice to the provider. The switch under the composer writes the
+   person's pick into the file (`rragent.bots/set-metadata!`)."
+  "high")
 
 (defn- scalar
   "A YAML scalar as a string: double quotes as JSON, single quotes with
@@ -92,7 +101,7 @@
      :renamed? (= "true" (str renamed))
      :metadata metadata
      :model (or (not-empty (get metadata "model")) default-model)
-     :thinking (not-empty (get metadata "thinking"))
+     :thinking (or (not-empty (get metadata "thinking")) default-thinking)
      :templates (templates metadata)
      :instructions (-> body
                        (str/replace "<skill>" folder)

@@ -74,6 +74,7 @@
             [rragent.mcp :as mcp]
             [rragent.mcp-oauth :as mcp-oauth]
             [rragent.mcp-setup :as mcp-setup]
+            [rragent.models :as models]
             [rragent.onboarding :as onboarding]
             [rragent.openrouter :as openrouter]
             [rragent.phone :as phone]
@@ -214,6 +215,8 @@
                     :bot {:id id
                           :name (machine/label-of id)
                           :model (:model definition)
+                          :thinking (:thinking definition)
+                          :models (machine/model-choices)
                           :context-window (machine/context-window (:model definition))
                           :spend (:spend bot)}
                     :run run
@@ -1023,6 +1026,28 @@
       :else (do (await (machine/rename! id name))
                 (command/accepted w)))))
 
+(defn- ^:async model-command
+  "The bot's model as the switch under the composer says, into its
+   definition (`rragent.machine/set-metadata!`); one the page does not
+   offer is refused."
+  [w]
+  (let [{:keys [id model]} (command/command-data w)]
+    (cond
+      (nil? (machine/bot id)) (command/rejected w :no-such-bot)
+      (not (models/choice? model)) (command/rejected w :no-such-model)
+      :else (do (await (machine/set-metadata! id "model" model))
+                (command/accepted w)))))
+
+(defn- ^:async thinking-command
+  "The bot's thinking level as the switch says, into its definition."
+  [w]
+  (let [{:keys [id thinking]} (command/command-data w)]
+    (cond
+      (nil? (machine/bot id)) (command/rejected w :no-such-bot)
+      (not (models/level? thinking)) (command/rejected w :no-such-level)
+      :else (do (await (machine/set-metadata! id "thinking" thinking))
+                (command/accepted w)))))
+
 (defn- ^:async delete-command
   "The first click arms the question in the bot's row, the second
    deletes: the bot closed and hidden, its folder in the trash
@@ -1332,6 +1357,10 @@
       :command/fn #'rename-start-command}
      {:command/kind :bot/rename
       :command/fn #'rename-command}
+     {:command/kind :bot/model
+      :command/fn #'model-command}
+     {:command/kind :bot/thinking
+      :command/fn #'thinking-command}
      {:command/kind :bot/delete
       :command/fn #'delete-command}
      {:command/kind :bot/keep

@@ -20,9 +20,11 @@
             [rragent.artifacts :as artifacts]
             [rragent.bots :as bots]
             [rragent.csv :as csv]
+            [rragent.definition :as definition]
             [rragent.dictation :as dictation]
             [rragent.markdown :as markdown]
             [rragent.messages :as messages]
+            [rragent.models :as models]
             [rragent.recordings :as recordings]
             [rragent.runs :as runs]
             [rragent.uploads :as uploads]
@@ -815,6 +817,64 @@
       {:on-success [[:store/dissoc (draft-key key)]
                     [:store/dissoc (attachments-key key)]]}]]))
 
+(defn- level-label
+  "The level's word on the page, `:level/high` for `high`; the level as
+   it stands for one the page does not offer."
+  [level]
+  (if (models/level? level)
+    [:i18n (keyword "level" level)]
+    (str level)))
+
+(defn- price
+  "The price line of a model in the switch's menu: a million tokens in
+   and out, and for a model beside the default how many times the
+   default's price it is (`rragent.models/times`); nil without a known
+   cost."
+  [cost {default-cost :cost default-name :name}]
+  (when cost
+    [:span.hint
+     [:i18n :model/price {:in (:input cost) :out (:output cost)}]
+     (when-let [times (models/times cost default-cost)]
+       [:span.more " · " [:i18n :model/times {:times times :model default-name}]])]))
+
+(defn- model-switch
+  "The pill under the composer that names the bot's model and its
+   thinking level, like the Claude app's. It opens the menu: the models
+   to pick from (`models`, `rragent.models/choices` with their prices,
+   `rragent.machine/model-choices`), the chosen one marked, and the
+   thinking levels (the effort) with what a higher one means. A
+   <details class=actions>, so the browser opens and closes it, and the
+   runtime closes it on a click elsewhere (`rragent.client`); a pick
+   sends the command that puts it into the definition (`:bot/model`,
+   `:bot/thinking`, `rragent.page`)."
+  [id model thinking models]
+  (let [thinking (or thinking definition/default-thinking)
+        current (or (some #(when (= model (:id %)) %) models)
+                    {:id model :name (str model)})]
+    [:details.actions.switch
+     [:summary {:title [:i18n :switch/title]}
+      [:span.model (:name current)]
+      [:span.level (level-label thinking)]]
+     [:div.items
+      [:div.group [:i18n :switch/model]]
+      (for [{choice :id :keys [name cost]} models]
+        [:button.item {:replicant/key choice
+                       :class (when (= choice model) "chosen")
+                       :on {:click [[:data/command {:command/kind :bot/model
+                                                    :command/data {:id id :model choice}}]]}}
+         [:span.name name]
+         (price cost (first models))])
+      [:div.group [:i18n :switch/effort]]
+      [:p.hint [:i18n :switch/effort-hint]]
+      (for [level models/levels]
+        [:button.item {:replicant/key level
+                       :class (when (= level thinking) "chosen")
+                       :on {:click [[:data/command {:command/kind :bot/thinking
+                                                    :command/data {:id id :thinking level}}]]}}
+         [:span.name (level-label level)
+          (when (= "max" level)
+            [:span.hint.more [:i18n :level/max-hint]])]])]]))
+
 (defn composer
   "The draft and the attachments are client state (`:ui/composer`, see
    `rragent.client`), per bot: a new frame does not reset them. The
@@ -825,8 +885,9 @@
    button records the screen and the webcam into the bot's artifacts
    (`rragent.recordings`, the words of its panel in `:ui/recorder`).
    `placeholder` is the skill's while the chat is empty, the page's own
-   otherwise."
-  [id base status placeholder phone & [run]]
+   otherwise. `switch`, when there is one, is the pill under the card
+   that names the model and the thinking level (`model-switch`)."
+  [id base status placeholder phone & [run switch]]
   [:div.composer
    [:ui/composer {:ui/store-key (draft-key (store-id id run))
                   :ui/phone phone
@@ -932,7 +993,9 @@
                   :rows 3
                   :title [:i18n :composer/keys]
                   :ui/enter-title [:i18n :composer/keys-enter]
-                  :placeholder (or placeholder [:i18n :composer/placeholder])}]])
+                  :placeholder (or placeholder [:i18n :composer/placeholder])}]
+   (when switch
+     [:div.tools switch])])
 
 (defn- rendering
   [render]
@@ -1553,8 +1616,10 @@
   "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :label
    :state :deleting? :renaming?}`; `:bot`, the one shown, its `:id`,
    `:name` (what the header shows, the label of the sidebar), its
-   `:model` and the context it keeps, `:context-window` in tokens (the
-   model's window, at most rragent's budget), when known; `:spend`, what
+   `:model` and `:thinking`, its thinking level, and `:models`, the
+   ones to pick from with their prices (`model-switch`); the context it
+   keeps, `:context-window` in tokens (the model's window, at most
+   rragent's budget), when known; `:spend`, what
    it cost so far with its subagents and runs, in place of the cost of
    the transcript, which a compaction shortens;
    `:conversation`, its transcript `{:entries :live
@@ -1619,7 +1684,9 @@
           (when run
             (run-head id (:name bot) run))
           (feed items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (when run [:i18n :run/empty])})
-          (composer id base status (when fresh? (:placeholder onboarding)) phone (:id run))]
+          (composer id base status (when fresh? (:placeholder onboarding)) phone (:id run)
+                    (when (and (:model bot) (not run))
+                      (model-switch id (:model bot) (:thinking bot) (:models bot))))]
          ;; the handle between the chat and the pane, dragged to give one
          ;; more room (`rragent.client/splitter`); a phone has none
          [:ui/splitter]

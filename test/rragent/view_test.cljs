@@ -218,6 +218,42 @@
       (let [p (page {})]
         (is (= p (transit/read-str (transit/write-str p))))))))
 
+(deftest switch-test
+  (let [models [{:id "openai/gpt-6.1-sol" :name "GPT-6.1 Sol" :cost {:input 2 :output 10}}
+                {:id "anthropic/claude-opus-5.5" :name "Claude Opus 5.5" :cost {:input 4 :output 20}}]
+        page (fn [bot]
+               (i18n/translate (view/page {:bot bot :conversation conversation :locale :en}) :en))
+        switch (fn [page] (find-tag page :details.actions.switch))
+        buttons (fn [switch] (filter #(and (vector? %) (= :button.item (first %))) (nodes switch)))
+        command (fn [button] (get-in (second button) [:on :click 0 1]))]
+    (testing "the pill names the model and the level; the menu offers the models with their prices and the levels, the chosen ones marked"
+      (let [s (switch (page {:id "cc33dd44" :name "Counter" :model "anthropic/claude-opus-5.5" :thinking "high" :models models}))
+            text (set (strings s))]
+        (is (some? s))
+        (is (contains? text "Claude Opus 5.5"))
+        (is (contains? text "High"))
+        (is (contains? text "$4 in · $20 out per million tokens"))
+        (is (contains? text "2× the price of GPT-6.1 Sol") "the dearer model says how much dearer")
+        (is (contains? text "$2 in · $10 out per million tokens"))
+        (is (contains? text "Extra"))
+        (is (contains? text "More effort means more thorough answers, but each takes longer and costs more."))
+        (is (= [{:command/kind :bot/model :command/data {:id "cc33dd44" :model "openai/gpt-6.1-sol"}}
+                {:command/kind :bot/model :command/data {:id "cc33dd44" :model "anthropic/claude-opus-5.5"}}
+                {:command/kind :bot/thinking :command/data {:id "cc33dd44" :thinking "low"}}
+                {:command/kind :bot/thinking :command/data {:id "cc33dd44" :thinking "medium"}}
+                {:command/kind :bot/thinking :command/data {:id "cc33dd44" :thinking "high"}}
+                {:command/kind :bot/thinking :command/data {:id "cc33dd44" :thinking "xhigh"}}
+                {:command/kind :bot/thinking :command/data {:id "cc33dd44" :thinking "max"}}]
+               (map command (buttons s))))
+        (is (= ["anthropic/claude-opus-5.5" "high"]
+               (keep #(when (= "chosen" (:class (second %)))
+                        (let [data (:command/data (command %))]
+                          (or (:model data) (:thinking data))))
+                     (buttons s))))))
+    (testing "the pill says high while the bot has no level of its own; a page without a bot has no switch"
+      (is (contains? (set (strings (switch (page {:id "cc33dd44" :name "Counter" :model "openai/gpt-6.1-sol" :models models})))) "High"))
+      (is (nil? (switch (page {})))))))
+
 (deftest artifact-card-test
   (let [made (fn [name arguments result]
                {:entries [(assistant 1 [{:type "toolCall" :id "c1" :name name :arguments arguments}] "toolUse")

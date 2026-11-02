@@ -130,6 +130,19 @@
    :composer/upload-failed "The upload failed"
    :composer/drop-title "Add files"
    :composer/drop-hint "Drop images, videos or audio files to attach them to your message."
+
+   :switch/title "The model and the thinking level the bot works with"
+   :switch/model "Model"
+   :switch/effort "Effort"
+   :switch/effort-hint "More effort means more thorough answers, but each takes longer and costs more."
+   :model/price [:fn/str "${{:in}} in · ${{:out}} out per million tokens"]
+   :model/times [:fn/str "{{:times}}× the price of {{:model}}"]
+   :level/low "Low"
+   :level/medium "Medium"
+   :level/high "High"
+   :level/xhigh "Extra"
+   :level/max "Max"
+   :level/max-hint "several times the cost"
    :composer/dictate "Dictate: hold to talk, or click to start and click again to stop; in the text, hold Space"
    :composer/dictate-stop "End the dictation, the text goes into the message"
    :composer/transcribing "Writing down what you said"
@@ -426,6 +439,19 @@
    :composer/upload-failed "Hochladen fehlgeschlagen"
    :composer/drop-title "Dateien anhängen"
    :composer/drop-hint "Leg Bilder, Videos oder Tonaufnahmen hier ab, um sie an deine Nachricht anzuhängen."
+
+   :switch/title "Das Modell und die Denkstufe, mit denen der Bot arbeitet"
+   :switch/model "Modell"
+   :switch/effort "Aufwand"
+   :switch/effort-hint "Mehr Aufwand heißt gründlichere Antworten, aber jede dauert länger und kostet mehr."
+   :model/price [:fn/str "${{:in}} Eingabe · ${{:out}} Ausgabe pro Million Tokens"]
+   :model/times [:fn/str "{{:times}}× der Preis von {{:model}}"]
+   :level/low "Niedrig"
+   :level/medium "Mittel"
+   :level/high "Hoch"
+   :level/xhigh "Extra"
+   :level/max "Max"
+   :level/max-hint "ein Vielfaches der Kosten"
    :composer/dictate "Diktieren: gedrückt halten und sprechen, oder klicken und zum Beenden noch einmal klicken; im Textfeld die Leertaste halten"
    :composer/dictate-stop "Diktat beenden, der Text kommt in die Nachricht"
    :composer/transcribing "Das Gesagte wird aufgeschrieben"

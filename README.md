@@ -190,7 +190,13 @@ reload shows. Until then the sidebar and the header call it "New bot"
 with the time it was made. A rename by the person wins: it sets the
 `name:` line and the line `renamed: true` in the frontmatter, which
 the bot is told to leave alone, also when it writes the file anew; the
-line is in the file, so it survives a restart. A bot makes a bot
+line is in the file, so it survives a restart. The switch under the
+composer sets `metadata.model` and `metadata.thinking` the same way
+(`rragent.bots/set-metadata!`): the models to pick from and the
+thinking levels are `rragent.models`, a file that names no level
+means `high` (`rragent.definition/default-thinking`), and the menu
+says what a model costs beside the default, from the catalog's
+prices. A bot makes a bot
 through its `bot` tool, which knows both: `create` with a name, the
 instructions, and the name of a skill from the clone when the job is
 one of them (the instructions go on top of the assistant's text as
