@@ -553,6 +553,54 @@
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 
+(deftest compact-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make "AGENT.md" (str/replace test-home/definition-text "faux-1" "wide-1"))
+                 {:keys [faux models]} (tools-test/faux-models {:models [{:id "wide-1" :contextWindow 1050000}]})
+                 ;; some 25,000 tokens each: a summary keeps the newest
+                 ;; 20,000 and cuts before them, so the first text goes
+                 long-text (fn [word] (str/join " " (repeat 25000 word)))
+                 env (.-env js/process)
+                 budget-was (aget env "RRAGENT_CONTEXT_TOKENS")]
+             (.setResponses faux #js [(tools-test/answer "Noted.") (tools-test/answer "Noted again.") (tools-test/answer "The person sent two long texts.")])
+             ;; no compaction by the budget: the card's button asks for one
+             (aset env "RRAGENT_CONTEXT_TOKENS" "1000000")
+             (let [{:keys [id base stop!]} (await (start! home models))
+                   bot-url (str base "/bot/" id)
+                   controller (js/AbortController.)
+                   cookie (await (login base "s3cret"))
+                   conversation (:conversation (machine/bot id))
+                   note "From here on the model reads a summary of the messages above."]
+               (try
+                 (is (= "Noted." (await (harness/ask-in conversation (long-text "red")))))
+                 (is (= "Noted again." (await (harness/ask-in conversation (long-text "blue")))))
+                 (let [{:keys [reader decoder]} (await (stream bot-url cookie controller "t9"))
+                       {:keys [view buffer]} (await (within 15000 (next-frame reader decoder "" #(find-tag % :ui/context))))
+                       {:keys [frame!]} (frames! reader decoder buffer)
+                       card (second (find-tag view :ui/context))]
+                   (testing "the card's button names the bot; no compaction runs, no note yet"
+                     (is (= id (:ui/bot card)))
+                     (is (false? (:ui/compacting? card)))
+                     (is (= "Summarize older messages now" (:compact (:ui/labels card))))
+                     (is (not (mentions? view note))))
+                   (testing "the button: the older messages summarized, the note where the model's view begins, the button back"
+                     (is (= {:success? true} (await (command! base cookie :chat/compact {:bot id}))))
+                     (let [after (await (frame! #(and (mentions? % note)
+                                                      (false? (:ui/compacting? (second (find-tag % :ui/context)))))))]
+                       (is (mentions? after "What the model keeps of them") "the summary behind the note")))
+                   (testing "a bot that is not there"
+                     (is (= {:success? false :result {:error :no-such-bot}} (await (command! base cookie :chat/compact {:bot "99"}))))))
+                 (finally
+                   (if budget-was
+                     (aset env "RRAGENT_CONTEXT_TOKENS" budget-was)
+                     (js-delete env "RRAGENT_CONTEXT_TOKENS"))
+                   (.abort controller)
+                   (await (stop!))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
 (deftest editor-test
   (async done
     (-> ((^:async fn []

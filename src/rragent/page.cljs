@@ -40,6 +40,9 @@
    their signatures their keys (`rragent.composio-events`), and
    `/s/<token>/*` (GET and HEAD), the files of a folder a bot shares
    (`rragent.shares`), the token the whole key.
+   `:chat/compact` is the context card's button: the older messages
+   of the bot's conversation summarized now
+   (`rragent.harness/compact-unless-compacting!`).
    The commands `:settings/open` and `:settings/close` put the settings
    in place of the chat for a tab and bring the chat back
    (`rragent.view/settings`); `:update/check` is the settings' lookup
@@ -343,6 +346,31 @@
     (do (-> (.abort conversation harness/context)
             (.catch (fn [error]
                       (js/console.error "[stop]" (str error)))))
+        (command/accepted w))
+    (command/rejected w :no-such-bot)))
+
+(def ^:private compactions-asked
+  "The bots whose compaction the card asked for while `pi.live` may
+   not list it yet: a second click meanwhile asks for none."
+  (atom #{}))
+
+(defn- compact-command
+  "The context card's button (`rragent.client/context-alias`): the
+   older messages of the bot's conversation summarized now, unless a
+   compaction runs already
+   (`rragent.harness/compact-unless-compacting!`); pi-durable
+   summarizes while the conversation goes on, the frames show the
+   card's state and then the note where the model's view begins
+   (`rragent.history`). A conversation too short to cut stays as it
+   is."
+  [w]
+  (if-let [id (:id (bot-of-command w))]
+    (do (when-not (contains? @compactions-asked id)
+          (swap! compactions-asked conj id)
+          (-> (harness/compact-unless-compacting! (:harness (machine/agent)) (js/Number id))
+              (.catch (fn [error]
+                        (js/console.error "[compact]" (str error))))
+              (.finally (fn [] (swap! compactions-asked disj id)))))
         (command/accepted w))
     (command/rejected w :no-such-bot)))
 
@@ -1236,6 +1264,8 @@
       :command/fn #'send-command}
      {:command/kind :chat/stop
       :command/fn #'stop-command}
+     {:command/kind :chat/compact
+      :command/fn #'compact-command}
      {:command/kind :artifacts/open
       :command/fn #'open-artifact-command}
      {:command/kind :artifacts/show

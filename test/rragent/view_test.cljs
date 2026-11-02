@@ -275,7 +275,21 @@
         (is (= 0.5 (:ui/cost (second (find-tag (view/page {:bot {:id "b1" :context-window 200000}
                                                            :conversation conversation :locale :en})
                                                :ui/context))))
-            "before it is read, the transcript's")))))
+            "before it is read, the transcript's")))
+    (testing "the card's button names the bot it summarizes, and says so while a compaction runs; a run's page has no button"
+      (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200})]}
+            card (fn [opts]
+                   (second (find-tag (i18n/translate (view/page (merge {:bot {:id "b1" :context-window 200000} :conversation conversation :locale :en} opts)) :en)
+                                     :ui/context)))]
+        (is (= "b1" (:ui/bot (card {}))))
+        (is (false? (:ui/compacting? (card {}))))
+        (is (true? (:ui/compacting? (card {:conversation (assoc conversation :live {:compactions [{:taskId "c1" :reason "manual"}]})}))))
+        (is (= "Summarize older messages now" (:compact (:ui/labels (card {})))))
+        (is (= "Summarizing older messages …" (:compacting (:ui/labels (card {})))))
+        (let [run (card {:run {:id "r1" :state :done :trigger {:kind "hook" :name "h"} :started 1}})]
+          (is (= 1200 (:ui/used run)) "the run's own usage")
+          (is (nil? (:ui/bot run)) "the run's transcript is not the bot's to summarize")
+          (is (nil? (:ui/compacting? run))))))))
 
 (deftest update-banner-test
   (testing "nothing while nothing newer is known"
