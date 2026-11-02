@@ -94,12 +94,15 @@
       (str/join "/" stack))))
 
 (defn- artifact-path
-  "The path under artifacts/ that `url` names, `artifacts/<path>` with
-   or without a leading slash, the way `resolved` reads it; nil for any
-   other URL."
+  "The path of the pane's list that `url` names, `artifacts/<path>`
+   with or without a leading slash, or a program's, `programs/<path>`,
+   as the pane lists the bot's programs
+   (`rragent.artifacts/programs-folder`), the way `resolved` reads it;
+   nil for any other URL."
   [url]
-  (when-let [[_ p] (re-find #"^/?artifacts/(.*)$" (str url))]
-    (resolved "" p)))
+  (let [[_ artifact program] (re-find #"^/?(?:artifacts/(.*)|(programs/.*))$" (str url))]
+    (when-let [p (or artifact program)]
+      (resolved "" p))))
 
 (defn- open-attrs
   "The attributes of an opening token: a link opens in a new tab,
