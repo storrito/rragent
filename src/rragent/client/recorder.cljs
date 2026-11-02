@@ -1013,7 +1013,6 @@
         effects (when (and webcam (:effects @session*))
                   (effects-settings store))]
     (try
-      (some-> (:effects @session*) (effects/preview-every! 1))
       (doseq [{:keys [uploader kept]} (vals recorders)]
         (await (:chain @uploader))
         (await @kept))
@@ -1044,7 +1043,11 @@
         (some-> (js/document.querySelector ".composer textarea") .focus))
       (catch :default error
         (release!)
-        (failed! store error)))))
+        (failed! store error))
+      (finally
+        ;; the preview whole again once the webcam's file is made, not
+        ;; before: it would take the computer from it
+        (some-> (:effects @session*) (effects/preview-every! 1))))))
 
 (defn- maybe-finish!
   [store name]
@@ -1060,15 +1063,29 @@
     (str (.getFullYear d) "-" (p (inc (.getMonth d))) "-" (p (.getDate d))
          "T" (p (.getHours d)) "-" (p (.getMinutes d)) "-" (p (.getSeconds d)))))
 
+(defn- ^:async forget-stale!
+  "The webcams other recordings left in `dir` (a tab closed before
+   their effects were put on, a failure), removed: nothing else would."
+  [^js dir name]
+  (try
+    (let [names (await (js/Array.fromAsync (.keys dir)))]
+      (doseq [stale names
+              :when (and (str/starts-with? stale "webcam-") (not= stale name))]
+        (await (-> (.removeEntry dir stale) (.catch (fn [_] nil))))))
+    (catch :default _
+      nil)))
+
 (defn- ^:async local-file
   "A file of this browser's own, `name` in the origin's private file
    system, which the pieces of a recording are written to instead of
    going up: `{:write :close :file :remove}`, each answering a
    promise, `file` of the file as a Blob once closed. In memory where
-   the browser has no such file system."
+   the browser has no such file system. The webcams earlier recordings
+   left there are removed first."
   [name]
   (try
     (let [^js dir (await (.getDirectory js/navigator.storage))
+          _ (await (forget-stale! dir name))
           ^js handle (await (.getFileHandle dir name #js {:create true}))
           ^js writable (await (.createWritable handle))]
       {:write (fn [blob] (.write writable blob))

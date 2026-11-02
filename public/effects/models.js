@@ -8,7 +8,7 @@
 // a frame or two old. A recorded file waits for each, frame by frame.
 // The person's mask is worker.js's own, on the GPU.
 //
-// Messages in: {type: "settings", settings, announce} (the first one
+// Messages in: {type: "settings", settings, announce, seq} (the first one
 // too), then {type: "frame", small, face, timestamp, mask}: `small` the
 // frame at 256 x 144 (or null) to measure the light on, over the person
 // where `mask` (bytes, 255 the person, 256 x 144) says; `face` the frame
@@ -16,8 +16,9 @@
 // ImageBitmaps, closed here. Answered {type: "result", skin, faceSeen,
 // light}: `skin` an ImageBitmap whose alpha is the skin (undefined when
 // the face was not looked for), `light` the correction eased towards (or
-// null). Messages out besides: {type: "ready", detector} once BlazeFace
-// runs when the settings need it (and after every new settings),
+// null). Messages out besides: {type: "ready", detector, seq} once
+// BlazeFace runs when the settings need it (and after every new
+// settings, `seq` theirs),
 // {type: "loading"} when new settings need it and it is not loaded yet
 // (`announce`), {type: "failed", message} when it could not be.
 
@@ -105,11 +106,11 @@ function loadDetector() {
  * when it is to wait (`announce`, on new settings and BlazeFace not
  * loaded yet), once it runs, and when it could not be.
  */
-function loadNeeded(announce) {
+function loadNeeded(announce, seq) {
   const wanted = needsFace() && !detector ? [loadDetector()] : [];
   if (wanted.length && announce) self.postMessage({ type: "loading" });
   Promise.all(wanted).then(
-    () => self.postMessage({ type: "ready", detector: Boolean(detector) }),
+    () => self.postMessage({ type: "ready", detector: Boolean(detector), seq }),
     (error) => self.postMessage({ type: "failed", message: String((error && error.message) || error) })
   );
 }
@@ -220,7 +221,7 @@ self.onmessage = (event) => {
   const data = event.data || {};
   if (data.type === "settings") {
     settings = data.settings || settings;
-    loadNeeded(Boolean(data.announce));
+    loadNeeded(Boolean(data.announce), data.seq);
   } else if (data.type === "frame") {
     run(data);
   }

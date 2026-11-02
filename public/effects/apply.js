@@ -18,32 +18,53 @@ export function codecOf(mime) {
 
 /**
  * A worker with its models loaded for `settings`: `paint(frame)` answers
- * the promise of the frame made, the one given closed.
+ * the promise of the frame made, the one given closed; it fails, and so
+ * does every frame after, when the worker could not make it.
  */
 async function offlineWorker(settings) {
   const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   const waiting = new Map();
   let nextId = 0;
+  // once the worker failed, every frame fails: none goes on as it is
+  let failure = null;
+  const fail = (error) => {
+    failure ??= error;
+    for (const { reject } of waiting.values()) reject(failure);
+    waiting.clear();
+  };
   await new Promise((resolve, reject) => {
     worker.onmessage = (event) => {
       const data = event.data || {};
       if (data.type === "ready") resolve();
-      else if (data.type === "failed") reject(new Error(data.message));
-      else if (data.type === "frame") {
+      else if (data.type === "failed") {
+        const error = new Error(data.message);
+        reject(error);
+        fail(error);
+      } else if (data.type === "frame") {
         const done = waiting.get(data.id);
         waiting.delete(data.id);
-        if (done) done(data.frame);
+        if (!done) return;
+        if (data.error) done.reject(new Error(data.error));
+        else done.resolve(data.frame);
       }
     };
-    worker.onerror = (event) => reject(new Error((event && event.message) || "the worker did not start"));
+    worker.onerror = (event) => {
+      const error = new Error((event && event.message) || "the worker did not start");
+      reject(error);
+      fail(error);
+    };
     worker.postMessage({ type: "offline", settings });
   });
   return {
     worker,
     paint(frame) {
+      if (failure) {
+        frame.close();
+        return Promise.reject(failure);
+      }
       const id = ++nextId;
-      return new Promise((resolve) => {
-        waiting.set(id, resolve);
+      return new Promise((resolve, reject) => {
+        waiting.set(id, { resolve, reject });
         worker.postMessage({ type: "frame", id, frame }, [frame]);
       });
     },

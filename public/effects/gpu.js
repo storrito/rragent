@@ -653,6 +653,10 @@ export function compositor(canvas, maskWidth, maskHeight) {
     get maskSeen() {
       return maskSeen;
     },
+    /** The mask forgotten: the next is taken whole, not eased into an old one. */
+    forgetMask() {
+      maskSeen = false;
+    },
     /** A new skin: an image whose alpha is where the smoothing goes. */
     skin(image) {
       ready();

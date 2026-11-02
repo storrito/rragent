@@ -25,8 +25,9 @@
 // recording. Or, for a recorded file (rragent.client.effects'
 // apply-to-file!), {type: "offline", settings} once, then
 // {type: "frame", id, frame} for each frame, answered {type: "frame",
-// id, frame} with the frame made (the one sent closed); each frame waits
-// for its own skin there. Settings: {background: "off" | "blur" | "green"
+// id, frame} with the frame made (the one sent closed), or {type:
+// "frame", id, error} when it could not be; each frame waits for its own
+// skin there. Settings: {background: "off" | "blur" | "green"
 // | "black", autoLight: boolean, touchUp: "off" | "subtle" | "smooth",
 // log: boolean, the time of each step on the console every second}.
 // Messages out: {type: "ready"} once the models the settings need run,
@@ -73,6 +74,9 @@ const FACE_EVERY = 3;
 /** The flat backgrounds, as RGB 0..1: the green is the one to key out. */
 const COLORS = { green: [0, 1, 0], black: [0, 0, 0] };
 
+/** How long a recorded file's frame waits for the face's worker at most. */
+const MODELS_WAIT_MS = 10000;
+
 /** How often the frames that went out are told. */
 const RATE_MS = 1000;
 
@@ -84,6 +88,8 @@ const MASK_FLIPPED = false;
 
 let settings = { background: "off", autoLight: false, touchUp: "off" };
 let started = false;
+// a recorded file's frames, not the camera's: each waits for its own skin
+let offline = false;
 
 // the canvas of the picture, whose WebGL context the segmenter shares,
 // and what draws on it
@@ -103,6 +109,8 @@ let maskOnGpu = null;
 const models = new Worker(new URL("./models.js", import.meta.url), { type: "module" });
 let detector = false;
 let modelsPending = false;
+// the settings told the face's worker last: its "ready" for older ones is not theirs
+let settingsSeq = 0;
 let busy = false;
 let waiting = null;
 let skin = null;
@@ -191,7 +199,8 @@ function loadSegmenter() {
 function loadNeeded(announce) {
   const loadingHere = needsMask() && !segmenter;
   modelsPending = true;
-  models.postMessage({ type: "settings", settings, announce: announce && !loadingHere });
+  settingsSeq++;
+  models.postMessage({ type: "settings", settings, announce: announce && !loadingHere, seq: settingsSeq });
   if (loadingHere && announce) self.postMessage({ type: "loading" });
   (needsMask() ? loadSegmenter() : Promise.resolve()).then(
     () => maybeReady(),
@@ -223,6 +232,7 @@ models.onmessage = (event) => {
     }
   } else if (data.type === "ready") {
     detector = data.detector;
+    if (data.seq !== settingsSeq) return;
     modelsPending = false;
     maybeReady();
   } else {
@@ -274,7 +284,7 @@ function toModels(g, frame) {
       transfer.push(message.small);
       if (needsMask()) message.mask = g.readMask();
     }
-    if (needsFace() && detector && (faceTick++ % FACE_EVERY === 0 || !faceSeen)) {
+    if (needsFace() && detector && (offline || faceTick++ % FACE_EVERY === 0 || !faceSeen)) {
       faceCtx.drawImage(frame, 0, 0, FACE_WIDTH, FACE_HEIGHT);
       message.face = face.transferToImageBitmap();
       transfer.push(message.face);
@@ -337,7 +347,8 @@ function prepared(frame) {
  * The picture of `frame` with its mask and the last skin, `frame`
  * closed: live (`read`), the pictures of the frames before whose copies
  * into memory are done (none, one, now and then two), else a VideoFrame
- * of the canvas; `[frame]` itself on an error.
+ * of the canvas; `[frame]` itself on an error, live; a recorded file's
+ * frame throws instead, as its raw picture must not go up.
  */
 function draw(g, frame, read) {
   try {
@@ -364,6 +375,10 @@ function draw(g, frame, read) {
     return made;
   } catch (error) {
     console.error("[effects]", error);
+    if (offline) {
+      frame.close();
+      throw error;
+    }
     return [frame];
   }
 }
@@ -386,14 +401,23 @@ function paint(frame) {
 /** A frame of a recorded file: its own skin waited for, then the picture. */
 async function paintWaiting(frame) {
   counted();
-  if (!active()) return frame;
-  const g = prepared(frame);
-  if (!g) return frame;
-  const back = new Promise((resolve) => {
+  const g = active() ? prepared(frame) : null;
+  if (!g) {
+    frame.close();
+    throw new Error("the effects do not run");
+  }
+  const back = new Promise((resolve, reject) => {
     waiting = resolve;
+    setTimeout(() => reject(new Error("the face's worker did not answer")), MODELS_WAIT_MS);
   });
-  if (toModels(g, frame)) await back;
-  else waiting = null;
+  try {
+    if (toModels(g, frame)) await back;
+  } catch (error) {
+    frame.close();
+    throw error;
+  } finally {
+    waiting = null;
+  }
   return draw(g, frame, false)[0];
 }
 
@@ -434,17 +458,23 @@ self.onmessage = (event) => {
   } else if (data.type === "settings") {
     settings = data.settings || settings;
     if (!needsFace()) faceSeen = false;
+    if (!needsMask() && gpu) gpu.forgetMask();
     if (started) loadNeeded(true);
   } else if (data.type === "preview") {
     previewEvery = Math.max(1, data.every || 1);
   } else if (data.type === "offline") {
     settings = data.settings || settings;
     started = true;
+    offline = true;
     loadNeeded(false);
   } else if (data.type === "frame") {
     frames = frames.then(async () => {
-      const made = await paintWaiting(data.frame);
-      self.postMessage({ type: "frame", id: data.id, frame: made }, [made]);
+      try {
+        const made = await paintWaiting(data.frame);
+        self.postMessage({ type: "frame", id: data.id, frame: made }, [made]);
+      } catch (error) {
+        self.postMessage({ type: "frame", id: data.id, error: String((error && error.message) || error) });
+      }
     });
   }
 };
