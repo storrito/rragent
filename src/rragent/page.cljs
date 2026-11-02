@@ -1274,11 +1274,13 @@
      ;; the scrcpy server the page pushes to a phone over USB
      (http/files "/scrcpy/*" (path/join dir "scrcpy"))
      ;; the webcam's effects (rragent.client.effects): the worker, the
-     ;; model and MediaPipe's bundle and wasm, built into public/effects;
-     ;; under the dev server from the sources and node_modules
+     ;; model, MediaPipe's bundle and wasm and Mediabunny's bundle, built
+     ;; into public/effects; under the dev server from the sources and
+     ;; node_modules
      (http/files "/effects/*" [(path/join dir "effects")
                                (path/resolve "public/effects")
-                               (path/resolve "node_modules/@mediapipe/tasks-vision")])
+                               (path/resolve "node_modules/@mediapipe/tasks-vision")
+                               (path/resolve "node_modules/mediabunny/dist/bundles")])
 
      {:ring/route [:get "/"]
       :ring/handler #'root-handler}
@@ -1408,6 +1410,7 @@
   [token]
   [{:ring/route [:post "/hook/*"]
     :ring/handler #'hook-handler}
+
    {:ring/route [:post composio-setup/event-path]
     :ring/handler #'composio-event-handler}
    {:ring/route [:get (str phone/pair-prefix "/*")]

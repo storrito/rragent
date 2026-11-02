@@ -1,10 +1,11 @@
 // The touch-up of the webcam (rragent.client.effects, its worker
 // worker.js): the skin of the face smoothed, as Google Meet's portrait
-// touch-up does, in two strengths. The face comes from MediaPipe's face
-// landmarker as 478 points; the skin is the face's oval without the
-// eyes, the eyebrows and the lips, each a polygon of landmark indices
-// made here from the landmarker's connections. Pure functions, tested
-// from rragent.client.effects-test.
+// touch-up does, in two strengths. The face comes from MediaPipe's
+// BlazeFace as six points (the eyes, the nose, the mouth, the ears); the
+// skin is ellipses laid by the face's usual proportions: the face's
+// oval, generous, as what is not skin differs in colour and the
+// smoothing leaves it, without the eyes, the eyebrows and the mouth.
+// Pure functions, tested from rragent.client.effects-test.
 
 /**
  * The strengths: how much of the smoothed skin shows (`strength`,
@@ -20,58 +21,54 @@ export const levels = {
 };
 
 /**
- * The polygons the landmarker's connections ({start, end} pairs of
- * landmark indices) outline, as arrays of indices. The connections
- * come in runs: a closed loop (the face's oval) is a polygon by
- * itself; two open runs side by side (the lower and the upper line of
- * an eye, of the lips, of an eyebrow) are one polygon, the second run
- * walked back; the lips are two such pairs, the outer and the inner.
+ * The skin of a face BlazeFace found, as ellipses ({x, y, rx, ry,
+ * angle}, in pixels of a `width` x `height` picture): the face's oval
+ * and the holes in it (the eyes, the eyebrows, the mouth), laid by the
+ * usual proportions of a face from its `keypoints` (0..1: the right
+ * eye, the left eye, the nose, the mouth, the right ear, the left ear,
+ * as BlazeFace gives them). Null without the eyes and the mouth.
  */
-export function polygons(connections) {
-  const chains = [];
-  const used = new Set();
-  for (let i = 0; i < connections.length; i++) {
-    if (used.has(i)) continue;
-    used.add(i);
-    const chain = [connections[i].start, connections[i].end];
-    let found = true;
-    while (found) {
-      found = false;
-      for (let j = 0; j < connections.length; j++) {
-        if (used.has(j) || connections[j].start !== chain[chain.length - 1]) continue;
-        used.add(j);
-        chain.push(connections[j].end);
-        found = true;
-        break;
-      }
+export function ellipses(keypoints, width, height) {
+  if (!keypoints || keypoints.length < 4) return null;
+  const p = (i) => ({ x: keypoints[i].x * width, y: keypoints[i].y * height });
+  const [right, left, , mouth] = [p(0), p(1), p(2), p(3)];
+  const across = { x: left.x - right.x, y: left.y - right.y };
+  const d = Math.hypot(across.x, across.y);
+  if (d < 1) return null;
+  // along the eyes, and down the face: towards the mouth, whichever eye comes first
+  const eyes = { x: (right.x + left.x) / 2, y: (right.y + left.y) / 2 };
+  const turn = (mouth.y - eyes.y) * across.x - (mouth.x - eyes.x) * across.y < 0 ? -1 : 1;
+  const a = { x: (turn * across.x) / d, y: (turn * across.y) / d };
+  const down = { x: -a.y, y: a.x };
+  const at = (u, v) => ({ x: eyes.x + a.x * u + down.x * v, y: eyes.y + a.y * u + down.y * v });
+  const angle = Math.atan2(a.y, a.x);
+  const toMouth = Math.max(0.6 * d, (mouth.x - eyes.x) * down.x + (mouth.y - eyes.y) * down.y);
+  // from the forehead to the chin, generous: what is not skin (hair, the
+  // ears, the background) differs in colour and the smoothing leaves it
+  const top = -1.3 * d;
+  const bottom = toMouth + 0.9 * d;
+  // between the ears where they were found, the face turned with them
+  let middle = 0;
+  let half = 1.15 * d;
+  if (keypoints.length >= 6) {
+    const [earR, earL] = [p(4), p(5)];
+    const u = (q) => (q.x - eyes.x) * a.x + (q.y - eyes.y) * a.y;
+    const span = Math.abs(u(earL) - u(earR));
+    if (span > d) {
+      middle = (u(earL) + u(earR)) / 2;
+      half = 0.5 * span;
     }
-    chains.push(chain);
   }
-  const out = [];
-  for (let i = 0; i < chains.length; i++) {
-    const chain = chains[i];
-    if (chain[0] === chain[chain.length - 1]) {
-      out.push(chain.slice(0, -1));
-    } else if (i + 1 < chains.length) {
-      out.push(chain.concat(chains[i + 1].slice().reverse()));
-      i++;
-    } else {
-      out.push(chain);
-    }
-  }
-  return out;
-}
-
-/** The box around the points of `indices`, in the landmarks' 0..1. */
-export function box(landmarks, indices) {
-  let left = 1, top = 1, right = 0, bottom = 0;
-  for (const i of indices) {
-    const p = landmarks[i];
-    if (!p) continue;
-    if (p.x < left) left = p.x;
-    if (p.x > right) right = p.x;
-    if (p.y < top) top = p.y;
-    if (p.y > bottom) bottom = p.y;
-  }
-  return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+  const centre = at(middle, (top + bottom) / 2);
+  const hole = (q, rx, ry, up = 0) => ({ x: q.x - down.x * up, y: q.y - down.y * up, rx, ry, angle });
+  return {
+    oval: { x: centre.x, y: centre.y, rx: half, ry: (bottom - top) / 2, angle },
+    holes: [
+      hole(right, 0.32 * d, 0.2 * d),
+      hole(left, 0.32 * d, 0.2 * d),
+      hole(right, 0.36 * d, 0.13 * d, 0.38 * d),
+      hole(left, 0.36 * d, 0.13 * d, 0.38 * d),
+      hole(mouth, 0.45 * d, 0.22 * d),
+    ],
+  };
 }

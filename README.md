@@ -686,11 +686,12 @@ needs to make up for a recording. A worker (`public/effects/worker.js`)
 does the work: MediaPipe's selfie segmenter (the landscape model,
 256 × 144, Apache 2.0, in `public/effects/`; its bundle and wasm come
 from `@mediapipe/tasks-vision` into `dist/public/effects/` at build,
-served at `/effects/*`) finds the person in every frame, its face
-landmarker (`face_landmarker.task`, Apache 2.0, beside it; loaded when
-the touch-up is first turned on) the 478 points of the face, from
-which the skin is the face's oval without the eyes, the eyebrows and
-the lips (`public/effects/skin.js`), a WebGL shader averages each
+served at `/effects/*`) finds the person in every frame, its BlazeFace
+(`blaze_face_short_range.tflite`, Apache 2.0, beside it; on the GPU,
+else the CPU, loaded when the touch-up is first turned on) six points
+of the face, from which the skin is ellipses by the face's usual proportions, a
+generous oval without the eyes, the eyebrows and the mouth
+(`public/effects/skin.js`), a WebGL shader averages each
 skin pixel with the neighbours near it in place and in colour (a
 bilateral filter: pores and shadows fade, eyelashes and the edge of
 the face stay sharp), a canvas composes the frame, and the frames flow
@@ -703,7 +704,9 @@ background the webcam was recorded on (`effects`, with the green to
 key out, and the `touch-up`), and so does the draft. Until a model is
 loaded, and when it could not be, the webcam passes through as it is
 and the panel says so. Chrome has the streams; another browser sees no
-effects.
+effects. `localStorage.setItem("rragent.effects.log", "1")` in the
+browser's console puts the frames a second and the time of each step on
+the console, every second.
 
 
 A phone can be a camera too, instead of the webcam or besides it: *Pair

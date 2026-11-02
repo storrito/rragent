@@ -5,7 +5,8 @@ import cljf from 'clojurific/vite';
 // run MediaPipe in a worker: its bundle and its wasm (the module build,
 // the one a module worker imports) come from node_modules into
 // public/effects beside the worker, the model and the levels, which Vite
-// copies from public/. Served by the server at /effects/* (rragent.page).
+// copies from public/, and so does Mediabunny's bundle, for apply.js.
+// Served by the server at /effects/* (rragent.page).
 const mediapipe = 'node_modules/@mediapipe/tasks-vision';
 const effects = {
   name: 'rragent-effects',
@@ -15,6 +16,8 @@ const effects = {
     for (const file of ['vision_wasm_module_internal.js', 'vision_wasm_module_internal.wasm']) {
       cpSync(`${mediapipe}/wasm/${file}`, `dist/public/effects/wasm/${file}`);
     }
+    // Mediabunny, which apply.js reads and writes the webcam's file with
+    cpSync('node_modules/mediabunny/dist/bundles/mediabunny.min.mjs', 'dist/public/effects/mediabunny.mjs');
   },
 };
 

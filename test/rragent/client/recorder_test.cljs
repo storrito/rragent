@@ -132,3 +132,17 @@
       (is (str/includes? html "Show live views"))
       (is (str/includes? html "Stop"))
       (is (not (str/includes? html ":div.preview"))))))
+
+(deftest codec-name-test
+  (testing "the codec as the panel names it"
+    (is (= "H.264" (recorder/codec-name "video/mp4;codecs=avc1.640033,opus")))
+    (is (= "VP9" (recorder/codec-name "video/webm;codecs=vp9,opus")))
+    (is (= "VP8" (recorder/codec-name "video/webm;codecs=vp8,opus")))
+    (is (= "WebM" (recorder/codec-name "video/webm")))))
+
+(deftest ext-of-test
+  (testing "MP4 for H.264 in MP4, webm for the rest, the microphone's too"
+    (is (= "mp4" (recorder/ext-of "video/mp4;codecs=avc1.640033,opus")))
+    (is (= "webm" (recorder/ext-of "video/webm;codecs=vp8,opus")))
+    (is (= "webm" (recorder/ext-of "audio/webm;codecs=opus")))
+    (is (= "webm" (recorder/ext-of nil)))))

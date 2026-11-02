@@ -42,6 +42,42 @@
     (is (= {:background "off" :auto-light false :touch-up "subtle"}
            (effects/facts {:background :off :auto-light? false :touch-up :subtle})))))
 
+(deftest camera-and-rate-test
+  (testing "the camera is asked for 720p while an effect is on, 1080p without"
+    (is (= 1280 (get-in (effects/picture {:background :blur}) [:width :ideal])))
+    (is (= 720 (get-in (effects/picture {:touch-up :subtle}) [:height :ideal])))
+    (is (= 1920 (get-in (effects/picture effects/default-settings) [:width :ideal])))
+    (is (= 30 (get-in (effects/picture nil) [:frameRate :ideal]))))
+  (testing "frames a second, to a tenth"
+    (is (= 9.1 (effects/fps 91 10000)))
+    (is (= 30 (effects/fps 30 1000)))
+    (is (nil? (effects/fps 10 0)))
+    (is (nil? (effects/fps 0 nil))))
+  (testing "under 20 frames a second the webcam stutters"
+    (is (effects/stutters? 9.1))
+    (is (not (effects/stutters? 29.7)))
+    (is (not (effects/stutters? nil))))
+  (testing "recording.json holds the rate of the webcam's file"
+    (is (= {:background "blur" :auto-light false :touch-up "subtle" :fps 29.4}
+           (effects/facts {:background :blur :touch-up :subtle} 29.4)))
+    (is (nil? (:fps (effects/facts {:background :blur} nil))))))
+
+(deftest gpu-test
+  (async done
+    (-> (js* "import(~{})" (str "file://" (path/resolve "public/effects/gpu.js")))
+        (.then (fn [^js gpu]
+                 (testing "the blur halves four times and doubles back twice: read at a quarter"
+                   (let [sizes (js->clj (.pyramid gpu 1280 720) :keywordize-keys true)]
+                     (is (= [[640 360 "first"] [320 180 "down"] [160 90 "down"] [80 45 "down"] [160 90 "up"] [320 180 "up"]]
+                            (mapv (juxt :width :height :kind) sizes)))))
+                 (testing "an odd size is rounded, never below one pixel"
+                   (let [sizes (js->clj (.pyramid gpu 3 2) :keywordize-keys true)]
+                     (is (every? #(and (pos? (:width %)) (pos? (:height %))) sizes))))
+                 (done)))
+        (.catch (fn [error]
+                  (is false (str "gpu.js did not load: " error))
+                  (done))))))
+
 (deftest file-label-test
   (let [labels {:file-webcam "the webcam"
                 :file-webcam-green "the webcam on green"
@@ -104,32 +140,30 @@
                   (is false (str "levels.js did not load: " error))
                   (done))))))
 
-(defn- connections
-  "`[[start end] ...]` as the landmarker gives them."
-  [pairs]
-  (clj->js (for [[start end] pairs] {:start start :end end})))
-
 (deftest skin-test
   (async done
     (-> (js* "import(~{})" (str "file://" (path/resolve "public/effects/skin.js")))
         (.then (fn [^js skin]
-                 (testing "a closed loop is one polygon, without the point that closes it"
-                   (is (= [[1 2 3 4]]
-                          (js->clj (.polygons skin (connections [[1 2] [2 3] [3 4] [4 1]]))))))
-                 (testing "two open runs are one polygon, the second walked back: an eye, an eyebrow"
-                   (is (= [[1 2 3 3 5 4 1]]
-                          (js->clj (.polygons skin (connections [[1 2] [2 3] [1 4] [4 5] [5 3]]))))
-                       "the lower and the upper line of an eye, from the one corner to the other")
-                   (is (= [[1 2 3 6 5 4]]
-                          (js->clj (.polygons skin (connections [[1 2] [2 3] [4 5] [5 6]]))))
-                       "the two lines of an eyebrow, apart"))
-                 (testing "the lips: the outer pair and the inner pair"
-                   (is (= 2 (count (js->clj (.polygons skin (connections [[1 2] [2 3] [1 4] [4 3] [5 6] [6 7] [5 8] [8 7]])))))))
-                 (testing "the box around some landmarks"
-                   (let [landmarks (clj->js [{:x 0.2 :y 0.1} {:x 0.6 :y 0.5} {:x 0.4 :y 0.9}])
-                         b (js->clj (.box skin landmarks #js [0 1 2]) :keywordize-keys true)]
-                     (is (< (js/Math.abs (- 0.4 (:width b))) 0.0001))
-                     (is (< (js/Math.abs (- 0.8 (:height b))) 0.0001))))
+                 (testing "BlazeFace's six points: the oval round the face, the holes in it"
+                   (let [points [{:x 0.45 :y 0.4} {:x 0.55 :y 0.4} {:x 0.5 :y 0.47}
+                                 {:x 0.5 :y 0.55} {:x 0.38 :y 0.45} {:x 0.62 :y 0.45}]
+                         shapes (js->clj (.ellipses skin (clj->js points) 512 288) :keywordize-keys true)
+                         oval (:oval shapes)
+                         inside? (fn [{:keys [x y]}]
+                                   (< (+ (js/Math.pow (/ (- (* x 512) (:x oval)) (:rx oval)) 2)
+                                         (js/Math.pow (/ (- (* y 288) (:y oval)) (:ry oval)) 2))
+                                      1))]
+                     (is (every? inside? (take 4 points)) "the eyes, the nose and the mouth in the oval")
+                     (is (= 5 (count (:holes shapes))) "the eyes, the eyebrows, the mouth")
+                     (is (< (:y (nth (:holes shapes) 2)) (:y (first (:holes shapes))))
+                         "an eyebrow above its eye")
+                     (is (< (js/Math.abs (:angle oval)) 0.0001) "an upright face, upright")
+                     (is (= (update-vals oval js/Math.round)
+                            (update-vals (:oval (js->clj (.ellipses skin (clj->js (map #(update % :x (fn [x] (- 1 x))) points)) 512 288)
+                                                         :keywordize-keys true))
+                                         js/Math.round))
+                         "the eyes the other way round, the same face")
+                     (is (nil? (.ellipses skin (clj->js (take 2 points)) 512 288)) "no mouth, no skin")))
                  (testing "the two strengths, the smooth one stronger and wider"
                    (let [levels (js->clj (.-levels skin) :keywordize-keys true)]
                      (is (< (get-in levels [:subtle :strength]) (get-in levels [:smooth :strength])))
@@ -139,3 +173,4 @@
         (.catch (fn [error]
                   (is false (str "skin.js did not load: " error))
                   (done))))))
+

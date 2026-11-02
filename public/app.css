@@ -2286,6 +2286,36 @@ pre {
   object-fit: cover;
 }
 
+/* The camera with the frames a second it shows, in its corner; red
+   where the picture stutters. */
+.recorder .camera-live {
+  position: relative;
+  display: flex;
+  flex: 0 1 240px;
+  min-width: 0;
+}
+
+.recorder .camera-live video.camera {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.recorder .camera-live .fps {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font: 600 11px/1.2 ui-monospace, monospace;
+  pointer-events: none;
+}
+
+.recorder .camera-live .fps.slow {
+  background: rgba(200, 30, 30, 0.85);
+}
+
 /* The clips of a test, one per source ticked, side by side. */
 .recorder .tests {
   display: flex;
