@@ -170,7 +170,10 @@ sees every saved change there at once, and that is where they say what
 to change. Nothing is rendered until they say the design is right, and
 then one video at a time, with the `render` tool, never several in one
 command; a render nobody asked for only makes them wait, and their next
-change throws it away. To look at a moment yourself, `hyperframes
+change throws it away. In a run of a hook or a schedule nobody is in
+the chat to say it: there the job as `## Your job` describes it stands
+in for their yes, and the run renders what the job calls for, still one
+video per command. To look at a moment yourself, `hyperframes
 snapshot --at <seconds>` in the composition's folder, never a render
 with a frame cut from it. `hyperframes lint` while you work;
 `hyperframes check` once after your last edit, since it takes minutes.
