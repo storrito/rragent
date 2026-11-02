@@ -1117,9 +1117,6 @@
                 (if local
                   (swap! kept (fn [chain] (.then chain #((:write local) data))))
                   (push! up data))))))
-    (set! (.-onstart recorder)
-          (fn [_]
-            (swap! session* assoc-in [:started name] (js/Date.now))))
     (set! (.-onstop recorder)
           (fn [_]
             (maybe-finish! store name)))
@@ -1177,7 +1174,12 @@
         ;; the preview leaves the computer to the recording
         (when local
           (effects/preview-every! effects-handle 3))
-        (doseq [{:keys [^js recorder]} (vals recorders)]
+        ;; each file begins when its recorder is told to start, not when
+        ;; the recorder says it started: that is its first picture, for
+        ;; a phone's screen seconds or a minute later (it sends a picture
+        ;; only when something changes), while its sound runs from here
+        (doseq [[name {:keys [^js recorder]}] recorders]
+          (swap! session* assoc-in [:started name] (js/Date.now))
           (.start recorder piece-ms))
         (update! store assoc :status :recording :seconds 0 :error nil :started-at (js/Date.now))))))
 
