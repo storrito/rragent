@@ -45,8 +45,15 @@
    smoothed. The `:effects` settings
    are in the store too, with the `:effects-status` of the worker
    (`:loading`, `:on`, `{:failed message}`); the camera's own stream is
-   the session's `:raw`, and `:preview` is what is shown and recorded,
-   the processed stream while an effect is on.
+   the session's `:raw`, and `:preview` is what is shown and, by
+   default, recorded, the processed stream while an effect is on. When
+   the settings have the effects made after the recording
+   (`effects/timing`), the webcam is recorded as it is instead, into a
+   file of the browser's own (`local-file`), never up, the preview
+   making every third frame only; the effects are put on the file when
+   the recording ends (`effects/apply-to-file!`, its progress
+   `:effects-progress`), the file made goes up and the raw one is
+   deleted.
    What is no data (the streams, the recorders, the uploaders, the
    meter and the preview node, the URL and the labels the panel was
    opened with) is in `session*`."
@@ -73,8 +80,9 @@
   [1000 2000 4000 8000 15000])
 
 (def screen-bits
-  "The bitrate of the screen, enough for text at full resolution."
-  8000000)
+  "The bitrate of the screen, enough for text at full resolution in VP8,
+   which needs more than VP9 for the same picture."
+  10000000)
 
 (def webcam-bits
   4000000)
@@ -101,10 +109,77 @@
   [store f & args]
   (apply swap! store update :ui/recorder f args))
 
-(defn mime-type
+(def hardware-mimes
+  "What the screen and the webcam are recorded as where the computer
+   encodes it in hardware, best first, each with the codec alone that
+   MediaCapabilities is asked about: H.264 in MP4 (most Macs and
+   Windows laptops), then VP9, then VP8. Encoded in hardware a video
+   costs next to no CPU."
+  [["video/mp4;codecs=avc1.640033,opus" "video/mp4;codecs=avc1.640033"]
+   ["video/mp4;codecs=avc1.640033,mp4a.40.2" "video/mp4;codecs=avc1.640033"]
+   ["video/webm;codecs=vp9,opus" "video/webm;codecs=vp9"]
+   ["video/webm;codecs=vp8,opus" "video/webm;codecs=vp8"]])
+
+(defn- software-mime
+  "What the screen and the webcam are recorded as in software: VP8
+   before VP9, which takes about twice the CPU. With a busy screen of
+   3440 x 1440 in VP9 the webcam's effects fell from 30 frames a second
+   to 11."
   []
   (some #(when (js/MediaRecorder.isTypeSupported %) %)
-        ["video/webm;codecs=vp9,opus" "video/webm;codecs=vp8,opus" "video/webm"]))
+        ["video/webm;codecs=vp8,opus" "video/webm;codecs=vp9,opus" "video/webm"]))
+
+(defn- ^:async hardware?
+  "Whether the browser encodes `content` (a codec alone) in hardware at
+   the size of the screen; false where it cannot say."
+  [content]
+  (let [scale (or js/window.devicePixelRatio 1)]
+    (try
+      (boolean (.-powerEfficient (await (.encodingInfo js/navigator.mediaCapabilities
+                                                       (clj->js {:type "record"
+                                                                 :video {:contentType content
+                                                                         :width (js/Math.round (* js/screen.width scale))
+                                                                         :height (js/Math.round (* js/screen.height scale))
+                                                                         :bitrate screen-bits
+                                                                         :framerate 30}})))))
+      (catch :default _
+        false))))
+
+(defn- ^:async pick-mime
+  "The first of `hardware-mimes` the browser records and encodes in
+   hardware, else the software's (`software-mime`): `{:mime
+   :hardware?}`."
+  []
+  (if-not (some-> js/navigator .-mediaCapabilities .-encodingInfo)
+    {:mime (software-mime) :hardware? false}
+    (loop [candidates hardware-mimes]
+      (if-let [[mime content] (first candidates)]
+        (if (and (js/MediaRecorder.isTypeSupported mime) (await (hardware? content)))
+          {:mime mime :hardware? true}
+          (recur (rest candidates)))
+        {:mime (software-mime) :hardware? false}))))
+
+(defn codec-name
+  "The codec of a recorder's `mime` as the panel names it."
+  [mime]
+  (let [mime (str mime)]
+    (cond
+      (str/includes? mime "avc1") "H.264"
+      (str/includes? mime "vp9") "VP9"
+      (str/includes? mime "vp8") "VP8"
+      :else "WebM")))
+
+(defn mime-type
+  "The container and codecs of the screen and the webcam: the one picked
+   when the panel opened (`pick-mime`), the software's until then."
+  []
+  (or (:video-mime @session*) (software-mime)))
+
+(defn ext-of
+  "The file's extension for a recorder's `mime`: mp4 for MP4, webm
+   otherwise."
+  [mime]
+  (if (str/starts-with? (str mime) "video/mp4") "mp4" "webm"))
 
 (defn audio-mime-type
   "The container of the microphone alone."
@@ -267,11 +342,10 @@
    a remembered id that is gone, or one kind that cannot be had, does
    not stop the panel; the other alone is asked for then. Without
    either, an empty stream: the screen alone records still. The camera
-   only while the webcam is ticked (`webcam?`): unticked, it is let go."
-  [mic camera {:keys [mics cameras]} webcam?]
-  (let [picture {:width {:ideal 1920}
-                 :height {:ideal 1080}
-                 :frameRate {:ideal 30}}
+   only while the webcam is ticked (`webcam?`): unticked, it is let go.
+   The camera's size is the effects' (`effects/picture`)."
+  [mic camera {:keys [mics cameras]} webcam? settings]
+  (let [picture (effects/picture settings)
         camera? (and webcam? (seq cameras))
         chosen (cond-> {}
                  (seq mics) (assoc :audio (if mic {:deviceId {:ideal mic}} true))
@@ -295,11 +369,26 @@
   [store]
   (or (:effects (:ui/recorder @store)) effects/default-settings))
 
+(defn- rate!
+  "The frames the effects' worker made in a second: the rate the panel
+   warns by (`:effects-fps`), and, while the webcam records them live,
+   the frames and the time of its file, for `recording.json`."
+  [store frames ms]
+  (when (= :recording (:status (:ui/recorder @store)))
+    (swap! session* (fn [s]
+                      (-> s
+                          (update :webcam-frames (fnil + 0) frames)
+                          (update :webcam-ms (fnil + 0) ms)))))
+  (let [rate (effects/fps frames ms)]
+    (when (not= rate (:effects-fps (:ui/recorder @store)))
+      (update! store assoc :effects-fps rate))))
+
 (defn- pipeline!
   "What is shown and recorded, from the camera's stream: through the
    effects' worker while an effect is on, the camera's own otherwise.
-   The worker there was is ended first; the camera is asked for
-   automatic light when the light is corrected."
+   The worker there was is ended first; the camera is asked for the
+   size the effects want (`effects/fit-camera!`), and for automatic
+   light when the light is corrected."
   [store]
   (let [{:keys [^js raw]} @session*
         settings (effects-settings store)
@@ -311,17 +400,18 @@
                      (effects/start! raw settings
                                      {:on-ready (fn [] (update! store assoc :effects-status :on))
                                       :on-loading (fn [] (update! store assoc :effects-status :loading))
-                                      :on-failed (fn [message] (update! store assoc :effects-status {:failed message}))})
+                                      :on-failed (fn [message] (update! store assoc :effects-status {:failed message}))
+                                      :on-rate (fn [frames ms] (rate! store frames ms))})
                      ;; the worker could not be made: the camera as it is, and why
                      (catch :default error
                        (js/console.error "[recorder] effects" error)
                        (reset! failed (str (or (some-> error .-message) error)))
                        nil)))
           stream (if handle (:stream handle) raw)]
-      (when (and raw (:auto-light? settings))
-        (effects/tune-camera! raw))
+      (when raw
+        (effects/fit-camera! raw settings))
       (swap! session* assoc :effects handle :preview stream)
-      (update! store assoc :effects-status (cond
+      (update! store assoc :effects-fps nil :effects-status (cond
                                              @failed {:failed @failed}
                                              handle :loading))
       (when-let [^js node (:preview-node @session*)]
@@ -331,13 +421,19 @@
 (defn- ^:async preview!
   "The camera and the microphone chosen, live in the panel: the stream
    the webcam file records (`pipeline!`), with the meter on its
-   microphone."
+   microphone. The codec of the recordings is picked once, by what the
+   computer encodes in hardware (`pick-mime`), and named in the corner
+   of the camera (`:codec`)."
   [store]
   (let [{:keys [mic camera devices]} (:ui/recorder @store)]
+    (when-not (:video-mime @session*)
+      (let [{:keys [mime hardware?]} (await (pick-mime))]
+        (swap! session* #(some-> % (assoc :video-mime mime)))
+        (update! store assoc :codec {:name (codec-name mime) :hardware? hardware?})))
     (some-> (:effects @session*) effects/stop!)
     (stop-tracks! (:raw @session*))
     (swap! session* dissoc :effects :raw :preview :analyser :samples)
-    (let [raw (await (user-media mic camera devices (contains? (sources store) :webcam)))
+    (let [raw (await (user-media mic camera devices (contains? (sources store) :webcam) (effects-settings store)))
           ;; the meter, when there is a microphone
           audio-context (when (has-audio? raw) (or (:audio-context @session*) (js/AudioContext.)))
           analyser (when audio-context (.createAnalyser audio-context))]
@@ -361,8 +457,8 @@
     (update! store assoc :effects now)
     (if (and (:effects @session*) (effects/active? now))
       (do (effects/update! (:effects @session*) now)
-          (when (and (:auto-light? now) (:raw @session*))
-            (effects/tune-camera! (:raw @session*))))
+          (when (:raw @session*)
+            (effects/fit-camera! (:raw @session*) now)))
       (pipeline! store))))
 
 (defn- failed!
@@ -877,30 +973,69 @@
                                (if (map? value) (pr-str value) (subs (str text) 0 120))
                                ").")))))))
 
+(defn- ^:async made-webcam!
+  "The webcam kept here (`local-file`) with the effects of `settings`
+   put on it, going up as it is made, the raw file deleted after:
+   `{:frames :seconds}` of the file made, or `{:failed message}`, the
+   webcam then not saved at all, since the raw picture never goes up."
+  [store {:keys [local uploader]} settings mime]
+  (try
+    (await ((:close local)))
+    (update! store assoc :effects-progress 0)
+    (let [file (await ((:file local)))
+          result (await (effects/apply-to-file!
+                         file settings
+                         {:mime mime
+                          :bits webcam-bits
+                          :write (fn [^js data]
+                                   (:chain (push! uploader (js/Blob. #js [data]))))
+                          :on-progress (fn [progress]
+                                         (update! store assoc :effects-progress progress))}))]
+      (await (:chain @uploader))
+      result)
+    (catch :default error
+      (js/console.error "[recorder] the webcam's effects" error)
+      {:failed (str (or (.-message error) error))})
+    (finally
+      (update! store assoc :effects-progress nil)
+      (-> ((:remove local))
+          (.catch (fn [_] nil))))))
+
 (defn- ^:async finish!
   "The recorders stopped: once every piece is up, the server makes the
    files (waiting for the phone's when there is one), and the draft
    names them."
   [store]
-  (let [{:keys [recorders base started mime ctx phone?]} @session*
+  (let [{:keys [recorders base started mime ctx phone? webcam-frames webcam-ms]} @session*
         {:keys [store-key labels]} ctx
-        files (cond-> (into {} (map (fn [[name _]] [name "webm"]) recorders))
-                phone? (assoc "phone" (:phone-ext @session* "webm")))
+        webcam (get recorders "webcam")
         ;; the webcam's background, when it went through the effects
-        effects (when (and (contains? recorders "webcam") (:effects @session*))
+        effects (when (and webcam (:effects @session*))
                   (effects-settings store))]
     (try
-      (doseq [{:keys [uploader]} (vals recorders)]
-        (await (:chain @uploader)))
-      (when phone?
-        (update! store assoc :phone-waiting? true))
-      (let [value (await (ask-finish! base (cond-> {:started started
+      (doseq [{:keys [uploader kept]} (vals recorders)]
+        (await (:chain @uploader))
+        (await @kept))
+      (let [made (when (:local webcam)
+                   (await (made-webcam! store webcam effects mime)))
+            files (cond-> (into {} (map (fn [[name {:keys [ext]}]] [name (or ext "webm")]) recorders))
+                    phone? (assoc "phone" (:phone-ext @session* "webm"))
+                    (:failed made) (dissoc "webcam"))
+            _ (when phone?
+                (update! store assoc :phone-waiting? true))
+            value (await (ask-finish! base (cond-> {:started started
                                                     :devices (labels-of store)
                                                     :mime mime
                                                     :files files}
-                                             effects (assoc :effects (effects/facts effects)))))
-            line (draft-line labels (str "artifacts/" (:folder value)) (:files value) effects
-                             (not (has-audio? (:raw @session*))))]
+                                             (and effects (not (:failed made)))
+                                             (assoc :effects (effects/facts effects (if (:frames made)
+                                                                                      (effects/fps (:frames made) (* 1000 (:seconds made)))
+                                                                                      (effects/fps webcam-frames webcam-ms)))))))
+            line (str (draft-line labels (str "artifacts/" (:folder value)) (:files value) effects
+                                  (not (has-audio? (:raw @session*))))
+                      (when-let [error (:failed made)]
+                        (str/replace (or (:effects-apply-failed labels) "The webcam's effects could not be applied ({error}): the webcam was not saved. ")
+                                     "{error}" error)))]
         (swap! store update store-key (fn [draft]
                                         (str (when (seq (str draft)) (str draft "\n\n")) line)))
         (update! store assoc :status :ready :phone-waiting? false)
@@ -908,7 +1043,11 @@
         (some-> (js/document.querySelector ".composer textarea") .focus))
       (catch :default error
         (release!)
-        (failed! store error)))))
+        (failed! store error))
+      (finally
+        ;; the preview whole again once the webcam's file is made, not
+        ;; before: it would take the computer from it
+        (some-> (:effects @session*) (effects/preview-every! 1))))))
 
 (defn- maybe-finish!
   [store name]
@@ -924,16 +1063,60 @@
     (str (.getFullYear d) "-" (p (inc (.getMonth d))) "-" (p (.getDate d))
          "T" (p (.getHours d)) "-" (p (.getMinutes d)) "-" (p (.getSeconds d)))))
 
+(defn- ^:async forget-stale!
+  "The webcams other recordings left in `dir` (a tab closed before
+   their effects were put on, a failure), removed: nothing else would."
+  [^js dir name]
+  (try
+    (let [names (await (js/Array.fromAsync (.keys dir)))]
+      (doseq [stale names
+              :when (and (str/starts-with? stale "webcam-") (not= stale name))]
+        (await (-> (.removeEntry dir stale) (.catch (fn [_] nil))))))
+    (catch :default _
+      nil)))
+
+(defn- ^:async local-file
+  "A file of this browser's own, `name` in the origin's private file
+   system, which the pieces of a recording are written to instead of
+   going up: `{:write :close :file :remove}`, each answering a
+   promise, `file` of the file as a Blob once closed. In memory where
+   the browser has no such file system. The webcams earlier recordings
+   left there are removed first."
+  [name]
+  (try
+    (let [^js dir (await (.getDirectory js/navigator.storage))
+          _ (await (forget-stale! dir name))
+          ^js handle (await (.getFileHandle dir name #js {:create true}))
+          ^js writable (await (.createWritable handle))]
+      {:write (fn [blob] (.write writable blob))
+       :close (fn [] (.close writable))
+       :file (fn [] (.getFile handle))
+       :remove (fn [] (.removeEntry dir name))})
+    (catch :default error
+      (js/console.warn "[recorder] the webcam kept in memory, no file of the browser's:" (str (.-message error)))
+      (let [parts (atom [])]
+        {:write (fn [blob] (swap! parts conj blob) (js/Promise.resolve))
+         :close (fn [] (js/Promise.resolve))
+         :file (fn [] (js/Promise.resolve (js/Blob. (into-array @parts))))
+         :remove (fn [] (reset! parts []) (js/Promise.resolve))}))))
+
 (defn- recorder-of
   "A recorder of `stream` into the file `name`, its pieces up as they
-   come; the microphone alone without `bits`."
-  [store base mime ^js stream name bits]
+   come, or into the browser's `local` file (`local-file`) when it is
+   to be made anew before it goes up; the microphone alone without
+   `bits`."
+  [store base mime ^js stream name bits local]
   (let [recorder (js/MediaRecorder. stream (recorder-options mime bits))
-        up (uploader (str base "/" name))]
+        ext (ext-of mime)
+        up (uploader (str base "/" name "?ext=" ext))
+        kept (atom (js/Promise.resolve))]
     (set! (.-ondataavailable recorder)
           (fn [^js event]
             (when (pos? (.. event -data -size))
-              (push! up (.-data event)))))
+              (let [data (.-data event)]
+                (if local
+                  (swap! kept (fn [chain] (.then chain #((:write local) data))))
+                  (push! up data))))))
     (set! (.-onstart recorder)
           (fn [_]
             (swap! session* assoc-in [:started name] (js/Date.now))))
@@ -941,7 +1124,10 @@
           (fn [_]
             (maybe-finish! store name)))
     {:recorder recorder
-     :uploader up}))
+     :uploader up
+     :local local
+     :kept kept
+     :ext ext}))
 
 (defn- ^:async begin!
   "The recorders of the mode, started together once the phone, when it
@@ -957,6 +1143,12 @@
     (if (and phone? (not (pos? (or phones 0))))
       (update! store assoc :error (or (get-in @session* [:ctx :labels :phone-none]) "No phone is connected."))
       (let [^js preview (:preview @session*)
+            ;; the effects after the recording: the webcam as it is, kept here
+            effects-handle (:effects @session*)
+            after? (and effects-handle (= "after" (effects/timing)))
+            ^js webcam (if after? (:raw @session*) preview)
+            local (when (and after? (contains? wanted :webcam) (has-video? webcam))
+                    (await (local-file (str "webcam-" the-stamp))))
             ^js screen-track (when display (first (array-seq (.getVideoTracks display))))
             ^js with-screen (when display (with-mic screen-track preview))
             ^js alone (when (and (contains? wanted :mic) (has-audio? preview)) (audio-only preview))
@@ -965,10 +1157,10 @@
             base (str (get-in @session* [:ctx :url]) "/" the-stamp)
             mime (mime-type)
             recorders (cond-> {}
-                        display (assoc "screen" (recorder-of store base mime with-screen "screen" screen-bits))
-                        (and (contains? wanted :webcam) (has-video? preview)) (assoc "webcam" (recorder-of store base mime preview "webcam" webcam-bits))
-                        alone (assoc "audio" (recorder-of store base (audio-mime-type) alone "audio" nil))
-                        with-phone (assoc "phone-screen" (recorder-of store base mime with-phone "phone-screen" screen-bits)))]
+                        display (assoc "screen" (recorder-of store base mime with-screen "screen" screen-bits nil))
+                        (and (contains? wanted :webcam) (has-video? webcam)) (assoc "webcam" (recorder-of store base mime webcam "webcam" webcam-bits local))
+                        alone (assoc "audio" (recorder-of store base (audio-mime-type) alone "audio" nil nil))
+                        with-phone (assoc "phone-screen" (recorder-of store base mime with-phone "phone-screen" screen-bits nil)))]
         (swap! session* assoc
                :display display
                :clones (remove nil? [with-screen alone with-phone])
@@ -979,7 +1171,12 @@
                :mime mime
                :started {}
                :stopped {}
+               :webcam-frames 0
+               :webcam-ms 0
                :since (js/performance.now))
+        ;; the preview leaves the computer to the recording
+        (when local
+          (effects/preview-every! effects-handle 3))
         (doseq [{:keys [^js recorder]} (vals recorders)]
           (.start recorder piece-ms))
         (update! store assoc :status :recording :seconds 0 :error nil :started-at (js/Date.now))))))
@@ -1057,10 +1254,32 @@
                   (when (asked?)
                     (update! store assoc :pair nil :error (str (.-message error)))))))))
 
+(defn- count-frames!
+  "The frames the camera's preview `node` shows, counted while it is on
+   the page: every second their rate into the store (`:camera-fps`),
+   which the preview shows in its corner, with the effects or without."
+  [store ^js node]
+  (when (.-requestVideoFrameCallback node)
+    (let [since (atom nil)
+          frames (atom 0)]
+      (letfn [(on-frame [now _]
+                (when (.-isConnected node)
+                  (when-not @since (reset! since now))
+                  (swap! frames inc)
+                  (when (>= (- now @since) 1000)
+                    (let [rate (effects/fps @frames (- now @since))]
+                      (when (not= rate (:camera-fps (:ui/recorder @store)))
+                        (update! store assoc :camera-fps rate)))
+                    (reset! frames 0)
+                    (reset! since now))
+                  (.requestVideoFrameCallback node on-frame)))]
+        (.requestVideoFrameCallback node on-frame)))))
+
 (defn- preview-mount
-  [{:keys [replicant/node]}]
+  [store {:keys [replicant/node]}]
   (set! (.-muted ^js node) true)
   (swap! session* #(some-> % (assoc :preview-node node)))
+  (count-frames! store node)
   (when-let [stream (:preview @session*)]
     (set! (.-srcObject ^js node) stream)))
 
@@ -1190,9 +1409,16 @@
   (let [ticked (or (:sources recorder) default-sources)]
     [:div.preview {:replicant/key "preview"}
      (when (and (seq (:cameras devices)) (contains? ticked :webcam))
-       [:video.camera {:autoplay true
-                       :playsinline true
-                       :replicant/on-mount preview-mount}])
+       (let [rate (:camera-fps recorder)]
+         [:div.camera-live {:replicant/key "camera"}
+          [:video.camera {:autoplay true
+                          :playsinline true
+                          :replicant/on-mount (fn [data] (preview-mount store data))}]
+          (when (or rate (:codec recorder))
+            [:span.fps {:class (when (effects/stutters? rate) "slow")}
+             (str/join " · " (remove nil? [(when rate (str (.toFixed rate 1) " fps"))
+                                           (when-let [{:keys [name hardware?]} (:codec recorder)]
+                                             (str name (when hardware? " HW")))]))])]))
      (when (contains? ticked :screen)
        (screen-preview store labels screen? ready?))
      (when (and phone (contains? ticked :phone))
@@ -1205,7 +1431,7 @@
    behind the person, the automatic light and the touch-up of the
    skin, with a word on a model loading, or why it did not; what the
    green is for."
-  [store labels {:keys [effects effects-status effects-supported?] :as recorder} ready?]
+  [store labels {:keys [effects effects-status effects-supported? effects-fps] :as recorder} ready?]
   (when (and effects-supported? (contains? (or (:sources recorder) default-sources) :webcam))
     (let [{:keys [background auto-light? touch-up]} (or effects effects/default-settings)
           choose (fn [class key choices chosen]
@@ -1234,6 +1460,10 @@
 
          (:failed effects-status)
          [:span.error (str/replace (or (:effects-failed labels) "The effect did not load: {error}") "{error}" (str (:failed effects-status)))]
+
+         ;; recorded live, a slow picture is a stuttering webcam
+         (and (= "live" (effects/timing)) (effects/stutters? effects-fps))
+         [:span.error (str/replace (or (:effects-slow labels) "The effects make only {fps} frames a second on this computer: the webcam will stutter. Settings → Recording can put them on after the recording instead.") "{fps}" (str effects-fps))]
 
          (= :green background)
          [:span.hint (:green-hint labels)])])))
@@ -1301,7 +1531,7 @@
    translated; `phone` the phone connected, from the frame
    (`rragent.phone/status`)."
   [store state labels phone]
-  (let [{:keys [status devices mic camera seconds tests error phone-waiting? minimized? started-at] :as recorder} (:ui/recorder state)
+  (let [{:keys [status devices mic camera seconds tests error phone-waiting? minimized? started-at effects-progress] :as recorder} (:ui/recorder state)
         ticked (or (:sources recorder) default-sources)]
     (when status
       [:div.recorder {:replicant/key "recorder"
@@ -1315,6 +1545,8 @@
              [:span.started (str/replace (or (:started labels) "started at {time}") "{time}" (clock-time started-at))])
            [:span.hint (cond
                          phone-waiting? (:phone-waiting labels)
+                         effects-progress (str/replace (or (:effects-applying labels) "Putting the effects on the webcam … {percent} %. Keep this page open.")
+                                                       "{percent}" (str (js/Math.floor (* 100 effects-progress))))
                          (= :finishing status) (:saving labels)
                          (contains? ticked :screen) (:recording labels)
                          (= #{:mic} ticked) (:recording-audio labels)

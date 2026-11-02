@@ -735,8 +735,19 @@
    [:ui/send-key {:ui/ctrl-enter [:i18n :input/ctrl-enter]
                   :ui/enter [:i18n :input/enter]}]])
 
+(defn recording-section
+  "The Recording section of the settings: when the webcam's effects
+   are made, live while it records or after the recording; the choice
+   is the browser's (`rragent.client.effects/timing`)."
+  []
+  [:section.recording
+   [:h2 [:i18n :recording/title]]
+   [:p [:i18n :recording/explain]]
+   [:ui/effects-timing {:ui/live [:i18n :recording/live]
+                        :ui/after [:i18n :recording/after]}]])
+
 (def settings-sections
-  [:updates :input :mcp])
+  [:updates :input :recording :mcp])
 
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
@@ -768,6 +779,7 @@
       (case section
         :mcp (mcp-section mcp)
         :input (input-section)
+        :recording (recording-section)
         (updates-section update))])))
 
 (defn phone-words
@@ -979,6 +991,9 @@
                                 :touch-up-smooth [:i18n :record/touch-up-smooth]
                                 :effects-loading [:i18n :record/effects-loading]
                                 :effects-failed [:i18n :record/effects-failed]
+                                :effects-applying [:i18n :record/effects-applying]
+                                :effects-slow [:i18n :record/effects-slow]
+                                :effects-apply-failed [:i18n :record/effects-apply-failed]
                                 :green-hint [:i18n :record/green-hint]
                                 :file-webcam-green [:i18n :record/file-webcam-green]
                                 :file-webcam-black [:i18n :record/file-webcam-black]

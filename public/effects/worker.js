@@ -1,36 +1,56 @@
 // The webcam's effects, in a worker (rragent.client.effects starts it):
-// the person cut out of the picture by MediaPipe's selfie segmenter
-// (the landscape model, 256 x 144, beside this file), the background
-// behind them blurred or a flat colour, the light of the picture
-// corrected (levels.js), and the skin of the face smoothed (skin.js:
-// MediaPipe's face landmarker finds the face, a WebGL shader averages
-// each skin pixel with the neighbours of its colour). The frames come
-// as a stream of VideoFrames from the camera's track
+// the person cut out of the picture, the background behind them blurred
+// or a flat colour, the light of the picture corrected (levels.js), and
+// the skin of the face smoothed (a shader averages each skin pixel with
+// the neighbours of its colour). The picture is made here, on the GPU in
+// one WebGL 2 context (gpu.js), which MediaPipe's selfie segmenter (the
+// landscape model, 256 x 144, beside this file) shares: every frame gets
+// its own mask, which stays a texture and is never read back, as Google
+// Meet keeps it on the GPU; read back, it cost about 20 ms a frame. The
+// face is found in a worker of its own (models.js, BlazeFace), which gets a small copy of a frame whenever it is free; every
+// frame is laid over the last skin that came back, a frame or two old,
+// so that the picture never waits for it. The frames come as a
+// stream of VideoFrames from the camera's track
 // (MediaStreamTrackProcessor, handed over by the page) and go back as a
 // stream into the track the page records and shows
 // (MediaStreamTrackGenerator). A worker, not the page: the camera keeps
-// sending while the tab is in the background, and a worker keeps
-// working then, where the page's animation frames stop.
+// sending while the tab is in the background, and a worker keeps working
+// then, where the page's animation frames stop.
 //
 // Messages in: {type: "start", readable, writable, settings} once, then
-// {type: "settings", settings} as the person changes them. Settings:
-// {background: "off" | "blur" | "green" | "black", autoLight: boolean,
-// touchUp: "off" | "subtle" | "smooth"}. Messages out: {type: "ready"}
-// once the models the settings need run, {type: "loading"} when new
-// settings need a model not loaded yet, {type: "failed", message} when
-// one could not be loaded; the frames pass through as they are until
-// it is ready, and when it failed. Each model is loaded when a setting
-// first asks for it.
+// {type: "settings", settings} as the person changes them, and
+// {type: "preview", every} while the webcam records as it is (its
+// effects come after): only every so many frames of the preview are
+// made then, the others dropped, which leaves the computer to the
+// recording. Or, for a recorded file (rragent.client.effects'
+// apply-to-file!), {type: "offline", settings} once, then
+// {type: "frame", id, frame} for each frame, answered {type: "frame",
+// id, frame} with the frame made (the one sent closed), or {type:
+// "frame", id, error} when it could not be; each frame waits for its own
+// skin there. Settings: {background: "off" | "blur" | "green"
+// | "black", autoLight: boolean, touchUp: "off" | "subtle" | "smooth",
+// log: boolean, the time of each step on the console every second}.
+// Messages out: {type: "ready"} once the models the settings need run,
+// {type: "loading"} when new settings need a model not loaded yet,
+// {type: "failed", message} when one could not be loaded; the frames
+// pass through as they are until it is ready, and when it failed. Each
+// model is loaded when a setting first asks for it. {type: "rate",
+// frames, ms, stages} every second: how many frames went out in how
+// long, for the panel and recording.json, and the milliseconds a frame
+// spent in each step on average (`stages`), on the console too with
+// `log`.
 
-import { FilesetResolver, ImageSegmenter, FaceLandmarker } from "./vision_bundle.mjs";
-import { measure, correction, ease, filterOf, neutral } from "./levels.js";
-import { levels as touchUps, polygons, box } from "./skin.js";
+import { ImageSegmenter } from "./vision_bundle.mjs";
+import { fileset, withFactory, onEither, base } from "./mediapipe.js";
+import { neutral } from "./levels.js";
+import { levels as touchUps } from "./skin.js";
+import { compositor } from "./gpu.js";
 
 /** The segmenter's input, what the mask comes out as. */
 const MASK_WIDTH = 256;
 const MASK_HEIGHT = 144;
 
-/** The copy of the frame the face is found on. */
+/** The copy of the frame the face is found on (models.js). */
 const FACE_WIDTH = 512;
 const FACE_HEIGHT = 288;
 
@@ -41,47 +61,85 @@ const EDGE_HIGH = 0.7;
 /** How much of a new mask shows at once: the edges do not flicker. */
 const MASK_RATE = 0.65;
 
-/** The light is measured every so many frames and eased towards. */
+/** The light is measured on every so many copies the models get. */
 const LIGHT_EVERY = 8;
-const LIGHT_RATE = 0.12;
 
-const COLORS = { green: "#00ff00", black: "#000000" };
+/**
+ * The face is looked for on every so many copies the models get: it
+ * moves little in a tenth of a second, and the skin found last stays
+ * meanwhile.
+ */
+const FACE_EVERY = 3;
+
+/** The flat backgrounds, as RGB 0..1: the green is the one to key out. */
+const COLORS = { green: [0, 1, 0], black: [0, 0, 0] };
+
+/** How long a recorded file's frame waits for the face's worker at most. */
+const MODELS_WAIT_MS = 10000;
+
+/** How often the frames that went out are told. */
+const RATE_MS = 1000;
+
+/**
+ * Whether the segmenter's mask texture has the picture's bottom as its
+ * first row, as GL draws; the mask pass turns it over then.
+ */
+const MASK_FLIPPED = false;
 
 let settings = { background: "off", autoLight: false, touchUp: "off" };
-let segmenter = null;
-let landmarker = null;
-let loads = { segmenter: null, landmarker: null };
 let started = false;
-let lastTimestamp = 0;
-let lastFaceTimestamp = 0;
+// a recorded file's frames, not the camera's: each waits for its own skin
+let offline = false;
 
-// the small copy of the frame the segmenter sees and the light is measured on
-const small = new OffscreenCanvas(MASK_WIDTH, MASK_HEIGHT);
-const smallCtx = small.getContext("2d", { willReadFrequently: true });
-// the mask as a picture, its alpha the person
-const maskCanvas = new OffscreenCanvas(MASK_WIDTH, MASK_HEIGHT);
-const maskCtx = maskCanvas.getContext("2d");
-const maskImage = maskCtx.createImageData(MASK_WIDTH, MASK_HEIGHT);
-const maskValues = new Float32Array(MASK_WIDTH * MASK_HEIGHT);
-let maskSeen = false;
-
-// the copy of the frame the face is found on, and the skin as a picture,
-// its alpha where the smoothing goes: drawn sharp, then softened
-const face = new OffscreenCanvas(FACE_WIDTH, FACE_HEIGHT);
-const faceCtx = face.getContext("2d");
-const skinSharp = new OffscreenCanvas(FACE_WIDTH, FACE_HEIGHT);
-const skinSharpCtx = skinSharp.getContext("2d");
-const skin = new OffscreenCanvas(FACE_WIDTH, FACE_HEIGHT);
-const skinCtx = skin.getContext("2d");
-let faceSeen = false;
-
-// the frame's size: the person, the background and the picture that goes out
+// the canvas of the picture, whose WebGL context the segmenter shares,
+// and what draws on it
+const canvas = new OffscreenCanvas(1, 1);
+let gpu = null;
+let gpuFailed = false;
 let width = 0;
 let height = 0;
-let out, outCtx, person, personCtx, bg, bgCtx;
 
+// the segmenter, here
+let segmenter = null;
+let segmenterLoading = null;
+let lastTimestamp = 0;
+let maskOnGpu = null;
+
+// the face's worker, whether its BlazeFace runs, and what came back last
+const models = new Worker(new URL("./models.js", import.meta.url), { type: "module" });
+let detector = false;
+let modelsPending = false;
+// the settings told the face's worker last: its "ready" for older ones is not theirs
+let settingsSeq = 0;
+let busy = false;
+let waiting = null;
+let skin = null;
+let skinNew = false;
+let faceSeen = false;
 let light = neutral;
-let frames = 0;
+let lightTick = 0;
+let faceTick = 0;
+
+// the copies of a frame for the face's worker, handed over as ImageBitmaps
+const small = new OffscreenCanvas(MASK_WIDTH, MASK_HEIGHT);
+const smallCtx = small.getContext("2d");
+const face = new OffscreenCanvas(FACE_WIDTH, FACE_HEIGHT);
+const faceCtx = face.getContext("2d");
+
+// the frames that went out since the rate was last told, the skins that
+// came back meanwhile, and the time spent in each step
+let rateFrames = 0;
+let rateSince = 0;
+let skinsBack = 0;
+let stages = { segmenter: 0, copies: 0, picture: 0 };
+
+/** `f()`, its milliseconds added to the step `name`. */
+function timed(name, f) {
+  const start = performance.now();
+  const value = f();
+  stages[name] += performance.now() - start;
+  return value;
+}
 
 function needsMask() {
   return settings.background !== "off";
@@ -91,441 +149,290 @@ function needsFace() {
   return Boolean(touchUps[settings.touchUp]);
 }
 
-function sizeTo(w, h) {
-  if (w === width && h === height) return;
-  width = w;
-  height = h;
-  out = new OffscreenCanvas(w, h);
-  outCtx = out.getContext("2d");
-  person = new OffscreenCanvas(w, h);
-  personCtx = person.getContext("2d");
-  // the background at a quarter: blurred small and scaled up, cheap and soft
-  bg = new OffscreenCanvas(Math.max(1, Math.round(w / 4)), Math.max(1, Math.round(h / 4)));
-  bgCtx = bg.getContext("2d");
-  smoother = null;
-}
-
-// --- the models -----------------------------------------------------
-
-function fileset() {
-  const base = new URL("./", import.meta.url).href;
-  return FilesetResolver.forVisionTasks(base + "wasm", true);
-}
-
-// MediaPipe takes its wasm's factory from self.ModuleFactory and clears it
-// after every task it makes; it sets it by importing the wasm's loader,
-// an ES module, which a second import does not run again. So the second
-// model, or the CPU attempt after a failed GPU one, found no factory
-// ("ModuleFactory not set."). The factory is kept here and set before
-// every attempt, one attempt at a time.
-let factory = null;
-let creating = Promise.resolve();
-
-function withFactory(files, make) {
-  const run = creating.then(async () => {
-    factory ??= (await import(files.wasmLoaderPath)).default;
-    self.ModuleFactory = factory;
-    return make();
-  });
-  creating = run.catch(() => {});
-  return run;
-}
-
-/** `make(delegate)` tried on the GPU, then on the CPU. */
-async function onEither(name, make) {
-  try {
-    return await make("GPU");
-  } catch (error) {
-    console.warn(`[effects] no GPU delegate for the ${name}, using the CPU:`, error);
-    return await make("CPU");
+/** The compositor; null, the page told once, without WebGL 2. */
+function compositorOf() {
+  if (!gpu && !gpuFailed) {
+    try {
+      gpu = compositor(canvas, MASK_WIDTH, MASK_HEIGHT);
+    } catch (error) {
+      gpuFailed = true;
+      console.warn("[effects] no WebGL 2:", error);
+      self.postMessage({ type: "failed", message: String((error && error.message) || error) });
+    }
   }
+  return gpu;
 }
 
+// --- loading --------------------------------------------------------
+
+/**
+ * The segmenter, made on the picture's canvas: its masks are textures of
+ * the picture's context.
+ */
 function loadSegmenter() {
-  if (!loads.segmenter) {
-    const base = new URL("./", import.meta.url).href;
-    loads.segmenter = (async () => {
-      const files = await fileset();
-      segmenter = await onEither("segmenter", (delegate) =>
-        withFactory(files, () =>
-          ImageSegmenter.createFromOptions(files, {
-            baseOptions: { modelAssetPath: base + "selfie_segmenter_landscape.tflite", delegate },
-            runningMode: "VIDEO",
-            outputConfidenceMasks: true,
-            outputCategoryMask: false,
-          })
-        )
-      );
-    })().catch((error) => {
-      loads.segmenter = null;
-      throw error;
-    });
-  }
-  return loads.segmenter;
-}
-
-function loadLandmarker() {
-  if (!loads.landmarker) {
-    const base = new URL("./", import.meta.url).href;
-    loads.landmarker = (async () => {
-      const files = await fileset();
-      landmarker = await onEither("face landmarker", (delegate) =>
-        withFactory(files, () =>
-          FaceLandmarker.createFromOptions(files, {
-            baseOptions: { modelAssetPath: base + "face_landmarker.task", delegate },
-            runningMode: "VIDEO",
-            numFaces: 1,
-            outputFaceBlendshapes: false,
-            outputFacialTransformationMatrixes: false,
-          })
-        )
-      );
-    })().catch((error) => {
-      loads.landmarker = null;
-      throw error;
-    });
-  }
-  return loads.landmarker;
+  segmenterLoading ??= (async () => {
+    const files = await fileset();
+    segmenter = await onEither("segmenter", (delegate) =>
+      withFactory(files, () =>
+        ImageSegmenter.createFromOptions(files, {
+          baseOptions: { modelAssetPath: base + "selfie_segmenter_landscape.tflite", delegate },
+          canvas,
+          runningMode: "VIDEO",
+          outputConfidenceMasks: true,
+          outputCategoryMask: false,
+        })
+      )
+    );
+  })().catch((error) => {
+    segmenterLoading = null;
+    throw error;
+  });
+  return segmenterLoading;
 }
 
 /**
- * The models the settings need and that do not run yet, loaded; the
- * page told when it is to wait (`announce`, on new settings), when
- * they run, and when one could not be loaded.
+ * The models the settings need, loaded: the segmenter here, the
+ * face's BlazeFace in its worker; the page told when it is to wait
+ * (`announce`, on new settings and a model not loaded yet), once they
+ * run, and when one could not be loaded.
  */
 function loadNeeded(announce) {
-  const wanted = [];
-  if (needsMask() && !segmenter) wanted.push(loadSegmenter());
-  if (needsFace() && !landmarker) wanted.push(loadLandmarker());
-  if (!wanted.length) return;
-  if (announce) self.postMessage({ type: "loading" });
-  Promise.all(wanted).then(
-    () => self.postMessage({ type: "ready" }),
+  const loadingHere = needsMask() && !segmenter;
+  modelsPending = true;
+  settingsSeq++;
+  models.postMessage({ type: "settings", settings, announce: announce && !loadingHere, seq: settingsSeq });
+  if (loadingHere && announce) self.postMessage({ type: "loading" });
+  (needsMask() ? loadSegmenter() : Promise.resolve()).then(
+    () => maybeReady(),
     (error) => self.postMessage({ type: "failed", message: String((error && error.message) || error) })
   );
 }
 
-// --- the person -----------------------------------------------------
+/** The page told it is ready once both workers run what the settings need. */
+function maybeReady() {
+  if (!modelsPending && (!needsMask() || segmenter)) self.postMessage({ type: "ready" });
+}
 
-/** The mask of the small copy into maskValues and maskCanvas. */
-function segment(timestamp) {
-  if (!segmenter) return;
-  // the model wants the time to go forward
-  const ts = Math.max(timestamp, lastTimestamp + 1);
-  lastTimestamp = ts;
-  segmenter.segmentForVideo(small, ts, (result) => {
-    const masks = result.confidenceMasks;
-    if (!masks || !masks.length) return;
-    const values = masks[0].getAsFloat32Array();
-    const pixels = maskImage.data;
-    const n = MASK_WIDTH * MASK_HEIGHT;
-    const rate = maskSeen ? MASK_RATE : 1;
-    for (let i = 0; i < n; i++) {
-      const soft = Math.min(1, Math.max(0, (values[i] - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW)));
-      const v = maskValues[i] + (soft - maskValues[i]) * rate;
-      maskValues[i] = v;
-      pixels[i * 4 + 3] = Math.round(v * 255);
+models.onmessage = (event) => {
+  const data = event.data || {};
+  if (data.type === "result") {
+    busy = false;
+    skinsBack++;
+    if (data.skin !== undefined) {
+      if (skin) skin.close();
+      skin = data.skin;
+      faceSeen = data.faceSeen;
+      skinNew = true;
     }
-    maskSeen = true;
-    maskCtx.putImageData(maskImage, 0, 0);
-  });
-}
-
-/** The light measured on the small copy, over the person when there is a mask. */
-function measureLight() {
-  const data = smallCtx.getImageData(0, 0, MASK_WIDTH, MASK_HEIGHT).data;
-  const m = measure(data, maskSeen && needsMask() ? maskValues : null);
-  light = ease(light, correction(m), LIGHT_RATE);
-}
-
-// --- the skin -------------------------------------------------------
-
-/** The face's regions as polygons of landmark indices, from the landmarker's connections. */
-const regions = {
-  oval: polygons(FaceLandmarker.FACE_LANDMARKS_FACE_OVAL),
-  // taken out of the oval, each grown by so much of the face's width
-  holes: [
-    { polygons: polygons(FaceLandmarker.FACE_LANDMARKS_LEFT_EYE), grow: 0.08 },
-    { polygons: polygons(FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE), grow: 0.08 },
-    { polygons: polygons(FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW), grow: 0.05 },
-    { polygons: polygons(FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW), grow: 0.05 },
-    { polygons: polygons(FaceLandmarker.FACE_LANDMARKS_LIPS), grow: 0.05 },
-  ],
+    if (data.light) light = data.light;
+    if (waiting) {
+      const done = waiting;
+      waiting = null;
+      done();
+    }
+  } else if (data.type === "ready") {
+    detector = data.detector;
+    if (data.seq !== settingsSeq) return;
+    modelsPending = false;
+    maybeReady();
+  } else {
+    // loading, failed: the page's
+    self.postMessage(data);
+  }
 };
 
-function trace(ctx, landmarks, polygon) {
-  ctx.beginPath();
-  polygon.forEach((i, n) => {
-    const p = landmarks[i];
-    if (n === 0) ctx.moveTo(p.x * FACE_WIDTH, p.y * FACE_HEIGHT);
-    else ctx.lineTo(p.x * FACE_WIDTH, p.y * FACE_HEIGHT);
+models.onerror = (event) => {
+  self.postMessage({ type: "failed", message: (event && event.message) || "the face's worker did not start" });
+};
+
+// --- a frame --------------------------------------------------------
+
+/** The mask of `frame`, on the GPU. */
+function segment(g, frame) {
+  // the model wants the time to go forward
+  const ts = Math.max(frame.timestamp / 1000, lastTimestamp + 1);
+  lastTimestamp = ts;
+  segmenter.segmentForVideo(frame, ts, (result) => {
+    const masks = result.confidenceMasks;
+    if (!masks || !masks.length) return;
+    const options = { low: EDGE_LOW, high: EDGE_HIGH, rate: MASK_RATE, flip: MASK_FLIPPED };
+    const onGpu = masks[0].hasWebGLTexture();
+    if (onGpu !== maskOnGpu) {
+      maskOnGpu = onGpu;
+      if (settings.log) console.info(onGpu ? "[effects] the mask stays on the GPU" : "[effects] the mask comes from the CPU");
+    }
+    if (onGpu) {
+      g.maskFrom(masks[0].getAsWebGLTexture(), options);
+    } else {
+      // on the CPU: the confidences as bytes
+      const values = masks[0].getAsFloat32Array();
+      const bytes = new Uint8Array(values.length);
+      for (let i = 0; i < values.length; i++) bytes[i] = Math.round(Math.min(1, Math.max(0, values[i])) * 255);
+      g.maskFromBytes(bytes, options);
+    }
   });
-  ctx.closePath();
 }
 
-/**
- * The skin of the face at `landmarks` into `skin`: the oval, the eyes,
- * the eyebrows and the lips taken out with a margin, the edges
- * softened. Cleared without a face.
- */
-function drawSkin(landmarks) {
-  const ctx = skinSharpCtx;
-  ctx.globalCompositeOperation = "source-over";
-  ctx.clearRect(0, 0, FACE_WIDTH, FACE_HEIGHT);
-  if (landmarks) {
-    const faceWidth = box(landmarks, regions.oval[0]).width * FACE_WIDTH;
-    ctx.fillStyle = "#fff";
-    ctx.strokeStyle = "#fff";
-    ctx.lineJoin = "round";
-    for (const polygon of regions.oval) {
-      trace(ctx, landmarks, polygon);
-      ctx.fill();
+/** Copies of `frame` to the face's worker, which is free; whether any went. */
+function toModels(g, frame) {
+  const message = { type: "frame", timestamp: frame.timestamp / 1000, small: null, face: null, mask: null };
+  const transfer = [];
+  timed("copies", () => {
+    if (settings.autoLight && lightTick++ % LIGHT_EVERY === 0) {
+      smallCtx.drawImage(frame, 0, 0, MASK_WIDTH, MASK_HEIGHT);
+      message.small = small.transferToImageBitmap();
+      transfer.push(message.small);
+      if (needsMask()) message.mask = g.readMask();
     }
-    ctx.globalCompositeOperation = "destination-out";
-    for (const hole of regions.holes) {
-      ctx.lineWidth = Math.max(1, hole.grow * faceWidth);
-      for (const polygon of hole.polygons) {
-        trace(ctx, landmarks, polygon);
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
-    ctx.globalCompositeOperation = "source-over";
-  }
-  skinCtx.clearRect(0, 0, FACE_WIDTH, FACE_HEIGHT);
-  skinCtx.filter = "blur(3px)";
-  skinCtx.drawImage(skinSharp, 0, 0);
-  skinCtx.filter = "none";
-}
-
-/** The face found on the frame's copy; the skin drawn. */
-function findFace(timestamp) {
-  if (!landmarker) return;
-  const ts = Math.max(timestamp, lastFaceTimestamp + 1);
-  lastFaceTimestamp = ts;
-  const result = landmarker.detectForVideo(face, ts);
-  const landmarks = result && result.faceLandmarks && result.faceLandmarks[0];
-  drawSkin(landmarks && landmarks.length ? landmarks : null);
-  faceSeen = Boolean(landmarks && landmarks.length);
-}
-
-// --- the smoothing, on the GPU ---------------------------------------
-
-const VERTEX = `#version 300 es
-in vec2 a_pos;
-out vec2 v_uv;
-void main() {
-  v_uv = a_pos * 0.5 + 0.5;
-  gl_Position = vec4(a_pos, 0.0, 1.0);
-}`;
-
-// a bilateral filter: each skin pixel the average of the neighbours
-// near it in place and in colour, so that a pore or a shadow of the
-// skin fades while an eyelash or the edge of the face stays sharp
-const FRAGMENT = `#version 300 es
-precision mediump float;
-uniform sampler2D u_frame;
-uniform sampler2D u_skin;
-uniform vec2 u_texel;
-uniform float u_step;
-uniform float u_range;
-uniform float u_strength;
-in vec2 v_uv;
-out vec4 o_color;
-void main() {
-  vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
-  vec4 c = texture(u_frame, uv);
-  float m = texture(u_skin, uv).a * u_strength;
-  if (m < 0.01) { o_color = c; return; }
-  vec3 sum = vec3(0.0);
-  float weights = 0.0;
-  float inv = 1.0 / (2.0 * u_range * u_range);
-  for (int y = -3; y <= 3; y++) {
-    for (int x = -3; x <= 3; x++) {
-      vec2 d = vec2(float(x), float(y));
-      vec3 s = texture(u_frame, uv + d * u_step * u_texel).rgb;
-      vec3 diff = s - c.rgb;
-      float w = exp(-dot(d, d) / 8.0) * exp(-dot(diff, diff) * inv);
-      sum += s * w;
-      weights += w;
-    }
-  }
-  o_color = vec4(mix(c.rgb, sum / weights, m), 1.0);
-}`;
-
-let smoother = null;
-let smootherFailed = false;
-// the frame drawn here when the GPU does not take a VideoFrame as it is
-let copy = null;
-let copyCtx = null;
-
-function shader(gl, type, source) {
-  const s = gl.createShader(type);
-  gl.shaderSource(s, source);
-  gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-    throw new Error("the shader did not compile: " + gl.getShaderInfoLog(s));
-  }
-  return s;
-}
-
-function texture(gl, unit) {
-  const t = gl.createTexture();
-  gl.activeTexture(gl.TEXTURE0 + unit);
-  gl.bindTexture(gl.TEXTURE_2D, t);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  return t;
-}
-
-/** The canvas and the program that smooth a frame of the current size. */
-function makeSmoother() {
-  const canvas = new OffscreenCanvas(width, height);
-  const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false });
-  if (!gl) throw new Error("no WebGL 2");
-  const program = gl.createProgram();
-  gl.attachShader(program, shader(gl, gl.VERTEX_SHADER, VERTEX));
-  gl.attachShader(program, shader(gl, gl.FRAGMENT_SHADER, FRAGMENT));
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error("the program did not link: " + gl.getProgramInfoLog(program));
-  }
-  gl.useProgram(program);
-  // one triangle over the whole canvas
-  const buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-  const pos = gl.getAttribLocation(program, "a_pos");
-  gl.enableVertexAttribArray(pos);
-  gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
-  const frameTexture = texture(gl, 0);
-  const skinTexture = texture(gl, 1);
-  gl.uniform1i(gl.getUniformLocation(program, "u_frame"), 0);
-  gl.uniform1i(gl.getUniformLocation(program, "u_skin"), 1);
-  gl.uniform2f(gl.getUniformLocation(program, "u_texel"), 1 / width, 1 / height);
-  gl.viewport(0, 0, width, height);
-  return {
-    canvas,
-    gl,
-    frameTexture,
-    skinTexture,
-    step: gl.getUniformLocation(program, "u_step"),
-    range: gl.getUniformLocation(program, "u_range"),
-    strength: gl.getUniformLocation(program, "u_strength"),
-  };
-}
-
-function upload(gl, frame) {
-  try {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
-  } catch (_error) {
-    if (!copy || copy.width !== width || copy.height !== height) {
-      copy = new OffscreenCanvas(width, height);
-      copyCtx = copy.getContext("2d");
-    }
-    copyCtx.drawImage(frame, 0, 0, width, height);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, copy);
-  }
-}
-
-/**
- * The frame with its skin smoothed by the level of the settings, as a
- * canvas; the frame itself when there is no face, or no GPU.
- */
-function smooth(frame) {
-  const level = touchUps[settings.touchUp];
-  if (!level || !faceSeen || smootherFailed) return frame;
-  if (!smoother) {
-    try {
-      smoother = makeSmoother();
-    } catch (error) {
-      smootherFailed = true;
-      console.warn("[effects] no smoothing:", error);
-      return frame;
-    }
-  }
-  const { gl } = smoother;
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, smoother.frameTexture);
-  upload(gl, frame);
-  gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, smoother.skinTexture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, skin);
-  gl.uniform1f(smoother.step, level.step * (width / 1280));
-  gl.uniform1f(smoother.range, level.range);
-  gl.uniform1f(smoother.strength, level.strength);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-  return smoother.canvas;
-}
-
-// --- the picture that goes out ----------------------------------------
-
-/** `source` is the frame, or the frame with its skin smoothed. */
-function compose(source) {
-  const filter = settings.autoLight ? filterOf(light) : "none";
-  outCtx.filter = "none";
-  outCtx.globalCompositeOperation = "source-over";
-  if (!needsMask() || !maskSeen) {
-    outCtx.filter = filter;
-    outCtx.drawImage(source, 0, 0, width, height);
-    outCtx.filter = "none";
-    return;
-  }
-  // the background
-  if (settings.background === "blur") {
-    bgCtx.filter = "blur(6px)";
-    bgCtx.drawImage(source, 0, 0, bg.width, bg.height);
-    bgCtx.filter = "none";
-    outCtx.filter = filter;
-    outCtx.drawImage(bg, 0, 0, width, height);
-    outCtx.filter = "none";
-  } else {
-    outCtx.fillStyle = COLORS[settings.background] || COLORS.black;
-    outCtx.fillRect(0, 0, width, height);
-  }
-  // the person: the frame, kept where the mask is, its edge softened
-  personCtx.globalCompositeOperation = "source-over";
-  personCtx.filter = filter;
-  personCtx.clearRect(0, 0, width, height);
-  personCtx.drawImage(source, 0, 0, width, height);
-  personCtx.filter = "blur(2px)";
-  personCtx.globalCompositeOperation = "destination-in";
-  personCtx.drawImage(maskCanvas, 0, 0, width, height);
-  personCtx.filter = "none";
-  personCtx.globalCompositeOperation = "source-over";
-  outCtx.drawImage(person, 0, 0);
-}
-
-function transform(frame, controller) {
-  // something to do with a model that runs, or the light
-  const can = (needsMask() && segmenter) || settings.autoLight || (needsFace() && landmarker);
-  if (!can) {
-    controller.enqueue(frame);
-    return;
-  }
-  try {
-    const w = frame.displayWidth || frame.codedWidth;
-    const h = frame.displayHeight || frame.codedHeight;
-    sizeTo(w, h);
-    const timestamp = frame.timestamp / 1000;
-    smallCtx.drawImage(frame, 0, 0, MASK_WIDTH, MASK_HEIGHT);
-    if (needsMask() && segmenter) segment(timestamp);
-    if (settings.autoLight && frames++ % LIGHT_EVERY === 0) measureLight();
-    let source = frame;
-    if (needsFace() && landmarker) {
+    if (needsFace() && detector && (offline || faceTick++ % FACE_EVERY === 0 || !faceSeen)) {
       faceCtx.drawImage(frame, 0, 0, FACE_WIDTH, FACE_HEIGHT);
-      findFace(timestamp);
-      source = smooth(frame);
+      message.face = face.transferToImageBitmap();
+      transfer.push(message.face);
     }
-    compose(source);
-    const made = new VideoFrame(out, { timestamp: frame.timestamp, alpha: "discard" });
+  });
+  if (!transfer.length) return false;
+  busy = true;
+  models.postMessage(message, transfer);
+  return true;
+}
+
+/** The frames that went out, told every RATE_MS. */
+function counted() {
+  const now = performance.now();
+  if (!rateSince) rateSince = now;
+  rateFrames++;
+  if (now - rateSince >= RATE_MS) {
+    const ms = now - rateSince;
+    const each = {};
+    for (const [name, total] of Object.entries(stages)) each[name] = Math.round((total / rateFrames) * 10) / 10;
+    self.postMessage({ type: "rate", frames: rateFrames, ms, stages: each });
+    const gpuMs = gpu ? gpu.gpuTime() : null;
+    const dropped = gpu ? gpu.readsDropped() : 0;
+    if (settings.log) {
+      const glError = gpu ? gpu.error() : null;
+      console.info(
+        `[effects] ${((rateFrames * 1000) / ms).toFixed(1)} fps, ${((skinsBack * 1000) / ms).toFixed(1)} skins a second; a frame: ` +
+          Object.entries(each).map(([name, t]) => `${name} ${t} ms`).join(", ") +
+          (gpuMs === null ? "" : `, gpu ${gpuMs} ms`) +
+          (dropped ? `, ${dropped} not read back (the GPU behind)` : "") +
+          (glError ? `, WebGL error ${glError}` : "")
+      );
+    }
+    rateFrames = 0;
+    skinsBack = 0;
+    rateSince = now;
+    stages = { segmenter: 0, copies: 0, picture: 0 };
+  }
+}
+
+/** Whether there is something to do: a model that runs, or the light. */
+function active() {
+  return (needsMask() && segmenter) || settings.autoLight || (needsFace() && detector);
+}
+
+/**
+ * The frame's size; the compositor's passes made for it. Null without
+ * a compositor.
+ */
+function prepared(frame) {
+  const g = compositorOf();
+  if (!g) return null;
+  width = frame.displayWidth || frame.codedWidth;
+  height = frame.displayHeight || frame.codedHeight;
+  g.resize(width, height);
+  return g;
+}
+
+/**
+ * The picture of `frame` with its mask and the last skin, `frame`
+ * closed: live (`read`), the pictures of the frames before whose copies
+ * into memory are done (none, one, now and then two), else a VideoFrame
+ * of the canvas; `[frame]` itself on an error, live; a recorded file's
+ * frame throws instead, as its raw picture must not go up.
+ */
+function draw(g, frame, read) {
+  try {
+    if (needsMask() && segmenter) timed("segmenter", () => segment(g, frame));
+    if (skinNew && skin) {
+      g.skin(skin);
+      skinNew = false;
+    }
+    const level = touchUps[settings.touchUp];
+    const made = timed("picture", () => {
+      // the pictures done taken before the next is read into a buffer
+      const done = read ? g.pictures() : null;
+      g.draw(frame, {
+        background: needsMask() && g.maskSeen ? settings.background : "off",
+        color: COLORS[settings.background],
+        light: settings.autoLight ? light : neutral,
+        touchUp: level && faceSeen && needsFace() && skin ? level : null,
+        read,
+        timestamp: frame.timestamp,
+      });
+      return read ? done : [new VideoFrame(canvas, { timestamp: frame.timestamp, alpha: "discard" })];
+    });
     frame.close();
-    controller.enqueue(made);
+    return made;
   } catch (error) {
     console.error("[effects]", error);
-    controller.enqueue(frame);
+    if (offline) {
+      frame.close();
+      throw error;
+    }
+    return [frame];
+  }
+}
+
+/**
+ * A live frame: copies to the face's worker when it is free, the
+ * picture drawn and read back; the frames to send on.
+ */
+function paint(frame) {
+  if (!active()) {
+    if (gpu) gpu.forget();
+    return [frame];
+  }
+  const g = prepared(frame);
+  if (!g) return [frame];
+  if (!busy) toModels(g, frame);
+  return draw(g, frame, true);
+}
+
+/** A frame of a recorded file: its own skin waited for, then the picture. */
+async function paintWaiting(frame) {
+  counted();
+  const g = active() ? prepared(frame) : null;
+  if (!g) {
+    frame.close();
+    throw new Error("the effects do not run");
+  }
+  const back = new Promise((resolve, reject) => {
+    waiting = resolve;
+    setTimeout(() => reject(new Error("the face's worker did not answer")), MODELS_WAIT_MS);
+  });
+  try {
+    if (toModels(g, frame)) await back;
+  } catch (error) {
+    frame.close();
+    throw error;
+  } finally {
+    waiting = null;
+  }
+  return draw(g, frame, false)[0];
+}
+
+// while the webcam records as it is, only every so many frames of the preview
+let previewEvery = 1;
+let previewTick = 0;
+
+function transform(frame, controller) {
+  if (previewEvery > 1 && previewTick++ % previewEvery !== 0) {
+    frame.close();
+    return;
+  }
+  for (const made of paint(frame)) {
+    counted();
+    controller.enqueue(made);
   }
 }
 
@@ -540,6 +447,9 @@ function start(readable, writable) {
     .catch((error) => console.warn("[effects] the stream ended:", error));
 }
 
+// the frames of a recorded file, one after the other
+let frames = Promise.resolve();
+
 self.onmessage = (event) => {
   const data = event.data || {};
   if (data.type === "start") {
@@ -547,8 +457,24 @@ self.onmessage = (event) => {
     start(data.readable, data.writable);
   } else if (data.type === "settings") {
     settings = data.settings || settings;
-    if (!needsMask()) maskSeen = false;
     if (!needsFace()) faceSeen = false;
+    if (!needsMask() && gpu) gpu.forgetMask();
     if (started) loadNeeded(true);
+  } else if (data.type === "preview") {
+    previewEvery = Math.max(1, data.every || 1);
+  } else if (data.type === "offline") {
+    settings = data.settings || settings;
+    started = true;
+    offline = true;
+    loadNeeded(false);
+  } else if (data.type === "frame") {
+    frames = frames.then(async () => {
+      try {
+        const made = await paintWaiting(data.frame);
+        self.postMessage({ type: "frame", id: data.id, frame: made }, [made]);
+      } catch (error) {
+        self.postMessage({ type: "frame", id: data.id, error: String((error && error.message) || error) });
+      }
+    });
   }
 };

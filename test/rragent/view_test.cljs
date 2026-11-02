@@ -381,10 +381,15 @@
         (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
     (testing "the Input section: which key sends, the browser's choice"
       (let [input (i18n/translate (view/page {:agent {} :conversation nil :locale :de :settings? true :settings-section :input}) :de)]
-        (is (= ["Updates" "Eingabe" "MCP-Server"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
+        (is (= ["Updates" "Eingabe" "Aufnahme" "MCP-Server"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
         (is (= {:ui/ctrl-enter "Strg+Enter sendet (⌘+Enter auf dem Mac), Enter bricht die Zeile um"
                 :ui/enter "Enter sendet, Strg+Enter (⌘+Enter auf dem Mac) bricht die Zeile um"}
                (second (find-tag input :ui/send-key))))))
+    (testing "the Recording section: when the webcam's effects are made, the browser's choice"
+      (let [recording (i18n/translate (view/page {:agent {} :conversation nil :locale :de :settings? true :settings-section :recording}) :de)
+            choices (second (find-tag recording :ui/effects-timing))]
+        (is (str/starts-with? (:ui/live choices) "Live"))
+        (is (str/starts-with? (:ui/after choices) "Nach der Aufnahme"))))
     (testing "the composer's title for either key"
       (let [composer (second (find-tag (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en) :ui/composer))]
         (is (str/starts-with? (:title composer) "Ctrl+Enter sends"))

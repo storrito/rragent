@@ -40,6 +40,7 @@
             [rframes.client.ui :as ui]
             [rragent.client.dictation :as dictation]
             [rragent.client.editor :as editor]
+            [rragent.client.effects :as effects]
             [rragent.client.icons :as icons]
             [rragent.client.phone :as phone]
             [rragent.client.recorder :as recorder]
@@ -510,6 +511,25 @@
                  :value k
                  :checked (= k chosen)
                  :on {:change (fn [_] (choose-send-key! k))}}]
+        " " label])]))
+
+(defn effects-timing-alias
+  "`[:ui/effects-timing {:ui/live :ui/after}]` in the settings: when
+   the webcam's effects are made, live while it records or after the
+   recording (`rragent.client.effects/timing`), as radio buttons, their
+   words the server's."
+  [{:keys [ui/live ui/after ui/state]} _children]
+  (let [chosen (or (:ui/effects-timing state) (effects/timing))]
+    [:div.effects-timing
+     (for [[k label] [["live" live] ["after" after]]]
+       [:label {:replicant/key k}
+        [:input {:type "radio"
+                 :name "effects-timing"
+                 :value k
+                 :checked (= k chosen)
+                 :on {:change (fn [_]
+                                (effects/choose-timing! k)
+                                (swap! state/store assoc :ui/effects-timing k))}}]
         " " label])]))
 
 (defn- break-line!
@@ -1283,6 +1303,8 @@
     :ui.alias/fn theme-toggle}
    {:ui.alias/kind :ui/send-key
     :ui.alias/fn send-key-alias}
+   {:ui.alias/kind :ui/effects-timing
+    :ui.alias/fn effects-timing-alias}
    {:ui.alias/kind :ui/url
     :ui.alias/fn url-alias}
    {:ui.alias/kind :ui/pane-history
