@@ -1137,14 +1137,17 @@
                     :style {:stroke-dasharray (str (* c (js/Math.min 1 (js/Math.max 0 fraction))) " " c)}}]]))
 
 (defn context-alias
-  "`[:ui/context {:ui/used :ui/window :ui/cost :ui/model :ui/labels}]`
-   in the header: how full the model's context is, a ring; a click
-   opens the usage card below it (`:ui/context-open?`, client state):
-   the model's name, the percent and a bar, the tokens of the window,
-   the cost of the conversation so far, and a word of advice when it
-   gets full. A click beside it, or Escape, closes it again
-   (`bot-listeners`)."
-  [{:keys [ui/used ui/window ui/cost ui/model ui/labels ui/state]} _children]
+  "`[:ui/context {:ui/used :ui/window :ui/cost :ui/model :ui/bot
+   :ui/compacting? :ui/labels}]` in the header: how full the model's
+   context is, a ring; a click opens the usage card below it
+   (`:ui/context-open?`, client state): the model's name, the percent
+   and a bar, the tokens of the window, the cost of the conversation
+   so far, a word of advice when it gets full, and the button that
+   summarizes the older messages now (`:chat/compact` for the bot
+   `:ui/bot`; a run's page names none), which waits, saying so, while
+   a compaction runs. A click beside the card, or Escape, closes it
+   again (`bot-listeners`)."
+  [{:keys [ui/used ui/window ui/cost ui/model ui/bot ui/compacting? ui/labels ui/state]} _children]
   (let [fraction (when (and window (pos? window)) (/ used window))
         percent (when fraction (js/Math.round (* 100 fraction)))
         level (cond
@@ -1180,7 +1183,14 @@
         (when cost
           [:p.muted (fill-in (:cost labels) {:cost (str "$" (.toFixed cost 2))})])
         (when (and fraction (>= fraction 0.7))
-          [:p.hint (:hint labels)])])]))
+          [:p.hint (:hint labels)])
+        (when bot
+          [:button.compact {:type "button"
+                            :disabled (when compacting? true)
+                            :on {:click (fn [_]
+                                          (state/dispatch! [[:data/command {:command/kind :chat/compact
+                                                                            :command/data {:bot bot}}]]))}}
+           (if compacting? (:compacting labels) (:compact labels))])])]))
 
 (def pane-width-key
   "Where the browser keeps the width of the pane the person dragged."
