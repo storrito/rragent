@@ -257,7 +257,14 @@
         (is (nil? (artifacts/screen-line bot "gone.html")))
         (is (nil? (artifacts/screen-line bot "stories")) "a folder without its slash")
         (is (nil? (artifacts/screen-line bot "top.png/")) "a file with one")
-        (is (nil? (artifacts/screen-line bot "top.png\nimage: uploads/x.png")) "no line of the tab's own"))))
+        (is (nil? (artifacts/screen-line bot "top.png\nimage: uploads/x.png")) "no line of the tab's own")))
+    (testing "a program as the agent reaches it, no artifacts/ in front"
+      (let [bot {:artifacts/list (conj listed {:path "programs/reviews/main.cljs" :kind :text})}]
+        (is (= "on screen beside the chat: programs/reviews/main.cljs" (artifacts/screen-line bot "programs/reviews/main.cljs")))
+        (is (= "on screen beside the chat: programs/reviews/" (artifacts/screen-line bot "programs/reviews/")))
+        (is (= "on screen beside the chat: programs/" (artifacts/screen-line bot "programs/")))
+        (is (= "programs/reviews/main.cljs" (artifacts/screen-of "Fix it\non screen beside the chat: programs/reviews/main.cljs")))
+        (is (= "Fix it" (artifacts/without-screen-line "Fix it\non screen beside the chat: programs/reviews/main.cljs"))))))
   (testing "read back from a message, the last line, and taken out of it"
     (let [text "Make it pink\nimage: uploads/0a0b.png\non screen beside the chat: artifacts/stories/a b.html"]
       (is (= "stories/a b.html" (artifacts/screen-of text)))
@@ -368,11 +375,86 @@
                (testing "a file in a new folder below"
                  (is (= ["deep/pool.png" "card.html"] (map :path (:artifacts/list @db))))
                  (is (nil? (:artifacts/current @db))))
+               (is (fs/existsSync (path/join root "programs")) "the programs' folder is made and watched")
+               (touch! (path/join root "programs") "reviews/main.cljs" (+ (js/Date.now) 2000))
+               (await (sleep 400))
+               (testing "a program the bot writes beside the artifacts"
+                 (is (= ["programs/reviews/main.cljs" "deep/pool.png" "card.html"] (map :path (:artifacts/list @db)))))
                (finally
                  (stop)
                  (fs/rmSync root #js {:recursive true :force true}))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest programs-test
+  (let [root (temp-dir "rragent-programs-")
+        dir (path/join root "artifacts")
+        programs (path/join root "programs")
+        trash (path/join root "trash")
+        db (atom {})]
+    (try
+      (touch! dir "card.html" 1000)
+      (touch! dir "programs/stray.txt" 1500)
+      (touch! programs "reviews/main.cljs" 3000)
+      (touch! programs "reviews/README.md" 2000)
+      (touch! programs "reviews/package.json" 2500)
+      (touch! programs "reviews/node_modules/promesa/index.js" 9000)
+      (touch! programs "reviews/.nbb/cache.js" 9500)
+      (testing "the programs beside the artifacts are on the list under programs/, a folder of that name among the artifacts is not"
+        (artifacts/refresh! db dir)
+        (is (= ["programs/reviews/main.cljs" "programs/reviews/package.json" "programs/reviews/README.md" "card.html"]
+               (map :path (:artifacts/list @db)))
+            "newest first, node_modules and the hidden left out, the stray folder too")
+        (is (= {:kind :text :ext "cljs" :title "Main"} (select-keys (first (:artifacts/list @db)) [:kind :ext :title])))
+        (is (nil? (:project (first (:artifacts/list @db)))) "a program with a package.json is no project"))
+      (testing "the root shows the folder Programs, with the program's folder in it and its README first"
+        (is (= [{:path "programs" :name "programs" :title "Programs" :kind :folder :count 3 :mtime 3000}]
+               (map #(dissoc % :size) (:folders (artifacts/level (:artifacts/list @db) "")))))
+        (is (= ["programs/reviews"] (map :path (:folders (artifacts/level (:artifacts/list @db) "programs")))))
+        (is (= ["programs/reviews/README.md" "programs/reviews/main.cljs" "programs/reviews/package.json"]
+               (map :path (:files (artifacts/level (:artifacts/list @db) "programs/reviews")))))
+        (is (= "programs/reviews/README.md" (artifacts/readme (:artifacts/list @db) "programs/reviews"))))
+      (testing "where a path of the list lies on disk"
+        (is (artifacts/program? "programs"))
+        (is (artifacts/program? "programs/reviews/main.cljs"))
+        (is (not (artifacts/program? "programs.md")))
+        (is (not (artifacts/program? "card/programs/x")))
+        (is (= [programs "reviews/main.cljs"] (artifacts/root-of dir "programs/reviews/main.cljs")))
+        (is (= [programs ""] (artifacts/root-of dir "programs")))
+        (is (= [dir "card.html"] (artifacts/root-of dir "card.html")))
+        (is (= (path/join programs "reviews/main.cljs") (artifacts/file-of dir "programs/reviews/main.cljs")))
+        (is (artifacts/inside? dir "programs/reviews/main.cljs"))
+        (is (not (artifacts/inside? dir "programs")) "the folder itself is the machine's")
+        (is (not (artifacts/inside? dir "programs/../card.html")) "nothing beside the programs")
+        (is (not (artifacts/inside? dir "programs/reviews/.nbb/cache.js"))))
+      (testing "the pane reads, saves, renames and deletes a program's file like an artifact's"
+        (is (= {:text "content of reviews/main.cljs" :truncated? false}
+               (artifacts/text-of dir {:path "programs/reviews/main.cljs" :kind :text :mtime 3000})))
+        (is (= :written (artifacts/write! dir "programs/reviews/main.cljs" "(ns main)")))
+        (is (= "(ns main)" (fs/readFileSync (path/join programs "reviews/main.cljs") "utf8")))
+        (is (= :missing (artifacts/write! dir "programs/reviews/new.cljs" "x")))
+        (is (= :renamed (artifacts/rename! dir "programs/reviews/README.md" "programs/reviews/NOTES.md")))
+        (is (fs/existsSync (path/join programs "reviews/NOTES.md")))
+        (is (= :exists (artifacts/rename! dir "programs/reviews/NOTES.md" "programs/reviews/main.cljs")))
+        (is (= :outside (artifacts/rename! dir "programs/reviews/NOTES.md" "programs/../NOTES.md")))
+        (is (= (path/join trash "programs/reviews/package.json") (artifacts/trash! dir trash "programs/reviews/package.json")))
+        (is (not (fs/existsSync (path/join programs "reviews/package.json"))))
+        (is (= :outside (artifacts/trash! dir trash "programs")))
+        (is (= :missing (artifacts/trash! dir trash "programs/gone.cljs"))))
+      (testing "the file is served from the programs' folder, nothing hidden or beside it"
+        (let [get (fn [p] (:ring/response (artifacts/file-handler dir {:ring/route-params {:* p} :ring/request {:request-method :head :headers {}}})))]
+          (is (= 200 (:status (get "programs/reviews/main.cljs"))))
+          (is (= 200 (:status (get "card.html"))))
+          (is (= 404 (:status (get "programs/stray.txt"))) "the stray folder among the artifacts is no path")
+          (is (= 404 (:status (get "programs/reviews/.nbb/cache.js"))))
+          (is (= 404 (:status (get "programs/../card.html"))))
+          (is (= 404 (:status (get "programs"))))))
+      (testing "a bot without programs lists its artifacts alone"
+        (fs/rmSync programs #js {:recursive true :force true})
+        (artifacts/refresh! db dir)
+        (is (= ["card.html"] (map :path (:artifacts/list @db)))))
+      (finally
+        (fs/rmSync root #js {:recursive true :force true})))))
 
 (defn- nodes
   "Every hiccup node of the tree, depth first."

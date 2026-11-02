@@ -9,9 +9,11 @@
    `work/artifacts/`, what the pane shows, `work/uploads/`, what
    the person attached to a message, `work/programs/`, the programs
    the bot writes (`deploy/agent/AGENT.md` tells it how, from the
-   bundle's `starters/`), and `work/imports/`, what those programs
-   fetched or scraped, kept as it came; the bot makes both itself. `home`, `database` and `bot-dir`
-   are the machine's; the other functions take a bot's folder."
+   bundle's `starters/`), which the pane shows beside the artifacts as
+   their folder `programs/` (`rragent.artifacts`), and `work/imports/`,
+   what those programs fetched or scraped, kept as it came, which the
+   bot makes itself. `home`, `database` and `bot-dir` are the
+   machine's; the other functions take a bot's folder."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]))
 
@@ -58,6 +60,14 @@
   (let [dir (path/join work "artifacts")]
     (fs/mkdirSync dir #js {:recursive true})
     dir))
+
+(defn programs-dir
+  "The programs the bot writes, under `work/`, which it reaches as
+   `programs/<name>/`; the pane lists them as the artifacts' folder
+   `programs/` (`rragent.artifacts/programs-folder`) and makes the
+   folder when it starts to watch it."
+  [work]
+  (path/join work "programs"))
 
 (defn uploads-dir
   "What the person attaches to a message, under `work/`: the files

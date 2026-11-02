@@ -140,6 +140,8 @@
       (is (= "_blank" (attribute (markdown/parse "[x](https://x.test/)" opts) :a :target)))
       (is (= "/bot/b1/artifacts/card.html" (attribute (markdown/parse "[c](/artifacts/card.html)" opts) :a :href)))
       (is (= "card.html" (attribute (markdown/parse "[c](/artifacts/card.html)" opts) :a :data-artifact)))
+      (is (= "/bot/b1/artifacts/programs/reviews/main.cljs" (attribute (markdown/parse "[m](programs/reviews/main.cljs)" opts) :a :href)) "a program, as the pane lists it")
+      (is (= "programs/reviews/main.cljs" (attribute (markdown/parse "[m](programs/reviews/main.cljs)" opts) :a :data-artifact)))
       (is (= "../../x.md" (attribute (markdown/parse "[x](../../x.md)" opts) :a :href)) "one that leads above the artifacts stays as written")
       (is (= "docs/x.md" (attribute (markdown/parse "[x](docs/x.md)" {:base "/bot/b1"}) :a :href)) "in the chat, no folder, as before"))
     (testing "the path a relative link names"

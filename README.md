@@ -604,8 +604,11 @@ Replaying is fast enough at a customer's scale, and a snapshot event
 is the escape hatch nobody needs today. The build copies it to
 `dist/starters/nbb`, so a release carries it and a bot reads it from
 there; a bot's programs live in `programs/<name>/` under its `work/`,
-beside `artifacts/` and out of the person's sight (the artifacts pane
-hides nothing, and `node_modules` is no sight for anyone). The images
+beside `artifacts/`, and the artifacts pane lists that folder as
+`programs/` of its root (`rragent.artifacts/programs-folder`), so that
+the person sees the code that runs for them and can show it to someone
+who reads Clojure; the pane hides nothing but the dot files, and
+`node_modules` is no sight for anyone. The images
 install nbb (`NBB_VERSION`, the version `package.json` pins for the
 tests); the Tests workflow runs the example's tests from the bundle's
 copy.
