@@ -160,6 +160,32 @@
   [home]
   (sort (array-seq (fs/readdirSync home))))
 
+(deftest set-metadata-test
+  (let [home (temp-home)]
+    (try
+      (bots/write-definition! home 7 assistant)
+      (let [text (fn [] (fs/readFileSync (path/join (home/bot-dir home 7) "AGENT.md") "utf8"))]
+        (testing "a key under metadata is replaced in place, a new one added right under metadata:, the body stays"
+          (is (= "anthropic/claude-opus-5.5" (bots/set-metadata! home 7 "model" "anthropic/claude-opus-5.5")))
+          (is (str/includes? (text) "metadata:\n  model: anthropic/claude-opus-5.5\n---") "the model line replaced")
+          (is (= "low" (bots/set-metadata! home 7 "thinking" "low")))
+          (is (str/includes? (text) "metadata:\n  thinking: low\n  model: anthropic/claude-opus-5.5\n") "the new line right under metadata:")
+          (is (str/includes? (text) "# Assistant\n\nYou are a new agent.") "the body as it was")
+          (let [definition (definition/definition (home/definition-file (home/bot-dir home 7)))]
+            (is (= "anthropic/claude-opus-5.5" (:model definition)))
+            (is (= "low" (:thinking definition))))
+          (bots/set-metadata! home 7 "thinking" "max")
+          (is (= 1 (count (re-seq #"(?m)^  thinking:" (text)))) "once")
+          (is (= "max" (:thinking (definition/definition (home/definition-file (home/bot-dir home 7)))))))
+        (testing "a definition without a metadata block gets one after the name"
+          (fs/writeFileSync (path/join (home/bot-dir home 7) "AGENT.md") "---\nname: Plain\ndescription: Bare.\n---\n\nBody\n")
+          (bots/set-metadata! home 7 "thinking" "medium")
+          (is (= "---\nname: Plain\nmetadata:\n  thinking: medium\ndescription: Bare.\n---\n\nBody\n" (text)))
+          (is (= "medium" (:thinking (definition/definition (home/definition-file (home/bot-dir home 7)))))))
+        (is (thrown? js/Error (bots/set-metadata! home 9 "model" "x")) "no definition"))
+      (finally
+        (fs/rmSync home #js {:recursive true :force true})))))
+
 (deftest migrate-test
   (let [home (old-home! test-home/definition-text)]
     (try

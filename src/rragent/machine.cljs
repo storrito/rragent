@@ -34,6 +34,7 @@
             [rragent.harness :as harness]
             [rragent.history :as history]
             [rragent.home :as home]
+            [rragent.models :as models]
             [rragent.projects :as projects]
             [rragent.reload :as reload]
             [rragent.render :as render]
@@ -74,6 +75,25 @@
         (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-contextWindow (min (harness/context-tokens)))
         (catch :default _
           nil)))))
+
+(defn model-cost
+  "What a million tokens cost on the model `id`, `{:input :output}` in
+   dollars, from the models registry of the agent; nil for a model it
+   does not know."
+  [id]
+  (let [{:keys [models provider]} (agent)]
+    (when (and models (seq (str id)))
+      (try
+        (when-let [cost (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-cost)]
+          {:input (.-input cost) :output (.-output cost)})
+        (catch :default _
+          nil)))))
+
+(defn model-choices
+  "The models the page offers (`rragent.models/choices`), each with its
+   `:cost` when the registry knows the model."
+  []
+  (mapv #(assoc % :cost (model-cost (:id %))) models/choices))
 
 (defn bot
   "The map of the open bot `id`, nil for none."
@@ -468,6 +488,16 @@
     (when-let [{:keys [conversation]} (bot id)]
       (await (reload/reload! conversation harness/context)))
     name))
+
+(defn ^:async set-metadata!
+  "The `key` of the bot's definition metadata set to `value`
+   (`rragent.bots/set-metadata!`) and the conversation configured from
+   the file at once (`rragent.reload`), so the page shows the pick now."
+  [id key value]
+  (let [value (bots/set-metadata! (home) id key value)]
+    (when-let [{:keys [conversation]} (bot id)]
+      (await (reload/reload! conversation harness/context)))
+    value))
 
 (defn ^:async delete!
   "The bot hidden: closed, marked deleted in the session document,
