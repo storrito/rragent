@@ -85,7 +85,20 @@
    "ttf" "font/ttf"
    "otf" "font/otf"
    "txt" "text/plain; charset=utf-8"
-   "vtt" "text/vtt; charset=utf-8"})
+   "vtt" "text/vtt; charset=utf-8"
+   "srt" "text/plain; charset=utf-8"
+   "md" "text/markdown; charset=utf-8"
+   "markdown" "text/markdown; charset=utf-8"
+   "csv" "text/csv; charset=utf-8"
+   "tsv" "text/tab-separated-values; charset=utf-8"
+   "xml" "application/xml; charset=utf-8"
+   "yaml" "text/plain; charset=utf-8"
+   "yml" "text/plain; charset=utf-8"
+   "toml" "text/plain; charset=utf-8"
+   "edn" "text/plain; charset=utf-8"
+   "log" "text/plain; charset=utf-8"
+   "pdf" "application/pdf"
+   "zip" "application/zip"})
 
 (defn content-type
   [file-name]
