@@ -45,7 +45,7 @@
 
 (deftest session-test
   (testing "the session is made for the agent's user id with Storrito's config: nothing that charges or reaches past the tools"
-    (is (= {:instant false :workbench {:enable false} :proxy_execute {:enable false} :manage_connections {:enable true} :user_id "agent-1"}
+    (is (= {:instant {:return_instant_charge true} :workbench {:enable false} :proxy_execute {:enable false} :manage_connections {:enable true} :user_id "agent-1"}
            (composio/session-body "agent-1")))
     (is (= "/api/v3.1/tool_router/session" composio/session-path))))
 

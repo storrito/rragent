@@ -54,6 +54,28 @@
                  (if (nil? before) (js-delete env "COMPOSIO_SESSION_ID") (aset env "COMPOSIO_SESSION_ID" before)))))))
         (.finally done))))
 
+(deftest ensure-instant-test
+  (async done
+    (-> ((^:async fn []
+           (let [patch ["PATCH" (composio/session-path-of "trs_old")]]
+             (testing "a session made now has its Instant tools, one of the environment is left as it was made, one switched on before is not asked again: no call"
+               (let [calls (atom [])]
+                 (is (= {:instant true :source :made} (await (setup/ensure-instant! (fake-fetch {} calls) "conn_c" {:session "trs_new" :source :made} false))))
+                 (is (= {:instant false :source :left} (await (setup/ensure-instant! (fake-fetch {} calls) "conn_c" {:session "trs_env" :source :environment} false))))
+                 (is (= {:instant true :source :done} (await (setup/ensure-instant! (fake-fetch {} calls) "conn_c" {:session "trs_old" :source :stored} true))))
+                 (is (= [] @calls))))
+             (testing "a session of an earlier run, from before: switched on with the session's Instant config"
+               (let [calls (atom [])]
+                 (is (= {:instant true :source :switched}
+                        (await (setup/ensure-instant! (fake-fetch {patch {:status 200 :body {:session_id "trs_old"}}} calls) "conn_c" {:session "trs_old" :source :stored} false))))
+                 (is (= [["PATCH" (composio/session-path-of "trs_old") {:instant {:return_instant_charge true}}]] @calls))))
+             (testing "Composio refusing, or the gateway failing, is said and nothing thrown: the session works on, the next run tries again"
+               (is (= {:instant false :source :refused :message "HTTP 403: Project API key is not allowed for this endpoint"}
+                      (await (setup/ensure-instant! (fake-fetch {patch {:status 403 :body {:error {:message "Project API key is not allowed for this endpoint"}}}} (atom [])) "conn_c" {:session "trs_old" :source :stored} false))))
+               (is (= {:instant false :source :refused :message "socket hang up"}
+                      (await (setup/ensure-instant! (fn [& _] (js/Promise.reject (js/Error. "socket hang up"))) "conn_c" {:session "trs_old" :source :stored} false))))))))
+        (.finally done))))
+
 (deftest ensure-subscription-test
   (async done
     (-> ((^:async fn []
@@ -92,4 +114,10 @@
          (setup/report {:session {:session "trs_1" :source :made} :subscription {:url "https://x/composio/event" :source :made}})))
   (is (= "composio: session trs_1 (stored), no events (RRAGENT_URL is not set)"
          (setup/report {:session {:session "trs_1" :source :stored}})))
-  (is (= "composio: nothing" (setup/report {:skipped "nothing"}))))
+  (is (= "composio: nothing" (setup/report {:skipped "nothing"})))
+  (is (= "composio: session trs_1 (stored), Instant tools on (switched), no events (RRAGENT_URL is not set)"
+         (setup/report {:session {:session "trs_1" :source :stored} :instant {:instant true :source :switched}})))
+  (is (= "composio: session trs_1 (stored), Instant tools not switched on (HTTP 403: no), no events (RRAGENT_URL is not set)"
+         (setup/report {:session {:session "trs_1" :source :stored} :instant {:instant false :source :refused :message "HTTP 403: no"}})))
+  (is (= "composio: session trs_e (environment), Instant tools as the session was made elsewhere, no events (RRAGENT_URL is not set)"
+         (setup/report {:session {:session "trs_e" :source :environment} :instant {:instant false :source :left}}))))

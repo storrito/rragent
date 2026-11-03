@@ -7,7 +7,8 @@
    its own page (`/composio/event`, `rragent.composio-events`). Both
    are kept in the machine's storage, the session document
    `rragent.composio` (`Setup`): the session id, the subscription with
-   its signing secret, and the ids of the events seen. A run finds
+   its signing secret, whether the session's Instant tools are allowed
+   (`instant`), and the ids of the events seen. A run finds
    what an earlier run made: the session from the document (or from
    `COMPOSIO_SESSION_ID`, when the environment names one made
    elsewhere), the subscription from Composio's own list, one per
@@ -21,8 +22,9 @@
 
 (def Setup
   "The agent's Composio setup, a session document of the storage:
-   `session` (the id), `subscription` (`{id url secret}`) and `seen`
-   (the ids of the events taken, newest last)."
+   `session` (the id), `subscription` (`{id url secret}`), `instant`
+   (true once the session allows Instant tools) and `seen` (the ids of
+   the events taken, newest last)."
   (defineDoc #js {:kind "rragent.composio"
                   :version 1
                   :scope "session"
@@ -88,6 +90,27 @@
               {:session (:session_id body) :source :made}
               (throw (js/Error. (str "Composio answered HTTP " status " to the session: " (said body))))))))
 
+(defn ^:async ensure-instant!
+  "The session's Instant tools allowed (`rragent.composio/instant-config`),
+   once: a session made now has them; one an earlier run made, before
+   the agents had them, is changed (`PATCH`) unless `done?` (the
+   document says so); one of the environment, made elsewhere, is left
+   as it is. `{:instant :source}`, the source `:made`, `:done`,
+   `:switched`, `:left`, or `:refused` with Composio's `:message` (the
+   session works on without them, and the next run tries again)."
+  [fetch which {:keys [session source]} done?]
+  (cond
+    (= source :environment) {:instant false :source :left}
+    (= source :made) {:instant true :source :made}
+    done? {:instant true :source :done}
+    :else (try
+            (let [{:keys [status body]} (await (fetch which (composio/session-path-of session) {:method "PATCH" :body {:instant composio/instant-config}}))]
+              (if (ok? status)
+                {:instant true :source :switched}
+                {:instant false :source :refused :message (str "HTTP " status ": " (said body))}))
+            (catch :default e
+              {:instant false :source :refused :message (or (.-message e) (str e))}))))
+
 (defn- subscription-of
   [{:keys [id webhook_url secret]} source]
   {:id id :url webhook_url :secret secret :source source})
@@ -123,10 +146,15 @@
 
 (defn report
   "One line for the start."
-  [{:keys [session subscription skipped]}]
+  [{:keys [session instant subscription skipped]}]
   (cond
     skipped (str "composio: " skipped)
     :else (str "composio: session " (:session session) " (" (name (:source session)) ")"
+               (case (:source instant)
+                 nil ""
+                 :left ", Instant tools as the session was made elsewhere"
+                 :refused (str ", Instant tools not switched on (" (:message instant) ")")
+                 (str ", Instant tools on (" (name (:source instant)) ")"))
                (if subscription
                  (str ", events to " (:url subscription) " (" (name (:source subscription)) ")")
                  ", no events (RRAGENT_URL is not set)"))))
@@ -145,7 +173,9 @@
       (if-not connection
         (println (report {:skipped "no connection to Composio, the composio/ functions will say so"}))
         (let [stored (await (snapshot harness context))
-              session (await (ensure-session! fetch (:id connection) user-id (:session stored)))]
+              session (await (ensure-session! fetch (:id connection) user-id (:session stored)))
+              ;; a session made now, or another one than the document's, starts its Instant record anew
+              instant (await (ensure-instant! fetch (:id connection) session (and (= (:session stored) (:session session)) (true? (:instant stored)))))]
           (composio/set-session! (:session session))
           (composio/set-user-id! user-id)
           (let [subscription (when (seq (str url))
@@ -153,10 +183,11 @@
             (await (write! harness context
                            (fn [doc]
                              (aset doc "session" (:session session))
+                             (aset doc "instant" (:instant instant))
                              (when subscription
                                (aset doc "subscription" #js {:id (:id subscription) :url (:url subscription) :secret (:secret subscription)})))))
-            (println (report {:session session :subscription subscription}))
-            {:session session :subscription subscription}))))
+            (println (report {:session session :instant instant :subscription subscription}))
+            {:session session :instant instant :subscription subscription}))))
     (catch :default e
       (js/console.error "[composio] the setup failed:" (or (.-message e) e))
       nil)))
