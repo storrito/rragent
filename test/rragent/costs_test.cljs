@@ -20,15 +20,16 @@
         (if (nil? before) (js-delete env "RRAGENT_COST_FACTOR") (aset env "RRAGENT_COST_FACTOR" before))))))
 
 (deftest factor-test
-  (testing "the factor from the environment, 1 without one or with nonsense"
-    (with-factor nil #(is (= 1 (costs/factor))))
-    (with-factor "1.3" #(is (= 1.3 (costs/factor))))
-    (with-factor "abc" #(is (= 1 (costs/factor))))
-    (with-factor "0" #(is (= 1 (costs/factor))))
-    (with-factor "-2" #(is (= 1 (costs/factor)))))
+  (testing "the factor from the environment; Storrito's markup without one or with nonsense"
+    (with-factor nil #(is (= 1.3 (costs/factor))))
+    (with-factor "1" #(is (= 1 (costs/factor))))
+    (with-factor "1.5" #(is (= 1.5 (costs/factor))))
+    (with-factor "abc" #(is (= 1.3 (costs/factor))))
+    (with-factor "0" #(is (= 1.3 (costs/factor))))
+    (with-factor "-2" #(is (= 1.3 (costs/factor)))))
   (testing "what the page shows"
-    (with-factor "1.3" #(is (= 2.6 (costs/priced 2))))
-    (with-factor nil #(is (= 2 (costs/priced 2))))
+    (with-factor nil #(is (= 2.6 (costs/priced 2))))
+    (with-factor "1" #(is (= 2 (costs/priced 2))))
     (is (nil? (costs/priced nil)))))
 
 (def final-chunk

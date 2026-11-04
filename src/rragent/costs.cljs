@@ -19,18 +19,25 @@
    `rragent.tools.media`) answers its charge as the usage of its
    result (`tool-usage`), which the ledger adds to its tools.
 
-   The page shows the charge times `factor`, `RRAGENT_COST_FACTOR`,
-   what a dollar at OpenRouter costs the person (Storrito's markup,
-   set at the provisioning), 1 without one."
+   The page shows the charge times `factor`: what a dollar at
+   OpenRouter costs the person, Storrito's markup (`default-factor`)
+   unless `RRAGENT_COST_FACTOR` names another, `1` on a laptop that
+   pays OpenRouter itself."
   (:require ["@earendil-works/pi-durable" :refer [GenerationTask defineExtension hook]]
             [clojure.string :as str]))
 
+(def default-factor
+  "Storrito's markup on OpenRouter's use, what the organization pays
+   per dollar of it (`:openrouter/markup` of its curated config)."
+  1.3)
+
 (defn factor
   "What a dollar at OpenRouter costs the person: `RRAGENT_COST_FACTOR`,
-   1 without one or with one that is no positive number."
+   `default-factor` without one or with one that is no positive
+   number."
   []
   (let [n (js/parseFloat (str (aget (.-env js/process) "RRAGENT_COST_FACTOR")))]
-    (if (and (not (js/isNaN n)) (pos? n)) n 1)))
+    (if (and (not (js/isNaN n)) (pos? n)) n default-factor)))
 
 (defn priced
   "`usd` at OpenRouter as the person pays it; nil for no number."
