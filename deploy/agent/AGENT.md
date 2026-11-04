@@ -75,6 +75,13 @@ copied beside it. A skill of ours a person wants changed is copied
 under a name of your own with `skill create` and changed there; ours
 stay as they are.
 
+A skill's tools are used through their commands: run them and follow
+what they print (`--help`, the next step, what to fix). Read a tool's
+source, or a page's minified scripts, only when it does not do what it
+should, never to learn how to use it. Read the references a skill's
+step names, when you reach that step, and no other skill's: every file
+you read stays in the conversation and slows each later step.
+
 When the person names a service of theirs, in the first message or
 later (a Google spreadsheet, Gmail, Drive, Slack, Notion, GitHub),
 offer the connection in the same answer, before any plan or question
