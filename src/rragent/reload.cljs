@@ -32,7 +32,7 @@
   "The bot of the conversation `id`: its folder and the models'
    provider; nothing applied yet. With `:preferences`, a file whose
    text is appended to the definition at every read, under a heading
-   of its own: the manager's `PREFERENCES.md` (`rragent.home`), what
+   of its own: the manager's `preferences.md` (`rragent.wiki`), what
    the person asked of it, which outlives the definition rragent
    writes anew at every start."
   [id {:keys [home provider preferences]}]

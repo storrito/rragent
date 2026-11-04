@@ -329,8 +329,8 @@
    `thinking` of `current`, the file as it was, kept when they differ
    from the bundle's, since the person picks them on the page
    (`set-metadata!`). Written anew at every start of the machine
-   (`rragent.machine`); the person's own part lives in `PREFERENCES.md`
-   beside it (`rragent.reload/with-preferences`)."
+   (`rragent.machine`); the person's own part lives in the wiki's
+   `preferences.md` (`rragent.reload/with-preferences`)."
   [assistant current]
   (let [text (fs/readFileSync (bundled-manager-file) "utf8")
         text (if-let [section (on-this-machine assistant)]

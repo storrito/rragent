@@ -53,8 +53,9 @@ what to do with each before anything goes.
 1. The manager is a harness role, a record the harness makes on first
    start, not an environment variable. `/` lands on it, its tools
    differ. Its text is `MANAGER.md` from the bundle plus
-   `PREFERENCES.md` of its folder, assembled at load; hard rules of
-   the harness win on conflict.
+   `preferences.md` of its wiki (first `PREFERENCES.md` beside the
+   definition, moved into the wiki the same day), assembled at load;
+   hard rules of the harness win on conflict.
 2. Structure in pi-durable documents, not in an event table. The
    session document `rragent.bots` holds `hidden`, `manager`,
    `parents`, `projects` and `archived`; a worker's parent is written
@@ -110,7 +111,8 @@ from; `remember` stays for the facts a program checks.
   manager made at the open when the document names none, its folder
   `bots/<id>/` with `AGENT.md` written from the bundle's `MANAGER.md`
   at every open (its `model` and `thinking` kept from the file as it
-  was) and `PREFERENCES.md` appended at read time (`rragent.reload`);
+  was) and the wiki's `preferences.md` appended at read time
+  (`rragent.reload`);
   `/` lands on it; the manager's extension, selected for its
   conversation alone: `bot create` with `parent` (the manager),
   `project`, `model`, `thinking`; `bot archive`, `bot delete` with the

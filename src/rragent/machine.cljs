@@ -12,7 +12,7 @@
    manager, the bot the person lands on, made at the open when the
    document names none (`make-manager!`) and given its definition
    from the bundle at every open (`rragent.bots/manager-text`, with
-   `PREFERENCES.md` of its folder appended at every read,
+   `preferences.md` of its wiki appended at every read,
    `rragent.reload`); each bot's parent, the bot that made it with the
    `bot` tool, and its project, written in the commit that made its
    conversation (`relate-in!`); and the archived bots, whose chat is
@@ -509,7 +509,7 @@
                     :else (await (make-manager! agent)))
           _ (when manager
               (wiki/seed! (home/bot-dir (:home agent) manager) (js/Date.now)))
-          preferences (when manager (home/preferences-file (home/bot-dir (:home agent) manager)))
+          preferences (when manager (wiki/preferences-file (home/bot-dir (:home agent) manager)))
           ids (remove hidden (await (conversations (:harness agent))))]
       (doseq [id ids]
         (await (open-bot! id (when (and manager (= id manager)) {:preferences preferences}))))

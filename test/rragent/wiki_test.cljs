@@ -18,6 +18,8 @@
         (is (= :seeded (wiki/seed! home now)))
         (let [dir (wiki/dir home)]
           (is (str/includes? (fs/readFileSync (path/join dir "index.md") "utf8") "[log.md](log.md)"))
+          (is (str/includes? (fs/readFileSync (path/join dir "index.md") "utf8") "preferences.md"))
+          (is (= (path/join dir "preferences.md") (wiki/preferences-file home)))
           (is (str/ends-with? (fs/readFileSync (path/join dir "log.md") "utf8") "- 2026-11-04 · the wiki begins\n"))
           (is (= 1 (wiki/commits home)))
           (let [log (child/spawnSync "git" #js ["log" "-1" "--format=%an <%ae> %s"] #js {:cwd dir :encoding "utf8"})]

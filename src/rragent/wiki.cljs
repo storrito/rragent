@@ -6,7 +6,8 @@
    `log.md` the append-only record of what it did and when, `raw/`
    what the person brought as it came, `projects/<name>.md` one page
    per project, `workers/<id>.md` one per worker, `decisions.md`,
-   `brand.md`. The manager ingests (a report, an approval, a decision
+   `brand.md`, `preferences.md` what the person asked of the manager
+   (`preferences-file`). The manager ingests (a report, an approval, a decision
    goes into the pages, one commit with the log line as its message),
    queries (reads the index and the project's page at the start of a
    turn, not its own events) and lints (a weekly look for
@@ -26,6 +27,15 @@
   [bot-dir]
   (path/join bot-dir "wiki"))
 
+(defn preferences-file
+  "What the person asked of the manager, `preferences.md` of the wiki,
+   the person's page: appended to the manager's definition at every
+   read (`rragent.reload`), so that it shapes every turn and every run,
+   and in the wiki, so that git keeps its history and the lint sees
+   it. Made by the manager at the first preference."
+  [bot-dir]
+  (path/join (dir bot-dir) "preferences.md"))
+
 (defn- day
   "`2026-11-04` of the time `ms`."
   [ms]
@@ -41,6 +51,7 @@
        "- projects/ — one page per project of the person: goal, scope now and later, decisions, workers and their versions, open items, next step\n"
        "- workers/ — one page per worker bot: its job, its contract, what it delivered, what it asked\n"
        "- decisions.md — what was decided across projects, dated, with why\n"
+       "- preferences.md — what the person asked of the manager, one line each; appended to the manager's definition at every turn\n"
        "- brand.md — the person's brand: names, links, colors, fonts, pictures, tone\n"
        "- raw/ — what the person brought, as it came: uploads, pasted mails, reports\n"))
 

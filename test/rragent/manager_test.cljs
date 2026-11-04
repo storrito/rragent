@@ -2,7 +2,7 @@
   "The manager of a machine: made at the open when the structure names
    none and kept across opens, its definition from the bundle written
    anew at every open with the person's picks kept and their
-   `PREFERENCES.md` appended at the read, the landing bot; a worker it
+   the wiki's `preferences.md` appended at the read, the landing bot; a worker it
    makes with the `bot` tool has it as its parent and a project, both
    in the structure, and its own model and thinking level; the manager
    alone reads a worker's chat, archives and deletes, a delete refused
@@ -59,7 +59,7 @@
 
 (deftest with-preferences-test
   (let [home (test-home/make)
-        file (home/preferences-file home)]
+        file (path/join home "preferences.md")]
     (try
       (is (= "---\nname: x\n---\n\nBody.\n" (reload/with-preferences "---\nname: x\n---\n\nBody.\n" file)) "no file: the text as it is")
       (fs/writeFileSync file "  \n")
@@ -97,8 +97,8 @@
                      (is (re-find #"(?m)^- \d{4}-\d\d-\d\d · the wiki begins$" (fs/readFileSync (path/join dir "log.md") "utf8")))
                      (is (= 1 (wiki/commits (home/bot-dir home manager))))
                      (fs/writeFileSync (path/join dir "brand.md") "# Brand\n")))
-                 (testing "the preferences file is appended to the definition at the read, under its heading"
-                   (fs/writeFileSync (home/preferences-file (home/bot-dir home manager)) "- Status on Mondays only.\n")
+                 (testing "the person's page of the wiki is appended to the definition at the read, under its heading"
+                   (fs/writeFileSync (wiki/preferences-file (home/bot-dir home manager)) "- Status on Mondays only.\n")
                    (await (reload/reload! (:conversation (machine/bot manager)) harness/context))
                    (is (str/ends-with? (:instructions (reload/current manager)) "## Your preferences\n\n- Status on Mondays only."))
                    (is (= "Manager" (:name (reload/current manager)))))
