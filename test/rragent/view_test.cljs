@@ -289,17 +289,25 @@
 (deftest context-usage-test
   (let [with-usage (fn [id usage]
                      {:id id :kind "pi.assistant" :model [{:role "assistant" :content [{:type "text" :text "ok"}] :stopReason "stop" :timestamp id :usage usage}]})]
-    (testing "the newest answer's request is what the context holds; the cost adds up"
-      (is (= {:used 775200 :cost 1.75}
-             (view/context-usage {:entries [(user 1 "hi")
-                                            (with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0 :cost {:total 0.5}})
-                                            (user 3 "more")
-                                            (with-usage 4 {:input 5200 :output 1000 :cacheRead 700000 :cacheWrite 69000 :cost {:total 1.25}})]}))))
-    (testing "the cost as the person pays it: times RRAGENT_COST_FACTOR"
+    (testing "the newest answer's request is what the context holds; the cost adds up (the factor 1 here)"
       (let [env (.-env js/process)]
         (try
-          (aset env "RRAGENT_COST_FACTOR" "1.3")
-          (is (= 0.65 (:cost (view/context-usage {:entries [(with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0 :cost {:total 0.5}})]}))))
+          (aset env "RRAGENT_COST_FACTOR" "1")
+          (is (= {:used 775200 :cost 1.75}
+                 (view/context-usage {:entries [(user 1 "hi")
+                                                (with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0 :cost {:total 0.5}})
+                                                (user 3 "more")
+                                                (with-usage 4 {:input 5200 :output 1000 :cacheRead 700000 :cacheWrite 69000 :cost {:total 1.25}})]})))
+          (finally
+            (js-delete env "RRAGENT_COST_FACTOR")))))
+    (testing "the cost as the person pays it: times RRAGENT_COST_FACTOR, Storrito's markup by default"
+      (let [env (.-env js/process)
+            entries [(with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0 :cost {:total 0.5}})]]
+        (try
+          (js-delete env "RRAGENT_COST_FACTOR")
+          (is (= 0.65 (:cost (view/context-usage {:entries entries}))))
+          (aset env "RRAGENT_COST_FACTOR" "2")
+          (is (= 1 (:cost (view/context-usage {:entries entries}))))
           (finally
             (js-delete env "RRAGENT_COST_FACTOR")))))
     (testing "without an answer there is nothing to show; without prices no cost"
@@ -315,15 +323,11 @@
         (is (= 1000000 (:ui/window ring)))
         (is (= "Context" (:title (:ui/labels (second (find-tag (i18n/translate page :en) :ui/context)))))))
       (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en}) :ui/context)) "no ring before the first answer"))
-    (testing "the cost is the bot's, its subagents included, when known: a compaction shortens the transcript, not what it cost"
-      (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cost {:total 0.5}})]}]
-        (is (= 33.8 (:ui/cost (second (find-tag (view/page {:bot {:id "b1" :context-window 200000 :spend 33.8}
-                                                            :conversation conversation :locale :en})
-                                                :ui/context)))))
-        (is (= 0.5 (:ui/cost (second (find-tag (view/page {:bot {:id "b1" :context-window 200000}
-                                                           :conversation conversation :locale :en})
-                                               :ui/context))))
-            "before it is read, the transcript's")))
+    (testing "the cost is the bot's, its subagents included, when known, times the factor (1.3 by default): a compaction shortens the transcript, not what it cost"
+      (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cost {:total 0.5}})]}
+            shown (fn [bot] (:ui/cost (second (find-tag (view/page {:bot bot :conversation conversation :locale :en}) :ui/context))))]
+        (is (< (js/Math.abs (- 43.94 (shown {:id "b1" :context-window 200000 :spend 33.8}))) 1e-9))
+        (is (= 0.65 (shown {:id "b1" :context-window 200000})) "before it is read, the transcript's")))
     (testing "the card's button names the bot it summarizes, and says so while a compaction runs; a run's page has no button"
       (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200})]}
             card (fn [opts]

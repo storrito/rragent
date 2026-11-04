@@ -30,7 +30,7 @@ reads the token counts from that chunk and throws the `cost` away.
 | 2 | An answer without a charge | **🟢 pi-ai's estimate stays for that answer** · 🟡 nothing shown | Another provider on a laptop, a stream without the chunk: better a number than none. |
 | 3 | Pictures, voices, music | **🟢 the tool answers its charge as the usage of its result, into the ledger's tools** · 🟡 a sentence only | pi-durable adds a tool result's `usage` to `pi.usage`, and the page summed that bucket already. The voice service answers no charge: its estimate per character stands in. |
 | 4 | Dictation and its correction | **🟢 left out of the sum** · 🟡 into the ledger as a tool | Small, separate requests; the correction's log line carries the real charge now. |
-| 5 | What the page shows | **🟢 the charge times `RRAGENT_COST_FACTOR`, 1 without it** · 🟡 the charge as it is | Storrito bills the organization OpenRouter's use times its markup; the provisioning sets the factor so that the bot's page and the wallet say the same. A laptop sees the cost. |
+| 5 | What the page shows | **🟢 the charge times Storrito's markup, 1.3, unless `RRAGENT_COST_FACTOR` names another** · 🟡 the charge as it is | Storrito bills the organization OpenRouter's use times its markup; the default makes the bot's page and the wallet say the same on every sprite, with no line in its `.env` and no change at the provisioning (2026-11-04, in place of a Storrito PR). A laptop that pays OpenRouter itself sets `RRAGENT_COST_FACTOR=1`. |
 | 6 | Old sums | **🟢 no migration** · 🔴 rebuilt from the entries | `pi.usage` is a running total; what was estimated stays estimated. |
 | 7 | List prices in the model switch | **🟢 pi-ai's catalog, as before** · 🟡 refreshed from `GET /v1/models` through the gateway | The only source of a price before the first answer. |
 
@@ -47,7 +47,8 @@ reads the token counts from that chunk and throws the `cost` away.
   usage into `pi.usage`, with a line on stdout that names the estimate
   beside the charge, so that the drift can be read off the logs for a
   while; `tool-usage` is the usage a tool answers for a charge of its
-  own; `factor` and `priced` are the page's.
+  own; `factor` (`default-factor` 1.3, or `RRAGENT_COST_FACTOR`) and
+  `priced` are the page's.
 - `rragent.model-requests/wrap`: a good answer to a chat completion
   goes through `costs/tee`.
 - `rragent.harness`: the extension installed beside the redaction.
