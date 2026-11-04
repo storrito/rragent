@@ -22,6 +22,7 @@
             [rragent.machine :as machine]
             [rragent.messages :as messages]
             [rragent.page :as page]
+            [rragent.reload :as reload]
             [rragent.runs :as runs]
             [rragent.schedule :as schedule]
             [rragent.sprite :as sprite]
@@ -320,6 +321,10 @@
                      {:keys [id]} (await (machine/create! {:name "Counter" :instructions "Count."}))
                      counter (:conversation (machine/bot id))]
                  (reset! counter-id id)
+                 ;; the counter writes its definition anew, as a bot that takes a skill
+                 ;; does: the message's task configures it from the new file before it
+                 ;; submits, through a commit, its handle of the counter has no configure
+                 (fs/appendFileSync (home/definition-file (home/bot-dir home id)) "\nCount in German.\n")
                  (is (= "Asked." (await (harness/ask-in watcher "Ask the counter how many it counted."))) "the call answers at once, the run ends")
                  (let [texts (await (results watcher))]
                    (testing "a message to oneself and to a bot that is not there are errors the model reads"
@@ -339,7 +344,8 @@
                    (testing "the message is in the counter's chat as an entry that names the sender, the words around it for the model"
                      (is (= {:from 1 :name "watcher" :text "How many did you count?"} (:data message)))
                      (is (str/starts-with? (:content message) "A message from watcher (bot 1 of this machine): How many did you count?"))
-                     (is (some #(= "Seven." (:content %)) in-counter) "which the counter answered in its own chat"))
+                     (is (some #(= "Seven." (:content %)) in-counter) "which the counter answered in its own chat")
+                     (is (str/includes? (:instructions (reload/current id)) "Count in German.") "on the definition as the counter rewrote it"))
                    (testing "the answer is in the watcher's chat as a message from the counter, which the watcher answered"
                      (is (= {:from (js/Number id) :name "Counter" :text "Seven." :answer true} (:data answer)))
                      (is (str/starts-with? (:content answer) (str "Counter (bot " id ") answers your message: Seven.")))
