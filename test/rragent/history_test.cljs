@@ -41,7 +41,7 @@
              ;; once the conversation is long enough for a summary to keep
              ;; the newest 20,000 tokens and cut before them
              (aset env "RRAGENT_CONTEXT_TOKENS" "1000000")
-             (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
+             (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :manager? false :storage (harness/memory-storage)}))
                    id (:id bot)]
                (try
                  (is (= "Noted." (await (harness/ask-in (:conversation bot) (long-text "red")))))

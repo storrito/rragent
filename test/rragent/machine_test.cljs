@@ -41,7 +41,8 @@
   [home models & [storage]]
   (await (machine/open! (cond-> {:home home
                                  :models models
-                                 :provider "faux"}
+                                 :provider "faux"
+                                 :manager? false}
                           (not= :sqlite storage) (assoc :storage (harness/memory-storage))))))
 
 (defn- ^:async results
@@ -134,12 +135,14 @@
                      (is (= (str home "/bots/" (:id counter) "/work") (await (cwd-of (:conversation (machine/bot (:id counter)))))) "its own cwd")
                      (is (= "Counter" (get-in (machine/bot (:id counter)) [:definition :name])) "configured from its file")
                      (is (str/includes? (fs/readFileSync (path/join (home/bot-dir home (:id reviewer)) "AGENT.md") "utf8") (bots/skill-line "reviews")))
-                     (is (= (str "The bot Counter (" (:id counter) ") is ready on its page, /bot/" (:id counter) ".") (get texts "b1")) "the creator's transcript records it"))
+                     (is (= (str "The bot Counter (" (:id counter) ") is ready on its page, /bot/" (:id counter) ". You are its parent.") (get texts "b1")) "the creator's transcript records it")
+                     (is (= [(:id counter) (:id reviewer)] (machine/children-of "1")) "the maker is the parent, written with the conversation")
+                     (is (= {(:id counter) "1" (:id reviewer) "1"} (:parents (machine/current-structure)))))
                    (testing "a skill the machine does not have is an error the model reads; its conversation stays unused"
                      (is (str/includes? (get texts "b3") "No skill nope"))
                      (is (= 3 (count listed))))
                    (testing "the list names them with their state: the one that lists is in its run"
-                     (is (= (str "watcher (1): running\nCounter (" (:id counter) "): idle\nReviewer (" (:id reviewer) "): idle") (get texts "b4"))))))
+                     (is (= (str "watcher (1): running\nCounter (" (:id counter) "): idle · parent 1\nReviewer (" (:id reviewer) "): idle · parent 1") (get texts "b4"))))))
                (finally
                  (await (machine/close-all!))
                  (js-delete env "RRAGENT_SKILLS")

@@ -62,6 +62,7 @@
    :artifacts/render "Make the video"
    :artifacts/render-open "Open the video"
    :artifacts/rendering [:fn/str "Making the video {{:progress}}"]
+   :artifacts/render-waiting "Waiting for another video to be made first"
    :artifacts/render-stop "Stop"
    :artifacts/render-failed [:fn/str "The video did not come out: {{:error}}"]
    :artifacts/creation "Your creation"
@@ -72,6 +73,12 @@
 
    :chat/you "You"
    :chat/from-bot [:fn/str "From the bot {{:name}}"]
+   :person/title "Your first name, please"
+   :person/why "Several people can talk to this bot. When it knows who is talking right now, it answers better. Only your first name; it stays in this browser."
+   :person/field "First name"
+   :person/ok "That's me"
+   :person/you [:fn/str "You: {{:name}}"]
+   :person/change "change"
    :chat/hook-called [:fn/str "Hook {{:name}} was called"]
    :chat/hook-event [:fn/str "{{:event}} · hook {{:name}}"]
    :chat/schedule-ran [:fn/str "Schedule {{:name}} ran"]
@@ -276,6 +283,10 @@
    :recording/explain "When a blurred background, the touch-up and the light are put on the webcam. The choice holds for this browser; the raw picture never leaves the laptop either way."
    :recording/live "Live: recorded as the preview shows it; on a busy computer the webcam can stutter"
    :recording/after "After the recording, in this browser: never stutters; when the recording ends the page stays busy for a while"
+   :settings/advanced "Advanced"
+   :advanced/title "Advanced"
+   :advanced/explain "The sidebar shows the manager, what needs you, the projects with their bots and the other bots. This adds the raw list of every bot, with New bot and the menus to rename and delete one. The choice holds for this machine; every tab sees it."
+   :advanced/show-all "Show every bot and the raw list"
    :mcp/title "MCP servers"
    :mcp/explain "Services your bots use over MCP. Every bot of this machine has their tools."
    :mcp/none "No MCP server is connected yet."
@@ -309,6 +320,11 @@
 
    :bots/title "Bots"
    :bots/menu "The bots"
+   :bots/manager "Manager"
+   :bots/needs-you "Needs you"
+   :bots/projects "Projects"
+   :bots/other "Other"
+   :bots/all "All bots"
    :context/title "Context"
    :context/model "Model: {model}"
    :context/used "{percent} % used"
@@ -333,6 +349,7 @@
    :bot/idle "idle"
    :bot/asleep "asleep"
    :bot/failed "failed"
+   :bot/archived "archived"
    :bot/missing "That bot is not here any more; this is another one."
    :bot/not-open [:fn/str "This bot did not open: {{:error}}"]})
 
@@ -384,6 +401,7 @@
    :artifacts/render "Video erstellen"
    :artifacts/render-open "Video öffnen"
    :artifacts/rendering [:fn/str "Video wird erstellt {{:progress}}"]
+   :artifacts/render-waiting "Wartet, bis ein anderes Video fertig ist"
    :artifacts/render-stop "Stopp"
    :artifacts/render-failed [:fn/str "Das Video ist nicht gelungen: {{:error}}"]
    :artifacts/creation "Dein Werk"
@@ -394,6 +412,12 @@
 
    :chat/you "Du"
    :chat/from-bot [:fn/str "Vom Bot {{:name}}"]
+   :person/title "Dein Vorname, bitte"
+   :person/why "Mit diesem Bot können mehrere Personen sprechen. Wenn er weiß, wer gerade mit ihm spricht, antwortet er besser. Nur der Vorname; er bleibt in diesem Browser."
+   :person/field "Vorname"
+   :person/ok "Das bin ich"
+   :person/you [:fn/str "Du: {{:name}}"]
+   :person/change "ändern"
    :chat/hook-called [:fn/str "Hook {{:name}} wurde aufgerufen"]
    :chat/hook-event [:fn/str "{{:event}} · Hook {{:name}}"]
    :chat/schedule-ran [:fn/str "Zeitplan {{:name}} lief"]
@@ -599,6 +623,10 @@
    :recording/explain "Wann weichgezeichneter Hintergrund, Touch-up und Licht auf die Webcam kommen. Die Wahl gilt für diesen Browser; das Rohbild verlässt den Laptop in beiden Fällen nie."
    :recording/live "Live: aufgenommen, wie die Vorschau es zeigt; auf einem ausgelasteten Rechner kann die Webcam ruckeln"
    :recording/after "Nach der Aufnahme, in diesem Browser: ruckelt nie; nach dem Stopp ist die Seite eine Weile beschäftigt"
+   :settings/advanced "Erweitert"
+   :advanced/title "Erweitert"
+   :advanced/explain "Die Seitenleiste zeigt den Manager, was dich braucht, die Projekte mit ihren Bots und die anderen Bots. Das hier hängt die rohe Liste aller Bots an, mit Neuer Bot und den Menüs zum Umbenennen und Löschen. Die Wahl gilt für diese Maschine; jeder Tab sieht sie."
+   :advanced/show-all "Jeden Bot und die rohe Liste zeigen"
    :mcp/title "MCP-Server"
    :mcp/explain "Dienste, die deine Bots über MCP nutzen. Jeder Bot dieser Maschine hat ihre Werkzeuge."
    :mcp/none "Noch ist kein MCP-Server verbunden."
@@ -632,6 +660,11 @@
 
    :bots/title "Bots"
    :bots/menu "Die Bots"
+   :bots/manager "Manager"
+   :bots/needs-you "Braucht dich"
+   :bots/projects "Projekte"
+   :bots/other "Andere"
+   :bots/all "Alle Bots"
    :context/title "Kontext"
    :context/model "Modell: {model}"
    :context/used "{percent} % belegt"
@@ -656,6 +689,7 @@
    :bot/idle "wartet"
    :bot/asleep "schläft"
    :bot/failed "gescheitert"
+   :bot/archived "archiviert"
    :bot/missing "Diesen Bot gibt es nicht mehr; das hier ist ein anderer."
    :bot/not-open [:fn/str "Dieser Bot hat sich nicht öffnen lassen: {{:error}}"]})
 

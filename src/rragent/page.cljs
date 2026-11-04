@@ -47,7 +47,10 @@
    in place of the chat for a tab and bring the chat back
    (`rragent.view/settings`); `:update/check` is the settings' lookup
    of a newer release, `:update/apply` the Update button's
-   (`rragent.update`); `:settings/section` picks the tab's section.
+   (`rragent.update`); `:settings/section` picks the tab's section;
+   `:settings/advanced` is the Advanced section's switch, whether the
+   sidebar shows every bot and the raw list, into the machine's
+   structure (`rragent.machine/set-advanced!`), so every tab follows.
    The MCP section's commands (`:mcp/test`, `:mcp/enable`,
    `:mcp/remove`, `:mcp/keep`, `:mcp/setup`) change the machine's
    servers (`rragent.mcp`), whose overview the atom follows (`:mcp`);
@@ -77,6 +80,7 @@
             [rragent.models :as models]
             [rragent.onboarding :as onboarding]
             [rragent.openrouter :as openrouter]
+            [rragent.person :as person]
             [rragent.phone :as phone]
             [rragent.hyperframes-skills :as hyperframes-skills]
             [rragent.programs :as programs]
@@ -114,12 +118,13 @@
 
 (def sidebar-keys
   "The value keys of a bot every tab shows, in the sidebar: its name
-   (the definition), its state (asleep, failed) and a rename or delete
-   under way in its row. A change of one goes to every tab, as a run
-   of the bot starting or ending does (the state running); the rest
-   of the value keys, the conversation's view as it streams and the
-   pane, go to the tabs showing the bot."
-  #{:definition :schedules/next :failed :deleting? :renaming?})
+   (the definition), its state (asleep, failed), a rename or delete
+   under way in its row, and its status as the manager last read it
+   (`rragent.status`, what \"Needs you\" counts). A change of one goes
+   to every tab, as a run of the bot starting or ending does (the
+   state running); the rest of the value keys, the conversation's
+   view as it streams and the pane, go to the tabs showing the bot."
+  #{:definition :schedules/next :failed :deleting? :renaming? :status})
 
 (defn conversation
   "The view value of pi-durable as the data the view reads:
@@ -235,8 +240,11 @@
                     :settings? (contains? settings-open (:tabid w))
                     :settings-section (get settings-section (:tabid w))
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
+                    :advanced? (:advanced? (machine/current-structure))
                     :note (when missing [:i18n :bot/missing])
-                    :failed (:failed bot)})
+                    :failed (:failed bot)
+                    :person {:name (person/name-of (:ring/request w))
+                             :back (:uri (:ring/request w))}})
         (i18n/translate locale))))
 
 (defn- running?
@@ -337,7 +345,7 @@
             content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
-            draft #js {:type "input" :content (clj->js content) :whenBusy "steer"}]
+            draft (person/draft content (person/name-of (:ring/request w)))]
         ;; a run keeps the instructions it started with; the bot reads its file again
         (if run
           (await (.submit conversation draft harness/context))
@@ -750,6 +758,18 @@
                   (mcp/reload! (registry)))
                 (swap! db/db assoc-in [:settings-section tab] section)
                 (command/accepted w)))))
+
+(defn- ^:async settings-advanced-command
+  "The Advanced section's switch: whether the sidebar shows every bot
+   and the raw list, `advanced`, into the structure of the machine
+   (`rragent.machine/set-advanced!`), which every tab's sidebar
+   reads."
+  [w]
+  (let [{:keys [advanced]} (command/command-data w)]
+    (if-let [harness (:harness (machine/agent))]
+      (do (await (machine/set-advanced! harness (boolean advanced)))
+          (command/accepted w))
+      (command/rejected w :no-machine))))
 
 (def min-testing-ms
   "How long a row says \"Testing …\" at least."
@@ -1219,6 +1239,33 @@
       :else
       (assoc w :ring/response http/not-found))))
 
+(defn- redirect-to
+  [location & [cookie]]
+  {:status 302
+   :headers (cond-> {"Location" location
+                     "Cache-Control" "no-store"}
+              cookie (assoc "Set-Cookie" cookie))
+   :body ""})
+
+(defn- ^:async person-post
+  "POST /person, the form of the page (`rragent.view/person-form`):
+   `name`, the person's first name, into the cookie, and back to the
+   page the form was on (`back`); an empty name changes nothing."
+  [w]
+  (let [request (:ring/request w)
+        params (js/URLSearchParams. (await (transit/read-body (:body request))))
+        name (person/clean (.get params "name"))
+        back (person/back-path (.get params "back"))]
+    (assoc w :ring/response (redirect-to back (when name (person/set-cookie name request))))))
+
+(defn- person-get
+  "GET /person?back=<path>: the name forgotten, so that the page asks
+   again: the way to change it."
+  [w]
+  (let [request (:ring/request w)
+        back (person/back-path (.get (js/URLSearchParams. (str (:query-string request))) "back"))]
+    (assoc w :ring/response (redirect-to back (person/clear-cookie request)))))
+
 (defn- root-handler
   "GET /: to the page of the bot last used."
   [w]
@@ -1286,6 +1333,10 @@
 
      {:ring/route [:get "/"]
       :ring/handler #'root-handler}
+     {:ring/route [:get "/person"]
+      :ring/handler #'person-get}
+     {:ring/route [:post "/person"]
+      :ring/handler #'person-post}
      {:ring/route [:get "/bot/*"]
       :ring/handler #'bot-get}
      {:ring/route [:post "/bot/*"]
@@ -1331,6 +1382,8 @@
       :command/fn #'settings-close-command}
      {:command/kind :settings/section
       :command/fn #'settings-section-command}
+     {:command/kind :settings/advanced
+      :command/fn #'settings-advanced-command}
      {:command/kind :chat/fold
       :command/fn #'fold-command}
      {:command/kind :mcp/test

@@ -318,11 +318,13 @@
    (`rragent.schedule/watch!`), their next run noted in the bot's map
    as `:schedules/next` for the page; the events its conversation
    held as entries before the events file moved into the file
-   (`rragent.events/migrate!`). Answers the definition."
-  [{:keys [harness home provider]} conversation]
+   (`rragent.events/migrate!`). `opts` go to the reload's registration:
+   `:preferences`, the manager's file appended to its definition.
+   Answers the definition."
+  [{:keys [harness home provider]} conversation & [opts]]
   (let [id (.-id conversation)
         dir (home/bot-dir home id)]
-    (reload/register! id {:home dir :provider provider})
+    (reload/register! id (merge {:home dir :provider provider} opts))
     (await (reload/reload! conversation context))
     (when-let [moved (await (events/migrate! conversation (home/events-file dir) context))]
       (js/console.error "[events]" (str moved " facts of the bot " id " moved into its events.edn")))

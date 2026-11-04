@@ -641,6 +641,11 @@
       (let [v (pane "story.mp4" {:renders {"story" {:started 77 :progress "30 %"}}})]
         (is (= "/artifacts/story.mp4?rev=77" (:src (second (find-tag v :video)))))
         (is (contains? (strings (i18n/translate v :en)) "Making the video 30 %"))))
+    (testing "a render that waits for another says so, not that it makes the video"
+      (let [v (pane "clip" {:projects {"clip" {:ready-at 5}} :renders {"clip" {:started 1 :waiting true}}})]
+        (is (contains? (strings (i18n/translate v :en)) "Waiting for another video to be made first"))
+        (is (contains? (strings (i18n/translate v :en)) "Stop"))
+        (is (not (some #(str/starts-with? % "Making the video") (strings (i18n/translate v :en)))))))
     (testing "a project is the iframe once its process answers, a notice before, the render button beside it"
       (let [starting (pane "clip" {:projects {"clip" {:ready-at nil}}})
             ready (pane "clip" {:projects {"clip" {:ready-at 5}}})

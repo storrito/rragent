@@ -88,6 +88,13 @@
   []
   (bundled "assistant.md" "deploy/agent/AGENT.md"))
 
+(defn bundled-manager-file
+  "The manager's definition as the bundle carries it: `manager.md`
+   beside the bundle (the build copies `deploy/agent/MANAGER.md`
+   there), else that file of the checkout."
+  []
+  (bundled "manager.md" "deploy/agent/MANAGER.md"))
+
 (declare skills-dir)
 
 (defn skills-repo
@@ -170,13 +177,20 @@
   (str "Take the skill `" skill "` at your first message, the way this file describes below, "
        "without offering the others."))
 
+(declare with-metadata)
+
 (defn definition-text
   "The definition of a new bot: `assistant`, the generic text, with
    the bot's `name` as its name, its `instructions` at the top of the
-   body as its job, and with a `skill` the line that has it take that
-   skill. Without any of the three the assistant's text as it is."
-  [assistant {:keys [name instructions skill]}]
+   body as its job, with a `skill` the line that has it take that
+   skill, and with a `model` or a `thinking` level those under
+   `metadata` (`with-metadata`). Without any of them the assistant's
+   text as it is."
+  [assistant {:keys [name instructions skill model thinking]}]
   (let [[head body] (split-frontmatter assistant)
+        head (cond-> head
+               (seq (str model)) (with-metadata "model" model)
+               (seq (str thinking)) (with-metadata "thinking" thinking))
         top (str/join "\n\n" (remove str/blank? [(when (seq (str/trim (str instructions)))
                                                    (str "## Your job\n\n" (str/trim instructions)))
                                                  (when (seq (str skill))
@@ -286,6 +300,58 @@
         [head body] (split-frontmatter (fs/readFileSync file "utf8"))]
     (fs/writeFileSync file (str (with-metadata head key value) body))
     value))
+
+(def on-this-machine-heading
+  "The section of the generic definition every bot of the machine must
+   know, which the manager's definition gets appended
+   (`manager-text`)."
+  "## On this machine")
+
+(defn on-this-machine
+  "The `## On this machine` section of the generic definition `text`,
+   from its heading to the end; nil when the text has none."
+  [text]
+  (when-let [at (str/index-of (str text) (str "\n" on-this-machine-heading "\n"))]
+    (str/trim (subs (str text) (inc at)))))
+
+(defn- metadata-of
+  "The `model` and `thinking` of a definition text's metadata, the
+   ones the person may have picked for the manager, which a rewrite
+   keeps."
+  [text]
+  (select-keys (:metadata (or (definition/frontmatter text) {})) ["model" "thinking"]))
+
+(defn manager-text
+  "The manager's definition: the bundle's `MANAGER.md` with the
+   `## On this machine` section of the generic definition (`assistant`,
+   `assistant-text` of the home) under it, so that the manager knows
+   what every bot of the machine knows, and the `model` and
+   `thinking` of `current`, the file as it was, kept when they differ
+   from the bundle's, since the person picks them on the page
+   (`set-metadata!`). Written anew at every start of the machine
+   (`rragent.machine`); the person's own part lives in the wiki's
+   `preferences.md` (`rragent.reload/with-preferences`)."
+  [assistant current]
+  (let [text (fs/readFileSync (bundled-manager-file) "utf8")
+        text (if-let [section (on-this-machine assistant)]
+               (str (str/trimr text) "\n\n" section "\n")
+               text)
+        kept (when current (metadata-of current))]
+    (reduce (fn [text [k v]]
+              (let [[head body] (split-frontmatter text)]
+                (str (with-metadata head k v) body)))
+            text
+            kept)))
+
+(defn write-manager-definition!
+  "The manager's folder, `bots/<id>/` of `home`, with its `AGENT.md`
+   written from the bundle (`manager-text`), the file as it was read
+   first for the picks it keeps; answers the folder."
+  [home id]
+  (let [dir (home/bot-dir home id)
+        file (path/join dir "AGENT.md")
+        current (when (fs/existsSync file) (fs/readFileSync file "utf8"))]
+    (write-definition! home id (manager-text (assistant-text home) current))))
 
 (defn trash!
   "The bot's folder moved to `<home>/trash/<id>` (an earlier folder of
