@@ -89,6 +89,21 @@ what to do with each before anything goes.
 10. The template contract, approvals and versions, and the rollout to
     the first customer: decided after the overhaul.
 
+## The wiki (Max, 2026-11-04)
+
+The manager keeps its compiled knowledge of the projects as an LLM
+wiki after Karpathy's pattern, the one the company brain already runs
+on: `wiki/` in its folder, a git repository of Markdown pages with an
+index, an append-only log, raw sources, a page per project and per
+worker, decisions and brand pages. The manager ingests what arrives,
+queries the pages at the start of a turn instead of its transcript or
+events, and lints weekly. git gives every page a history, a lint its
+input (what changed since), and a bad rewrite a revert; one writer,
+no remote in v1. The harness seeds the folder and the repository at
+the open (`rragent.wiki`); the rest is MANAGER.md. The structure
+document and the status documents stay what the sidebar renders
+from; `remember` stays for the facts a program checks.
+
 ## How it is built
 
 - `manager`: the documents (`rragent.bots` with its new keys), the
@@ -100,7 +115,7 @@ what to do with each before anything goes.
   conversation alone: `bot create` with `parent` (the manager),
   `project`, `model`, `thinking`; `bot archive`, `bot delete` with the
   dependents check; `bot transcript` to read a worker's entries since
-  an id.
+  an id; the wiki seeded in its folder (`rragent.wiki`).
 - `status`: `rragent.status`, the document; the `bot status` action
   that reads the stale workers' chats since the entry their status
   covers, asks the status model for the new one in a conversation of

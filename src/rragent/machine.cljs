@@ -16,7 +16,8 @@
    `rragent.reload`); each bot's parent, the bot that made it with the
    `bot` tool, and its project, written in the commit that made its
    conversation (`relate-in!`); and the archived bots, whose chat is
-   over but whose files stay (`archive!`). The root
+   over but whose files stay (`archive!`). The manager's folder holds
+   its wiki, seeded at the open (`rragent.wiki`). The root
    conversation is the first bot. Each open bot is a map in the one
    atom (`rragent.db`, under `[:bots id]`): the view value of its
    conversation and the keys of its pane, which the page reads, and
@@ -56,7 +57,8 @@
             [rragent.skills :as skills]
             [rragent.status :as status]
             [rragent.tools.bot :as bot-tool]
-            [rragent.transcript :as transcript]))
+            [rragent.transcript :as transcript]
+            [rragent.wiki :as wiki]))
 
 (def Structure
   "The structure of the machine, a session document of the storage:
@@ -505,6 +507,8 @@
                     (and manager (not (contains? hidden manager))) (do (bots/write-manager-definition! (:home agent) manager)
                                                                        manager)
                     :else (await (make-manager! agent)))
+          _ (when manager
+              (wiki/seed! (home/bot-dir (:home agent) manager) (js/Date.now)))
           preferences (when manager (home/preferences-file (home/bot-dir (:home agent) manager)))
           ids (remove hidden (await (conversations (:harness agent))))]
       (doseq [id ids]

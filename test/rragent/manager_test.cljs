@@ -18,7 +18,8 @@
             [rragent.machine :as machine]
             [rragent.reload :as reload]
             [rragent.test-home :as test-home]
-            [rragent.tools-test :as tools-test]))
+            [rragent.tools-test :as tools-test]
+            [rragent.wiki :as wiki]))
 
 (defn- ^:async open!
   [home models & [storage]]
@@ -89,6 +90,13 @@
                    (is (= {:hidden #{} :archived #{} :parents {} :projects {} :manager manager :advanced? false} (machine/current-structure)))
                    (is (= "Manager" (:label (second (machine/listed)))) "the page calls it by its name, never New bot with a time")
                    (is (str/starts-with? (fs/readFileSync (definition-file home manager) "utf8") "---\nname: Manager\n")))
+                 (testing "its wiki, seeded as a git repository with the index and the log"
+                   (let [dir (wiki/dir (home/bot-dir home manager))]
+                     (is (fs/existsSync (path/join dir ".git")))
+                     (is (str/starts-with? (fs/readFileSync (path/join dir "index.md") "utf8") "# Index\n"))
+                     (is (re-find #"(?m)^- \d{4}-\d\d-\d\d · the wiki begins$" (fs/readFileSync (path/join dir "log.md") "utf8")))
+                     (is (= 1 (wiki/commits (home/bot-dir home manager))))
+                     (fs/writeFileSync (path/join dir "brand.md") "# Brand\n")))
                  (testing "the preferences file is appended to the definition at the read, under its heading"
                    (fs/writeFileSync (home/preferences-file (home/bot-dir home manager)) "- Status on Mondays only.\n")
                    (await (reload/reload! (:conversation (machine/bot manager)) harness/context))
@@ -112,7 +120,9 @@
                      (is (str/includes? text "  thinking: low\n"))
                      (is (not (str/includes? text "A line someone added")))
                      (is (= "low" (get-in (machine/bot manager) [:definition :thinking])))
-                     (is (str/ends-with? (:instructions (reload/current manager)) "- Status on Mondays only.") "the preferences read again"))))
+                     (is (str/ends-with? (:instructions (reload/current manager)) "- Status on Mondays only.") "the preferences read again")
+                     (is (fs/existsSync (path/join (wiki/dir (home/bot-dir home manager)) "brand.md")) "the wiki left as it was, not seeded again")
+                     (is (= 1 (wiki/commits (home/bot-dir home manager)))))))
                (finally
                  (await (machine/close-all!))
                  (test-home/remove! home))))))
