@@ -137,7 +137,7 @@
                                    (if next
                                      #js {:status "running" :checkpoint #js {:phase "wait" :at next}}
                                      (terminal #js {:status "completed" :result nil})))]
-                       (await (reload/reload-in-task! runtime context))
+                       (await (reload/reload-in-task! runtime (.-conversationId runtime) context))
                        (if (= "message" (.-mode entry))
                          (let [conversation (await (.conversation runtime (.-conversationId runtime) context))]
                            (await (.submit conversation

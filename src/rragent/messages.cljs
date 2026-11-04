@@ -90,7 +90,7 @@
         id (.-taskId runtime)
         receiver (or (await (.conversation runtime (.-to input) context))
                      (throw (js/Error. (str "no conversation " (.-to input) " in the storage"))))]
-    (await (reload/reload! receiver context))
+    (await (reload/reload-in-task! runtime (.-to input) context))
     (let [submission (await (.submit receiver
                                      #js {:type "input"
                                           :content (message-content (.-fromName input) (.-from input) (.-text input))

@@ -116,17 +116,19 @@
         definition))))
 
 (defn ^:async reload-in-task!
-  "The same from inside a task of the conversation, a schedule's: the
-   change goes into a commit of the task's `runtime`, which leaves the
-   task's state as it is."
-  [runtime context]
-  (let [id (.-conversationId runtime)]
-    (when-let [{:keys [text definition]} (changed id)]
-      (let [{:keys [home provider]} (get-in @db/db (conj (db/bot-path id) :reload))]
-        (await (.commit runtime
-                        (^:async fn [tx _current]
-                          (await (configure tx id (change definition provider (home/work-dir home))))
-                          js/undefined)
-                        context))
-        (applied! id text definition)
-        definition))))
+  "The same for the conversation `id` from inside a task, whose
+   handles of a conversation (`.conversation` of the `runtime`) have
+   no `configure`: a schedule's task for its own conversation, a
+   message's for the receiver's (`rragent.messages`). The change goes
+   into a commit of the task's `runtime`, which leaves the task's
+   state as it is."
+  [runtime id context]
+  (when-let [{:keys [text definition]} (changed id)]
+    (let [{:keys [home provider]} (get-in @db/db (conj (db/bot-path id) :reload))]
+      (await (.commit runtime
+                      (^:async fn [tx _current]
+                        (await (configure tx id (change definition provider (home/work-dir home))))
+                        js/undefined)
+                      context))
+      (applied! id text definition)
+      definition)))
