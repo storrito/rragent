@@ -23,6 +23,7 @@
    `viewState`), `:history` (the entries before the active context,
    read after a compaction, `rragent.history`), `:definition` (as
    `rragent.reload` last applied it),
+   `:status` (as the manager last read it, `rragent.status`),
    `:schedules/next`, `:failed`, the keys of its pane
    (`:artifacts/list`, `:artifacts/rev`, `:artifacts/current`,
    `:artifacts/folder`, `:projects`, `:renders`) and the sidebar's

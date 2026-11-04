@@ -170,3 +170,129 @@
                  (fs/rmSync dir #js {:recursive true :force true}))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(defn- sleep
+  [ms]
+  (js/Promise. (fn [resolve] (js/setTimeout resolve ms))))
+
+(defn- projects!
+  "A folder with the projects `names`, copies of the fake template, and
+   a handle on it with the render `timeout-ms`; the gate as new. The
+   template's script is one for all of them: a `slow` file beside it
+   (`fake`) makes every render sleep. `close!` stops what runs and
+   removes everything."
+  [names timeout-ms]
+  (let [dir (temp-dir)
+        {:keys [restore!]} (with-tools!)
+        {templates-dir :dir restore-templates! :restore!} (test-templates/install! [test-templates/fake])
+        db (atom {})
+        handle (render/handle {:db db :dir dir :procs (atom {}) :timeout-ms timeout-ms})]
+    (render/reset-gate!)
+    (doseq [name names]
+      (templates/copy! "fake" (path/join dir name)))
+    {:dir dir
+     :db db
+     :handle handle
+     :fake (path/join templates-dir "fake")
+     :close! (fn []
+               (render/stop-all! handle)
+               (render/reset-gate!)
+               (restore!)
+               (restore-templates!)
+               (fs/rmSync dir #js {:recursive true :force true}))}))
+
+(deftest render-gate-test
+  (async done
+    (-> ((^:async fn []
+           (let [{:keys [dir db handle fake close!]} (projects! ["a" "b"] 1500)
+                 lines (atom {})
+                 on-line (fn [name] (fn [line] (swap! lines update name (fnil conj []) line)))]
+             (try
+               (testing "two renders started at once: the first runs, the second waits, in the db and on its output, and counts as on its way"
+                 (fs/writeFileSync (path/join fake "slow") "")
+                 (let [a (render/start! handle "a" (on-line "a"))
+                       b (render/start! handle "b" (on-line "b"))]
+                   (is (= "a" (:holder @render/gate)))
+                   (is (= ["b"] (map first (:queue @render/gate))))
+                   (is (render/running? handle "b"))
+                   (is (render/any-running? handle))
+                   (is (true? (get-in @db [:renders "b" :waiting])))
+                   (is (number? (get-in @db [:renders "b" :started])))
+                   (is (= [render/waiting-line] (get @lines "b")))
+                   (await (sleep 300))
+                   (is (nil? (get-in @db [:renders "a" :waiting])) "the first runs")
+                   (is (= "25 %" (get-in @db [:renders "a" :progress])))
+                   (is (not (some #{render/waiting-line} (get @lines "a"))) "the first did not have to wait")
+                   (is (nil? (get-in @db [:renders "b" :progress])) "nothing of the second ran")
+                   (is (not (fs/existsSync (path/join dir "b.mp4"))))
+                   (testing "the first ended by its timeout: the second runs after it, through"
+                     (fs/rmSync (path/join fake "slow"))
+                     (let [render-a (await a)]
+                       (is (= 1 (:exit render-a)))
+                       (is (str/includes? (:error render-a) "took longer than")))
+                     (let [render-b (await b)]
+                       (is (= 0 (:exit render-b)))
+                       (is (nil? (:waiting render-b)))
+                       (is (= "video\n" (fs/readFileSync (path/join dir "b.mp4") "utf8")))
+                       (is (some #(= "Rendered" %) (get @lines "b"))))
+                     (is (nil? (:holder @render/gate)))
+                     (is (not (render/any-running? handle))))))
+               (finally
+                 (close!))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest render-gate-stop-test
+  (async done
+    (-> ((^:async fn []
+           (let [{:keys [dir db handle fake close!]} (projects! ["a" "b" "c"] 5000)]
+             (try
+               (fs/writeFileSync (path/join fake "slow") "")
+               (let [a (render/start! handle "a")
+                     b (render/start! handle "b")
+                     c (render/start! handle "c")]
+                 (await (sleep 300))
+                 (is (= ["b" "c"] (map first (:queue @render/gate))) "in order")
+                 (testing "a waiting render stopped: out of the queue and the db, nil to whoever waited, the others untouched"
+                   (is (= "b" (render/stop! handle "b")))
+                   (is (nil? (await b)))
+                   (is (not (render/running? handle "b")))
+                   (is (nil? (get-in @db [:renders "b"])))
+                   (is (= ["c"] (map first (:queue @render/gate))))
+                   (is (= "a" (:holder @render/gate)))
+                   (is (= "25 %" (get-in @db [:renders "a" :progress])))
+                   (is (render/any-running? handle) "the first runs, the third waits"))
+                 (testing "the running render stopped: its torso goes, the next in the queue runs"
+                   (fs/rmSync (path/join fake "slow"))
+                   (render/stop! handle "a")
+                   (is (nil? (await a)))
+                   (is (not (fs/existsSync (path/join dir "a.mp4"))))
+                   (let [render-c (await c)]
+                     (is (= 0 (:exit render-c)))
+                     (is (= "video\n" (fs/readFileSync (path/join dir "c.mp4") "utf8"))))
+                   (is (nil? (:holder @render/gate)))
+                   (is (not (render/any-running? handle)))))
+               (testing "stopped in the moment it got the gate, before it ran: nil, and the gate is free again"
+                 (fs/writeFileSync (path/join fake "slow") "")
+                 (let [a (render/start! handle "a")
+                       b (render/start! handle "b")]
+                   (await (sleep 200))
+                   (render/leave! "a")
+                   (is (= "b" (:holder @render/gate)))
+                   (render/stop! handle "b")
+                   (is (nil? (await b)))
+                   (is (nil? (:holder @render/gate)))
+                   (is (empty? (:queue @render/gate)))
+                   (is (render/running? handle "a") "the first, let go of the gate by hand, still runs")
+                   (testing "Stop of everything, as at the close: nothing runs, the gate is free"
+                     (render/start! handle "c")
+                     (render/stop-all! handle)
+                     (is (nil? (await a)))
+                     (is (nil? (:holder @render/gate)))
+                     (is (empty? (:queue @render/gate)))
+                     (is (not (render/any-running? handle)))
+                     (is (empty? (:renders (deref db)))))))
+               (finally
+                 (close!))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))

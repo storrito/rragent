@@ -101,9 +101,11 @@ what to do with each before anything goes.
   `project`, `model`, `thinking`; `bot archive`, `bot delete` with the
   dependents check; `bot transcript` to read a worker's entries since
   an id.
-- `status`: `rragent.status`, the `bot status` action that reads the
-  changed workers and writes the document, the status in the bot's
-  map for the page.
+- `status`: `rragent.status`, the document; the `bot status` action
+  that reads the stale workers' chats since the entry their status
+  covers, asks the status model for the new one in a conversation of
+  the call's own and writes the document; the status in the bot's map
+  for the page.
 - `sidebar`: the sections, a projection of the structure
   (`rragent.view/sidebar`: the manager, Needs you summed from the
   bots' status, the projects with their workers folded, the other

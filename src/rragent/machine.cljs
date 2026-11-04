@@ -25,7 +25,9 @@
    REPL worker made at its first program (`rragent.codemode-worker`);
    its runs (`rragent.runs`), the newest `runs-shown` as `:runs`, read
    again whenever one changes, and the view value of a run a tab shows
-   under `:runs/values` (`open-run!`).
+   under `:runs/values` (`open-run!`); its status as the manager last
+   read it (`rragent.status`) as `:status`, read at the open and after
+   every write (`refresh-status!`).
    The harness map of the machine is the atom's `:machine`. A bot's
    name is its definition's (`name:` of its `AGENT.md`), as the reload
    last read it; when it was made, the birth time of its folder; when
@@ -52,6 +54,7 @@
             [rragent.rframes.sse :as sse]
             [rragent.runs :as runs]
             [rragent.skills :as skills]
+            [rragent.status :as status]
             [rragent.tools.bot :as bot-tool]
             [rragent.transcript :as transcript]))
 
@@ -70,7 +73,7 @@
                   :history "latest"
                   :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil :advanced false})}))
 
-(declare adopt! listed refresh-spend! refresh-structure! dependents delete! transcript)
+(declare adopt! listed refresh-spend! refresh-structure! dependents delete! transcript status-of write-status!)
 
 (defn agent
   "The harness map of the machine."
@@ -225,6 +228,15 @@
       (refresh-spend! (last path)))
     (refresh-history! path conversation value)))
 
+(defn ^:async refresh-status!
+  "The bot's status (`rragent.status/snapshot`) read into its map as
+   `:status`, for the page and the manager's tool; answers it."
+  [id]
+  (let [status (await (status/snapshot (:harness (agent)) id))]
+    (when (bot id)
+      (swap! db/db assoc-in (conj (db/bot-path id) :status) status))
+    status))
+
 (defn- refresh-spend!
   "The bot's cost so far, its subagents' and runs' included
    (`rragent.harness/spend`), into its map as `:spend`, for the page."
@@ -291,6 +303,7 @@
         (swap! db/db update-in path merge {:id id :conversation conversation :view view} handles)
         (refresh-spend! id)
         (await (refresh-runs! id))
+        (await (refresh-status! id))
         (bot id))
       (catch :default e
         (js/console.error "[bots]" (str "the bot " id " did not open: " (.-message e)))
@@ -478,7 +491,10 @@
                                                                                  :archive! (fn [id] (archive! (:harness (agent)) id))
                                                                                  :dependents #'dependents
                                                                                  :delete! #'delete!
-                                                                                 :transcript #'transcript})])))]
+                                                                                 :transcript #'transcript
+                                                                                 :children-of #'children-of
+                                                                                 :status-of #'status-of
+                                                                                 :write-status! #'write-status!})])))]
     (when-let [id (:migrated agent)]
       (println (str "the agent of " (:home agent) " is the bot " id " now")))
     (swap! db/db assoc :machine agent)
@@ -584,17 +600,25 @@
          (keep (fn [entry] (some-> (.-model entry) (aget 0) .-timestamp)))
          (last))))
 
+(defn newest-entry
+  "The id of the newest entry of the bot's conversation, nil for a
+   conversation with none."
+  [id]
+  (when-let [view (:view (bot id))]
+    (some-> (last (array-seq (.-entries (.-value view)))) .-id)))
+
 (defn listed
   "The bots in the order they were made, each `{:id :name :label
    :state :created :used :deleting? :renaming? :manager? :parent
-   :project :archived?}`: the name of the definition, the label the
-   page shows, the sidebar's two flags, and what the structure says of
-   the bot (`current-structure`)."
+   :project :archived? :status}`: the name of the definition, the
+   label the page shows, the sidebar's two flags, what the structure
+   says of the bot (`current-structure`), and its status as the
+   manager last read it (`rragent.status`)."
   []
   (let [{:keys [manager parents projects archived]} (current-structure)]
     (->> (vals (bots))
          (sort-by #(js/Number (:id %)))
-         (mapv (fn [{:keys [id deleting? renaming?]}]
+         (mapv (fn [{:keys [id deleting? renaming? status]}]
                  {:id id
                   :name (name-of id)
                   :label (label-of id)
@@ -606,7 +630,8 @@
                   :manager? (= id manager)
                   :parent (get parents id)
                   :project (get projects id)
-                  :archived? (contains? archived id)})))))
+                  :archived? (contains? archived id)
+                  :status (or status status/initial)})))))
 
 (defn default-id
   "The bot the root of the page goes to: the manager when it is open,
@@ -699,6 +724,23 @@
   [id since]
   (let [{:keys [conversation]} (or (bot id) (throw (js/Error. (str "No bot " id " on this machine."))))]
     (await (transcript/read! conversation (or since 0)))))
+
+(defn status-of
+  "The bot's status as last read and the id of its newest entry, for
+   the manager's tool: `{:status :newest}`, stale when the entry is
+   past the status (`rragent.status/stale?`); throws for a bot the
+   machine has not open."
+  [id]
+  (let [{:keys [status]} (or (bot id) (throw (js/Error. (str "No bot " id " on this machine."))))]
+    {:status (or status status/initial)
+     :newest (newest-entry id)}))
+
+(defn ^:async write-status!
+  "The bot's status written (`rragent.status/write!`) and read again
+   into its map, so that every tab's sidebar follows it; answers it."
+  [id status]
+  (await (status/write! (:harness (agent)) id status))
+  (await (refresh-status! id)))
 
 (defn ^:async hook!
   "A hook's call tried on every open bot (`rragent.hooks/receive!`):

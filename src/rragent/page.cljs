@@ -117,12 +117,13 @@
 
 (def sidebar-keys
   "The value keys of a bot every tab shows, in the sidebar: its name
-   (the definition), its state (asleep, failed) and a rename or delete
-   under way in its row. A change of one goes to every tab, as a run
-   of the bot starting or ending does (the state running); the rest
-   of the value keys, the conversation's view as it streams and the
-   pane, go to the tabs showing the bot."
-  #{:definition :schedules/next :failed :deleting? :renaming?})
+   (the definition), its state (asleep, failed), a rename or delete
+   under way in its row, and its status as the manager last read it
+   (`rragent.status`, what \"Needs you\" counts). A change of one goes
+   to every tab, as a run of the bot starting or ending does (the
+   state running); the rest of the value keys, the conversation's
+   view as it streams and the pane, go to the tabs showing the bot."
+  #{:definition :schedules/next :failed :deleting? :renaming? :status})
 
 (defn conversation
   "The view value of pi-durable as the data the view reads:

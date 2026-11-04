@@ -1045,8 +1045,12 @@
      [:div.tools switch])])
 
 (defn- rendering
+  "The word under a render on its way: its progress, or that it waits
+   for another render to end first (`rragent.render`)."
   [render]
-  [:i18n :artifacts/rendering {:progress (or (:progress render) "")}])
+  (if (:waiting render)
+    [:i18n :artifacts/render-waiting]
+    [:i18n :artifacts/rendering {:progress (or (:progress render) "")}]))
 
 (defn- markdown-view
   "A markdown file on screen, rendered (`rragent.markdown`, the links
