@@ -20,7 +20,8 @@
    person's next message; `{checked}` in it becomes the values ticked in
    the same block, which only the browser knows, so such a button is the
    client's alias `:ui/send-checked` (`rragent.client`). `:open` shows an
-   artifact. Once the person has answered the message, the block's
+   artifact, or another bot's page, `/bot/<id>`, with one of its
+   artifacts, `/bot/<id>/artifacts/<path>` (`open-actions`). Once the person has answered the message, the block's
    choices are made: its buttons that send and its inputs are disabled,
    a button that opens an artifact still does. A block that does not
    read is shown as code with what went wrong. The contract the skills write against is pchat's
@@ -162,19 +163,37 @@
                            :command/data (cond-> {:text (str text)}
                                            bot (assoc :bot bot))}]]})
 
+(defn- other-bot
+  "`[id path]` when `path` names another bot's page, `/bot/<id>` with
+   or without one of its artifacts, `/bot/<id>/artifacts/<path>`; nil
+   for this bot's (`base`) and for anything else."
+  [path base]
+  (let [path (str/replace (str path) #"^/+" "/")]
+    (when-let [[_ id rest] (re-matches #"^/bot/([0-9]+)(?:/artifacts/(.*?))?/*$" path)]
+      (when-not (= (str "/bot/" id) base)
+        [id (not-empty (str/replace (str rest) #"/+$" ""))]))))
+
 (defn- open-actions
   "The artifact of `artifacts/<path>`, a project's folder with or
    without its slash, under the bot's page or not; a step of the tab
-   (`:ui/tabid`, see `rragent.view/artifacts`)."
+   (`:ui/tabid`, see `rragent.view/artifacts`). Another bot's page,
+   `/bot/<id>`, shows that bot in the tab (`:bot/show`), and with an
+   artifact of it, `/bot/<id>/artifacts/<path>`, opens that in its
+   pane: the manager's card opens a worker's design that way."
   [path base bot]
-  {:click [[:data/command {:command/kind :artifacts/open
-                           :command/data (cond-> {:path (-> (str path)
-                                                            (str/replace #"^/+" "/")
-                                                            (as-> p (if (and (seq base) (str/starts-with? p (str base "/"))) (subs p (count base)) p))
-                                                            (str/replace #"^/?artifacts/" "")
-                                                            (str/replace #"/+$" ""))
-                                                  :tab :ui/tabid}
-                                           bot (assoc :bot bot))}]]})
+  (if-let [[id rest] (other-bot path base)]
+    {:click (cond-> [[:data/command {:command/kind :bot/show
+                                     :command/data {:id id :tab :ui/tabid}}]]
+              rest (conj [:data/command {:command/kind :artifacts/open
+                                         :command/data {:bot id :path rest :tab :ui/tabid}}]))}
+    {:click [[:data/command {:command/kind :artifacts/open
+                             :command/data (cond-> {:path (-> (str path)
+                                                              (str/replace #"^/+" "/")
+                                                              (as-> p (if (and (seq base) (str/starts-with? p (str base "/"))) (subs p (count base)) p))
+                                                              (str/replace #"^/?artifacts/" "")
+                                                              (str/replace #"/+$" ""))
+                                                    :tab :ui/tabid}
+                                             bot (assoc :bot bot))}]]}))
 
 (defn- attrs
   "The attributes that are allowed, the ones with a URL checked; on a

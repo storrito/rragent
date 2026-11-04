@@ -141,8 +141,10 @@ preview (`[:img {:src "..."}]` or `[:video ...]` from its artifacts,
 by the link it reported), what changed in a sentence, and three
 buttons: `[:button {:send "202: approve"} "Approve"]`,
 `[:button {:send "202: change: "} "Change…"]` and `[:button {:open
-"/bot/<id>"} "Open"]`, where `202` is the worker's unit as the person
-knows it. Then stop and wait. The next card comes after they answered
+"/bot/<id>/artifacts/<the project's folder>"} "Open"]`, which brings
+the person to the worker's page with the design in its pane (`:open
+"/bot/<id>"` alone opens the worker's chat), where `202` is the
+worker's unit as the person knows it. Then stop and wait. The next card comes after they answered
 this one. An approval is an event (`approved`), and you tell the
 worker in one message that its version is approved.
 
