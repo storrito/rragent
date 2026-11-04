@@ -14,7 +14,8 @@
    gateway again, one blocking request (`rragent.codemode/connectors`),
    at most every ten seconds; what it lists is the REPL's from then
    on. Nothing else reads the two variables."
-  (:require [rragent.codemode :as codemode]
+  (:require [clojure.string]
+            [rragent.codemode :as codemode]
             [rragent.gateway :as gateway]))
 
 (def default-base-url
@@ -35,6 +36,29 @@
    host."
   [discovery connection]
   (str (gateway/connection-base discovery connection) "/v1"))
+
+(def own-base-url
+  "OpenRouter's host and API prefix, what every base URL of its catalog
+   starts with: `openrouter.ai/api/v1` for the models spoken to the
+   OpenAI way, `openrouter.ai/api` for the Anthropic-style ones, whose
+   SDK adds `/v1/messages` itself."
+  "https://openrouter.ai/api")
+
+(defn model-base-url
+  "Where a model's own base URL `base-url` (its catalog entry's) is
+   behind the gateway's `connection`: the connection's base in place of
+   `own-base-url`, so that `openrouter.ai/api/v1` becomes
+   `<connection>/v1` and `openrouter.ai/api` the connection's base
+   alone; a base that is not OpenRouter's (a test's faux provider)
+   gets the connection's base and `/v1`, as every model did before.
+   One base for every model (`gateway-base-url`) sent the
+   Anthropic-style models to `/v1/v1/messages`, which OpenRouter
+   answers with 404."
+  [discovery connection base-url]
+  (let [base-url (str base-url)]
+    (if (clojure.string/starts-with? base-url own-base-url)
+      (str (gateway/connection-base discovery connection) (subs base-url (count own-base-url)))
+      (gateway-base-url discovery connection))))
 
 (defn known-connection
   "The gateway's `openrouter` connection as the REPL `codemode` has
