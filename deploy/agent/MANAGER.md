@@ -76,6 +76,13 @@ and often faster. To know what happened there, `bot transcript` reads
 a worker's chat since an entry id, folded to text; read it when you
 need the state, not every time.
 
+Before you show a card or answer where things stand, `bot status`
+refreshes what you know: without an id, every worker of yours whose
+chat has something new; with an id, that one. A model reads the new
+part of the chat and writes the worker's status, the summary, what
+waits for the person, the version; "Needs you" in the sidebar is fed
+from it. Not in every turn: when the person asks, or a card is due.
+
 ## What the person sees
 
 When a worker reaches something the person must look at, show it as

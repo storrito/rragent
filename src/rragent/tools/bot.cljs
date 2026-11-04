@@ -29,13 +29,22 @@
    hooks depend on it, so that the manager deals with those first;
    `transcript` reads a bot's chat after an entry id, folded for a
    model, so that the manager learns what a worker did, also with the
-   person directly, without carrying its chat. The tool is made over
-   the functions of the machine, so that the harness needs nothing of
-   it."
+   person directly, without carrying its chat; `status` writes a
+   bot's status document (`rragent.status`) from a reading of its
+   chat since the entry the status covers: one bot with `id`, else
+   every worker of the manager whose chat is stale, each read in a
+   conversation of the call's own on the status model, the way the
+   subagent tool makes its child (`rragent.tools.subagent`), which
+   answers the new status as JSON; the manager's cards and the
+   sidebar's \"Needs you\" come from the document. The tool is made
+   over the functions of the machine, so that the harness needs
+   nothing of it."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
-            ["@earendil-works/pi-durable" :refer [defineExtension defineTool]]
+            ["@earendil-works/pi-durable" :refer [AssistantEntry configure defineExtension defineTool]]
             [clojure.string :as str]
             [rragent.messages :as messages]
+            [rragent.status :as status]
+            [rragent.tools.subagent :as subagent-tool]
             [rragent.tools.work :as work]))
 
 (def description
@@ -48,7 +57,11 @@
        "and its answer comes back into this chat as a message from that bot, once it has answered; the call itself answers at once. "
        "Say in the text everything the bot needs: it knows nothing of this chat. "
        "For the manager alone: `transcript` with `id` (and `since`, an entry id, 0 for all) reads a bot's chat after that entry, "
-       "folded, the person's messages to it included, and names the last entry read; `archive` with `id` marks a bot's chat as over, "
+       "folded, the person's messages to it included, and names the last entry read; "
+       "`status` refreshes what you know of your workers: with `id` one bot, without every worker of yours whose chat has something new; "
+       "a model reads the new part of each chat and writes the bot's status, the summary, what waits for the person and the version, "
+       "which the sidebar's Needs you and your cards come from; the answer says the status of each bot read. "
+       "`archive` with `id` marks a bot's chat as over, "
        "its files and page stay; `delete` with `id` removes a bot, refused while other bots, schedules or hooks depend on it."))
 
 (defn listed
@@ -90,9 +103,104 @@
            ". Deal with those first, one at a time with the person: archive or delete the workers, have it drop the schedules and hooks."))
     :else (str outcome)))
 
+(defn status-text
+  "One paragraph of `status` for a bot: its name and id, the summary,
+   the version when it named one, and what waits for the person;
+   `note` before the summary, for a bot whose chat had nothing new or
+   whose reading gave no status."
+  [name id {:keys [summary needs version]} note]
+  (str name " (" id "): "
+       (when note (str note " "))
+       (if (str/blank? summary) "(no status yet)" summary)
+       (when version (str " · version " version))
+       " · needs: " (if (seq needs) (str/join "; " needs) "nothing")))
+
+(def nothing-changed
+  "The note of `status` for a bot whose chat has no entry past its
+   status: no model reads it."
+  "(nothing changed since the last status)")
+
 (defn- by-id
   [bots id]
   (some (fn [bot] (when (= (str id) (str (:id bot))) bot)) bots))
+
+(defn- ^:async status-child!
+  "A conversation of the call's own for the reading of one bot's chat,
+   the way the subagent tool makes its child: owned by the call's
+   task, on the status model with its thinking level and instructions
+   (`rragent.status`), under the provider of the caller's model, the
+   subagent tool left out and no tool offered to the model, which
+   answers JSON alone. Answers its id."
+  [api call-context]
+  (let [^js agent (await (.agent api call-context))
+        provider (or (some-> agent .-model .-provider) "openrouter")]
+    (await (.commit api
+                    (^:async fn [tx]
+                      (let [id (.-id (await (.createConversation tx #js {:ownership #js {:kind "task" :taskId (.-taskId api)}})))]
+                        (await (configure tx id #js {:model #js {:provider provider :modelId status/*model*}
+                                                     :thinkingLevel status/thinking
+                                                     :instructions status/instructions
+                                                     :extensions #js {:remove #js [subagent-tool/extension]}
+                                                     :modelTools #js []}))
+                        id))
+                    call-context))))
+
+(defn- ^:async ask-status!
+  "`prompt` put to the reading conversation `child`, the answer's
+   text; throws when the model did not answer."
+  [api call-context child prompt]
+  (let [conversation (await (.conversation api child call-context))
+        submission (await (.submit conversation #js {:type "input" :content prompt} call-context))
+        ^js settled (await (.wait submission call-context))]
+    (if (= "done" (.-status settled))
+      (subagent-tool/answer-text (await (.commit api (fn [tx] (.entry tx AssistantEntry (.-answer settled))) call-context)))
+      (throw (js/Error. (str "The status model did not answer: " (.-reason settled)))))))
+
+(defn- ^:async read-status!
+  "The bot's status read anew: its chat since the entry the status
+   covers (`transcript`), in pieces when the read cuts (`:more?`),
+   each put to the status model with the status as it was
+   (`rragent.status/prompt`), the answer parsed
+   (`rragent.status/parse`) and written with the last entry read
+   (`write-status!`), so that a piece read stays read; an answer that
+   holds no status leaves the status as it was and ends the reading,
+   the paragraph says so."
+  [api call-context {:keys [transcript status-of write-status!]} id name]
+  (let [child (await (status-child! api call-context))]
+    (loop [status (:status (status-of id))]
+      (let [{:keys [text last more?]} (await (transcript id (:as-of-entry status)))
+            answer (await (ask-status! api call-context child (status/prompt status text)))
+            parsed (status/parse answer)]
+        (if-not parsed
+          (status-text name id status "(the status model gave no status, it stays as it was)")
+          (let [status (await (write-status! id (assoc parsed :as-of-entry last :at (js/Date.now))))]
+            (if more?
+              (recur status)
+              (status-text name id status nil))))))))
+
+(defn- ^:async status!
+  "The `status` action of the manager `from`: the bot `id` read anew
+   when its chat is stale (`rragent.status/stale?`), else said
+   unchanged with its status as it is; without an id every worker of
+   the manager (`children-of`) whose chat is stale, the others left
+   out. One paragraph per bot."
+  [api call-context {:keys [list children-of status-of] :as fns} id from]
+  (let [bots (list)
+        ids (if id
+              [(:id (or (by-id bots id)
+                        (throw (js/Error. (str "No bot " id " on this machine. The bots:\n" (listed bots))))))]
+              (children-of from))]
+    (loop [[bot & more] ids
+           paragraphs []]
+      (if (nil? bot)
+        (str/join "\n\n" (if (seq paragraphs) paragraphs [nothing-changed]))
+        (let [{:keys [status newest]} (status-of bot)
+              name (:name (by-id bots bot))]
+          (recur more
+                 (cond
+                   (status/stale? status newest) (conj paragraphs (await (read-status! api call-context fns bot name)))
+                   id (conj paragraphs (status-text name bot status nothing-changed))
+                   :else paragraphs)))))))
 
 (defn- ^:async message!
   "The task of the message made in the call's commit, in the
@@ -132,21 +240,25 @@
    `manager?` (an id to whether it is the manager's), `archive!` (an
    id), `dependents` (an id to a promise of `{:children :schedules
    :hooks}`), `delete!` (an id to a promise of the outcome,
-   `delete-text` says it) and `transcript` (an id and an entry id to a
-   promise of `{:text :last :more?}`)."
-  [{:keys [adopt! list check-skill! relate-in! manager? archive! dependents delete! transcript]}]
+   `delete-text` says it), `transcript` (an id and an entry id to a
+   promise of `{:text :last :more?}`), `children-of` (an id to the
+   ids of the bots whose parent it is), `status-of` (an id to
+   `{:status :newest}`, the bot's status as last read and the id of
+   its newest entry) and `write-status!` (an id and a status to a
+   promise of the status as written)."
+  [{:keys [adopt! list check-skill! relate-in! manager? archive! dependents delete! transcript] :as fns}]
   (defineTool
    #js {:name "bot"
         :description description
         :parameters (.Object Type #js {:action (.Union Type #js [(.Literal Type "create") (.Literal Type "list") (.Literal Type "message")
-                                                                 (.Literal Type "transcript") (.Literal Type "archive") (.Literal Type "delete")])
+                                                                 (.Literal Type "transcript") (.Literal Type "status") (.Literal Type "archive") (.Literal Type "delete")])
                                        :name (.Optional Type (.String Type #js {:description "create: the new bot's name, for the person"}))
                                        :instructions (.Optional Type (.String Type #js {:description "create: the new bot's job, a few sentences"}))
                                        :skill (.Optional Type (.String Type #js {:description "create: a skill the new bot takes at once, by its folder name: one of ours, or one of the person's (the skill tool lists them)"}))
                                        :project (.Optional Type (.String Type #js {:description "create: the name of the project the bot belongs to"}))
                                        :model (.Optional Type (.String Type #js {:description "create: the model the bot runs on, an OpenRouter id; the default without"}))
                                        :thinking (.Optional Type (.String Type #js {:description "create: the thinking level, low, medium, high, xhigh or max; the default without"}))
-                                       :id (.Optional Type (.String Type #js {:description "message, transcript, archive, delete: the id of the bot, as list shows it"}))
+                                       :id (.Optional Type (.String Type #js {:description "message, transcript, archive, delete: the id of the bot, as list shows it; status: one bot, every worker of yours with something new without"}))
                                        :text (.Optional Type (.String Type #js {:description "message: the message, complete: the bot knows nothing of this chat"}))
                                        :since (.Optional Type (.Number Type #js {:description "transcript: the entry id after which to read, 0 for the whole chat; the last read answered it"}))})
         :execute (^:async fn [args api call-context]
@@ -186,6 +298,10 @@
                                                       "\n\n(last entry " last
                                                       (if more? "; there is more: read again with since " "; read again later with since ")
                                                       last ")"))))
+                     "status" (let [from (await (work/bot-id api call-context))
+                                    id (not-empty (str/trim (str (.-id args))))]
+                                (manager-only! manager? from "status")
+                                (work/text (await (status! api call-context fns id from))))
                      "archive" (let [from (await (work/bot-id api call-context))
                                      id (str/trim (str (.-id args)))
                                      target (by-id (list) id)]
