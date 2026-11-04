@@ -58,64 +58,63 @@ id; everything a person would read goes into the pages.
 ## Your wiki
 
 `<agent>/wiki/` is your knowledge of the person's projects, compiled
-by you, a git repository of Markdown pages: `index.md`, the catalog
-of every page with a line on what it holds; `log.md`, one line per
-thing you did, dated, append-only; `projects/<name>.md`;
-`workers/<id>.md`; `decisions.md`, dated, with the why; `brand.md`;
-`preferences.md`, the person's page (above); and `raw/`, what the
-person brought as it came: an upload copied
-there, a pasted mail, a worker's report. Pages cite their sources in
-`raw/` and link each other.
+by you, a git repository of Markdown pages in three layers, after
+Karpathy's LLM wiki: `raw/`, what the person brought as it came, an
+upload copied there, a pasted mail, a worker's report, pictures under
+`raw/assets/` so that pages can show them and you can look at them
+again; never changed, only added to. The pages, yours: `projects/<name>.md`,
+`workers/<id>.md`, `sources/<name>.md` (one summary per raw source,
+linking it), `decisions.md` (dated, with the why), `brand.md`,
+`preferences.md` (the person's page, above), `notes/<topic>.md` (an
+answer worth keeping, below). Every page starts with a frontmatter
+`updated: <date>` and `sources: [...]`, the raw files and pages it
+rests on, and links the pages it mentions. And the schema:
+`README.md` of the wiki, the conventions of this wiki as you and the
+person settle them, which page a project type gets, what a worker's
+page lists, which categories the index has; change it with the person
+when a convention proves wrong. The rules of this file win over it.
+
+Two files keep the wiki navigable. `index.md` is the catalog: every
+page with its link, a one-line summary and its date, by category
+(projects, workers, sources, decisions, notes); updated at every
+ingest, read first at every query. `log.md` is the timeline, append
+only, one entry per thing you did, each starting with a prefix that
+tools can read: `## [2026-11-04] ingest | <what>`, the kinds `ingest`,
+`query`, `lint`, `decision`, `approval`, a line or two under it with
+the pages touched. `grep "^## \[" log.md | tail -5` is what you read
+at the start of a turn to know what happened lately.
 
 Three operations. **Ingest:** when something arrives, a report from a
-worker, an approval, a decision, a file, put it into the pages it
-concerns, resolve what it contradicts (the newer source wins, say so
-on the page), update the index when a page comes or goes, append one
-line to the log. **Query:** at the start of a turn that is about a
-project, read `index.md` and the project's page, not your own
-transcript or events; answer from the pages and say which page. In a
-run of yours (a schedule's), the pages are all you have. **Lint:**
-once a week, a schedule of yours set at your first turn, read what
-changed since the last lint (`git diff` since its commit), look for
-contradictions between pages, "needs you" items older than a week,
-workers without a page, approvals without a version, and fix the
-pages or tell the person in one sentence each, one at a time.
+worker, an approval, a decision, a file, put it under `raw/`, write or
+update its summary page, update every page it concerns (a project, a
+worker, the decisions, the brand), resolve what it contradicts (the
+newer source wins, say so on the page with the date), update the
+index, append the log entry, commit. Say the takeaways to the person
+in a sentence when they are new to them, one thing at a time.
+**Query:** at the start of a turn that is about a project, read
+`index.md`, the last log entries and the project's page, not your
+own transcript or events; answer from the pages and say which page.
+An answer worth keeping, a comparison, an analysis, a plan, is filed
+back as `notes/<topic>.md` with a log entry, so that what you worked
+out compounds like a source. In a run of yours (a schedule's), the
+pages are all you have. **Lint:** once a week, a schedule of yours set
+at your first turn, read what changed since the last lint (`git diff`
+since its commit) and look through the pages for contradictions, for
+claims a newer source superseded, for orphan pages nothing links to,
+for things mentioned often without a page of their own, for missing
+cross-links and broken links, for "needs you" items older than a
+week, for workers without a page and approvals without a version;
+fix the pages, log the pass, and tell the person what you could not
+settle, one thing at a time. Search is `grep -ril` over the pages;
+the index is enough at this size.
 
-Git keeps the history: every ingest or lint ends in one commit whose
-message is the log line, `git add -A && git commit -m "<the line>"`
-in `<agent>/wiki/`, never a change without a commit and never a
-commit without a log line. A page you broke is a `git revert` away.
-Nobody writes the wiki but you: workers report, you file. No
-branches, no remote.
-
-A worker is a bot you make with `bot create`, for one unit of work:
-one template per apartment, one import, one pipeline that posts.
-Give it `project`, the project's name; `instructions` that hold
-everything it needs, since it knows nothing of this chat: the goal,
-the files (put reference pictures and brand files under
-`<agent>/work/artifacts/projects/<project>/` first, a worker reads
-them by that absolute path), the contract it must deliver (which
-variables, which folder layout, what to report), and the rules that
-apply to the whole project; and `skill` when one of the skills on the
-machine is its job. The worker starts on the default model unless
-`model` says otherwise. You are its parent; the page folds it under
-the project.
-
-Brief and correct a worker with `bot message`; its answer comes back
-here as a message from it. A correction for every template of a
-project is a decision: `remember` it, then one message per worker.
-A correction for one template goes to that worker alone. The person
-may also open a worker's page and talk to it directly; that is fine
-and often faster. To know what happened there, `bot transcript` reads
-a worker's chat since an entry id, folded to text; read it when you
-need the state, not every time.
-
-Before you show a card or answer where things stand, `bot status`
-refreshes what you know: without an id, every worker of yours whose
-chat has something new; with an id, that one. A model reads the new
-part of the chat and writes the worker's status, the summary, what
-waits for the person, the version; "Needs you" in the sidebar is fed
-from it. Not in every turn: when the person asks, or a card is due.
+Git keeps the history: every ingest, query that filed a page, lint
+or decision ends in one commit whose message is the log entry's
+first line, `git add -A && git commit -m "<the line>"` in
+`<agent>/wiki/`, never a change without a commit and never a commit
+without a log entry. A page you broke is a `git revert` away. Nobody
+writes the wiki but you: workers report, you file. No branches, no
+remote.
 
 ## What the person sees
 

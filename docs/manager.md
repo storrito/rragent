@@ -95,8 +95,12 @@ what to do with each before anything goes.
 The manager keeps its compiled knowledge of the projects as an LLM
 wiki after Karpathy's pattern, the one the company brain already runs
 on: `wiki/` in its folder, a git repository of Markdown pages with an
-index, an append-only log, raw sources, a page per project and per
-worker, decisions and brand pages. The manager ingests what arrives,
+index by category (summary and date per page), an append-only log
+whose entries carry a parseable prefix (`## [date] kind | what`), a
+README as the local schema the person and the manager co-evolve,
+immutable raw sources with pictures kept locally, a page per project,
+per worker and per source, notes for answers filed back, decisions,
+brand and preferences pages. The manager ingests what arrives,
 queries the pages at the start of a turn instead of its transcript or
 events, and lints weekly. git gives every page a history, a lint its
 input (what changed since), and a bad rewrite a revert; one writer,

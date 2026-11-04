@@ -94,7 +94,8 @@
                    (let [dir (wiki/dir (home/bot-dir home manager))]
                      (is (fs/existsSync (path/join dir ".git")))
                      (is (str/starts-with? (fs/readFileSync (path/join dir "index.md") "utf8") "# Index\n"))
-                     (is (re-find #"(?m)^- \d{4}-\d\d-\d\d · the wiki begins$" (fs/readFileSync (path/join dir "log.md") "utf8")))
+                     (is (re-find #"(?m)^## \[\d{4}-\d\d-\d\d\] seed \| the wiki begins$" (fs/readFileSync (path/join dir "log.md") "utf8")))
+                     (is (fs/existsSync (path/join dir "README.md")))
                      (is (= 1 (wiki/commits (home/bot-dir home manager))))
                      (fs/writeFileSync (path/join dir "brand.md") "# Brand\n")))
                  (testing "the person's page of the wiki is appended to the definition at the read, under its heading"
