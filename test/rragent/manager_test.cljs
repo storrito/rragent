@@ -86,13 +86,18 @@
                    (is (= [false true] (map :manager? (machine/listed))))
                    (is (= "Manager" (:name (second (machine/listed)))))
                    (is (= manager (machine/default-id)) "the root of the page goes to the manager")
-                   (is (= {:hidden #{} :archived #{} :parents {} :projects {} :manager manager} (machine/current-structure)))
+                   (is (= {:hidden #{} :archived #{} :parents {} :projects {} :manager manager :advanced? false} (machine/current-structure)))
+                   (is (= "Manager" (:label (second (machine/listed)))) "the page calls it by its name, never New bot with a time")
                    (is (str/starts-with? (fs/readFileSync (definition-file home manager) "utf8") "---\nname: Manager\n")))
                  (testing "the preferences file is appended to the definition at the read, under its heading"
                    (fs/writeFileSync (home/preferences-file (home/bot-dir home manager)) "- Status on Mondays only.\n")
                    (await (reload/reload! (:conversation (machine/bot manager)) harness/context))
                    (is (str/ends-with? (:instructions (reload/current manager)) "## Your preferences\n\n- Status on Mondays only."))
                    (is (= "Manager" (:name (reload/current manager)))))
+                 (testing "the advanced switch of the settings lives in the structure"
+                   (await (machine/set-advanced! (:harness (machine/agent)) true))
+                   (is (true? (:advanced? (machine/current-structure))))
+                   (is (true? (:advanced? (await (machine/structure (:harness (machine/agent)))))) "in the document"))
                  (testing "opened again: the same manager, its definition from the bundle anew, the person's picks kept"
                    (bots/set-metadata! home manager "thinking" "low")
                    (fs/appendFileSync (definition-file home manager) "\nA line someone added.\n")
@@ -101,6 +106,9 @@
                          text (fs/readFileSync (definition-file home manager) "utf8")]
                      (is (= ["1" manager] (map :id again)) "no second manager")
                      (is (= manager (machine/manager-id)))
+                     (is (true? (:advanced? (machine/current-structure))) "the switch survives the open")
+                     (await (machine/set-advanced! (:harness (machine/agent)) false))
+                     (is (false? (:advanced? (machine/current-structure))))
                      (is (str/includes? text "  thinking: low\n"))
                      (is (not (str/includes? text "A line someone added")))
                      (is (= "low" (get-in (machine/bot manager) [:definition :thinking])))

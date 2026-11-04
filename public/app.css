@@ -115,9 +115,11 @@ body {
   display: none;
 }
 
-/* The sidebar: the bots, one row each, a link to the bot's page with
-   its name and state; the way to make one on top. The look follows
-   pchat's sidebar. */
+/* The sidebar (rragent.view/sidebar): the sections of the machine's
+   structure, the manager, what needs the person, the projects with
+   their bots folded, the other bots, each bot one row, a link to its
+   page with its name and state; the raw list with the way to make a
+   bot behind the advanced switch. The look follows pchat's sidebar. */
 .sidebar {
   display: flex;
   flex: none;
@@ -246,6 +248,115 @@ body {
 .sidebar ul.bots li.current {
   background: var(--panel);
   box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* The sections: a small heading over the projects, the other bots and
+   the raw list; the manager's row and Needs you stand for themselves.
+   An archived bot is dimmed, the word archived in place of its state. */
+.sidebar section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar section h2 {
+  margin: 4px 10px 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar ul.bots li.archived {
+  opacity: 0.55;
+}
+
+.sidebar ul.bots li.archived .state::before {
+  display: none;
+}
+
+/* Needs you: the count of what waits for the person as a badge; a
+   link to the manager's page once there is something. */
+.sidebar .needs .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar .needs .row .name {
+  flex: 1;
+}
+
+.sidebar .needs span.row {
+  color: var(--muted);
+}
+
+.sidebar .needs a.row:hover {
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+}
+
+.sidebar .needs .badge {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* A project: its name and how many bots it has on the summary, the
+   rows folded under it, open while the bot shown is one of them. */
+.sidebar details.project > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar details.project > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar details.project > summary::before {
+  content: "▸";
+  width: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sidebar details.project[open] > summary::before {
+  content: "▾";
+}
+
+.sidebar details.project > summary:hover {
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+}
+
+.sidebar details.project > summary .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar details.project > summary .count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sidebar details.project > ul.bots {
+  padding-left: 14px;
 }
 
 /* The bottom of the sidebar: the way to the settings
@@ -2910,6 +3021,15 @@ pre {
 
 .main .settings .explain {
   color: var(--text);
+}
+
+/* The advanced switch (rragent.view/advanced-section). */
+.main .settings label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  cursor: pointer;
 }
 
 .main .settings .result.failed {

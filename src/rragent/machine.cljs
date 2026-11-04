@@ -59,14 +59,16 @@
   "The structure of the machine, a session document of the storage:
    `hidden`, the ids of the deleted bots; `manager`, the id of the
    manager; `parents`, child id to parent id; `projects`, child id to
-   the name of its project; `archived`, the ids of the archived bots.
-   A document from before the manager has `hidden` alone; the readers
-   take a missing key as empty."
+   the name of its project; `archived`, the ids of the archived bots;
+   `advanced`, whether the page shows every bot and the raw list
+   (`set-advanced!`), false until the person switches it on in the
+   settings. A document from before the manager has `hidden` alone;
+   the readers take a missing key as empty."
   (defineDoc #js {:kind "rragent.bots"
                   :version 1
                   :scope "session"
                   :history "latest"
-                  :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil})}))
+                  :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil :advanced false})}))
 
 (declare adopt! listed refresh-spend! refresh-structure! dependents delete! transcript)
 
@@ -328,8 +330,8 @@
 
 (defn ^:async structure
   "The session document as data, ids as strings: `{:hidden #{} :archived
-   #{} :parents {child parent} :projects {child name} :manager id}`,
-   `:manager` nil for a machine without one yet."
+   #{} :parents {child parent} :projects {child name} :manager id
+   :advanced? false}`, `:manager` nil for a machine without one yet."
   [harness]
   (let [doc (await (.snapshot harness Structure harness/context))
         ids (fn [xs] (set (map str (array-seq (or xs #js [])))))
@@ -339,7 +341,8 @@
      :archived (ids (some-> doc .-archived))
      :parents (pairs (some-> doc .-parents))
      :projects (pairs (some-> doc .-projects))
-     :manager (when (some? manager) (str manager))}))
+     :manager (when (some? manager) (str manager))
+     :advanced? (boolean (some-> doc .-advanced))}))
 
 (defn ^:async refresh-structure!
   "The structure read again into the atom, `:structure`, which the
@@ -385,6 +388,17 @@
   (await (.commit harness
                   (^:async fn [tx]
                     (push-id! (await (.doc tx Structure)) "archived" id))
+                  harness/context))
+  (await (refresh-structure! harness)))
+
+(defn ^:async set-advanced!
+  "The advanced switch of the settings into the session document:
+   whether the page shows every bot and the raw list (`advanced?`, a
+   boolean), for everyone who opens it."
+  [harness advanced?]
+  (await (.commit harness
+                  (^:async fn [tx]
+                    (aset (await (.doc tx Structure)) "advanced" (boolean advanced?)))
                   harness/context))
   (await (refresh-structure! harness)))
 

@@ -1,8 +1,10 @@
 (ns rragent.view
   "The page as a function of the bots, the conversation of the one
-   shown and its artifacts: the sidebar with the bots (name, state, the
-   way to make, rename and delete one; the settings at its bottom), the
-   header, the transcript of
+   shown and its artifacts: the sidebar, a projection of the machine's
+   structure (the manager, what needs the person, the projects with
+   their workers folded, the other bots; every bot with the way to
+   make, rename and delete one behind the advanced switch; the
+   settings at its bottom), the header, the transcript of
    pi-durable's view (`rragent.page/conversation` turns the view value
    into the data this namespace reads) as a feed of items, the
    composer, and the pane of the artifacts (the keys of
@@ -750,8 +752,26 @@
    [:ui/effects-timing {:ui/live [:i18n :recording/live]
                         :ui/after [:i18n :recording/after]}]])
 
+(defn advanced-section
+  "The Advanced section of the settings: the switch that puts every
+   bot and the raw list into the sidebar, New bot and the row menus
+   with it (`sidebar`). The choice is the machine's, in its structure
+   (`:settings/advanced`, `rragent.machine/set-advanced!`), so every
+   tab shows the same sidebar; the command carries the state the
+   switch goes to, as the frame rendered it."
+  [advanced?]
+  [:section.advanced
+   [:h2 [:i18n :advanced/title]]
+   [:p [:i18n :advanced/explain]]
+   [:label.check
+    [:input {:type "checkbox"
+             :checked (boolean advanced?)
+             :on {:change [[:data/command {:command/kind :settings/advanced
+                                           :command/data {:advanced (not advanced?)}}]]}}]
+    [:span [:i18n :advanced/show-all]]]])
+
 (def settings-sections
-  [:updates :input :recording :mcp])
+  [:updates :input :recording :mcp :advanced])
 
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
@@ -759,9 +779,10 @@
    version in the header): a bar with the title and the way back
    (`:settings/close`), the tabs of the sections (`:settings/section`,
    per tab), and the section the tab picked: the updates
-   (`updates-section`), the keys of the composer (`input-section`) or
-   the MCP servers (`mcp-section`, `mcp` its data)."
-  [update section mcp]
+   (`updates-section`), the keys of the composer (`input-section`),
+   the MCP servers (`mcp-section`, `mcp` its data) or the advanced
+   switch (`advanced-section`, `advanced?` its state)."
+  [update section mcp advanced?]
   (let [section (if (some #{section} settings-sections) section :updates)]
     (list
      [:header.bar
@@ -784,6 +805,7 @@
         :mcp (mcp-section mcp)
         :input (input-section)
         :recording (recording-section)
+        :advanced (advanced-section advanced?)
         (updates-section update))])))
 
 (defn phone-words
@@ -1611,21 +1633,90 @@
                                              :command/data {:tab :ui/tabid}}]]}}
    [:i18n :bot/new]])
 
-(defn sidebar
-  "The bots of the machine, each a link to its page with its name
-   (its `:label` when it has none of its own yet: \"New bot\" and when
-   it was made) and state, the one shown marked; the way to make one;
-   a row being deleted asks, a row being renamed is a field
-   (`:deleting?`, `:renaming?` of the bot). At the bottom the way to
-   the settings, marked while this tab shows them (`settings?`)."
-  [bots shown version settings?]
-  [:aside.sidebar
-   [:div.brand "rragent"
-    (when version
-      [:span.version {:title "rragent version"} version])]
+(defn- bot-row
+  "A row of the sidebar: the link to the bot's page (`data-bot`, the
+   runtime stays on the page) with its name (its `:label` when it has
+   none of its own yet: \"New bot\" and when it was made; `word` in
+   place of both, the manager's) and its state, or the word archived
+   in its place for a bot whose chat is over (`:archived?`, dimmed by
+   its class); the one `shown` marked."
+  [{:keys [id label state archived?] :as bot} shown & [word]]
+  [:li {:replicant/key id
+        :class (cond-> [(name state)]
+                 (= id shown) (conj "current")
+                 archived? (conj "archived"))}
+   [:a.row {:href (bots/url id)
+            :data-bot id}
+    [:span.name (or word label (:name bot))]
+    (if archived?
+      [:span.state.archived [:i18n :bot/archived]]
+      [:span.state (state-label state)])]])
+
+(defn- bot-list
+  "The rows of `bots` in their order. Keyed by its order: a list whose
+   rows move makes a new list (Replicant 2026.07.1 keeps a stale vdom
+   for a row moved to the front)."
+  [bots shown]
+  [:ul.bots {:replicant/key (str/join " " (map :id bots))}
+   (for [bot bots]
+     (bot-row bot shown))])
+
+(defn- archived-last
+  "`bots` in their order, the archived ones after the others."
+  [bots]
+  (concat (remove :archived? bots) (filter :archived? bots)))
+
+(defn- needs-you
+  "What waits for the person: the sum of every bot's needs (`:needs`
+   of its `:status`, which the manager writes; a bot without one
+   needs nothing), a badge on the row. With some, the row is a link
+   to the manager's page, where it presents them one at a time; with
+   none, or without a manager, a row that goes nowhere."
+  [bots manager]
+  (let [n (reduce + 0 (map #(count (:needs (:status %))) bots))
+        label [:span.name [:i18n :bots/needs-you]]]
+    [:div.needs
+     (if (and (pos? n) manager)
+       [:a.row {:href (bots/url (:id manager))
+                :data-bot (:id manager)}
+        label
+        [:span.badge (str n)]]
+       [:span.row
+        label
+        (when (pos? n)
+          [:span.badge (str n)])])]))
+
+(defn- projects
+  "The bots with a project, under its name, the projects in the order
+   they first appear: a <details> per project, its summary the name
+   and how many bots it has, open when the bot shown is one of them
+   (one the person opened stays open until a frame changes that);
+   inside, the rows, the archived ones last. Nothing without a
+   project."
+  [bots shown]
+  (let [with (filter :project bots)]
+    (when (seq with)
+      [:section.projects
+       [:h2 [:i18n :bots/projects]]
+       (for [project (distinct (map :project with))
+             :let [members (archived-last (filter #(= project (:project %)) with))]]
+         [:details.project (cond-> {:replicant/key project}
+                             (some #(= shown (:id %)) members) (assoc :open true))
+          [:summary
+           [:span.name project]
+           [:span.count (str (count members))]]
+          (bot-list members shown)])])))
+
+(defn- all-bots
+  "The raw list, behind the advanced switch: the way to make a bot,
+   then every bot in the order made, each row with its menu
+   (`bot-actions`); a row being deleted asks, a row being renamed is a
+   field (`:deleting?`, `:renaming?` of the bot)."
+  [bots shown]
+  [:section.all
+   [:h2 [:i18n :bots/all]]
    (new-bot)
-   ;; keyed by its order: a list whose rows move makes a new list
-   ;; (Replicant 2026.07.1 keeps a stale vdom for a row moved to the front)
+   ;; keyed by its order, see `bot-list`
    [:ul.bots {:replicant/key (str/join " " (map :id bots))}
     (for [{:keys [id name label state deleting? renaming?]} bots]
       [:li {:replicant/key id
@@ -1639,16 +1730,52 @@
                          :data-bot id}
                  [:span.name (or label name)]
                  [:span.state (state-label state)]]
-                (bot-actions id (< 1 (count bots)))))])]
-   [:div.bottom
-    [:button.settings {:class (when settings? "current")
-                       :on {:click [[:data/command {:command/kind :settings/open
-                                                    :command/data {:tab :ui/tabid}}]]}}
-     [:i18n :settings/button]]]])
+                (bot-actions id (< 1 (count bots)))))])]])
+
+(defn sidebar
+  "The machine's structure as sections, top to bottom: the manager
+   (`:manager?` of the bots, under the word Manager), what needs the
+   person (`needs-you`), the projects with their workers folded
+   (`projects`), the other bots, the ones without a project (the
+   archived ones last, dimmed), and, with the advanced switch on
+   (`advanced?`), every bot as the raw list with the way to make,
+   rename and delete one (`all-bots`); without it none of that, no
+   New bot and no row menus. At the bottom the way to the settings,
+   marked while this tab shows them (`settings?`). Each row a link to
+   the bot's page with its name and state, the one `shown` marked
+   (`bot-row`). A section with nothing in it is left out, the
+   manager's when the machine has none."
+  [bots shown version settings? advanced?]
+  (let [manager (some #(when (:manager? %) %) bots)
+        others (archived-last (remove #(or (:manager? %) (:project %)) bots))]
+    [:aside.sidebar
+     [:div.brand "rragent"
+      (when version
+        [:span.version {:title "rragent version"} version])]
+     (when manager
+       [:section.manager
+        [:ul.bots {:replicant/key (:id manager)}
+         (bot-row manager shown [:i18n :bots/manager])]])
+     (needs-you bots manager)
+     (projects bots shown)
+     (when (seq others)
+       [:section.other
+        [:h2 [:i18n :bots/other]]
+        (bot-list others shown)])
+     (when advanced?
+       (all-bots bots shown))
+     [:div.bottom
+      [:button.settings {:class (when settings? "current")
+                         :on {:click [[:data/command {:command/kind :settings/open
+                                                      :command/data {:tab :ui/tabid}}]]}}
+       [:i18n :settings/button]]]]))
 
 (defn page
   "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :label
-   :state :deleting? :renaming?}`; `:bot`, the one shown, its `:id`,
+   :state :deleting? :renaming? :manager? :project :archived?
+   :status}` (`rragent.machine/listed`); `:advanced?`, whether the
+   sidebar shows every bot and the raw list (the settings' switch);
+   `:bot`, the one shown, its `:id`,
    `:name` (what the header shows, the label of the sidebar), its
    `:model` and `:thinking`, its thinking level, and `:models`, the
    ones to pick from with their prices (`model-switch`); the context it
@@ -1672,7 +1799,7 @@
    whether this tab shows the settings in place of the bot's chat and
    pane (`settings`), `:settings-section` which of their sections, and
    `:mcp` what the MCP section shows (`mcp-section`)."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp] pane :artifacts}]
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced?] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -1687,12 +1814,12 @@
      ;; the drawer state on a phone, toggled by labels, never rendered
      ;; with :checked so that the person's choice survives a frame
      [:input#nav.toggle {:type "checkbox"}]
-     (sidebar bots id (:current update) settings?)
+     (sidebar bots id (:current update) settings? advanced?)
      [:label.backdrop {:for "nav"}]
      (if settings?
        ;; keyed apart from the chat: the two share no element
        [:div.main.settings-open {:replicant/key "settings"}
-        (settings update settings-section mcp)]
+        (settings update settings-section mcp advanced?)]
        ;; keyed by the bot, and by the run when one is shown: a switch
        ;; builds the chat anew, two transcripts share no element
        [:div.main {:replicant/key (if run (str "bot-" id "-run-" (:id run)) (str "bot-" id))}

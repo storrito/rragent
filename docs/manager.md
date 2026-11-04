@@ -104,6 +104,10 @@ what to do with each before anything goes.
 - `status`: `rragent.status`, the `bot status` action that reads the
   changed workers and writes the document, the status in the bot's
   map for the page.
-- `sidebar`: the sections, the advanced switch in the settings, the
-  delete of a row behind it.
+- `sidebar`: the sections, a projection of the structure
+  (`rragent.view/sidebar`: the manager, Needs you summed from the
+  bots' status, the projects with their workers folded, the other
+  bots); the advanced switch in the settings (`advanced` of
+  `rragent.bots`), New bot, the raw list and the row menus with
+  rename and delete behind it.
 - `render-lock`: the gate in `rragent.render`.

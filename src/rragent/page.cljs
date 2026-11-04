@@ -47,7 +47,10 @@
    in place of the chat for a tab and bring the chat back
    (`rragent.view/settings`); `:update/check` is the settings' lookup
    of a newer release, `:update/apply` the Update button's
-   (`rragent.update`); `:settings/section` picks the tab's section.
+   (`rragent.update`); `:settings/section` picks the tab's section;
+   `:settings/advanced` is the Advanced section's switch, whether the
+   sidebar shows every bot and the raw list, into the machine's
+   structure (`rragent.machine/set-advanced!`), so every tab follows.
    The MCP section's commands (`:mcp/test`, `:mcp/enable`,
    `:mcp/remove`, `:mcp/keep`, `:mcp/setup`) change the machine's
    servers (`rragent.mcp`), whose overview the atom follows (`:mcp`);
@@ -235,6 +238,7 @@
                     :settings? (contains? settings-open (:tabid w))
                     :settings-section (get settings-section (:tabid w))
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
+                    :advanced? (:advanced? (machine/current-structure))
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)})
         (i18n/translate locale))))
@@ -750,6 +754,18 @@
                   (mcp/reload! (registry)))
                 (swap! db/db assoc-in [:settings-section tab] section)
                 (command/accepted w)))))
+
+(defn- ^:async settings-advanced-command
+  "The Advanced section's switch: whether the sidebar shows every bot
+   and the raw list, `advanced`, into the structure of the machine
+   (`rragent.machine/set-advanced!`), which every tab's sidebar
+   reads."
+  [w]
+  (let [{:keys [advanced]} (command/command-data w)]
+    (if-let [harness (:harness (machine/agent))]
+      (do (await (machine/set-advanced! harness (boolean advanced)))
+          (command/accepted w))
+      (command/rejected w :no-machine))))
 
 (def min-testing-ms
   "How long a row says \"Testing …\" at least."
@@ -1331,6 +1347,8 @@
       :command/fn #'settings-close-command}
      {:command/kind :settings/section
       :command/fn #'settings-section-command}
+     {:command/kind :settings/advanced
+      :command/fn #'settings-advanced-command}
      {:command/kind :chat/fold
       :command/fn #'fold-command}
      {:command/kind :mcp/test

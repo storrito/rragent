@@ -170,14 +170,29 @@
         (is (not (contains? text "Assistant")))
         (is (contains? text "running"))
         (is (contains? text "asleep"))
-        (is (= {:command/kind :bot/create :command/data {:tab :ui/tabid}}
-               (get-in (second (find-tag p :button.new)) [:on :click 0 1]))
-            "New bot asks for nothing: one click")
+        (is (nil? (find-tag p :button.new)) "no New bot without the advanced switch")
         (is (= "/bot/cc33dd44" (:ui/path (second (find-tag p :ui/url)))))
         (is (= "0.0.0" (:ui/version (second (find-tag p :ui/url)))) "the server's version, for a page whose bundle is older to reload")
         (is (= "Counter" (last (find-tag p :h1))) "the header names the bot shown")
-        (is (= 3 (count (filter #(and (vector? %) (= :details.actions (first %))) (nodes p)))) "every row has its menu")
-        (is (= 3 (count (filter #{"Delete"} (strings p)))) "delete in every row's menu, one per bot")))
+        (is (nil? (find-tag p :details.actions)) "no row menus either")
+        (is (not-any? #{"Delete"} (strings p)))
+        (is (contains? text "Other") "bots without a project, under Other")
+        (is (nil? (find-tag p :section.manager)) "no manager on this machine: no section")
+        (is (nil? (find-tag p :section.projects)))
+        (is (= "Needs you" (last (find-tag (find-tag p :div.needs) :span.name))) "the row of what waits")
+        (is (nil? (find-tag (find-tag p :div.needs) :a.row)) "going nowhere with nothing")
+        (is (nil? (find-tag p :span.badge)))))
+    (testing "the advanced switch on: the raw list with New bot and the menus"
+      (let [p (page {:advanced? true})
+            all (find-tag p :section.all)]
+        (is (some #{"All bots"} (strings p)))
+        (is (= {:command/kind :bot/create :command/data {:tab :ui/tabid}}
+               (get-in (second (find-tag all :button.new)) [:on :click 0 1]))
+            "New bot asks for nothing: one click")
+        (is (= ["aa11bb22" "cc33dd44" "ee55ff66"] (map #(:data-bot (second (find-tag % :a.row))) (rows all))))
+        (is (= 3 (count (filter #(and (vector? %) (= :details.actions (first %))) (nodes p)))) "every row of the raw list has its menu")
+        (is (= 3 (count (filter #{"Delete"} (strings p)))) "delete in every row's menu, one per bot")
+        (is (= 6 (count (rows p))) "the bots under Other and in the raw list")))
     (testing "the bot's files and commands are under its page"
       (let [p (page {:artifacts {:artifacts/list [{:path "card.html" :kind :page :title "Card" :mtime 3}]
                                  :artifacts/current "card.html"}})
@@ -206,8 +221,9 @@
         (is (nil? (find-tag without :nav.views)) "no tabs without artifacts")
         (is (some? (find-tag with :ui/splitter)) "the handle between the chat and the pane")
         (is (= ["empty"] (:class (second (find-tag without :section.artifacts)))) "the pane says it is empty, a phone hides it")))
-    (testing "a delete armed asks in the row, a rename is a field, a note says the bot of the URL is gone"
-      (let [p (page {:bots [(assoc (nth bots 0) :deleting? true) (nth bots 1) (assoc (nth bots 2) :renaming? true)]
+    (testing "a delete armed asks in the raw list's row, a rename is a field, a note says the bot of the URL is gone"
+      (let [p (page {:advanced? true
+                     :bots [(assoc (nth bots 0) :deleting? true) (nth bots 1) (assoc (nth bots 2) :renaming? true)]
                      :note [:i18n :bot/missing]})
             text (set (strings p))]
         (is (contains? text "Delete this bot? Its folder goes to the trash."))
@@ -216,11 +232,95 @@
                (get-in (second (find-tag p :input.name)) [:on :change 0 1 :command/data])))
         (is (contains? text "That bot is not here any more; this is another one."))))
     (testing "the last bot of the machine cannot be deleted from its row"
-      (let [p (page {:bots [(first bots)] :bot {:id "aa11bb22" :name "Assistant"}})]
+      (let [p (page {:advanced? true :bots [(first bots)] :bot {:id "aa11bb22" :name "Assistant"}})]
         (is (not-any? #{"Delete"} (strings p)))
         (is (some #{"Rename"} (strings p)))))
     (testing "the page stays data a frame can carry"
       (let [p (page {})]
+        (is (= p (transit/read-str (transit/write-str p))))))))
+
+(deftest sidebar-sections-test
+  (let [bots [{:id "1" :name "watcher" :state :idle}
+              {:id "2" :name "Chef" :label "Chef" :state :running :manager? true}
+              {:id "3" :name "Template 202" :state :idle :parent "2" :project "Guest reviews"
+               :status {:summary "Waits for the reference image." :needs [{:id "n1" :ask "Which image?"} {:id "n2" :ask "Approve?"}]}}
+              {:id "4" :name "Template 203" :state :asleep :parent "2" :project "Guest reviews" :archived? true}
+              {:id "5" :name "Template 301" :state :idle :parent "2" :project "Launch video"}
+              {:id "6" :name "Notes" :label [:i18n :bot/new-at {:time "09:00"}] :state :idle}]
+        page (fn [opts]
+               (i18n/translate (view/page (merge {:bots bots
+                                                  :bot {:id "5" :name "Template 301"}
+                                                  :conversation nil
+                                                  :locale :en}
+                                                 opts))
+                               :en))
+        sections (fn [p] (map first (filter #(and (vector? %) (#{:section.manager :div.needs :section.projects :section.other :section.all} (first %))) (nodes p))))
+        rows (fn [tree] (filter #(and (vector? %) (= :li (first %))) (nodes tree)))
+        row-names (fn [tree] (map #(last (find-tag % :span.name)) (rows tree)))
+        projects (fn [tree] (filter #(and (vector? %) (= :details.project (first %))) (nodes tree)))]
+    (testing "the sections in their order: the manager, what needs the person, the projects, the other bots; no raw list"
+      (let [p (page {})
+            text (set (strings p))]
+        (is (= [:section.manager :div.needs :section.projects :section.other] (sections p)))
+        (is (= ["Manager"] (row-names (find-tag p :section.manager))) "the manager by its word, not its name")
+        (is (= "/bot/2" (:href (second (find-tag (find-tag p :section.manager) :a.row)))))
+        (is (= [["running"]] (map #(:class (second %)) (rows (find-tag p :section.manager)))) "its state")
+        (is (nil? (find-tag p :button.new)))
+        (is (nil? (find-tag p :details.actions)))
+        (is (not (contains? text "All bots")))
+        (is (not (contains? text "Chef")))
+        (is (not-any? #{"Delete"} (strings p)))
+        (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
+    (testing "Needs you: the needs of every bot summed on a badge, the row a link to the manager"
+      (let [needs (find-tag (page {}) :div.needs)
+            link (find-tag needs :a.row)]
+        (is (= "2" (last (find-tag needs :span.badge))))
+        (is (= "/bot/2" (:href (second link))))
+        (is (= "2" (:data-bot (second link))) "the runtime stays on the page")
+        (is (= "Needs you" (last (find-tag link :span.name))))))
+    (testing "without a need the row goes nowhere and has no badge; a bot without a status needs nothing"
+      (let [needs (find-tag (page {:bots (map #(dissoc % :status) bots)}) :div.needs)]
+        (is (nil? (find-tag needs :a.row)))
+        (is (nil? (find-tag needs :span.badge)))
+        (is (= "Needs you" (last (find-tag needs :span.name))))))
+    (testing "the projects: a <details> each in the order they appear, the name and the count on its summary, open for the project of the bot shown; the archived bot last, dimmed, with the word"
+      (let [p (page {})
+            [reviews launch] (projects (find-tag p :section.projects))]
+        (is (= ["Guest reviews" "Launch video"] (map #(last (find-tag (find-tag % :summary) :span.name)) [reviews launch])))
+        (is (= ["2" "1"] (map #(last (find-tag % :span.count)) [reviews launch])))
+        (is (nil? (:open (second reviews))) "folded: the bot shown is not in it")
+        (is (true? (:open (second launch))) "open: the bot shown is in it")
+        (is (= ["Template 202" "Template 203"] (row-names reviews)))
+        (is (= ["/bot/3" "/bot/4"] (map #(:href (second (find-tag % :a.row))) (rows reviews))))
+        (is (= [["idle"] ["asleep" "archived"]] (map #(:class (second %)) (rows reviews))))
+        (is (= "archived" (last (find-tag (last (rows reviews)) :span.state.archived))) "the word in place of the state")
+        (is (nil? (find-tag (last (rows reviews)) :span.state)))
+        (is (= [["idle" "current"]] (map #(:class (second %)) (rows launch))))))
+    (testing "the other bots: without a project and not the manager, by their labels"
+      (is (= ["watcher" "New bot · 09:00"] (row-names (find-tag (page {}) :section.other)))))
+    (testing "every project folds when the bot shown is none of theirs"
+      (let [p (page {:bot {:id "1" :name "watcher"}})]
+        (is (every? #(nil? (:open (second %))) (projects p)))
+        (is (= [["idle" "current"] ["idle"]] (map #(:class (second %)) (rows (find-tag p :section.other)))) "marked under Other")))
+    (testing "without a manager the section is absent and Needs you goes nowhere"
+      (let [p (page {:bots (map #(dissoc % :manager?) bots)})]
+        (is (= [:div.needs :section.projects :section.other] (sections p)))
+        (is (nil? (find-tag (find-tag p :div.needs) :a.row)))
+        (is (= "2" (last (find-tag p :span.badge))) "the count stays")
+        (is (= ["watcher" "Chef" "New bot · 09:00"] (row-names (find-tag p :section.other))) "the bot that was the manager is one of the others")))
+    (testing "the advanced switch on: the raw list under the sections, every bot in the order made with its menu, New bot on top"
+      (let [p (page {:advanced? true})
+            all (find-tag p :section.all)]
+        (is (= [:section.manager :div.needs :section.projects :section.other :section.all] (sections p)))
+        (is (= 1 (count (filter #(and (vector? %) (= :button.new (first %))) (nodes p)))))
+        (is (some? (find-tag all :button.new)))
+        (is (= ["1" "2" "3" "4" "5" "6"] (map #(:data-bot (second (find-tag % :a.row))) (rows all))))
+        (is (= ["watcher" "Chef" "Template 202" "Template 203" "Template 301" "New bot · 09:00"] (row-names all)) "by their names, the manager's own")
+        (is (= 6 (count (filter #(and (vector? %) (= :details.actions (first %))) (nodes all)))))
+        (is (= 6 (count (filter #{"Delete"} (strings p)))) "delete in the raw list's menus alone")))
+    (testing "the page stays data a frame can carry"
+      (let [p (page {:advanced? true})]
+        (is (not-any? fn? (tree-seq coll? seq p)))
         (is (= p (transit/read-str (transit/write-str p))))))))
 
 (deftest switch-test
@@ -388,7 +488,7 @@
         (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
     (testing "the Input section: which key sends, the browser's choice"
       (let [input (i18n/translate (view/page {:agent {} :conversation nil :locale :de :settings? true :settings-section :input}) :de)]
-        (is (= ["Updates" "Eingabe" "Aufnahme" "MCP-Server"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
+        (is (= ["Updates" "Eingabe" "Aufnahme" "MCP-Server" "Erweitert"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
         (is (= {:ui/ctrl-enter "Strg+Enter sendet (⌘+Enter auf dem Mac), Enter bricht die Zeile um"
                 :ui/enter "Enter sendet, Strg+Enter (⌘+Enter auf dem Mac) bricht die Zeile um"}
                (second (find-tag input :ui/send-key))))))
@@ -397,6 +497,21 @@
             choices (second (find-tag recording :ui/effects-timing))]
         (is (str/starts-with? (:ui/live choices) "Live"))
         (is (str/starts-with? (:ui/after choices) "Nach der Aufnahme"))))
+    (testing "the Advanced section: the switch that shows every bot and the raw list, its command carrying the state it goes to"
+      (let [settings (fn [advanced? locale]
+                       (i18n/translate (view/page {:agent {} :conversation nil :locale locale :settings? true :settings-section :advanced :advanced? advanced?}) locale))
+            box (fn [page] (second (find-tag (find-tag page :label.check) :input)))
+            off (settings false :en)
+            on (settings true :en)]
+        (is (some #{"Show every bot and the raw list"} (strings off)))
+        (is (= "checkbox" (:type (box off))))
+        (is (false? (:checked (box off))))
+        (is (= [[:data/command {:command/kind :settings/advanced :command/data {:advanced true}}]] (get-in (box off) [:on :change])))
+        (is (true? (:checked (box on))))
+        (is (= [[:data/command {:command/kind :settings/advanced :command/data {:advanced false}}]] (get-in (box on) [:on :change])))
+        (is (nil? (find-tag off :button.new)) "the sidebar beside it follows the switch")
+        (is (some? (find-tag on :button.new)))
+        (is (some #{"Jeden Bot und die rohe Liste zeigen"} (strings (settings false :de))))))
     (testing "the composer's title for either key"
       (let [composer (second (find-tag (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en) :ui/composer))]
         (is (str/starts-with? (:title composer) "Ctrl+Enter sends"))
@@ -656,14 +771,16 @@
   (let [find-tag (fn [tree tag] (some #(when (and (vector? %) (= tag (first %))) %) (tree-seq coll? seq tree)))
         texts (fn [tree] (str/join " " (filter string? (tree-seq coll? seq tree))))]
     (testing "the updates without a section picked, the MCP servers as a tab"
-      (let [page (i18n/translate (view/settings {:current "1.0.0"} nil nil) :en)]
+      (let [page (i18n/translate (view/settings {:current "1.0.0"} nil nil nil) :en)]
         (is (str/includes? (texts page) "Check for updates"))
         (is (str/includes? (texts page) "MCP servers"))))
     (testing "the MCP section: a row per server with its state, a field per missing secret, the setup button"
       (let [page (i18n/translate (view/settings nil :mcp {:servers [{:name "gh" :address "https://gh.example/mcp" :tools 0 :needs ["GH_TOKEN"]}
                                                                          {:name "files" :address "npx" :tools 12 :connected true}
                                                                          {:name "old" :tools 0 :off true}]
-                                                               :secrets ["OTHER_TOKEN"]}) :en)
+                                                               :secrets ["OTHER_TOKEN"]}
+                                                          nil)
+                                          :en)
             text (texts page)]
         (is (str/includes? text "Waiting for GH_TOKEN"))
         (is (str/includes? text "Connected, 12 tools"))
@@ -673,10 +790,10 @@
         (is (= "GH_TOKEN" (:ui/name (second (find-tag page :ui/secret-field)))))
         (is (nil? (:ui/bot (second (find-tag page :ui/secret-field)))) "no bot is told of a secret saved in the settings")))
     (testing "a remove asks in the row first"
-      (let [page (i18n/translate (view/settings nil :mcp {:servers [{:name "gh" :tools 0}] :removing "gh"}) :en)]
+      (let [page (i18n/translate (view/settings nil :mcp {:servers [{:name "gh" :tools 0}] :removing "gh"} nil) :en)]
         (is (str/includes? (texts page) "Remove gh? Your bots lose its tools."))))
     (testing "no servers"
-      (is (str/includes? (texts (i18n/translate (view/settings nil :mcp {:servers []}) :en)) "No MCP server is connected yet.")))))
+      (is (str/includes? (texts (i18n/translate (view/settings nil :mcp {:servers []} nil) :en)) "No MCP server is connected yet.")))))
 
 (deftest mcp-section-test
   (let [servers [{:name "github" :address "https://api.githubcopilot.com/mcp/" :tools 40 :connected true}
@@ -714,10 +831,11 @@
     (is (some #(= [:i18n :mcp/none] %) (tree-seq coll? seq (view/mcp-section {}))))))
 
 (deftest settings-tabs-test
-  (let [tree (view/settings {:current "1.0"} :mcp {:servers []})]
+  (let [tree (view/settings {:current "1.0"} :mcp {:servers []} nil)]
     (is (some #(= [:i18n :mcp/title] %) (tree-seq coll? seq tree)) "the MCP section when the tab picked it")
     (is (not (some #(= [:i18n :updates/title] %) (tree-seq coll? seq tree)))))
-  (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil))) "the updates without a pick"))
+  (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil nil))) "the updates without a pick")
+  (is (some #(= [:i18n :advanced/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} :advanced nil true))) "the advanced switch when the tab picked it"))
 
 (deftest message-items-test
   (let [conversation {:entries [(user 1 "Ask the counter.")
