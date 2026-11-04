@@ -62,6 +62,7 @@
    :artifacts/render "Make the video"
    :artifacts/render-open "Open the video"
    :artifacts/rendering [:fn/str "Making the video {{:progress}}"]
+   :artifacts/render-waiting "Waiting for another video to be made first"
    :artifacts/render-stop "Stop"
    :artifacts/render-failed [:fn/str "The video did not come out: {{:error}}"]
    :artifacts/creation "Your creation"
@@ -384,6 +385,7 @@
    :artifacts/render "Video erstellen"
    :artifacts/render-open "Video öffnen"
    :artifacts/rendering [:fn/str "Video wird erstellt {{:progress}}"]
+   :artifacts/render-waiting "Wartet, bis ein anderes Video fertig ist"
    :artifacts/render-stop "Stopp"
    :artifacts/render-failed [:fn/str "Das Video ist nicht gelungen: {{:error}}"]
    :artifacts/creation "Dein Werk"

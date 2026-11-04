@@ -16,10 +16,22 @@
    pchat.render and bin/render: the render is a child process of the
    agent's own.
 
+   One render goes at a time on a machine (Max, 2026-11-04: several
+   worker bots will render side by side on a small sprite): `enter!`
+   and `leave!` are a gate in memory like the one of `rragent.runs`,
+   held by the render's name. A render asked for while another holds
+   it waits in the queue, in order; it says so on its output and in
+   the pane (`:waiting`), and it counts as on its way for the machine
+   (`any-running?`), so that the machine does not sleep over it. Stop
+   takes a waiting render out of the queue, as it ends a running one.
+
    The key this namespace owns in the bot's map of the db
    (`rragent.db`, under the handle's `:path`):
 
-       :renders {name {:started ms :progress \"30 %\" :exit n :error \"...\"}}"
+       :renders {name {:started ms :waiting true :progress \"30 %\" :exit n :error \"...\"}}
+
+   `:waiting` while the render waits for the gate, `:started` from
+   the moment it was asked for."
   (:require ["node:child_process" :as child]
             ["node:fs" :as fs]
             ["node:path" :as path]
@@ -57,9 +69,54 @@
   (contains? @(table handle) name))
 
 (defn any-running?
-  "Whether a render is on its way."
+  "Whether a render is on its way, or waits for its turn: the machine
+   is busy either way (`rragent.machine/busy?`)."
   [handle]
   (boolean (seq @(table handle))))
+
+(defonce gate
+  (atom {:holder nil :queue []}))
+
+(defn enter!
+  "A promise of the gate: true once the render `name` holds it (at once
+   when it is free), false when `signal` aborts the wait, which takes
+   the render out of the queue. The gate of `rragent.runs/enter!`
+   without its re-entry: a render holds the gate once, from its spawn
+   to its end."
+  [name signal]
+  (js/Promise.
+   (fn [resolve]
+     (if (nil? (:holder @gate))
+       (do (swap! gate assoc :holder name)
+           (resolve true))
+       (do (swap! gate update :queue conj [name resolve])
+           (when signal
+             (.addEventListener signal "abort"
+                                (fn []
+                                  (swap! gate update :queue (fn [queue] (vec (remove #(= name (first %)) queue))))
+                                  (resolve false))
+                                #js {:once true})))))))
+
+(defn leave!
+  "The gate let go by the render `name` when it holds it: the next in
+   the queue takes it."
+  [name]
+  (let [{:keys [holder queue]} @gate]
+    (when (= holder name)
+      (if-let [[next resolve] (first queue)]
+        (do (swap! gate assoc :holder next :queue (vec (rest queue)))
+            (resolve true))
+        (swap! gate assoc :holder nil)))))
+
+(defn reset-gate!
+  "The gate as new: for a harness that closes (tests open several)."
+  []
+  (reset! gate {:holder nil :queue []}))
+
+(def waiting-line
+  "What a render prints while another holds the gate, so that the
+   person sees why nothing happens yet."
+  "Waiting for the renderer: another render runs.")
 
 (defn template-of
   "The project's template, see `rragent.templates/of-project`."
@@ -135,19 +192,20 @@
 
 (defn- finish!
   "The exit of the process into the db: the error with the reason,
-   nothing of it after a stop. The finished file is on the list, and
-   the pane offers to open it (`rragent.view`); the screen does not
-   move by itself."
+   nothing of it after a stop; the gate let go for the next render.
+   The finished file is on the list, and the pane offers to open it
+   (`rragent.view`); the screen does not move by itself."
   [{:keys [db path] :as handle} name exit lines errors]
   (let [{:keys [stopped? timed-out?]} (get @(table handle) name)]
     (swap! (table handle) dissoc name)
+    (leave! name)
     (swap! db db/update-at path update :renders
            (fn [renders]
              (if stopped?
                (dissoc renders name)
                (update renders name
                        (fn [render]
-                         (cond-> (-> render (dissoc :progress) (assoc :exit exit))
+                         (cond-> (-> render (dissoc :progress :waiting) (assoc :exit exit))
                            timed-out?
                            (assoc :error (str "The render took longer than " (js/Math.round (/ (:timeout-ms timed-out?) 60000)) " minutes and was ended."))
 
@@ -183,9 +241,21 @@
     (let [stat (fs/statSync file)]
       [(.-ino stat) (.-size stat) (.-mtimeMs stat)])))
 
+(defn- settle!
+  "The render over, with its exit and what it printed: its state in
+   the db (`finish!`), handed to whoever waits for it."
+  [handle name exit lines errors]
+  (let [waiting (get-in @(table handle) [name :waiting])
+        render (finish! handle name exit lines errors)]
+    (doseq [f waiting]
+      (f render))))
+
 (defn- spawn!
-  "The template's render script on the project, its output followed:
-   a promise of the render's state once it ended."
+  "The template's render script on the project, its output followed;
+   its end settles whoever waits for the render (`settle!`). The entry
+   of the table is the one made when the render was asked for
+   (`queue!`): its waiting list stays, the render is no longer waiting
+   in the db."
   [{:keys [db dir timeout-ms path] :as handle} name template on-line]
   (let [project-dir (path/join dir name)
         out (output-file handle name)
@@ -208,35 +278,55 @@
                                (when (running? handle name)
                                  (swap! (table handle) assoc-in [name :timed-out?] {:timeout-ms timeout-ms})
                                  (kill! process)))
-                             timeout-ms)]
-    (swap! (table handle) assoc name {:process process :waiting [] :before before})
-    (swap! db db/update-at path assoc-in [:renders name] {:started (js/Date.now)})
+                             timeout-ms)
+        ended! (fn [exit]
+                 ;; once: `close` follows `error` for a process that could not start
+                 (when (running? handle name)
+                   (js/clearTimeout timer)
+                   (settle! handle name exit @lines @errors)))]
+    (swap! (table handle) update name #(-> % (dissoc :abort) (assoc :process process :before before)))
+    (swap! db db/update-at path update-in [:renders name] dissoc :waiting)
     (lines! (.-stdout process) note!)
     (lines! (.-stderr process) (fn [line]
                                  (swap! errors #(vec (take-last 5 (conj % line))))
                                  (note! line)))
-    (js/Promise. (fn [resolve]
-                   (swap! (table handle) update-in [name :waiting] conj resolve)
-                   (let [settle! (fn [exit]
-                                   ;; once: `close` follows `error` for a process that could not start
-                                   (when (running? handle name)
-                                     (js/clearTimeout timer)
-                                     (let [waiting (get-in @(table handle) [name :waiting])
-                                           render (finish! handle name exit @lines @errors)]
-                                       (doseq [f waiting]
-                                         (f render)))))]
-                     (.on process "error" (fn [error]
-                                            (swap! errors conj (str error))
-                                            (note! (str error))
-                                            (settle! 1)))
-                     (.on process "close" (fn [code signal]
-                                            (settle! (or code (if signal 1 0))))))))))
+    (.on process "error" (fn [error]
+                           (swap! errors conj (str error))
+                           (note! (str error))
+                           (ended! 1)))
+    (.on process "close" (fn [code signal]
+                           (ended! (or code (if signal 1 0)))))))
+
+(defn- queue!
+  "The render asked for: in the table and in the db as waiting, then
+   through the gate and spawned once it holds it (`spawn!`), told on
+   its output when it has to wait. A promise of the render's state
+   once it ended; nil when it was stopped while it waited, or once it
+   held the gate but before it ran."
+  [{:keys [db path] :as handle} name template on-line]
+  (let [controller (js/AbortController.)]
+    (js/Promise.
+     (fn [resolve]
+       (swap! (table handle) assoc name {:waiting [resolve] :abort controller})
+       (swap! db db/update-at path assoc-in [:renders name] {:started (js/Date.now) :waiting true})
+       (when (and on-line (some? (:holder @gate)))
+         (on-line waiting-line))
+       (.then (enter! name (.-signal controller))
+              (fn [entered?]
+                (if (and entered? (not (:stopped? (get @(table handle) name))))
+                  (try
+                    (spawn! handle name template on-line)
+                    (catch :default e
+                      (settle! handle name 1 [] [(str e)])))
+                  (settle! handle name 1 [] []))))))))
 
 (defn start!
   "The render of the project `name` started, unless it runs already or
-   it cannot (then the reason is the render's error, see `refusal`).
-   `on-line` gets every line the render prints. Answers a promise of
-   the render's state once it ended."
+   it cannot (then the reason is the render's error, see `refusal`):
+   at once when no render holds the gate, after the ones in the queue
+   otherwise. `on-line` gets every line the render prints, and one
+   word before when the render has to wait. Answers a promise of the
+   render's state once it ended, nil when it was stopped."
   ([handle name]
    (start! handle name nil))
   ([handle name on-line]
@@ -248,19 +338,24 @@
      :else
      (if-let [message (refusal handle name)]
        (js/Promise.resolve (refuse! handle name message))
-       (spawn! handle name (template-of handle name) on-line)))))
+       (queue! handle name (template-of handle name) on-line)))))
 
 (defn stop!
-  "Ends a running render; the file it was writing goes with it."
+  "Ends a running render; the file it was writing goes with it. A
+   render that waits for its turn leaves the queue instead, the gate
+   untouched: nothing of it ran. Either way `start!` answers nil to
+   whoever waits for the render."
   [{:keys [db path] :as handle} name]
-  (when-let [{:keys [process before]} (get @(table handle) name)]
+  (when-let [{:keys [process before abort]} (get @(table handle) name)]
     (swap! (table handle) assoc-in [name :stopped?] true)
-    (kill! process)
-    (let [file (output-file handle name)]
-      ;; the encoder wrote into it since the start: a torso; a file
-      ;; from before the start, as it was, stays
-      (when (and (fs/existsSync file) (not= before (stamp file)))
-        (fs/rmSync file #js {:force true})))
+    (if process
+      (do (kill! process)
+          (let [file (output-file handle name)]
+            ;; the encoder wrote into it since the start: a torso; a file
+            ;; from before the start, as it was, stays
+            (when (and (fs/existsSync file) (not= before (stamp file)))
+              (fs/rmSync file #js {:force true}))))
+      (.abort abort))
     (swap! db db/update-at path update :renders dissoc name)
     name))
 
