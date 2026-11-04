@@ -73,6 +73,7 @@
 
    :chat/you "You"
    :chat/from-bot [:fn/str "From the bot {{:name}}"]
+   :chat/waiting "Waiting for your answer:"
    :person/title "Your first name, please"
    :person/why "Several people can talk to this bot. When it knows who is talking right now, it answers better. Only your first name; it stays in this browser."
    :person/field "First name"
@@ -412,6 +413,7 @@
 
    :chat/you "Du"
    :chat/from-bot [:fn/str "Vom Bot {{:name}}"]
+   :chat/waiting "Wartet auf deine Antwort:"
    :person/title "Dein Vorname, bitte"
    :person/why "Mit diesem Bot können mehrere Personen sprechen. Wenn er weiß, wer gerade mit ihm spricht, antwortet er besser. Nur der Vorname; er bleibt in diesem Browser."
    :person/field "Vorname"

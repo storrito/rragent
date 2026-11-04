@@ -27,6 +27,7 @@
             [rragent.dictation :as dictation]
             [rragent.file-kinds :as file-kinds]
             [rragent.markdown :as markdown]
+            [rragent.genui :as genui]
             [rragent.messages :as messages]
             [rragent.person :as person]
             [rragent.models :as models]
@@ -162,6 +163,8 @@
   {:kind :user
    :id id
    :author {:name (str name) :url (bots/url from)}
+   ;; a bot writes markdown; its files are under its own page
+   :markdown {:base (bots/url from) :bot (str from)}
    :text (str text)})
 
 (defn- hook-label
@@ -273,6 +276,38 @@
                                 (and (< i last-answer) (= :assistant (:kind item))) (assoc :answered? true))))
             items)
       items)))
+
+(defn open-card
+  "The bot's last answer that asks the person something
+   (`rragent.genui/asks?`) and has no answer of theirs yet: a worker's
+   report or the bot's reply to one pushes it up the feed, so the page
+   pins it (`waiting`) until the person answers. Nil when the last item
+   is that answer itself, which is on screen, or when nothing is open."
+  [items]
+  (let [items (vec items)
+        card (last (filter #(and (= :assistant (:kind %)) (not (:answered? %)) (not (:streaming? %)) (genui/asks? (:text %))) items))]
+    (when (and card (not= (:id card) (:id (peek items))))
+      card)))
+
+(defn- card-line
+  "The first line of the card's text that is not a fence, cut short."
+  [text]
+  (let [line (some #(let [l (str/trim %)]
+                      (when (and (seq l) (not (str/starts-with? l "```")) (not (str/starts-with? l "[")))
+                        l))
+                   (str/split-lines (str text)))]
+    (cut 90 (or line ""))))
+
+(defn waiting
+  "The strip above the composer while a card of the bot's waits for the
+   person's answer (`open-card`): what it asks, in a line, and the way
+   up to it."
+  [card]
+  [:div.waiting
+   [:a {:href (str "#item-" (:id card))}
+    [:span.label [:i18n :chat/waiting]]
+    " "
+    [:span.preview (card-line (:text card))]]])
 
 (defn items
   "The feed of a conversation `{:entries :live :inbox}`, the answers the
@@ -445,17 +480,20 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media screen bytes pending? steer? streaming? answered? error aborted? author person summary] :as item} {:keys [base bot expanded]}]
+  [{:keys [kind id label text media screen bytes pending? steer? streaming? answered? error aborted? author person summary markdown] :as item} {:keys [base bot expanded]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
+                     :id (str "item-" id)
                      :class (when pending? "pending")}
      [:div.label (cond
                    author [:a {:href (:url author)} [:i18n :chat/from-bot {:name (:name author)}]]
                    (seq person) person
                    :else [:i18n :chat/you])]
      (when (seq text)
-       [:p.text text])
+       (if markdown
+         (into [:div.markdown] (markdown/hiccup text {:base (:base markdown) :bot (:bot markdown)}))
+         [:p.text text]))
      (when (seq media)
        (media-view base media))
      (when (seq screen)
@@ -472,6 +510,7 @@
 
     :assistant
     [:div.item.step {:replicant/key id
+                     :id (str "item-" id)
                      :class (when streaming? "streaming")}
      (when (seq text)
        (into [:div.markdown] (markdown/hiccup text {:streaming? streaming? :answered? answered? :base base :bot bot})))
@@ -1887,6 +1926,8 @@
           (when run
             (run-head id (:name bot) run))
           (feed items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (when run [:i18n :run/empty])})
+          (when-let [card (when-not run (open-card items))]
+            (waiting card))
           ;; the form in place of the composer while the page asked for the
           ;; browser's person and got no name yet (`rragent.person`)
           (if (and person (nil? (:name person)))
