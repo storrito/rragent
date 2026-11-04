@@ -27,6 +27,7 @@
             [rragent.mcp :as mcp]
             [rragent.secrets :as secrets]
             [rragent.page :as page]
+            [rragent.person :as person]
             [rragent.shares :as shares]
             [rragent.rframes.http :as http]
             [rragent.rframes.sse :as sse]
@@ -46,6 +47,21 @@
   (tree-seq (fn [node] (or (vector? node) (seq? node)))
             (fn [node] (if (vector? node) (rest node) node))
             tree))
+
+(defn- person-message?
+  "An entry of the person's: a plain input, or one with their name in
+   front (`rragent.person`), as `login` names the browser Max."
+  [entry]
+  (contains? #{"pi.user" "rragent.person"} (:kind entry)))
+
+(defn- unprefixed
+  "The model's content without the test person's name in front."
+  [content]
+  (cond
+    (string? content) (person/strip-name content "Max")
+    (sequential? content) (let [[block & more] content]
+                            (into [(update block :text person/strip-name "Max")] more))
+    :else content))
 
 (defn- find-tag
   [tree tag]
@@ -81,10 +97,12 @@
                                        (.unref (js/setTimeout #(reject (js/Error. (str "nothing after " ms " ms"))) ms))))]))
 
 (defn- ^:async login
-  "The cookie the token's link sets."
+  "The cookie the token's link sets, with the browser's person named
+   (`rragent.person`), so that the page shows the composer and not the
+   question for the name; `person-test` strips the name off."
   [base token]
   (let [login (await (js/fetch (str base "/?token=" token) #js {:redirect "manual"}))]
-    (first (str/split (str (.get (.-headers login) "set-cookie")) #";"))))
+    (str (first (str/split (str (.get (.-headers login) "set-cookie")) #";")) "; rragent.person=Max")))
 
 (defn- ^:async command!
   "A command posted to the page: its answer."
@@ -177,10 +195,12 @@
                    (is (= 403 (.-status (await (js/fetch bot-url)))))
                    (is (= 403 (.-status (await (js/fetch (str base "/hook/x/y") #js {:method "GET"})))) "only a POST reaches a hook, a GET is behind the token"))
                  (let [login (await (js/fetch (str base "/?token=s3cret") #js {:redirect "manual"}))
-                       cookie (first (str/split (str (.get (.-headers login) "set-cookie")) #";"))]
+                       bare (first (str/split (str (.get (.-headers login) "set-cookie")) #";"))
+                       ;; the browser's person named, so that the page shows the composer (`person-test` covers the question)
+                       cookie (str bare "; rragent.person=Max")]
                    (is (= 302 (.-status login)))
                    (is (= "/" (.get (.-headers login) "location")) "the link's redirect as it was")
-                   (is (str/starts-with? cookie "rragent="))
+                   (is (str/starts-with? bare "rragent="))
                    (testing "the root goes to the bot's page"
                      (let [root (await (js/fetch base #js {:headers #js {:cookie cookie} :redirect "manual"}))]
                        (is (= 302 (.-status root)))
@@ -234,11 +254,12 @@
                            (let [answer (await (frame! #(mentions? % "A dot.")))
                                  img (some #(when (and (vector? %) (= :img (first %))) %) (tree-seq coll? seq answer))
                                  message (->> (:entries (page/conversation (:value (machine/bot id))))
-                                              (filter #(= "pi.user" (:kind %)))
+                                              (filter person-message?)
                                               (last)
                                               (:model)
                                               (first)
-                                              (:content))]
+                                              (:content)
+                                              (unprefixed))]
                              (is (= url (:src (second img))) "the thumbnail")
                              (is (not (mentions? answer "image: uploads/")) "the line is not shown as text")
                              (is (= (str "What is this?\nimage: uploads/" name) (:text (first message))) "the model reads the line")
@@ -249,11 +270,12 @@
                        (testing "what the pane of the tab shows goes with the message, as a line the model reads and the page shows as a hint"
                          (let [dir (path/join (home/bot-dir home id) "work" "artifacts")
                                last-message #(->> (:entries (page/conversation (:value (machine/bot id))))
-                                                  (filter (fn [entry] (= "pi.user" (:kind entry))))
+                                                  (filter person-message?)
                                                   (last)
                                                   (:model)
                                                   (first)
-                                                  (:content))]
+                                                  (:content)
+                                                  (unprefixed))]
                            (fs/mkdirSync (path/join dir "stories") #js {:recursive true})
                            (fs/writeFileSync (path/join dir "stories" "a.html") "<h1>a</h1>")
                            (artifacts/refresh! db/db (db/bot-path id) dir)
@@ -965,5 +987,72 @@
                    (.abort controller)
                    (await (stop!))
                    (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(defn- has-node?
+  "Whether the hiccup `view` holds `node` somewhere."
+  [view node]
+  (boolean (some #(= node %) (tree-seq coll? seq view))))
+
+(deftest person-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)
+                 {:keys [id base stop!]} (await (start! home models))
+                 cookie (first (str/split (await (login base "s3cret")) #"; rragent.person="))
+                 bot-url (str base "/bot/" id)
+                 controller (js/AbortController.)
+                 first-frame! (^:async fn [cookie tab]
+                                (let [{:keys [reader decoder]} (await (stream bot-url cookie controller tab))
+                                      {:keys [view buffer]} (await (within 15000 (next-frame reader decoder "" (constantly true))))]
+                                  {:view view :frames (frames! reader decoder buffer)}))]
+             (try
+               (testing "a browser without a name sees the form in place of the composer, with the reason"
+                 (let [{:keys [view]} (await (first-frame! cookie "t1"))]
+                   (is (mentions? view "That's me") "the form's button")
+                   (is (mentions? view "Several people can talk to this bot"))
+                   (is (nil? (find-tag view :ui/composer)))
+                   (is (not (mentions? view "You: ")))))
+               (testing "the form posts the first name: a cookie and the way back"
+                 (let [posted (await (js/fetch (str base "/person") #js {:method "POST"
+                                                                         :redirect "manual"
+                                                                         :headers #js {:cookie cookie
+                                                                                       :content-type "application/x-www-form-urlencoded"}
+                                                                         :body (str "name=+Harry+&back=" (js/encodeURIComponent (str "/bot/" id)))}))]
+                   (is (= 302 (.-status posted)))
+                   (is (= (str "/bot/" id) (.get (.-headers posted) "location")))
+                   (is (str/starts-with? (str (.get (.-headers posted) "set-cookie")) "rragent.person=Harry;"))))
+               (let [named (str cookie "; rragent.person=Harry")
+                     {:keys [view frames]} (await (first-frame! named "t2"))
+                     {:keys [frame!]} frames]
+                 (testing "with the name: the composer, and who this browser is at the bottom"
+                   (is (some? (find-tag view :ui/composer)))
+                   (is (mentions? view "You: Harry"))
+                   (is (not (mentions? view "That's me"))))
+                 (testing "a message goes in as an entry with the name; the model reads the name in front, the page shows it over the message"
+                   (.setResponses faux #js [(tools-test/answer "Hello Harry.")])
+                   (is (= {:success? true} (select-keys (await (command! base named :chat/send {:bot id :text "Hi there" :tab "t2"})) [:success?])))
+                   (let [answer (await (frame! #(mentions? % "Hello Harry.")))]
+                     (is (has-node? answer [:div.label "Harry"]) "the name over the message")
+                     (is (mentions? answer "Hi there"))
+                     (is (not (mentions? answer "Harry: Hi there")) "the prefix is the model's, not the page's"))
+                   (let [page (await (.entries (:conversation (machine/bot id)) #js {} 50 js/undefined harness/context))
+                         entries (map #(js->clj % :keywordize-keys true) (array-seq (.-items page)))
+                         person (some #(when (= "rragent.person" (:kind %)) %) entries)]
+                     (is (some? person))
+                     (is (= "Harry" (get-in person [:data :name])))
+                     (is (= "Harry: Hi there" (get-in person [:model 0 :content])))))
+                 (testing "the way to change the name forgets the cookie"
+                   (let [got (await (js/fetch (str base "/person?back=" (js/encodeURIComponent (str "/bot/" id))) #js {:redirect "manual" :headers #js {:cookie named}}))]
+                     (is (= 302 (.-status got)))
+                     (is (= (str "/bot/" id) (.get (.-headers got) "location")))
+                     (is (str/includes? (str (.get (.-headers got) "set-cookie")) "rragent.person=; "))
+                     (is (str/includes? (str (.get (.-headers got) "set-cookie")) "Max-Age=0")))))
+               (finally
+                 (.abort controller)
+                 (await (stop!))
+                 (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

@@ -109,6 +109,23 @@ the open (`rragent.wiki`); the rest is MANAGER.md. The structure
 document and the status documents stay what the sidebar renders
 from; `remember` stays for the facts a program checks.
 
+## Who is talking (Max, 2026-11-04)
+
+Several people may talk to one bot, the customer and the Storrito side
+of a project, a team later. A browser is asked once for its person's
+first name, kindly and with the reason (several people can talk to
+this bot; it answers better when it knows who is talking; only the
+first name, kept in this browser), in place of the composer; the name
+lives in a cookie. Every message then goes into the conversation as an
+entry of the kind `rragent.person` with the name, the model's content
+prefixed `Harry: …`, as pi-durable places an input under a kind of
+one's own; the page shows the name over the message and "You: Harry ·
+change" under the bots. The definitions tell every bot to address
+people by name and keep apart what each said; the manager keeps
+`people.md` and a section per person in `preferences.md`. Not an
+identity: anyone with the link may type any name; per-person links
+can come later.
+
 ## How it is built
 
 - `manager`: the documents (`rragent.bots` with its new keys), the

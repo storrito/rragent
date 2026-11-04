@@ -47,7 +47,8 @@
                     [(url-decode k) (url-decode (or v ""))]))))
         (str/split (str query-string) #"&")))
 
-(defn- cookies
+(defn cookies
+  "The cookies of the request by name."
   [request]
   (into {}
         (keep (fn [pair]
@@ -70,7 +71,8 @@
               "<h1>Access required</h1><p>Open this page with the link you were given.</p>"
               "</body></html>")})
 
-(defn- secure?
+(defn secure?
+  "Whether the request came over https, straight or through a proxy."
   [request]
   (or (= :https (:scheme request))
       (= "https" (get-in request [:headers "x-forwarded-proto"]))))

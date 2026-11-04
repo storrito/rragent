@@ -73,6 +73,12 @@
 
    :chat/you "You"
    :chat/from-bot [:fn/str "From the bot {{:name}}"]
+   :person/title "Your first name, please"
+   :person/why "Several people can talk to this bot. When it knows who is talking right now, it answers better. Only your first name; it stays in this browser."
+   :person/field "First name"
+   :person/ok "That's me"
+   :person/you [:fn/str "You: {{:name}}"]
+   :person/change "change"
    :chat/hook-called [:fn/str "Hook {{:name}} was called"]
    :chat/hook-event [:fn/str "{{:event}} · hook {{:name}}"]
    :chat/schedule-ran [:fn/str "Schedule {{:name}} ran"]
@@ -406,6 +412,12 @@
 
    :chat/you "Du"
    :chat/from-bot [:fn/str "Vom Bot {{:name}}"]
+   :person/title "Dein Vorname, bitte"
+   :person/why "Mit diesem Bot können mehrere Personen sprechen. Wenn er weiß, wer gerade mit ihm spricht, antwortet er besser. Nur der Vorname; er bleibt in diesem Browser."
+   :person/field "Vorname"
+   :person/ok "Das bin ich"
+   :person/you [:fn/str "Du: {{:name}}"]
+   :person/change "ändern"
    :chat/hook-called [:fn/str "Hook {{:name}} wurde aufgerufen"]
    :chat/hook-event [:fn/str "{{:event}} · Hook {{:name}}"]
    :chat/schedule-ran [:fn/str "Zeitplan {{:name}} lief"]

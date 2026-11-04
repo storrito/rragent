@@ -28,6 +28,7 @@
             [rragent.file-kinds :as file-kinds]
             [rragent.markdown :as markdown]
             [rragent.messages :as messages]
+            [rragent.person :as person]
             [rragent.models :as models]
             [rragent.recordings :as recordings]
             [rragent.runs :as runs]
@@ -142,6 +143,16 @@
                :id id}
               (:content (first model))))
 
+(defn- person-item
+  "A message of the person's with their name (`rragent.person/kind`):
+   the user item, the name over it, the text without the name's
+   prefix the model got."
+  [id {:keys [name]} model]
+  (let [item (user-item id model)]
+    (-> item
+        (assoc :person (str name))
+        (update :text person/strip-name name))))
+
 (defn- message-item
   "A message from another bot of the machine, or its answer to one of
    this bot's (`rragent.messages/kind`): a user item whose author is
@@ -189,6 +200,7 @@
   [{:keys [id kind model data]} results slots]
   (case kind
     "pi.user" [(user-item id model)]
+    "rragent.person" [(person-item id data model)]
     "rragent.message" [(message-item id data)]
     "rragent.hook" [(call-item id (hook-label data) data model)]
     "rragent.schedule" [(call-item id [:i18n :chat/schedule-ran {:name (:name data)}] data model)]
@@ -433,14 +445,15 @@
      [:span.meta (or (artifacts/extension path) [:i18n :artifacts/project])]]))
 
 (defn- item-view
-  [{:keys [kind id label text media screen bytes pending? steer? streaming? answered? error aborted? author summary] :as item} {:keys [base bot expanded]}]
+  [{:keys [kind id label text media screen bytes pending? steer? streaming? answered? error aborted? author person summary] :as item} {:keys [base bot expanded]}]
   (case kind
     :user
     [:div.item.user {:replicant/key id
                      :class (when pending? "pending")}
-     [:div.label (if author
-                   [:a {:href (:url author)} [:i18n :chat/from-bot {:name (:name author)}]]
-                   [:i18n :chat/you])]
+     [:div.label (cond
+                   author [:a {:href (:url author)} [:i18n :chat/from-bot {:name (:name author)}]]
+                   (seq person) person
+                   :else [:i18n :chat/you])]
      (when (seq text)
        [:p.text text])
      (when (seq media)
@@ -915,6 +928,25 @@
          [:span.name (level-label level)
           (when (= "max" level)
             [:span.hint.more [:i18n :level/max-hint]])]])]]))
+
+(defn person-form
+  "In place of the composer while the browser has no name
+   (`rragent.person`): the first name asked, with the reason, a plain
+   form the browser posts to `/person`, which sends it back to `path`."
+  [path]
+  [:form.person {:method "post" :action "/person"}
+   [:h2 [:i18n :person/title]]
+   [:p [:i18n :person/why]]
+   [:input.name {:type "text"
+                 :name "name"
+                 :maxlength person/max-chars
+                 :required true
+                 :autofocus true
+                 :autocomplete "given-name"
+                 :aria-label [:i18n :person/field]
+                 :placeholder [:i18n :person/field]}]
+   [:input {:type "hidden" :name "back" :value (str path)}]
+   [:button.send {:type "submit"} [:i18n :person/ok]]])
 
 (defn composer
   "The draft and the attachments are client state (`:ui/composer`, see
@@ -1749,7 +1781,7 @@
    the bot's page with its name and state, the one `shown` marked
    (`bot-row`). A section with nothing in it is left out, the
    manager's when the machine has none."
-  [bots shown version settings? advanced?]
+  [bots shown version settings? advanced? & [person]]
   (let [manager (some #(when (:manager? %) %) bots)
         others (archived-last (remove #(or (:manager? %) (:project %)) bots))]
     [:aside.sidebar
@@ -1769,6 +1801,12 @@
      (when advanced?
        (all-bots bots shown))
      [:div.bottom
+      (when (seq (:name person))
+        ;; who this browser is, and the way to change it (`rragent.person`)
+        [:a.you {:href (str "/person?back=" (js/encodeURIComponent (str (:back person))))}
+         [:i18n :person/you {:name (:name person)}]
+         " · "
+         [:i18n :person/change]])
       [:button.settings {:class (when settings? "current")
                          :on {:click [[:data/command {:command/kind :settings/open
                                                       :command/data {:tab :ui/tabid}}]]}}
@@ -1803,7 +1841,7 @@
    whether this tab shows the settings in place of the bot's chat and
    pane (`settings`), `:settings-section` which of their sections, and
    `:mcp` what the MCP section shows (`mcp-section`)."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced?] pane :artifacts}]
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? person] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -1818,7 +1856,7 @@
      ;; the drawer state on a phone, toggled by labels, never rendered
      ;; with :checked so that the person's choice survives a frame
      [:input#nav.toggle {:type "checkbox"}]
-     (sidebar bots id (:current update) settings? advanced?)
+     (sidebar bots id (:current update) settings? advanced? person)
      [:label.backdrop {:for "nav"}]
      (if settings?
        ;; keyed apart from the chat: the two share no element
@@ -1849,9 +1887,13 @@
           (when run
             (run-head id (:name bot) run))
           (feed items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (when run [:i18n :run/empty])})
-          (composer id base status (when fresh? (:placeholder onboarding)) phone (:id run)
-                    (when (and (:model bot) (not run))
-                      (model-switch id (:model bot) (:thinking bot) (:models bot))))]
+          ;; the form in place of the composer while the page asked for the
+          ;; browser's person and got no name yet (`rragent.person`)
+          (if (and person (nil? (:name person)))
+            (person-form (or (:back person) base))
+            (composer id base status (when fresh? (:placeholder onboarding)) phone (:id run)
+                      (when (and (:model bot) (not run))
+                        (model-switch id (:model bot) (:thinking bot) (:models bot)))))]
          ;; the handle between the chat and the pane, dragged to give one
          ;; more room (`rragent.client/splitter`); a phone has none
          [:ui/splitter]

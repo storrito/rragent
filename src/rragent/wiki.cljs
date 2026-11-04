@@ -56,6 +56,7 @@
        "- [README.md](README.md) — the conventions of this wiki, settled with the person · " (day now) "\n"
        "- [log.md](log.md) — the timeline: what happened and when, append-only · " (day now) "\n"
        "- preferences.md — what the person asked of the manager, one line each; appended to the manager's definition at every turn\n"
+       "- people.md — who talks to the manager: first name, role, what they decide, what they prefer\n"
        "- brand.md — the person's brand: names, links, colors, fonts, pictures, tone\n"
        "- decisions.md — what was decided across projects, dated, with the why\n\n"
        "## Projects\n\n(none yet: projects/<name>.md, one per project)\n\n"
@@ -88,7 +89,7 @@
        "- `workers/<id>.md`: its job · its contract (what it must deliver, in which form) · what it delivered, by version · what it asked.\n"
        "- `sources/<name>.md`: the summary of one file under `raw/`, with the takeaways and what it changed in other pages.\n"
        "- `notes/<topic>.md`: an answer worth keeping, a comparison, an analysis, a plan.\n"
-       "- `decisions.md`, `brand.md`, `preferences.md`: one each.\n\n"
+       "- `decisions.md`, `brand.md`, `preferences.md`, `people.md`: one each.\n\n"
        "## Changing this file\n\n"
        "When a convention proves wrong, the manager changes it here with the person's word, in a commit of its own, logged as a decision.\n"))
 

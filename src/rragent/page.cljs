@@ -80,6 +80,7 @@
             [rragent.models :as models]
             [rragent.onboarding :as onboarding]
             [rragent.openrouter :as openrouter]
+            [rragent.person :as person]
             [rragent.phone :as phone]
             [rragent.hyperframes-skills :as hyperframes-skills]
             [rragent.programs :as programs]
@@ -241,7 +242,9 @@
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
                     :advanced? (:advanced? (machine/current-structure))
                     :note (when missing [:i18n :bot/missing])
-                    :failed (:failed bot)})
+                    :failed (:failed bot)
+                    :person {:name (person/name-of (:ring/request w))
+                             :back (:uri (:ring/request w))}})
         (i18n/translate locale))))
 
 (defn- running?
@@ -342,7 +345,7 @@
             content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
-            draft #js {:type "input" :content (clj->js content) :whenBusy "steer"}]
+            draft (person/draft content (person/name-of (:ring/request w)))]
         ;; a run keeps the instructions it started with; the bot reads its file again
         (if run
           (await (.submit conversation draft harness/context))
@@ -1236,6 +1239,33 @@
       :else
       (assoc w :ring/response http/not-found))))
 
+(defn- redirect-to
+  [location & [cookie]]
+  {:status 302
+   :headers (cond-> {"Location" location
+                     "Cache-Control" "no-store"}
+              cookie (assoc "Set-Cookie" cookie))
+   :body ""})
+
+(defn- ^:async person-post
+  "POST /person, the form of the page (`rragent.view/person-form`):
+   `name`, the person's first name, into the cookie, and back to the
+   page the form was on (`back`); an empty name changes nothing."
+  [w]
+  (let [request (:ring/request w)
+        params (js/URLSearchParams. (await (transit/read-body (:body request))))
+        name (person/clean (.get params "name"))
+        back (person/back-path (.get params "back"))]
+    (assoc w :ring/response (redirect-to back (when name (person/set-cookie name request))))))
+
+(defn- person-get
+  "GET /person?back=<path>: the name forgotten, so that the page asks
+   again: the way to change it."
+  [w]
+  (let [request (:ring/request w)
+        back (person/back-path (.get (js/URLSearchParams. (str (:query-string request))) "back"))]
+    (assoc w :ring/response (redirect-to back (person/clear-cookie request)))))
+
 (defn- root-handler
   "GET /: to the page of the bot last used."
   [w]
@@ -1303,6 +1333,10 @@
 
      {:ring/route [:get "/"]
       :ring/handler #'root-handler}
+     {:ring/route [:get "/person"]
+      :ring/handler #'person-get}
+     {:ring/route [:post "/person"]
+      :ring/handler #'person-post}
      {:ring/route [:get "/bot/*"]
       :ring/handler #'bot-get}
      {:ring/route [:post "/bot/*"]
