@@ -122,12 +122,15 @@
 
 (defn gateway-auth
   "The resolved auth of a request through the gateway's `connection`:
-   its base URL, and a key that is only a placeholder, since the
-   gateway adds the real one. Every request of pi-ai takes the base
-   URL from the resolved auth, so it is here, not only on the
-   provider."
-  [discovery connection]
-  #js {:auth #js {:apiKey "sprite" :baseUrl (openrouter/gateway-base-url discovery connection)}
+   a key that is only a placeholder, since the gateway adds the real
+   one, and no base URL: a base in the resolved auth would stand in
+   for every model's own, but the models of OpenRouter's catalog have
+   two, `openrouter.ai/api/v1` for the OpenAI-style ones and
+   `openrouter.ai/api` for the Anthropic-style ones, so each model's
+   own base is mapped onto the gateway instead (`gateway-provider`,
+   `rragent.openrouter/model-base-url`)."
+  [_discovery connection]
+  #js {:auth #js {:apiKey "sprite"}
        :source (str "the Sprites gateway, connection " (:id connection))})
 
 (defn- own-auth
@@ -149,14 +152,26 @@
    one blocking request, at most every `interval-ms`
    (`rragent.openrouter/connection`, ten seconds without), until it
    lists the connection; without one the provider's own auth, the key
-   from the environment. The provider's `baseUrl` follows the same."
+   from the environment. The models the provider lists get their base
+   URL mapped onto the connection the same way, each from its own
+   (`rragent.openrouter/model-base-url`), since pi-ai takes a request's
+   base from the model; the provider's `baseUrl`, the one for its
+   `/models/user` refresh, follows the connection too."
   [provider codemode & [interval-ms]]
-  (let [wrapped (js/Object.assign #js {} provider
+  (let [through (fn [^js model]
+                  ;; the model's own base mapped onto the gateway, when a
+                  ;; connection is known (asked for the same way as the auth)
+                  (if-let [connection (openrouter/connection codemode interval-ms)]
+                    (js/Object.assign #js {} model #js {:baseUrl (openrouter/model-base-url (codemode/discovery codemode) connection (.-baseUrl model))})
+                    model))
+        wrapped (js/Object.assign #js {} provider
                                   #js {:auth #js {:apiKey #js {:name (str (.-name provider) " through the Sprites gateway, or its own key")
                                                                :resolve (fn [input]
                                                                           (if-let [connection (openrouter/connection codemode interval-ms)]
                                                                             (js/Promise.resolve (gateway-auth (codemode/discovery codemode) connection))
-                                                                            (own-auth provider input)))}}})]
+                                                                            (own-auth provider input)))}}
+                                       :getModels (fn [] (.map (.getModels provider) through))
+                                       :getAllModels (fn [] (.map (.getAllModels provider) through))})]
     (js/Object.defineProperty wrapped "baseUrl"
                               #js {:enumerable true
                                    :get (fn []

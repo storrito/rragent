@@ -148,7 +148,10 @@
                        base (str url "/v1/gateway/openrouter/conn_openrouter/v1")
                        auth (await (.getAuth models "openrouter"))]
                    (is (= base (.-baseUrl provider)))
-                   (is (= base (.. auth -auth -baseUrl)) "the request's base, as pi-ai applies the resolved auth")
+                   (is (nil? (.. auth -auth -baseUrl)) "no base in the auth: each model's own, mapped")
+                   (is (= base (.-baseUrl (.getModel models "openrouter" "openai/gpt-6.1-sol"))) "an OpenAI-style model: the connection's base and /v1")
+                   (is (= (str url "/v1/gateway/openrouter/conn_openrouter") (.-baseUrl (.getModel models "openrouter" "anthropic/claude-opus-5.5")))
+                       "an Anthropic-style model: the connection's base alone, its SDK adds /v1/messages")
                    (is (= "sprite" (.. auth -auth -apiKey)))
                    (is (= "the Sprites gateway, connection conn_openrouter" (.-source auth)))
                    (is (= (str "OpenRouter through the Sprites gateway (" base ")") (openrouter/report (codemode/discovery codemode))))
@@ -159,6 +162,8 @@
                        provider (.getProvider models "openrouter")
                        auth (await (with-env "OPENROUTER_API_KEY" "sk-or-test" #(.getAuth models "openrouter")))]
                    (is (= "https://openrouter.ai/api/v1" (.-baseUrl provider)))
+                   (is (= "https://openrouter.ai/api/v1" (.-baseUrl (.getModel models "openrouter" "openai/gpt-6.1-sol"))))
+                   (is (= "https://openrouter.ai/api" (.-baseUrl (.getModel models "openrouter" "anthropic/claude-opus-5.5"))) "the catalog's own bases")
                    (is (= "sk-or-test" (.. auth -auth -apiKey)))
                    (is (nil? (.. auth -auth -baseUrl)) "OpenRouter's own base")
                    (is (= "OPENROUTER_API_KEY" (.-source auth)))
@@ -185,7 +190,8 @@
                        (is (= 5 (count connections))))
                      (is (str/starts-with? (codemode/report (:codemode agent)) (str "connectors at " url " after 3 tries: ")))
                      (is (= base (.-baseUrl (.getProvider (:models agent) "openrouter"))))
-                     (is (= base (.. (await (.getAuth (:models agent) "openrouter")) -auth -baseUrl)))
+                     (is (= base (.-baseUrl (.getModel (:models agent) "openrouter" "openai/gpt-6.1-sol"))))
+                     (is (nil? (.. (await (.getAuth (:models agent) "openrouter")) -auth -baseUrl)))
                      (finally
                        (await (harness/close agent))))))
                (finally
@@ -219,9 +225,11 @@
                  (reset! fake (await (fake-gateway/start! nil {:port port})))
                  (let [base (str url "/v1/gateway/openrouter/conn_openrouter/v1")
                        auth (await (.getAuth models "openrouter"))]
-                   (is (= base (.. auth -auth -baseUrl)))
+                   (is (nil? (.. auth -auth -baseUrl)))
                    (is (= "sprite" (.. auth -auth -apiKey)))
                    (is (= base (.-baseUrl (.getProvider models "openrouter"))))
+                   (is (= base (.-baseUrl (.getModel models "openrouter" "openai/gpt-6.1-sol"))) "the first model call after the gateway came up goes through it")
+                   (is (= (str url "/v1/gateway/openrouter/conn_openrouter") (.-baseUrl (.getModel models "openrouter" "anthropic/claude-opus-5.5"))))
                    (is (= 5 (count (:connections (codemode/discovery (:codemode agent))))) "the REPL has the list")
                    (is (= 3 (count (get-in (codemode/snapshot (:codemode agent)) [:storrito :catalog :procedures]))) "and the Storrito catalog")
                    (is (= (str "OpenRouter through the Sprites gateway (" base ")") (openrouter/report (codemode/discovery (:codemode agent)))))

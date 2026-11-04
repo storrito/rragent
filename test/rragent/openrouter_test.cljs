@@ -95,3 +95,11 @@
                  (sync-fetch/stop!))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest model-base-url-test
+  (let [discovery {:gateway "http://sprite.internal" :connections []}
+        connection {:id "conn_openrouter" :provider "openrouter"}
+        base "http://sprite.internal/v1/gateway/openrouter/conn_openrouter"]
+    (is (= (str base "/v1") (openrouter/model-base-url discovery connection "https://openrouter.ai/api/v1")) "an OpenAI-style model")
+    (is (= base (openrouter/model-base-url discovery connection "https://openrouter.ai/api")) "an Anthropic-style model: its SDK adds /v1/messages")
+    (is (= (str base "/v1") (openrouter/model-base-url discovery connection "http://localhost:0")) "another base, a test's faux: the connection's base and /v1 as before")))
