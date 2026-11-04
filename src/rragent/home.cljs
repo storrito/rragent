@@ -46,6 +46,13 @@
   [dir]
   (path/join dir "events.edn"))
 
+(defn preferences-file
+  "What the person asked of the manager, `PREFERENCES.md` beside its
+   definition, appended to the definition at every read
+   (`rragent.reload`); the manager's folder alone has one that counts."
+  [dir]
+  (path/join dir "PREFERENCES.md"))
+
 (defn work-dir
   "Where the bot's tools read and write; made on first use."
   [dir]

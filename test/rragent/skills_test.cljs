@@ -95,7 +95,7 @@
                                       (tools-test/tool-call "skill" {:action "list"} "s2")
                                       (tools-test/tool-call "bot" {:action "create" :name "Second flat" :instructions "The same for the second apartment." :skill "review-stories"} "c1")
                                       (tools-test/answer "Kept and handed on.")])
-             (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))]
+             (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :manager? false :storage (harness/memory-storage)}))]
                (try
                  (is (= "Kept and handed on." (await (harness/ask-in (:conversation bot) "Keep this as a how-to and make a bot for the second flat."))))
                  (let [folder (path/join home "skills" "review-stories")

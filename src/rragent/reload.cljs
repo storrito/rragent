@@ -30,9 +30,28 @@
 
 (defn register!
   "The bot of the conversation `id`: its folder and the models'
-   provider; nothing applied yet."
-  [id {:keys [home provider]}]
-  (swap! db/db assoc-in (conj (db/bot-path id) :reload) {:home home :provider provider}))
+   provider; nothing applied yet. With `:preferences`, a file whose
+   text is appended to the definition at every read, under a heading
+   of its own: the manager's `PREFERENCES.md` (`rragent.home`), what
+   the person asked of it, which outlives the definition rragent
+   writes anew at every start."
+  [id {:keys [home provider preferences]}]
+  (swap! db/db assoc-in (conj (db/bot-path id) :reload) (cond-> {:home home :provider provider}
+                                                           preferences (assoc :preferences preferences))))
+
+(def preferences-heading
+  "## Your preferences")
+
+(defn with-preferences
+  "The definition `text` with the text of the preferences `file` under
+   `preferences-heading`; `text` as it is without a file or an empty
+   one."
+  [text file]
+  (let [preferences (when (and file (fs/existsSync file))
+                      (not-empty (.trim (fs/readFileSync file "utf8"))))]
+    (if preferences
+      (str (.trimEnd (str text)) "\n\n" preferences-heading "\n\n" preferences "\n")
+      text)))
 
 (defn current
   "The definition of the bot `id` as last applied."
@@ -50,18 +69,20 @@
        :cwd work})
 
 (defn- read-text
-  "The text of the bot's definition file, nil when there is none."
-  [home]
+  "The text of the bot's definition file, with the preferences file
+   appended when the bot has one (`with-preferences`); nil when there
+   is no definition."
+  [home preferences]
   (when-let [file (home/definition-file home)]
-    [file (fs/readFileSync file "utf8")]))
+    [file (with-preferences (fs/readFileSync file "utf8") preferences)]))
 
 (defn changed
   "`{:text :definition}` when the file of the bot `id` reads and its
    text is not the one last applied; nil when it is, when the file
    does not read (said on stderr), or when no bot `id` is registered."
   [id]
-  (when-let [{:keys [home text]} (get-in @db/db (conj (db/bot-path id) :reload))]
-    (let [[file now] (read-text home)]
+  (when-let [{:keys [home text preferences]} (get-in @db/db (conj (db/bot-path id) :reload))]
+    (let [[file now] (read-text home preferences)]
       (cond
         (nil? file) (do (js/console.error "[definition]" (str "No AGENT.md or SKILL.md in " home ", the bot stays as it was.")) nil)
         (= text now) nil
