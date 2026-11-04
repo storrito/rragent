@@ -143,7 +143,17 @@
              (get-in (genui/sanitize [:button {:open "artifacts/shorts/"} "x"] opts) [1 :on :click 0 1 :command/data])
              (get-in (genui/sanitize [:button {:open "/bot/ab12cd34/artifacts/shorts"} "x"] opts) [1 :on :click 0 1 :command/data])))
       (is (= "ab12cd34" (get-in (genui/sanitize [:button {:send "On: {checked}"} "x"] opts) [1 :ui/bot])))
-      (is (= [:img {}] (genui/sanitize [:img {:src "/bot/other123/artifacts/a.png"}] opts)) "another bot's page is no file of this one"))))
+      (is (= [:img {}] (genui/sanitize [:img {:src "/bot/other123/artifacts/a.png"}] opts)) "another bot's page is no file of this one")
+      (testing ":open with another bot's page shows that bot, and with an artifact of it opens that in its pane: the manager's card"
+        (is (= [[:data/command {:command/kind :bot/show :command/data {:id "172" :tab :ui/tabid}}]
+                [:data/command {:command/kind :artifacts/open :command/data {:bot "172" :path "review-203" :tab :ui/tabid}}]]
+               (get-in (genui/sanitize [:button {:open "/bot/172/artifacts/review-203/"} "Open"] opts) [1 :on :click])))
+        (is (= [[:data/command {:command/kind :bot/show :command/data {:id "172" :tab :ui/tabid}}]]
+               (get-in (genui/sanitize [:button {:open "/bot/172"} "Open"] opts) [1 :on :click])
+               (get-in (genui/sanitize [:button {:open "/bot/172/"} "Open"] opts) [1 :on :click])))
+        (is (= {:bot "ab12cd34" :path "shorts" :tab :ui/tabid}
+               (get-in (genui/sanitize [:button {:open "/bot/ab12cd34/artifacts/shorts"} "x"] opts) [1 :on :click 0 1 :command/data]))
+            "this bot's own page as before")))))
 
 (deftest block-test
   (testing "a block that reads is a part of the page"

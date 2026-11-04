@@ -462,14 +462,27 @@
                (and tab (not= (artifacts/place before) (artifacts/place after)))
                (assoc-in [:pane/steps tab] (step-id)))))))
 
+(defn- shown!
+  "The tab `tab` shows the bot `id` from now on, when it does not yet:
+   a card in one bot's chat that opens another bot's artifact
+   (`rragent.genui`, `:open`) brings the tab to that bot's page, where
+   its pane is."
+  [id tab]
+  (when (and tab (some? id) (not= (str id) (get-in @db/db [:tabs tab])))
+    (swap! db/db #(-> (assoc-in % [:tabs tab] (str id)) (assoc-in [:tab-runs tab] nil) (chat-in tab)))))
+
 (defn- open-artifact-command
   "The person picked an artifact in the list or on a card, or went back
    to the list (a nil path); a path that is a folder's, a link in a
-   README, opens the folder. A step of the tab `tab` (`move-pane!`)."
+   README, opens the folder. A step of the tab `tab` (`move-pane!`);
+   the tab brought to the artifact's bot first when it shows another
+   (`shown!`)."
   [w]
   (let [{:keys [path tab]} (command/command-data w)
         bot (bot-of-command w)
         path (some-> path (str/replace #"/+$" ""))]
+    (when bot
+      (shown! (:id bot) tab))
     (cond
       (nil? bot) (command/rejected w :no-such-bot)
       (or (nil? path) (artifact-of bot path)) (do (move-pane! bot tab #(artifacts/picked % path))

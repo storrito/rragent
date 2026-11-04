@@ -381,6 +381,12 @@
                              (let [frame (await (frame! #(= (str "/bot/" id) (url-of %))))]
                                (is (mentions? frame "Paris."))
                                (is (nil? (find-tag frame :ui/canvas)))))
+                           (testing "a card in this chat that opens the other bot's artifact: the tab goes to that bot, the artifact in its pane"
+                             (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id2 :path "card.html" :tab "t1"}))))
+                             (let [frame (await (frame! #(and (= (str "/bot/" id2) (url-of %)) (find-tag % :ui/canvas))))]
+                               (is (= (str "/bot/" id2 "/artifacts/card.html") (:ui/src (second (find-tag frame :ui/canvas))))))
+                             (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))))
+                             (await (frame! #(= (str "/bot/" id) (url-of %)))))
                            (testing "renamed from the sidebar: the person's name, marked in the definition"
                              (is (= {:success? true} (await (command! base cookie :bot/rename-start {:id id2}))))
                              (let [frame (await (frame! #(find-tag % :input.name)))]
