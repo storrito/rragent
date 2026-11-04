@@ -852,8 +852,8 @@
         items (view/items conversation)
         [person answer queued] items]
     (testing "a bot's message is a user item with the bot as its author and its own words as the text"
-      (is (= {:kind :user :id 2 :author {:name "Counter" :url "/bot/7"} :text "Seven."} answer))
-      (is (= {:kind :user :id "s1" :author {:name "Watcher" :url "/bot/1"} :text "How many?" :pending? true} queued) "one waiting in the inbox too")
+      (is (= {:kind :user :id 2 :author {:name "Counter" :url "/bot/7"} :markdown {:base "/bot/7" :bot "7"} :text "Seven."} answer) "its words as markdown, its files under its page")
+      (is (= {:kind :user :id "s1" :author {:name "Watcher" :url "/bot/1"} :markdown {:base "/bot/1" :bot "1"} :text "How many?" :pending? true} queued) "one waiting in the inbox too")
       (is (nil? (:author person))))
     (testing "the feed shows the bot's name, a link to its page, in place of You"
       (let [feed (i18n/translate (view/feed items :ready nil {:base "/bot/1/artifacts" :bot "1"}) :en)
@@ -912,3 +912,39 @@
         (is (not (some #{"Summary: two capitals were asked."} (strings closed))))
         (is (= 9 (get-in (second fold) [:on :toggle 0 1 :command/data :id])))
         (is (some #{"Summary: two capitals were asked."} (strings (page #{9}))))))))
+
+
+(deftest bot-message-markdown-test
+  (let [entries [{:id 1 :kind "pi.user" :model [{:role "user" :content "Hi" :timestamp 1}]}
+                 {:id 2 :kind "rragent.message" :data {:from 184 :name "101 Modern Japandi template" :text "**Ready for review:** `review-101`\n\n- [the poster](artifacts/review-101/poster.png)"}}]
+        page (i18n/translate (view/page {:agent {} :conversation {:entries entries} :locale :en :bot {:id "7"}}) :en)
+        item (some #(when (and (vector? %) (= :div.item.user (first %)) (= "item-2" (:id (second %)))) %) (tree-seq coll? seq page))]
+    (testing "a bot's message is markdown, its files under the sender's page"
+      (is (some? item))
+      (is (some #(and (vector? %) (= :strong (first %))) (tree-seq coll? seq item)) "bold rendered")
+      (is (some #(and (vector? %) (= :div.markdown (first %))) (tree-seq coll? seq item)))
+      (is (some #(and (map? %) (= "/bot/184/artifacts/review-101/poster.png" (:href %))) (tree-seq coll? seq item)) "the link is the sender's file"))))
+
+(deftest open-card-test
+  (let [person (fn [id text] {:id id :kind "pi.user" :model [{:role "user" :content text :timestamp id}]})
+        card (assistant 2 [{:type "text" :text "The 203 template is ready.\n\n```hiccup\n[:button {:send \"203: approve\"} \"Approve\"]\n```"}])
+        report {:id 3 :kind "rragent.message" :data {:from 184 :name "101 template" :text "Ready too."}}
+        reply (assistant 4 [{:type "text" :text "Noted the 101 report."}])
+        items (fn [entries] (view/items {:entries entries}))]
+    (testing "the card is the last item: on screen, nothing pinned"
+      (is (nil? (view/open-card (items [(person 1 "Go") card])))))
+    (testing "a worker's report and the bot's reply push the card up: pinned until the person answers"
+      (is (= 2 (:id (view/open-card (items [(person 1 "Go") card report])))))
+      (is (= 2 (:id (view/open-card (items [(person 1 "Go") card report reply]))))))
+    (testing "the person answered: nothing open"
+      (is (nil? (view/open-card (items [(person 1 "Go") card report reply (person 5 "203: approve")])))))
+    (testing "an answer without a question is no card"
+      (is (nil? (view/open-card (items [(person 1 "Go") reply report])))))
+    (testing "the strip above the composer: what it asks and the way up"
+      (let [page (i18n/translate (view/page {:agent {} :conversation {:entries [(person 1 "Go") card report]} :locale :en :bot {:id "7"}}) :en)
+            strip (find-tag page :div.waiting)]
+        (is (some? strip))
+        (is (= "#item-2" (get-in strip [1 1 :href])))
+        (is (some #(= "Waiting for your answer:" %) (tree-seq coll? seq strip)))
+        (is (some #(= "The 203 template is ready." %) (tree-seq coll? seq strip))))
+      (is (nil? (find-tag (view/page {:agent {} :conversation {:entries [(person 1 "Go") card]} :locale :en :bot {:id "7"}}) :div.waiting)) "the card itself is the last item"))))

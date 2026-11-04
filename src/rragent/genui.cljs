@@ -163,6 +163,15 @@
                            :command/data (cond-> {:text (str text)}
                                            bot (assoc :bot bot))}]]})
 
+(defn asks?
+  "Whether a markdown `text` holds a block that asks the person
+   something: a ```hiccup block with a button that sends
+   (`rragent.view/open-card`)."
+  [text]
+  (let [text (str text)]
+    (and (str/includes? text "```hiccup")
+         (str/includes? text ":send"))))
+
 (defn- other-bot
   "`[id path]` when `path` names another bot's page, `/bot/<id>` with
    or without one of its artifacts, `/bot/<id>/artifacts/<path>`; nil
