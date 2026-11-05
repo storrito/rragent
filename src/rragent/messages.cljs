@@ -14,7 +14,9 @@
    id, so a restart sends nothing twice. The task is background: it
    keeps the sender neither busy nor from being stopped, and the
    receiver's conversation is nobody's but its own. Nothing goes back
-   by itself after that: a bot that wants more messages again."
+   by itself after that: a bot that wants more messages again. A
+   message that fails on its way comes back as one the receiver did
+   not answer, with the reason (`send-or-tell!`)."
   (:require ["@earendil-works/pi-durable" :refer [defineTask]]
             [rragent.reload :as reload]
             [rragent.tools.subagent :as subagent-tool]))
@@ -110,13 +112,32 @@
                                             :result #js {:state (if done? "answered" "unanswered")}}))
                       context)))))
 
+(defn- ^:async send-or-tell!
+  "`send!`, and when it throws, the sender told in its chat that the
+   receiver did not answer and why (`deliver!`), the task's outcome
+   unanswered: else the task faults, the sender, told \"Sent\" by the
+   tool, waits for an answer that never comes. Rethrown as it is when
+   the task's signal aborted (an abort or a closing harness, whose
+   runtime takes no more commits) or when the telling fails."
+  [task runtime context]
+  (try
+    (await (send! task runtime context))
+    (catch :default error
+      (when (some-> runtime .-signal .-aborted)
+        (throw error))
+      (await (deliver! runtime (.-input task) {:reason (or (not-empty (.-message error)) (str error))} context))
+      (await (.commit runtime
+                      (fn [] (terminal #js {:status "completed"
+                                            :result #js {:state "unanswered"}}))
+                      context)))))
+
 (def Task
   (defineTask
    #js {:name kind
         :version 1
         :initial (fn [_input] #js {:phase "send"})
         :phases #js {:send (fn [task runtime context]
-                             (send! task runtime context))}
+                             (send-or-tell! task runtime context))}
         :abort (fn [_task runtime context]
                  (.commit runtime (fn [] (terminal #js {:status "aborted"})) context))}))
 
