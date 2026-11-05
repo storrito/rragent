@@ -22,6 +22,7 @@
    what belongs together into folders. The programs the agent writes
    for its job, `work/programs/` beside the artifacts (`rragent.home`),
    are on the list as the root's folder `programs/` (`programs-folder`,
+   and the manager's wiki as `wiki/`, `wiki-folder`),
    `root-of`): the person sees the code that runs for them and can
    show it to someone who reads Clojure, while the agent keeps
    reaching it as `programs/<name>/`. A `README.md` in a folder is
@@ -63,6 +64,7 @@
             [clojure.string :as str]
             [rragent.db :as db]
             [rragent.home :as home]
+            [rragent.wiki :as wiki]
             [rragent.rframes.http :as http]))
 
 (def url-prefix
@@ -117,15 +119,52 @@
   [dir]
   (home/programs-dir (path/dirname dir)))
 
+(def wiki-folder
+  "The folder of the root that holds the bot's wiki when it has one,
+   the manager's (`rragent.wiki`): `wiki/` in the bot's folder, on the
+   list as if it lay under the artifacts, so that the person browses
+   and edits its pages in the pane, as the wiki's pattern allows. Its
+   `raw/`, what the person brought as it came, stays off the list and
+   out of the pane's reach (`wiki-raw?`); `.git` is hidden like every
+   dotted name. A folder of this name under artifacts/ itself stays
+   off the list, like `programs/`."
+  "wiki")
+
+(defn wiki?
+  "Whether the path is the wiki folder or lies in it."
+  [p]
+  (let [p (str p)]
+    (or (= wiki-folder p)
+        (str/starts-with? p (str wiki-folder "/")))))
+
+(def wiki-raw-folder
+  (str wiki-folder "/raw"))
+
+(defn wiki-raw?
+  "Whether the path is the wiki's raw folder or lies in it: the
+   sources as they came, never changed, not through the pane either."
+  [p]
+  (let [p (str p)]
+    (or (= wiki-raw-folder p)
+        (str/starts-with? p (str wiki-raw-folder "/")))))
+
+(defn wiki-dir
+  "The wiki's folder on disk, in the bot's folder above the artifacts'
+   `dir` (`work/artifacts/` of it)."
+  [dir]
+  (wiki/dir (path/dirname (path/dirname dir))))
+
 (defn root-of
   "Where a path of the list lies on disk: `[folder relative]`, the
-   artifacts' `dir` with the path as it is, or the programs' folder
-   with the rest of a path in `programs/` (\"\" for the folder itself)."
+   artifacts' `dir` with the path as it is, the programs' folder with
+   the rest of a path in `programs/`, or the wiki's with the rest of a
+   path in `wiki/` (\"\" for the folder itself)."
   [dir p]
   (let [p (str p)]
-    (if (program? p)
-      [(programs-dir dir) (subs p (min (count p) (inc (count programs-folder))))]
-      [dir p])))
+    (cond
+      (program? p) [(programs-dir dir) (subs p (min (count p) (inc (count programs-folder))))]
+      (wiki? p) [(wiki-dir dir) (subs p (min (count p) (inc (count wiki-folder))))]
+      :else [dir p])))
 
 (defn file-of
   "The file on disk of a path of the list (`root-of`)."
@@ -244,7 +283,7 @@
    a line of the same words the person wrote is not taken for it. The
    path under `artifacts/` in the first group, a program's path, as
    the agent reaches it, in the second (`screen-line`)."
-  (re-pattern (str "\\n" screen-prefix "(?:artifacts/([^\\n]*)|(" programs-folder "/[^\\n]*))$")))
+  (re-pattern (str "\\n" screen-prefix "(?:artifacts/([^\\n]*)|(" programs-folder "/[^\\n]*)|(" wiki-folder "/[^\\n]*))$")))
 
 (defn screen-line
   "The line the page adds to a message of the person's, what the pane
@@ -262,14 +301,14 @@
              (or (some #(= shown (screen {:artifacts/list [%] :artifacts/current (:path %)})) listed)
                  (and (str/ends-with? shown "/")
                       (= shown (screen {:artifacts/list listed :artifacts/folder (subs shown 0 (dec (count shown)))})))))
-    (str screen-prefix (if (program? shown) shown (str "artifacts/" shown)))))
+    (str screen-prefix (if (or (program? shown) (wiki? shown)) shown (str "artifacts/" shown)))))
 
 (defn screen-of
   "The path of the list the screen line of a message's text names,
    or nil."
   [text]
-  (let [[_ artifact program] (re-find screen-pattern (str text))]
-    (or artifact program)))
+  (let [[_ artifact program wiki] (re-find screen-pattern (str text))]
+    (or artifact program wiki)))
 
 (defn without-screen-line
   "The text of a message without its screen line."
@@ -303,11 +342,12 @@
    blank, no hidden part, and resolving below its folder, not beside
    or above it."
   [dir relative]
-  (let [[root relative] (root-of dir relative)
+  (let [[root rest] (root-of dir relative)
         root (path/resolve root)]
-    (and (not (str/blank? relative))
-         (not (hidden? relative))
-         (str/starts-with? (path/resolve root relative) (str root path/sep)))))
+    (and (not (str/blank? rest))
+         (not (hidden? rest))
+         (not (wiki-raw? relative))
+         (str/starts-with? (path/resolve root rest) (str root path/sep)))))
 
 (defn- directory?
   [p]
@@ -371,13 +411,23 @@
   (map (fn [file] (update file :path #(str programs-folder "/" %)))
        (files (programs-dir dir))))
 
+(defn- wiki-files
+  "The bot's wiki as files of the list, each under `wiki/`
+   (`wiki-folder`), its `raw/` left out; none when the bot has no
+   wiki."
+  [dir]
+  (->> (files (wiki-dir dir))
+       (remove #(str/starts-with? (:path %) "raw/"))
+       (map (fn [file] (update file :path #(str wiki-folder "/" %))))))
+
 (defn list-files
   "The artifacts of the directory, newest first: the files, and a project
    directory as one artifact more, whose time is its newest file's. A
    file below a project names it, `:project`; a page below one is a
    `:text`, its source, since the project's row is what plays it. The
-   bot's programs among them under `programs/` (`program-files`), in
-   place of a folder of that name in the directory itself."
+   bot's programs among them under `programs/` (`program-files`) and
+   its wiki's pages under `wiki/` (`wiki-files`), in place of folders
+   of those names in the directory itself."
   [dir]
   (if (directory? dir)
     (let [projects (->> (array-seq (fs/readdirSync dir #js {:withFileTypes true}))
@@ -385,6 +435,7 @@
                                   (and (.isDirectory entry)
                                        (not (str/starts-with? (.-name entry) "."))
                                        (not= programs-folder (.-name entry))
+                                       (not= wiki-folder (.-name entry))
                                        (project? (path/join dir (.-name entry))))))
                         (map (fn [^js entry]
                                (let [name (.-name entry)]
@@ -394,8 +445,9 @@
                                   :mtime (newest-mtime (path/join dir name))
                                   :size 0}))))
           project-names (set (map :path projects))
-          plain (->> (concat (remove #(program? (:path %)) (files dir))
-                             (program-files dir))
+          plain (->> (concat (remove #(or (program? (:path %)) (wiki? (:path %))) (files dir))
+                             (program-files dir)
+                             (wiki-files dir))
                      (map (fn [{:keys [path] :as file}]
                             (let [project (project-names (first (str/split path #"/")))
                                   k (kind path)]
@@ -655,11 +707,12 @@
   (boolean (re-find #"(?:^|&)raw(?:=|&|$)" (str (:query-string request)))))
 
 (defn file-handler
-  "GET /artifacts/<path>: the file, never a hidden one; a path in
-   `programs/` from the programs' folder (`root-of`)."
+  "GET /artifacts/<path>: the file, never a hidden one nor one of the
+   wiki's raw sources; a path in `programs/` from the programs' folder,
+   in `wiki/` from the wiki's (`root-of`)."
   [dir w]
   (let [subpath (str (get-in w [:ring/route-params :*]))
-        file (when-not (hidden? subpath)
+        file (when-not (or (hidden? subpath) (wiki-raw? subpath))
                (let [[root relative] (root-of dir subpath)]
                  (http/resolve-file root relative)))]
     (assoc w :ring/response
@@ -679,7 +732,8 @@
 (defn watch!
   "The bot's map at `path` of the db follows the folder, and the
    programs' folder beside it (`programs-dir`), both made when
-   missing: a recursive watch reports every change, the folders are
+   missing, and the bot's wiki when it has one (`wiki-dir`, never
+   made here): a recursive watch reports every change, the folders are
    read again after a short pause, and every two seconds besides.
    Answers a function that ends the watch."
   ([db dir]
@@ -705,7 +759,8 @@
                             (catch :default e
                               (js/console.error "[artifacts] no watch on" folder (str e))
                               nil)))
-                        [dir (programs-dir dir)]))
+                        (cond-> [dir (programs-dir dir)]
+                          (directory? (wiki-dir dir)) (conj (wiki-dir dir)))))
         timer (js/setInterval refresh poll-ms)]
     (.unref timer)
     (fn []
