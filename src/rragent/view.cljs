@@ -31,6 +31,7 @@
             [rragent.messages :as messages]
             [rragent.person :as person]
             [rragent.models :as models]
+            [rragent.music-picks :as music-picks]
             [rragent.recordings :as recordings]
             [rragent.runs :as runs]
             [rragent.uploads :as uploads]
@@ -75,6 +76,7 @@
     "image" [:i18n :tool/image]
     "voice" [:i18n :tool/voice]
     "music" [:i18n :tool/music]
+    "music_pick" [:i18n :tool/music-pick]
     "subagent" [:i18n :tool/subagent]
     "bot" [:i18n :tool/bot]
     [:i18n :tool/other {:name name}]))
@@ -206,6 +208,7 @@
     "rragent.person" [(person-item id data model)]
     "rragent.message" [(message-item id data)]
     "rragent.hook" [(call-item id (hook-label data) data model)]
+    "rragent.music-pick" [(call-item id [:i18n :chat/music-picked {:song (music-picks/song-line data)}] data model)]
     "rragent.schedule" [(call-item id [:i18n :chat/schedule-ran {:name (:name data)}] data model)]
     "rragent.run-report" [(call-item id (report-label data) data model)]
     "rragent.run-input" [(call-item id [:i18n :chat/run-started {:about (or (:line data) (str (:kind data) " " (:name data)))}] data model)]

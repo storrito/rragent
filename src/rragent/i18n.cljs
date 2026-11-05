@@ -82,6 +82,7 @@
    :person/change "change"
    :chat/hook-called [:fn/str "Hook {{:name}} was called"]
    :chat/hook-event [:fn/str "{{:event}} · hook {{:name}}"]
+   :chat/music-picked [:fn/str "Song picked: {{:song}}"]
    :chat/schedule-ran [:fn/str "Schedule {{:name}} ran"]
    :chat/run-failed [:fn/str "A run failed · {{:about}}"]
    :chat/run-report "A run reported"
@@ -117,6 +118,7 @@
    :tool/image "Made a picture"
    :tool/voice "Made a voice"
    :tool/music "Made music"
+   :tool/music-pick "Asked for a song to pick"
    :tool/subagent "Handed a task to a subagent"
    :tool/report "Reported to the bot's chat"
    :tool/bot "Made or listed bots"
@@ -422,6 +424,7 @@
    :person/change "ändern"
    :chat/hook-called [:fn/str "Hook {{:name}} wurde aufgerufen"]
    :chat/hook-event [:fn/str "{{:event}} · Hook {{:name}}"]
+   :chat/music-picked [:fn/str "Song gewählt: {{:song}}"]
    :chat/schedule-ran [:fn/str "Zeitplan {{:name}} lief"]
    :chat/run-failed [:fn/str "Ein Durchlauf ist fehlgeschlagen · {{:about}}"]
    :chat/run-report "Ein Durchlauf hat gemeldet"
@@ -457,6 +460,7 @@
    :tool/image "Bild erstellt"
    :tool/voice "Stimme erstellt"
    :tool/music "Musik erstellt"
+   :tool/music-pick "Song zur Auswahl angefragt"
    :tool/subagent "Aufgabe an einen Subagenten gegeben"
    :tool/report "Dem Bot gemeldet"
    :tool/bot "Bots angelegt oder aufgelistet"

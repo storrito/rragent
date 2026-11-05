@@ -36,6 +36,8 @@
    built client under `/app.css` and `/assets/*`; all behind the token
    (`rragent.auth`); `POST /hook/<name>/<secret>` outside it, tried on
    every bot, the hooks' own secrets are their keys (`rragent.hooks`),
+   `POST /music-pick/<id>/<secret>` the same way for the songs of
+   Storrito's music pick page (`rragent.music-picks`),
    `POST /composio/event` outside it too, Composio's deliveries,
    their signatures their keys (`rragent.composio-events`), and
    `/s/<token>/*` (GET and HEAD), the files of a folder a bot shares
@@ -71,6 +73,7 @@
             [rragent.dictation :as dictation]
             [rragent.harness :as harness]
             [rragent.hooks :as hooks]
+            [rragent.music-picks :as music-picks]
             [rragent.i18n :as i18n]
             [rragent.lifecycle :as lifecycle]
             [rragent.machine :as machine]
@@ -1328,6 +1331,28 @@
               :headers {"Content-Type" "text/plain"}
               :body "forbidden"}))))
 
+(defn- ^:async music-pick-handler
+  "`POST /music-pick/<id>/<secret>`: Storrito's music pick page sends
+   the song the person picked to the bot whose pick it is
+   (`rragent.music-picks`, every bot asked), 202 when the pick waited
+   for it, 403 otherwise (a wrong secret, a used or expired pick, a
+   body without a song)."
+  [w]
+  (let [[id secret] (str/split (str (get-in w [:ring/route-params :*])) #"/" 2)
+        body (await (transit/read-body (:body (:ring/request w))))
+        {:keys [ok]} (await (machine/hook! (fn [bot id secret _headers body]
+                                             (music-picks/receive! bot id secret body harness/context))
+                                           id secret {} body))]
+    (assoc w
+           :ring/response
+           (if ok
+             {:status 202
+              :headers {"Content-Type" "application/json"}
+              :body (js/JSON.stringify #js {:ok true})}
+             {:status 403
+              :headers {"Content-Type" "text/plain"}
+              :body "forbidden"}))))
+
 (defn register
   []
   (let [dir (assets/public-dir)]
@@ -1472,12 +1497,15 @@
                          w)))
 
 (defn open-register
-  "The routes outside the token: the hooks, Composio's events, the
+  "The routes outside the token: the hooks, the songs of Storrito's
+   music pick page (`rragent.music-picks`), Composio's events, the
    pairing of a phone (`rragent.phone`), which lets the phone in with
    the token's cookie, and the shared folders (`rragent.shares`)."
   [token]
   [{:ring/route [:post "/hook/*"]
     :ring/handler #'hook-handler}
+   {:ring/route [:post (str music-picks/prefix "*")]
+    :ring/handler #'music-pick-handler}
 
    {:ring/route [:post composio-setup/event-path]
     :ring/handler #'composio-event-handler}

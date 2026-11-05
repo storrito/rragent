@@ -484,7 +484,20 @@ the gateway's connector or the key, as the models reach it
 (`rragent.tools.media`, `rragent.openrouter`): `image`, a picture from a description
 (`RRAGENT_IMAGE_MODEL`), `voice`, text to speech into the project's
 folder (`RRAGENT_VOICE_MODEL`, `RRAGENT_VOICE`), and `music`, a clip or
-a whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`). The
+a whole song (`RRAGENT_MUSIC_MODEL`, `RRAGENT_MUSIC_MODEL_LONG`). A
+song from Instagram's library for a story's music sticker the person
+picks themselves: the `music_pick` tool (`rragent.tools.music-pick`,
+`rragent.music-picks`) answers a link to Storrito's music pick page,
+`<storrito>/ui/music-pick?callback=…&section-ms=…` (the host of the
+Storrito connection, or `RRAGENT_STORRITO_URL`), which the bot gives as
+a card. There the person searches the song and drags the part that
+plays, like in Storrito's editor; on confirm Storrito posts the choice
+to `POST /music-pick/<id>/<secret>` on the machine (`RRAGENT_URL`),
+outside the token like a hook, and it reaches the bot's chat as a
+message with the `<insta-music search-term track-id start-ms>` element
+for the story. Unlike a hook the callback works once and for 24 hours,
+since the link passes through the browser, and the message is written
+from the fields read, never from the body as it came. The
 `transcribe` tool (`rragent.tools.transcribe`) goes the other way: the
 words spoken in an audio or a video file, one the person attached
 (`uploads/<name>`) or recorded (`artifacts/recordings/<stamp>/audio.mp3`,
