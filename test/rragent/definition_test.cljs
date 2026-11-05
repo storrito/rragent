@@ -59,14 +59,24 @@
       (finally
         (test-home/remove! home)))))
 
-(deftest the-generic-definition-test
-  (testing "the definition every new machine starts with reads, and names the skills folder"
-    (let [{:keys [name model instructions]} (definition/definition "deploy/agent/AGENT.md")]
+(deftest a-new-bots-file-test
+  (testing "the file every new bot starts with reads: the generic name, the default model, no job yet"
+    (let [{:keys [name model instructions skill] :as definition} (definition/from-text "---\nname: \"Assistant\"\ndescription: \"A new agent on a machine of its own, which takes one of the skills on the machine, or the job the person describes, and becomes that agent.\"\nmetadata:\n  model: openai/gpt-6.1-sol\n---\n" "/x/AGENT.md")]
       (is (= definition/generic-name name))
       (is (= definition/default-model model))
-      (is (str/includes? instructions "/home/sprite/skills"))
-      (is (str/includes? instructions "github.com/SKILLS_REPO") "the placeholder the Dockerfile fills")
-      (is (not (str/includes? instructions "<agent>")) "the agent's folder is in the text"))))
+      (is (= "" instructions))
+      (is (nil? skill))
+      (is (false? (definition/job-written? definition)))))
+  (testing "a skill named in the frontmatter is a job"
+    (let [definition (definition/from-text "---\nname: \"Assistant\"\nskill: \"reviews\"\n---\n" "/x/AGENT.md")]
+      (is (= "reviews" (:skill definition)))
+      (is (true? (definition/job-written? definition)))))
+  (testing "the shared prompt is a text, with the folders filled in at the read"
+    (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
+      (is (nil? (definition/frontmatter text)) "no frontmatter")
+      (is (str/includes? text "/home/sprite/skills"))
+      (is (str/includes? text "github.com/SKILLS_REPO") "the placeholder rragent fills from the clone")
+      (is (str/includes? text "<agent>") "the bot's folder, filled in by the read"))))
 
 (deftest display-name-test
   (let [env (.-env js/process)

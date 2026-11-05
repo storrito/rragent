@@ -853,7 +853,7 @@
   [w]
   (let [{:keys [tab]} (command/command-data w)]
     (try
-      (let [{:keys [id]} (await (machine/create! {:text (mcp-setup/definition-text (bots/assistant-text (machine/home)))}))]
+      (let [{:keys [id]} (await (machine/create! {:text (mcp-setup/definition-text)}))]
         (when tab
           (swap! db/db #(-> (assoc-in % [:tabs tab] id) (chat-in tab))))
         (command/accepted w))

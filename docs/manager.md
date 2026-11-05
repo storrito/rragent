@@ -130,10 +130,11 @@ can come later.
 
 - `manager`: the documents (`rragent.bots` with its new keys), the
   manager made at the open when the document names none, its folder
-  `bots/<id>/` with `AGENT.md` written from the bundle's `MANAGER.md`
-  at every open (its `model` and `thinking` kept from the file as it
-  was) and the wiki's `preferences.md` appended at read time
-  (`rragent.reload`);
+  `bots/<id>/` with an `AGENT.md` of the frontmatter of the bundle's
+  `MANAGER.md` alone, written at every open (its `model` and `thinking`
+  kept from the file as it was); its instructions assembled at read
+  time (`rragent.reload`): the shared prompt, the body of the bundle's
+  `MANAGER.md`, the wiki's `preferences.md`;
   `/` lands on it; the manager's extension, selected for its
   conversation alone: `bot create` with `parent` (the manager),
   `project`, `model`, `thinking`; `bot archive`, `bot delete` with the

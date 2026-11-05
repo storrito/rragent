@@ -21,10 +21,14 @@ shown, and a restarted process picks up where it stopped. That fits a machine
 that sleeps when nothing happens and restarts its processes when it wakes.
 
 A bot's definition is a folder with an `AGENT.md` (`SKILL.md` works too):
-its instructions, its tools, its schedule. The file is read again before
-every run (`rragent.reload`): an edit of it, or the bot's own rewrite
-of it when it takes a skill, is the definition of the next turn, the
-model and the name on the page with it, without a restart. The bot runs on
+its name, its model and its job. The rules every bot works by are the
+release's shared prompt (`deploy/agent/SYSTEM-PROMPT.md`), put in front
+of the file at every read (`rragent.reload`), and a skill the file names
+is read after it; nothing of that is copied into the file, so a release
+reaches every bot at its next turn. The file is read again before every
+run: an edit of it, or the bot's own edit when it takes a skill or a
+job, is the definition of the next turn, the model and the name on the
+page with it, without a restart. The bot runs on
 [OpenRouter](https://openrouter.ai), through the connector of its Sprite or
 with a key of its own. It reaches the outside world through typed tools, a
 REPL whose functions are the organization's connectors, a schedule it writes
@@ -69,7 +73,6 @@ The bots' folders are named by their conversations (`rragent.bots`,
     bots/<id>/AGENT.md      the bot's definition, read again before every run
     bots/<id>/work/         where its tools work: artifacts/, uploads/, programs/ and imports/ in it
     shared/                 the folder every bot's bash reads and writes
-    assistant.md            the generic definition a new bot starts from
     trash/<id>/             where a deleted bot's folder goes
 
 There is no index file: the bots are the ownerless conversations of
@@ -177,21 +180,20 @@ file is and how to get at it with the commands of the machine's PATH
 (`rragent.binary`).
 
 A bot is made by one click on "New bot" in the sidebar, which asks
-for nothing: the bot starts from the generic assistant definition as
-it is (`deploy/agent/AGENT.md`, kept at `<home>/assistant.md`; the
-bundle carries a copy as `assistant.md`, with the skills clone's
-repository filled in for `SKILLS_REPO`, and `<home>/assistant.md` is
-written anew from it when it is an earlier version of that copy,
-`deploy/agent/versions.txt` holding the sum of each, so that a release
-reaches the new bots of a machine made before it; a file someone
-changed stays), its page opens, and it
-names itself: the generic definition tells it to write a short
-fitting name into the `name:` line of its own `AGENT.md` once it knows
-what the person wants, after its first answer at the latest, which the
-reload shows. Until then the sidebar and the header call it "New bot"
-with the time it was made. A rename by the person wins: it sets the
-`name:` line and the line `renamed: true` in the frontmatter, which
-the bot is told to leave alone, also when it writes the file anew; the
+for nothing: the bot starts with a file of the frontmatter alone
+(`rragent.bots/definition-text`: the generic name, the default model,
+no job), its page opens, and the shared prompt, which it reads like
+every bot (`deploy/agent/SYSTEM-PROMPT.md`, bundled as
+`system-prompt.md` with the skills clone's repository filled in for
+`SKILLS_REPO` at the read), tells it to offer the skills, to take one
+by naming it in its frontmatter, whose body is then read after the
+file at every turn, or to write the job the person describes under
+`## Your job`; and to name itself: a short fitting name into the
+`name:` line once it knows what the person wants, after its first
+answer at the latest, which the reload shows. Until then the sidebar
+and the header call it "New bot" with the time it was made. A rename
+by the person wins: it sets the `name:` line and the line `renamed:
+true` in the frontmatter, which the bot is told to leave alone; the
 line is in the file, so it survives a restart. The switch under the
 composer sets `metadata.model` and `metadata.thinking` the same way
 (`rragent.bots/set-metadata!`): the models to pick from and the
@@ -201,10 +203,9 @@ says what a model costs beside the default, from the catalog's
 prices. A bot makes a bot
 through its `bot` tool, which knows both: `create` with a name, the
 instructions, and the name of a skill from the clone when the job is
-one of them (the instructions go on top of the assistant's text as
-the job, the skill line when one was named, so it takes the skill or
-asks the person; the tool makes the conversation in its own commit),
-and `list`. The first bot of a new machine is the assistant too. A
+one of them (the instructions are the file's `## Your job`, the skill
+its `skill:` line; the tool makes the conversation in its own commit),
+and `list`. The first bot of a new machine is a new bot too. A
 deleted bot is hidden, not removed: its conversation stays in the
 storage, its folder goes to `trash/<id>/`, the sidebar leaves it out;
 the last visible bot stays. There is no message between bots in this
@@ -217,8 +218,7 @@ at the top but the storage (`agent.sqlite` with its WAL, shared memory
 and journal) is moved into `bots/1/`, the folder of the root
 conversation: the definition, `work/`, and a skill's `tools/`,
 `README.md` … with it, which its instructions name by `<skill>`. One
-rename each, nothing copied, and `assistant.md` is written from that
-definition when it is the generic one. A relative symlink keeps its
+rename each, nothing copied. A relative symlink keeps its
 target text and so points elsewhere one folder deeper; a `shared/` or
 `trash/` the old agent made stays at the top as the machine's. A home in
 the new layout is left alone. A failure undoes the renames made,
@@ -588,9 +588,9 @@ project's folder is served as the file it is, by rragent.
 
 The programs a bot writes for its job (a pipeline, a scraper, a checker)
 are ClojureScript run by [nbb](https://github.com/babashka/nbb), the
-Node interpreter for ClojureScript: the generic definition says so under
-`## On this machine` (deploy/agent/AGENT.md), which every bot carries
-over into its own definition, so a run of the bot knows it too. The
+Node interpreter for ClojureScript: the shared prompt says so
+(deploy/agent/SYSTEM-PROMPT.md), which every bot and every run of a bot
+reads. The
 reason is who helps when a program does not work: the people behind the
 machine read Clojure, and a model left to itself picks Python. nbb was
 chosen over clojurific (a JVM at compile time, a project to set up, a
@@ -1037,13 +1037,13 @@ pins the version (below). `deploy/Dockerfile` is the same without the
 templates' programs, 1.3 GB smaller, for a build on a laptop (a render
 answers why there is no video there); no release publishes it.
 
-The image has the bundle in `/home/sprite/rragent/dist/`, `start.sh` beside
-it and the generic definition in `agent/` (`deploy/agent/AGENT.md`),
-which the first start moves into `agent/bots/1/`, the first bot's
-folder (see [Bots](#bots)): every new machine starts as an
-assistant that offers the skills of `/home/sprite/skills` and becomes
-the one the person picks, by writing that skill's `SKILL.md` body into
-its own `AGENT.md`, or works from the job the person describes when no
+The image has the bundle in `/home/sprite/rragent/dist/`, with the
+shared prompt (`system-prompt.md`, `deploy/agent/SYSTEM-PROMPT.md`) and
+the manager's text beside it, and `start.sh`; `agent/` is empty, the
+first start makes the first bot in it (see [Bots](#bots)): every new
+machine starts as a new bot that offers the skills of
+`/home/sprite/skills` and takes the one the person picks, by naming it
+in its `AGENT.md`, or works from the job the person describes when no
 skill fits; every further bot starts the same way. The skills folder is a
 clone of a GitHub repository in the Agent Skills format, one folder per
 skill with a `SKILL.md`, made when the image is built: the build

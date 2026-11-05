@@ -85,11 +85,9 @@ what is connected; `(mcp/enable! \"x\" false)` switches one off,
   (js/JSON.stringify (str s)))
 
 (defn definition-text
-  "The definition of a new setup bot, on the model of the assistant's
-   definition `assistant-text`."
-  [assistant-text]
-  (let [model (or (get-in (definition/frontmatter assistant-text) [:metadata "model"])
-                  definition/default-model)]
+  "The definition of a new setup bot, on the default model."
+  []
+  (let [model definition/default-model]
     (str/join "\n"
               ["---"
                (str "name: " (yaml-string bot-name))
@@ -108,5 +106,5 @@ what is connected; `(mcp/enable! \"x\" false)` switches one off,
                ""])))
 
 (comment
-  (definition-text "---\nname: Assistant\nmetadata:\n  model: openai/gpt-6.1-sol\n---\n\nbody")
+  (definition-text)
   )

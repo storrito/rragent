@@ -5,8 +5,8 @@
 # the template's notes have the agent read before it writes a composition,
 # and nbb, which runs the programs a bot writes (the README's Starters
 # section). A template added later brings its needs to this list. The
-# skills clone and the generic AGENT.md are deploy/Dockerfile's (SKILLS_REPO,
-# SKILLS_BRANCH). Build from the repository's root after `npm run build`:
+# skills clone is deploy/Dockerfile's (SKILLS_REPO, SKILLS_BRANCH). Build
+# from the repository's root after `npm run build`:
 #   docker build -f deploy/Dockerfile.full -t rragent-full .
 # The release workflow pushes it as ghcr.io/storrito/rragent-sprite:<version>
 # and :latest (.github/actions/sprite-image), see the README's Deploy
@@ -40,6 +40,3 @@ RUN hyperframes skills && hyperframes skills check
 RUN git clone --depth 1 --branch "${SKILLS_BRANCH}" "https://github.com/${SKILLS_REPO}.git" /home/sprite/skills
 COPY --chown=sprite:sprite dist/ /home/sprite/rragent/dist/
 COPY --chown=sprite:sprite --chmod=700 deploy/start.sh /home/sprite/rragent/start.sh
-COPY --chown=sprite:sprite deploy/agent/ /home/sprite/rragent/agent/
-# the definition names the repository the skills come from
-RUN sed -i "s#github.com/SKILLS_REPO#github.com/${SKILLS_REPO}#" /home/sprite/rragent/agent/AGENT.md

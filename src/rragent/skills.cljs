@@ -6,8 +6,10 @@
    instructions), beside the clone of ours (`rragent.bots/skills-dir`),
    which stays read-only. The `skill` tool writes here when the person
    wants to keep what a bot does as a how-to for their other bots
-   (`rragent.tools.skill`); the assistant offers both folders, a new
-   bot takes a skill of either (`check!`). A skill of ours a person
+   (`rragent.tools.skill`); a new bot offers both folders and takes a
+   skill of either (`check!`): its file names the skill, and the
+   skill's body is read after the shared prompt at every turn
+   (`skill`, `rragent.reload`). A skill of ours a person
    wants changed is copied under a name of their own, so the two
    never share a name."
   (:require ["node:fs" :as fs]
@@ -53,6 +55,25 @@
    reads."
   [s]
   (js/JSON.stringify (str s)))
+
+(defn folder-of
+  "The folder of the skill `name`: the person's when they have one of
+   the name, else ours in the clone; nil when neither is there."
+  [home name]
+  (let [name (str name)]
+    (cond
+      (some #{name} (names home)) (folder home name)
+      (and (bots/skills-dir) (some #{name} (ours))) (path/join (bots/skills-dir) name)
+      :else nil)))
+
+(defn skill
+  "The skill `name` as a bot takes it: `{:name :description :metadata
+   :body :folder}` from its `SKILL.md`, the body with `<skill>` still
+   in it; nil without the skill on the machine."
+  [home name]
+  (when-let [folder (folder-of home name)]
+    (let [{:keys [name description metadata body]} (definition/frontmatter (fs/readFileSync (path/join folder "SKILL.md") "utf8"))]
+      {:name name :description description :metadata metadata :body body :folder folder})))
 
 (defn text
   "The `SKILL.md` of a skill: the frontmatter from `name`,

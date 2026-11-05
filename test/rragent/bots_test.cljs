@@ -1,7 +1,7 @@
 (ns rragent.bots-test
-  "The bots on disk: a new bot's definition from the assistant's text,
-   a bot's folder (its definition written, named, renamed in the
-   file, trashed), and the migration of a home from before the bots:
+  "The bots on disk: a new bot's file, the shared prompt from the
+   bundle, a bot's folder (its definition written, named, renamed in
+   the file, trashed), and the migration of a home from before the bots:
    the old agent's files (the definition, the work folder, a skill's
    tools) into the first bot's folder, one rename each, the storage
    untouched, idempotent, a failure undone."
@@ -16,7 +16,7 @@
             [rragent.test-home :as test-home]))
 
 (def assistant
-  "A generic definition like deploy/agent/AGENT.md's."
+  "A definition text with a body, as a bot's file once was."
   "---\nname: Assistant\ndescription: A new agent.\nmetadata:\n  model: faux-1\n---\n\n# Assistant\n\nYou are a new agent. Offer the skills in /tmp/skills.\n")
 
 (defn- temp-home
@@ -35,73 +35,60 @@
         (if (nil? before) (js-delete env k) (aset env k before))))))
 
 (deftest definition-text-test
-  (testing "the instructions on top of the assistant's body, the name in the frontmatter"
-    (let [text (bots/definition-text assistant {:name "Counter" :instructions "Count the things.\n"})
-          {:keys [name instructions]} (definition/from-text text "/x/AGENT.md")]
+  (testing "a new bot's file: the generic name and description, the default model, no body"
+    (let [text (bots/definition-text {})
+          {:keys [name description model instructions skill] :as definition} (definition/from-text text "/x/AGENT.md")]
+      (is (= definition/generic-name name))
+      (is (= definition/generic-description description))
+      (is (= definition/default-model model))
+      (is (= "" instructions))
+      (is (nil? skill))
+      (is (true? (definition/generic? definition)))
+      (is (false? (definition/job-written? definition)))
+      (is (str/ends-with? text "---\n") "nothing after the frontmatter")))
+  (testing "the instructions under Your job, the name in the frontmatter, the model and thinking under metadata"
+    (let [text (bots/definition-text {:name "Counter" :instructions "Count the things.\n" :model "faux-2" :thinking "low"})
+          {:keys [name description instructions model thinking] :as definition} (definition/from-text text "/x/AGENT.md")]
       (is (= "Counter" name))
-      (is (str/starts-with? instructions "## Your job\n\nCount the things.\n\n# Assistant\n\nYou are a new agent."))
-      (is (str/includes? text "metadata:\n  model: faux-1") "the rest of the frontmatter as it was")))
-  (testing "a skill makes the line that has the bot take it"
-    (let [text (bots/definition-text assistant {:name "Reviewer" :instructions "Review." :skill "reviews"})]
-      (is (str/includes? text "## Your job\n\nReview.\n\n"))
-      (is (str/includes? text (bots/skill-line "reviews")))
-      (is (< (str/index-of text "Review.") (str/index-of text "Take the skill") (str/index-of text "# Assistant")))))
-  (testing "nothing given: the assistant's text as it is"
-    (is (= assistant (bots/definition-text assistant {}))))
+      (is (= "Count the things." description) "the first line of the job, until the bot writes its own")
+      (is (= "## Your job\n\nCount the things." instructions))
+      (is (= "faux-2" model))
+      (is (= "low" thinking))
+      (is (str/includes? text "metadata:\n  model: faux-2\n  thinking: low\n---\n"))
+      (is (true? (definition/job-written? definition)))))
+  (testing "a skill is named in the frontmatter, its description the bot's"
+    (let [text (bots/definition-text {:name "Reviewer" :instructions "Review." :skill "reviews" :description "Reviews the reviews."})
+          {:keys [skill description] :as definition} (definition/from-text text "/x/AGENT.md")]
+      (is (= "reviews" skill))
+      (is (= "Reviews the reviews." description))
+      (is (str/includes? text "skill: \"reviews\"\n"))
+      (is (true? (definition/job-written? definition)))))
   (testing "a name with a quote is quoted"
-    (is (= "Kim's \"bot\"" (:name (definition/from-text (bots/definition-text assistant {:name "Kim's \"bot\""}) "/x/AGENT.md")))))
-  (testing "a text without a frontmatter is refused"
-    (is (thrown? js/Error (bots/definition-text "No head." {:name "x"})))))
+    (is (= "Kim's \"bot\"" (:name (definition/from-text (bots/definition-text {:name "Kim's \"bot\""}) "/x/AGENT.md"))))))
 
-(deftest assistant-text-test
-  (let [bundled (fs/readFileSync "deploy/agent/AGENT.md" "utf8")
-        skills (fs/mkdtempSync (path/join (os/tmpdir) "rragent-skills-"))
-        home! (fn [text]
-                (let [home (temp-home)]
-                  (when text (fs/writeFileSync (bots/assistant-file home) text))
-                  home))]
+(deftest system-prompt-test
+  (let [bundled (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")
+        skills (fs/mkdtempSync (path/join (os/tmpdir) "rragent-skills-"))]
     (fs/mkdirSync (path/join skills ".git"))
     (fs/writeFileSync (path/join skills ".git" "config") "[remote \"origin\"]\n\turl = https://github.com/storrito/agentitos.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
-    (testing "versions.txt has the version of deploy/agent/AGENT.md as it is now: add its sum when it changes"
-      (is (contains? (bots/known-versions) (bots/digest (bots/normalize bundled)))))
-    (with-env "RRAGENT_SKILLS" skills
-      (fn []
-        (testing "the bundle's copy with the skills repository of the clone filled in, as the image does"
-          (let [home (home! nil)]
-            (try
-              (let [text (bots/assistant-text home)]
-                (is (str/includes? text "`github.com/storrito/agentitos`"))
-                (is (not (str/includes? text "SKILLS_REPO")))
-                (is (= text (fs/readFileSync (bots/assistant-file home) "utf8"))))
-              (finally
-                (fs/rmSync home #js {:recursive true :force true})))))
-        (testing "an earlier version of it, as an image filled it in: written anew from the bundle's"
-          (let [earlier (str (str/replace bundled "`github.com/SKILLS_REPO`" "`github.com/someone/skills`") "\nA paragraph of before.\n")
-                home (home! earlier)]
-            (try
-              (with-redefs [bots/known-versions (fn [] #{(bots/digest (bots/normalize earlier))})]
-                (let [text (bots/assistant-text home)]
-                  (is (not (str/includes? text "A paragraph of before.")))
-                  (is (str/includes? text "`github.com/storrito/agentitos`"))
-                  (is (= text (fs/readFileSync (bots/assistant-file home) "utf8")))))
-              (finally
-                (fs/rmSync home #js {:recursive true :force true})))))
-        (testing "a definition someone changed stays as it is"
-          (let [mine (str bundled "\nMy own line.\n")
-                home (home! mine)]
-            (try
-              (is (= mine (bots/assistant-text home)))
-              (is (= mine (fs/readFileSync (bots/assistant-file home) "utf8")))
-              (finally
-                (fs/rmSync home #js {:recursive true :force true})))))))
+    (testing "the bundle's text with the skills repository of the clone filled in"
+      (with-env "RRAGENT_SKILLS" skills
+        (fn []
+          (let [text (bots/system-prompt)]
+            (is (str/includes? text "`github.com/storrito/agentitos`"))
+            (is (not (str/includes? text "SKILLS_REPO")))
+            (is (= text (str/replace bundled "`github.com/SKILLS_REPO`" "`github.com/storrito/agentitos`")) "nothing else changed")))))
+    (testing "without a clone the placeholder stays"
+      (with-env "RRAGENT_SKILLS" (path/join skills "nowhere")
+        (fn []
+          (is (= bundled (bots/system-prompt))))))
     (fs/rmSync skills #js {:recursive true :force true})))
 
 (deftest folder-test
   (let [home (temp-home)]
     (try
-      (fs/writeFileSync (bots/assistant-file home) assistant)
       (testing "a bot's folder with its definition and work, named by its conversation"
-        (let [dir (bots/write-definition! home 7 (bots/definition-text assistant {:name "Counter" :instructions "Count."}))]
+        (let [dir (bots/write-definition! home 7 (bots/definition-text {:name "Counter" :instructions "Count."}))]
           (is (= (path/join home "bots" "7") dir))
           (is (fs/existsSync (path/join dir "AGENT.md")))
           (is (fs/existsSync (path/join dir "work")))
@@ -197,8 +184,7 @@
           (is (= ["agent.sqlite" "agent.sqlite-wal" "bots"] (top-level home)))
           (is (= test-home/definition-text (fs/readFileSync (path/join dir "AGENT.md") "utf8")))
           (is (= "<h1>" (fs/readFileSync (path/join dir "work" "artifacts" "card.html") "utf8")))
-          (is (= "db" (fs/readFileSync (path/join home "agent.sqlite") "utf8")))
-          (is (not (fs/existsSync (bots/assistant-file home))) "a definition that is not the generic one is no assistant"))
+          (is (= "db" (fs/readFileSync (path/join home "agent.sqlite") "utf8"))))
         (testing "a home in the new layout is left alone"
           (is (false? (bots/old-layout? home)))
           (is (nil? (bots/migrate! home)))
@@ -228,19 +214,12 @@
           (is (= dir (:folder (definition/definition (home/definition-file dir)))) "<skill> is the bot's folder, where the tools now are"))
         (finally
           (fs/rmSync home #js {:recursive true :force true})))))
-  (testing "the generic definition of the machine becomes the assistant every new bot starts from"
+  (testing "an assistant.md of before stays at the top, unread"
     (let [home (old-home! assistant)]
       (try
+        (fs/writeFileSync (path/join home "assistant.md") assistant)
         (bots/migrate! home)
-        (is (= assistant (fs/readFileSync (bots/assistant-file home) "utf8")))
-        (is (= assistant (bots/assistant-text home)))
-        (finally
-          (fs/rmSync home #js {:recursive true :force true})))))
-  (testing "without one, the bundle's copy"
-    (let [home (temp-home)]
-      (try
-        (is (= (fs/readFileSync "deploy/agent/AGENT.md" "utf8") (bots/assistant-text home)))
-        (is (fs/existsSync (bots/assistant-file home)))
+        (is (= ["agent.sqlite" "agent.sqlite-wal" "assistant.md" "bots"] (top-level home)))
         (finally
           (fs/rmSync home #js {:recursive true :force true})))))
   (testing "a failure before anything moved: nothing moved, the reason said"
@@ -255,12 +234,13 @@
   (testing "a failure after the renames: undone, the old layout as it was"
     (let [home (old-home! assistant)]
       (try
-        ;; the assistant cannot be written: a folder with something in it has its name
-        (fs/mkdirSync (bots/assistant-file home))
-        (fs/writeFileSync (path/join (bots/assistant-file home) "x") "")
+        ;; the work folder cannot move into another folder without the write bit on it
+        (fs/chmodSync (path/join home "work") 365)
         (is (thrown-with-msg? js/Error #"could not be moved into bots/" (bots/migrate! home)))
-        (is (= ["AGENT.md" "agent.sqlite" "agent.sqlite-wal" "assistant.md" "work"] (top-level home)) "the files back at the top, no bots/ folder left")
+        (is (= ["AGENT.md" "agent.sqlite" "agent.sqlite-wal" "work"] (top-level home)) "the files back at the top, no bots/ folder left")
+        (is (= assistant (fs/readFileSync (path/join home "AGENT.md") "utf8")) "the definition back")
         (is (= "<h1>" (fs/readFileSync (path/join home "work" "artifacts" "card.html") "utf8")))
         (is (true? (bots/old-layout? home)))
         (finally
+          (fs/chmodSync (path/join home "work") 493)
           (fs/rmSync home #js {:recursive true :force true}))))))

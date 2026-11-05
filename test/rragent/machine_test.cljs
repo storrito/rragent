@@ -12,7 +12,6 @@
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
-            [rragent.bots-test :as bots-test]
             [rragent.db :as db]
             [rragent.events :as events]
             [rragent.fake-sprite-env :as fake]
@@ -84,15 +83,16 @@
                        (is (= "1" (:id again)))
                        (is (fs/existsSync (path/join home "bots" "1" "AGENT.md")))))
                    (await (machine/close-all!))))
-               (testing "a fresh home gets the assistant of the bundle as its first bot"
+               (testing "a fresh home gets a new bot's file as its first bot, the shared prompt in front of it at the read"
                  (let [fresh (path/join (fs/mkdtempSync (path/join (os/tmpdir) "rragent-fresh-")) "agent")
                        [bot] (await (open! fresh models))]
                    (try
                      (is (= "1" (:id bot)))
                      (is (= "Assistant" (:name (first (machine/listed)))))
-                     (is (= (fs/readFileSync "deploy/agent/AGENT.md" "utf8")
+                     (is (= (bots/definition-text {})
                             (fs/readFileSync (path/join (home/bot-dir fresh 1) "AGENT.md") "utf8")))
-                     (is (fs/existsSync (bots/assistant-file fresh)))
+                     (is (str/starts-with? (get-in (machine/bot "1") [:definition :instructions]) "# Every bot of this machine"))
+                     (is (not (fs/existsSync (path/join fresh "assistant.md"))))
                      (finally
                        (await (machine/close-all!))
                        (fs/rmSync (path/dirname fresh) #js {:recursive true :force true})))))
@@ -108,9 +108,8 @@
                  {:keys [faux models]} (tools-test/faux-models)
                  skills (fs/mkdtempSync (path/join (os/tmpdir) "rragent-skills-"))
                  env (.-env js/process)]
-             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
              (fs/mkdirSync (path/join skills "reviews"))
-             (fs/writeFileSync (path/join skills "reviews" "SKILL.md") "---\nname: reviews\n---\n")
+             (fs/writeFileSync (path/join skills "reviews" "SKILL.md") "---\nname: reviews\ndescription: Reviews them.\n---\n\nYou review in <skill>.\n")
              (aset env "RRAGENT_SKILLS" skills)
              (.setResponses faux #js [(tools-test/tool-call "bot" {:action "create" :name "Counter" :instructions "Count the things."} "b1")
                                       (tools-test/tool-call "bot" {:action "create" :name "Reviewer" :instructions "Review." :skill "reviews"} "b2")
@@ -124,7 +123,7 @@
                  (let [listed (machine/listed)
                        [_ counter reviewer] listed
                        texts (await (results conversation))]
-                   (testing "two bots made as conversations of the storage, in the order made, each with the assistant's text and the instructions on top, its own cwd"
+                   (testing "two bots made as conversations of the storage, in the order made, each with its job in its file and the shared prompt at the read, its own cwd"
                      (is (= ["watcher" "Counter" "Reviewer"] (map :name listed)))
                      (is (= "1" (:id (first listed))))
                      (is (< 1 (js/Number (:id counter)) (js/Number (:id reviewer))) "the ids of the storage, in the order made")
@@ -132,10 +131,17 @@
                      (is (= (map :id listed) (await (machine/conversations (:harness (machine/agent))))) "listed through the storage, a refused create left none behind")
                      (let [text (fs/readFileSync (path/join (home/bot-dir home (:id counter)) "AGENT.md") "utf8")]
                        (is (str/includes? text "## Your job\n\nCount the things."))
-                       (is (str/includes? text "You are a new agent. Offer the skills")))
+                       (is (not (str/includes? text "# Every bot")) "the rules are not in the file")
+                       (is (str/starts-with? (get-in (machine/bot (:id counter)) [:definition :instructions]) "# Every bot of this machine") "but in its instructions"))
                      (is (= (str home "/bots/" (:id counter) "/work") (await (cwd-of (:conversation (machine/bot (:id counter)))))) "its own cwd")
                      (is (= "Counter" (get-in (machine/bot (:id counter)) [:definition :name])) "configured from its file")
-                     (is (str/includes? (fs/readFileSync (path/join (home/bot-dir home (:id reviewer)) "AGENT.md") "utf8") (bots/skill-line "reviews")))
+                     (let [text (fs/readFileSync (path/join (home/bot-dir home (:id reviewer)) "AGENT.md") "utf8")
+                           instructions (get-in (machine/bot (:id reviewer)) [:definition :instructions])]
+                       (is (str/includes? text "skill: \"reviews\"\n") "the skill named in the file")
+                       (is (str/includes? text "description: \"Reviews them.\"\n") "the skill's description")
+                       (is (not (str/includes? text "You review in")) "its body not copied")
+                       (is (str/includes? instructions (str "You review in " (path/join skills "reviews") ".")) "but read after the job, its folder filled in")
+                       (is (< (str/index-of instructions "# Every bot") (str/index-of instructions "## Your job\n\nReview.") (str/index-of instructions "You review in")) "the shared prompt, the job, the skill"))
                      (is (= (str "The bot Counter (" (:id counter) ") is ready on its page, /bot/" (:id counter) ". You are its parent.") (get texts "b1")) "the creator's transcript records it")
                      (is (= [(:id counter) (:id reviewer)] (machine/children-of "1")) "the maker is the parent, written with the conversation")
                      (is (= {(:id counter) "1" (:id reviewer) "1"} (:parents (machine/current-structure)))))
@@ -158,19 +164,18 @@
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)
                  {:keys [script log]} (fake/make!)]
-             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
              (binding [sprite/*sprite-env* script]
                (try
                  (let [[a] (await (open! home models :sqlite))
-                       b (await (machine/create! {}))
+                       b (await (machine/create! {:model "faux-1"}))
                        id-b (:id b)
                        conversation-a (:conversation a)
                        conversation-b (:conversation (machine/bot id-b))]
                    (is (bots/valid-id? id-b))
                    (is (not= "1" id-b))
-                   (testing "one click: the assistant's definition as it is, no name of its own, the label New bot with its time"
+                   (testing "one click: a new bot's file as it is, no name of its own, the label New bot with its time"
                      (is (= "Assistant" (:name b)))
-                     (is (= bots-test/assistant (fs/readFileSync (path/join (home/bot-dir home id-b) "AGENT.md") "utf8")))
+                     (is (= (bots/definition-text {:model "faux-1"}) (fs/readFileSync (path/join (home/bot-dir home id-b) "AGENT.md") "utf8")))
                      (let [{:keys [name label]} (second (machine/listed))]
                        (is (= "Assistant" name))
                        (is (= :bot/new-at (second label)))
@@ -178,7 +183,7 @@
                      (is (= "watcher" (:label (first (machine/listed)))) "the first bot keeps its definition's name"))
                    (testing "the bot names itself in its own file: the reload shows it; the person's rename wins and is marked"
                      (let [file (path/join (home/bot-dir home id-b) "AGENT.md")]
-                       (fs/writeFileSync file (str/replace (fs/readFileSync file "utf8") "name: Assistant" "name: Fruit counter"))
+                       (fs/writeFileSync file (str/replace (fs/readFileSync file "utf8") "name: \"Assistant\"" "name: \"Fruit counter\""))
                        (.setResponses faux #js [(tools-test/answer "Hi.")])
                        (is (= "Hi." (await (harness/ask-in conversation-b "Hello."))))
                        (is (= "Fruit counter" (:label (second (machine/listed)))) "after a run, which reads the file")
@@ -313,12 +318,11 @@
                                   (str/includes? last "How many did you count?") (tools-test/answer "Seven.")
                                   (str/includes? last "answers your message: Seven.") (tools-test/answer "The counter says seven.")
                                   :else (tools-test/answer (str "Unexpected: " last)))))]
-             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
              (.setResponses faux #js [by-request by-request by-request by-request by-request by-request])
              (try
                (let [[first-bot] (await (open! home models))
                      watcher (:conversation first-bot)
-                     {:keys [id]} (await (machine/create! {:name "Counter" :instructions "Count."}))
+                     {:keys [id]} (await (machine/create! {:name "Counter" :instructions "Count." :model "faux-1"}))
                      counter (:conversation (machine/bot id))]
                  (reset! counter-id id)
                  ;; the counter writes its definition anew, as a bot that takes a skill

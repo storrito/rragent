@@ -367,7 +367,7 @@
                            (is (some #(and (string? %) (re-matches #"New bot · \d\d:\d\d" %)) (tree-seq coll? seq frame)) "in the sidebar, by its time")
                            (is (mentions? frame "Nothing here yet") "its chat is empty")
                            (is (not (mentions? frame "Paris.")) "the first bot's chat is not on it")
-                           (is (= (fs/readFileSync "deploy/agent/AGENT.md" "utf8") (fs/readFileSync (path/join (home/bot-dir home id2) "AGENT.md") "utf8")) "the assistant's definition as it is")
+                           (is (= (bots/definition-text {}) (fs/readFileSync (path/join (home/bot-dir home id2) "AGENT.md") "utf8")) "a new bot's file as it is")
                            (fs/writeFileSync (path/join (home/bot-dir home id2) "work" "artifacts" "card.html") "<h1>card</h1>")
                            (let [frame (await (frame! #(mentions? % "card.html")))]
                              (is (nil? (find-tag frame :ui/canvas)) "the file is on the list, the screen untouched until the person opens it"))

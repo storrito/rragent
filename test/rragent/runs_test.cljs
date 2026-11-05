@@ -198,8 +198,10 @@
                        {:keys [run]} (await (hooks/receive! agent "reviews" secret {} "one" harness/context))
                        {:keys [definition state]} (await (settled agent run))]
                    (is (= :done state))
-                   (testing "the run keeps the text of the definition it worked from; the list leaves it out"
-                     (is (= test-home/definition-text definition))
+                   (testing "the run keeps the text of the definition it worked from, the shared prompt in it; the list leaves it out"
+                     (is (str/starts-with? definition "---\nname: watcher\n"))
+                     (is (str/includes? definition "# Every bot of this machine"))
+                     (is (str/includes? definition "You watch a page."))
                      (is (not (contains? (first (await (schedule-test/runs-of agent))) :definition)))))
                  (finally
                    (await (harness/close agent))

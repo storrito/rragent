@@ -12,7 +12,6 @@
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
-            [rragent.bots-test :as bots-test]
             [rragent.harness :as harness]
             [rragent.home :as home]
             [rragent.machine :as machine]
@@ -42,20 +41,19 @@
   (path/join (home/bot-dir home id) "AGENT.md"))
 
 (deftest manager-text-test
-  (let [assistant (str bots-test/assistant "\n## On this machine\n\nRule A of the machine.\n")]
-    (testing "the bundle's MANAGER.md with the On this machine section of the generic definition under it"
-      (let [text (bots/manager-text assistant nil)]
-        (is (str/starts-with? text "---\nname: Manager\n"))
-        (is (str/includes? text "# Manager\n"))
-        (is (str/ends-with? text "## On this machine\n\nRule A of the machine.\n"))
-        (is (str/includes? text "  model: anthropic/claude-opus-5.5\n"))))
-    (testing "the model and thinking of the file as it was are kept: the person's picks"
-      (let [text (bots/manager-text assistant "---\nname: Manager\nmetadata:\n  model: faux-1\n  thinking: low\n---\n\nOld body.\n")]
-        (is (str/includes? text "  model: faux-1\n"))
-        (is (str/includes? text "  thinking: low\n"))
-        (is (not (str/includes? text "Old body")))))
-    (testing "without the section: the bundle's text alone"
-      (is (not (str/includes? (bots/manager-text bots-test/assistant nil) "## On this machine"))))))
+  (testing "the frontmatter of the bundle's MANAGER.md alone: the instructions come from the bundle at every read"
+    (let [text (bots/manager-text nil)]
+      (is (str/starts-with? text "---\nname: Manager\n"))
+      (is (str/ends-with? text "---\n"))
+      (is (not (str/includes? text "# Manager")))
+      (is (str/includes? text "  model: anthropic/claude-opus-5.5\n"))
+      (is (str/includes? (bots/manager-body) "# Manager\n"))
+      (is (not (str/includes? (bots/manager-body) "name: Manager")))))
+  (testing "the model and thinking of the file as it was are kept: the person's picks"
+    (let [text (bots/manager-text "---\nname: Manager\nmetadata:\n  model: faux-1\n  thinking: low\n---\n\nOld body.\n")]
+      (is (str/includes? text "  model: faux-1\n"))
+      (is (str/includes? text "  thinking: low\n"))
+      (is (not (str/includes? text "Old body"))))))
 
 (deftest with-preferences-test
   (let [home (test-home/make)
@@ -75,7 +73,6 @@
     (-> ((^:async fn []
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
-             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
              (.setResponses faux #js [(tools-test/answer "Here.")])
              (try
                (let [opened (await (open! home models :sqlite))
@@ -89,7 +86,12 @@
                    (is (= manager (machine/default-id)) "the root of the page goes to the manager")
                    (is (= {:hidden #{} :archived #{} :parents {} :projects {} :manager manager :advanced? false} (machine/current-structure)))
                    (is (= "Manager" (:label (second (machine/listed)))) "the page calls it by its name, never New bot with a time")
-                   (is (str/starts-with? (fs/readFileSync (definition-file home manager) "utf8") "---\nname: Manager\n")))
+                   (is (str/starts-with? (fs/readFileSync (definition-file home manager) "utf8") "---\nname: Manager\n"))
+                   (is (not (str/includes? (fs/readFileSync (definition-file home manager) "utf8") "# Manager")) "the file is the frontmatter alone")
+                   (let [instructions (:instructions (reload/current manager))]
+                     (is (str/starts-with? instructions "# Every bot of this machine") "the shared prompt first")
+                     (is (str/includes? instructions "# Manager\n") "then the manager's text from the bundle")
+                     (is (str/includes? instructions (str (home/bot-dir home manager) "/wiki/preferences.md")) "its folder filled in")))
                  (testing "its wiki, seeded as a git repository with the index and the log"
                    (let [dir (wiki/dir (home/bot-dir home manager))]
                      (is (fs/existsSync (path/join dir ".git")))
@@ -135,7 +137,6 @@
     (-> ((^:async fn []
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
-             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
              (try
                (let [[watcher] (await (open! home models))
                      manager (machine/manager-id)

@@ -1,8 +1,8 @@
 (ns rragent.deploy-test
   "What the Sprite image is built with: the skills repository as a
    build argument of both Dockerfiles, passed through by the composite
-   action, the placeholder of the generic definition filled by the
-   Dockerfile's sed, start.sh's pull of the clone, run against a bare
+   action, what the shared prompt tells every bot, start.sh's pull of
+   the clone, run against a bare
    repository in a temporary folder, and start.sh's loop that starts
    rragent again after an update, run with a fake program."
   (:require ["node:child_process" :as child]
@@ -31,7 +31,7 @@
         (is (str/includes? dockerfile "git clone --depth 1 --branch \"${SKILLS_BRANCH}\" \"https://github.com/${SKILLS_REPO}.git\" /home/sprite/skills")
             "the clone, after USER sprite so that sprite owns it")
         (is (< (str/index-of dockerfile "USER sprite\n") (str/index-of dockerfile "git clone")))
-        (is (re-find #"RUN sed -i .*SKILLS_REPO.* /home/sprite/rragent/agent/AGENT.md" dockerfile) "the placeholder of the definition filled"))))
+        (is (not (str/includes? dockerfile "deploy/agent/")) "no definition in the image: the shared prompt is the bundle's, a new bot's file rragent's"))))
   (testing "the action passes both through, with the same defaults"
     (let [action (text ".github/actions/sprite-image/action.yml")]
       (is (re-find #"skills-repo:\n(.*\n){1,3}?\s+default: storrito/agentitos\n" action))
@@ -41,50 +41,43 @@
       (is (= 1 (count (re-seq #"--build-arg \"SKILLS_REPO=\$SKILLS_REPO\" --build-arg \"SKILLS_BRANCH=\$SKILLS_BRANCH\"" action))) "the one image, deploy/Dockerfile.full")
       (is (not (str/includes? action "-plain")) "no plain image is published"))))
 
-(deftest the-definition-tells-the-bot-to-name-itself-test
-  (let [text (fs/readFileSync "deploy/agent/AGENT.md" "utf8")]
+(deftest the-shared-prompt-tells-the-bot-to-name-itself-test
+  (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
     (is (str/includes? text "Name yourself:"))
     (is (str/includes? text "`name:` line"))
     (is (str/includes? text "`renamed: true`") "the person's rename, which the bot leaves alone")))
 
-(deftest the-definition-keeps-the-machine-section-test
-  (let [text (fs/readFileSync "deploy/agent/AGENT.md" "utf8")
-        section (subs text (str/index-of text "## On this machine"))]
-    (testing "what every bot must know is one section, carried over when the bot writes its file anew"
-      (is (str/includes? text "## On this machine"))
-      (is (= 2 (count (re-seq #"the section `## On this machine` of\s+this\s+file,\s+word for word" text))) "for a skill and for a job of its own"))
-    (testing "the section holds the rules of runs, the job, skills, offers and failed steps"
-      (is (str/includes? section "## Your job"))
-      (is (str/includes? section "start a run of yours"))
-      (is (str/includes? section "skill create"))
-      (is (str/includes? section "never to learn how to use it"))
-      (is (str/includes? section "`write` is for a file that does not exist yet"))
-      (is (str/includes? section "Offer what the person may not know exists"))
-      (is (str/includes? section "none twice"))
-      (is (str/includes? section "When a step of yours did not work")))))
+(deftest the-shared-prompt-holds-the-rules-test
+  (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
+    (testing "a text, not a definition: no frontmatter, nothing copied into a bot's file"
+      (is (not (str/starts-with? text "---")))
+      (is (not (str/includes? text "word for word")))
+      (is (str/includes? text "`<agent>/AGENT.md`") "the bot's file, its folder filled in at the read"))
+    (testing "the bot's file is the job, changed when the job changes; a file of before is rewritten once"
+      (is (str/includes? text "## Your file"))
+      (is (str/includes? text "never a log"))
+      (is (str/includes? text "costs the\nwhole conversation its cache"))
+      (is (str/includes? text "a copy of these rules as they were then")))
+    (testing "a new bot offers the skills and takes one by naming it in its frontmatter"
+      (is (str/includes? text "## A new bot"))
+      (is (str/includes? text "`skill: <the skill's folder name>`"))
+      (is (str/includes? text "github.com/SKILLS_REPO") "the placeholder rragent fills from the clone"))
+    (testing "the rules of runs, the job, skills, offers and failed steps"
+      (is (str/includes? text "## This machine"))
+      (is (str/includes? text "start a run of yours"))
+      (is (str/includes? text "skill create"))
+      (is (str/includes? text "never to learn how to use it"))
+      (is (str/includes? text "`write` is for a file that does not exist yet"))
+      (is (str/includes? text "Offer what the person may not know exists"))
+      (is (str/includes? text "none twice"))
+      (is (str/includes? text "When a step of yours did not work")))))
 
-(deftest the-definition-offers-the-connection-test
+(deftest the-shared-prompt-offers-the-connection-test
   (testing "a service the person names is connected in the same answer, through the REPL"
-    (let [text (fs/readFileSync "deploy/agent/AGENT.md" "utf8")]
+    (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
       (is (str/includes? text "offer the connection in the same answer"))
       (is (str/includes? text "`(composio/connections [\"googlesheets\"])`"))
       (is (str/includes? text "good for ten minutes")))))
-
-(deftest the-definition-names-the-repository-test
-  (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-deploy-"))
-        copy (path/join dir "AGENT.md")
-        [_ sed] (re-find #"RUN (sed -i .* /home/sprite/rragent/agent/AGENT.md)" (text "deploy/Dockerfile"))]
-    (try
-      (fs/copyFileSync "deploy/agent/AGENT.md" copy)
-      (let [{:keys [status]} (sh dir (-> sed
-                                         (str/replace "${SKILLS_REPO}" "acme/skills")
-                                         (str/replace "/home/sprite/rragent/agent/AGENT.md" copy)))
-            filled (text copy)]
-        (is (= 0 status))
-        (is (str/includes? filled "github.com/acme/skills") "the Dockerfile's sed names the repository of the build argument")
-        (is (not (str/includes? filled "SKILLS_REPO"))))
-      (finally
-        (fs/rmSync dir #js {:recursive true :force true})))))
 
 (defn- pull-skills
   "start.sh's `pull_skills` function, as it stands in the file."

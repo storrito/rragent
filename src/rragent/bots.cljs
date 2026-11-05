@@ -4,11 +4,14 @@
    pi-durable, there is no index file), and its folder is
    `<home>/bots/<id>/`, named by the conversation's id
    (`rragent.home` says what is in it). Beside them `<home>/shared/`,
-   the folder every bot's bash reads and writes, `<home>/assistant.md`,
-   the generic definition a new bot starts from (`deploy/agent/AGENT.md`;
-   the build keeps a copy beside the bundle as `assistant.md`, written
-   anew over an earlier version of it, see `assistant-text`), and
-   `<home>/trash/<id>/`, where a deleted bot's folder goes.
+   the folder every bot's bash reads and writes, and
+   `<home>/trash/<id>/`, where a deleted bot's folder goes. The rules
+   every bot works by are not on the machine's disk: the shared prompt
+   comes from the bundle (`system-prompt`, `deploy/agent/SYSTEM-PROMPT.md`)
+   and is read in front of a bot's own file at every turn
+   (`rragent.reload`), so a release reaches every bot at its next
+   turn; a bot's file holds its name, model and job alone
+   (`definition-text`).
 
    A machine from before the bots ran one agent at the top of the
    home, `AGENT.md` (or a skill's `SKILL.md`) and `work/` beside
@@ -17,11 +20,11 @@
    conversation (a skill's `tools/`, `README.md` … with its
    definition, which names them by `<skill>`), one rename each,
    nothing copied, the storage untouched, and leaves a home in the new
-   layout alone (`rragent.harness/open` runs it). A
-   failure undoes the renames made and throws, the old layout as it
-   was."
+   layout alone (`rragent.harness/open` runs it); an `assistant.md` of
+   before, the generic definition new bots once started from, stays at
+   the top unread. A failure undoes the renames made and throws, the
+   old layout as it was."
   (:require ["@earendil-works/pi-durable" :refer [ROOT_CONVERSATION_ID]]
-            ["node:crypto" :as crypto]
             ["node:fs" :as fs]
             ["node:path" :as path]
             ["node:url" :as node-url]
@@ -49,10 +52,6 @@
   [home]
   (path/join home "trash"))
 
-(defn assistant-file
-  [home]
-  (path/join home "assistant.md"))
-
 (defn valid-id?
   "A bot's id is its conversation's, a number."
   [id]
@@ -65,13 +64,6 @@
     (catch :default _
       false)))
 
-(defn- regular-file?
-  [p]
-  (try
-    (.isFile (fs/statSync p))
-    (catch :default _
-      false)))
-
 (defn- bundled
   "A file the build keeps beside the bundle, `name`, else its `source`
    in the checkout."
@@ -81,12 +73,12 @@
       beside
       (path/resolve source))))
 
-(defn bundled-assistant-file
-  "The generic definition as the bundle carries it: `assistant.md`
-   beside the bundle (the build copies `deploy/agent/AGENT.md` there),
-   else that file of the checkout."
+(defn bundled-system-prompt-file
+  "The shared prompt as the bundle carries it: `system-prompt.md`
+   beside the bundle (the build copies `deploy/agent/SYSTEM-PROMPT.md`
+   there), else that file of the checkout."
   []
-  (bundled "assistant.md" "deploy/agent/AGENT.md"))
+  (bundled "system-prompt.md" "deploy/agent/SYSTEM-PROMPT.md"))
 
 (defn bundled-manager-file
   "The manager's definition as the bundle carries it: `manager.md`
@@ -108,53 +100,24 @@
       (catch :default _
         nil))))
 
-(defn normalize
-  "A definition with its skills repository written back to the
-   placeholder of `deploy/agent/AGENT.md`, which the image fills in."
-  [text]
-  (str/replace-first (str text) #"`github\.com/[^`\s]+`" "`github.com/SKILLS_REPO`"))
-
-(defn digest
-  [text]
-  (-> (crypto/createHash "sha256") (.update (str text) "utf8") (.digest "hex")))
-
-(defn known-versions
-  "The sums of every version of the generic definition, normalized
-   (`deploy/agent/versions.txt`, beside the bundle as
-   `assistant-versions.txt`)."
+(defn system-prompt
+  "The text every bot of the machine works by, put in front of its own
+   instructions at every read (`rragent.reload`): the bundle's
+   `SYSTEM-PROMPT.md`, with the skills repository of the clone filled
+   in for `SKILLS_REPO`. A release replaces it; nothing on the machine
+   changes it."
   []
-  (try
-    (->> (str/split-lines (fs/readFileSync (bundled "assistant-versions.txt" "deploy/agent/versions.txt") "utf8"))
-         (map str/trim)
-         (remove #(or (str/blank? %) (str/starts-with? % "#")))
-         (set))
-    (catch :default _
-      #{})))
-
-(defn bundled-assistant
-  "The bundle's generic definition with the skills repository of the
-   clone filled in, as the image fills it into its copy."
-  []
-  (let [text (fs/readFileSync (bundled-assistant-file) "utf8")]
+  (let [text (fs/readFileSync (bundled-system-prompt-file) "utf8")]
     (if-let [repo (skills-repo)]
       (str/replace text "`github.com/SKILLS_REPO`" (str "`github.com/" repo "`"))
       text)))
 
-(defn assistant-text
-  "The text of `<home>/assistant.md`, the generic definition a new bot
-   starts from: written from the bundle's copy when it is missing, and
-   again when it is an earlier version of that copy (`known-versions`),
-   so that a release reaches every new bot of a machine made before it.
-   A file someone changed is no version of it and stays as it is."
-  [home]
-  (let [file (assistant-file home)
-        current (when (fs/existsSync file) (fs/readFileSync file "utf8"))
-        text (bundled-assistant)]
-    (if (and (not= current text)
-             (or (nil? current) (contains? (known-versions) (digest (normalize current)))))
-      (do (fs/writeFileSync file text)
-          text)
-      current)))
+(defn manager-body
+  "The manager's instructions: the body of the bundle's `MANAGER.md`,
+   read after the shared prompt at every read of the manager's
+   definition (`rragent.reload`)."
+  []
+  (:body (definition/frontmatter (fs/readFileSync (bundled-manager-file) "utf8"))))
 
 (defn- split-frontmatter
   "`[head body]` of a definition text, the head with its fences;
@@ -170,34 +133,44 @@
   [head name]
   (str/replace head #"(?m)^name:.*$" (str "name: " (js/JSON.stringify (str name)))))
 
-(defn skill-line
-  "What has a new bot take the skill at its first message, the way the
-   generic definition describes."
-  [skill]
-  (str "Take the skill `" skill "` at your first message, the way this file describes below, "
-       "without offering the others."))
+(defn- quoted
+  "A frontmatter value, quoted the JSON way, which `rragent.definition`
+   reads."
+  [s]
+  (js/JSON.stringify (str s)))
 
 (declare with-metadata)
 
+(defn- first-line
+  "The first line of `text`, at most 160 characters; nil for a blank
+   text."
+  [text]
+  (when-let [line (first (remove str/blank? (str/split-lines (str text))))]
+    (let [line (str/trim line)]
+      (if (< 160 (count line)) (str (subs line 0 159) "…") line))))
+
 (defn definition-text
-  "The definition of a new bot: `assistant`, the generic text, with
-   the bot's `name` as its name, its `instructions` at the top of the
-   body as its job, with a `skill` the line that has it take that
-   skill, and with a `model` or a `thinking` level those under
-   `metadata` (`with-metadata`). Without any of them the assistant's
-   text as it is."
-  [assistant {:keys [name instructions skill model thinking]}]
-  (let [[head body] (split-frontmatter assistant)
-        head (cond-> head
-               (seq (str model)) (with-metadata "model" model)
-               (seq (str thinking)) (with-metadata "thinking" thinking))
-        top (str/join "\n\n" (remove str/blank? [(when (seq (str/trim (str instructions)))
-                                                   (str "## Your job\n\n" (str/trim instructions)))
-                                                 (when (seq (str skill))
-                                                   (skill-line skill))]))]
-    (str (if (seq (str name)) (with-name head name) head)
-         (when (seq top) (str "\n" top "\n\n"))
-         (if (seq top) (str/triml body) body))))
+  "The file of a new bot: a frontmatter with its `name` (the generic
+   one without), its `description` (given, else the first line of the
+   instructions, else the generic one, so that a bot with a job is no
+   generic bot, see `rragent.definition/job-written?`), the `skill` it
+   takes when one is named, and `metadata` with its `model` (the
+   default without) and its `thinking` level when given; then `## Your
+   job` with the `instructions` under it when there are any. Nothing
+   else: the rules every bot works by are the shared prompt, read in
+   front of the file at every turn, and a skill's instructions after
+   it (`rragent.reload`)."
+  [{:keys [name description instructions skill model thinking]}]
+  (str "---\n"
+       "name: " (quoted (or (not-empty (str name)) definition/generic-name)) "\n"
+       "description: " (quoted (or (not-empty (str description)) (first-line instructions) definition/generic-description)) "\n"
+       (when (seq (str skill)) (str "skill: " (quoted skill) "\n"))
+       "metadata:\n"
+       "  model: " (or (not-empty (str model)) definition/default-model) "\n"
+       (when (seq (str thinking)) (str "  thinking: " thinking "\n"))
+       "---\n"
+       (when (seq (str/trim (str instructions)))
+         (str "\n## Your job\n\n" (str/trim (str instructions)) "\n"))))
 
 (defn skills-dir
   "Where the skills clone is: `RRAGENT_SKILLS`, else the image's
@@ -247,7 +220,7 @@
 
 (def renamed-line
   "The line of the frontmatter that says the person named the bot
-   from the page: the generic definition tells the bot to leave the
+   from the page: the shared prompt tells the bot to leave the
    name then. In the file, so it survives a restart."
   "renamed: true")
 
@@ -301,19 +274,6 @@
     (fs/writeFileSync file (str (with-metadata head key value) body))
     value))
 
-(def on-this-machine-heading
-  "The section of the generic definition every bot of the machine must
-   know, which the manager's definition gets appended
-   (`manager-text`)."
-  "## On this machine")
-
-(defn on-this-machine
-  "The `## On this machine` section of the generic definition `text`,
-   from its heading to the end; nil when the text has none."
-  [text]
-  (when-let [at (str/index-of (str text) (str "\n" on-this-machine-heading "\n"))]
-    (str/trim (subs (str text) (inc at)))))
-
 (defn- metadata-of
   "The `model` and `thinking` of a definition text's metadata, the
    ones the person may have picked for the manager, which a rewrite
@@ -322,26 +282,18 @@
   (select-keys (:metadata (or (definition/frontmatter text) {})) ["model" "thinking"]))
 
 (defn manager-text
-  "The manager's definition: the bundle's `MANAGER.md` with the
-   `## On this machine` section of the generic definition (`assistant`,
-   `assistant-text` of the home) under it, so that the manager knows
-   what every bot of the machine knows, and the `model` and
-   `thinking` of `current`, the file as it was, kept when they differ
-   from the bundle's, since the person picks them on the page
-   (`set-metadata!`). Written anew at every start of the machine
-   (`rragent.machine`); the person's own part lives in the wiki's
-   `preferences.md` (`rragent.reload/with-preferences`)."
-  [assistant current]
-  (let [text (fs/readFileSync (bundled-manager-file) "utf8")
-        text (if-let [section (on-this-machine assistant)]
-               (str (str/trimr text) "\n\n" section "\n")
-               text)
+  "The manager's file: the frontmatter of the bundle's `MANAGER.md`
+   alone, its name, description, model and thinking level, with the
+   `model` and `thinking` of `current`, the file as it was, kept when
+   they differ from the bundle's, since the person picks them on the
+   page (`set-metadata!`). No body: the manager's instructions are the
+   bundle's at every read (`manager-body`, `rragent.reload`), and the
+   person's part lives in the wiki's `preferences.md`. Written anew at
+   every start of the machine (`rragent.machine`)."
+  [current]
+  (let [[head] (split-frontmatter (fs/readFileSync (bundled-manager-file) "utf8"))
         kept (when current (metadata-of current))]
-    (reduce (fn [text [k v]]
-              (let [[head body] (split-frontmatter text)]
-                (str (with-metadata head k v) body)))
-            text
-            kept)))
+    (reduce (fn [head [k v]] (with-metadata head k v)) head kept)))
 
 (defn write-manager-definition!
   "The manager's folder, `bots/<id>/` of `home`, with its `AGENT.md`
@@ -351,7 +303,7 @@
   (let [dir (home/bot-dir home id)
         file (path/join dir "AGENT.md")
         current (when (fs/existsSync file) (fs/readFileSync file "utf8"))]
-    (write-definition! home id (manager-text (assistant-text home) current))))
+    (write-definition! home id (manager-text current))))
 
 (defn trash!
   "The bot's folder moved to `<home>/trash/<id>` (an earlier folder of
@@ -406,11 +358,6 @@
   (and (not (directory? (bots-dir home)))
        (boolean (some #(fs/existsSync (path/join home %)) old-files))))
 
-(defn- generic?
-  "Whether a definition text is the generic one, by its name."
-  [text]
-  (= definition/generic-name (:name (definition/frontmatter text))))
-
 (defn- undo!
   "The renames of `moves` taken back, newest first; the bot's folder
    and `bots/` removed when they are empty then (`rmdirSync` refuses a
@@ -432,16 +379,12 @@
    the root conversation, which is the first bot: its definition, its
    work folder and whatever else of it lies at the top of the home (a
    skill's tools, `agent-files`), one rename each; `agent.sqlite`
-   stays. And
-   `<home>/assistant.md` written from the definition when that is the
-   generic one (the image filled the skills repository into it), else
-   from the bundle's copy at the first use. Answers the first bot's
-   id; nil for a home in the new layout, which is left alone. A step
-   that fails undoes the renames made and throws with the reason."
+   stays. Answers the first bot's id; nil for a home in the new
+   layout, which is left alone. A step that fails undoes the renames
+   made and throws with the reason."
   [home]
   (when (old-layout? home)
     (let [dir (home/bot-dir home root-id)
-          text (some-> (home/definition-file home) (fs/readFileSync "utf8"))
           moved (atom [])]
       (try
         (fs/mkdirSync dir #js {:recursive true})
@@ -450,8 +393,6 @@
                       to (path/join dir name)]]
           (fs/renameSync from to)
           (swap! moved conj [from to]))
-        (when (and text (generic? text) (not (regular-file? (assistant-file home))))
-          (fs/writeFileSync (assistant-file home) text))
         root-id
         (catch :default e
           (undo! @moved dir home)
@@ -466,6 +407,6 @@
   (str "/bot/" id))
 
 (comment
-  (definition-text (assistant-text "/tmp/rragent-home") {:name "Reviewer" :instructions "Review the pull requests." :skill "reviews"})
+  (definition-text {:name "Reviewer" :instructions "Review the pull requests." :skill "reviews"})
   (migrate! "/tmp/rragent-home")
   )

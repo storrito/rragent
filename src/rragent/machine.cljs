@@ -10,7 +10,7 @@
    holds the structure of the machine (`Structure`, read as data by
    `structure`, cached in the atom as `:structure` for the page): the
    manager, the bot the person lands on, made at the open when the
-   document names none (`make-manager!`) and given its definition
+   document names none (`make-manager!`) and given its file
    from the bundle at every open (`rragent.bots/manager-text`, with
    `preferences.md` of its wiki appended at every read,
    `rragent.reload`); each bot's parent, the bot that made it with the
@@ -35,8 +35,9 @@
    it was last used, the time of the newest entry of its conversation.
    A new bot's conversation is made here (`create!`) or by the `bot`
    tool in its own commit (`rragent.tools.bot`), and `adopt!` gives it
-   its folder and definition, the assistant's text with the
-   instructions on top."
+   its folder and definition, a file of its name, model and job
+   (`rragent.bots/definition-text`); the rules every bot works by are
+   the shared prompt, read in front of the file (`rragent.reload`)."
   (:require ["@earendil-works/pi-durable" :refer [defineDoc]]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
@@ -477,7 +478,7 @@
 (defn ^:async open!
   "The machine of the home opened: the harness over its one storage
    (`rragent.harness/open`, which moves a home from before the bots
-   into the layout and gives the first bot the assistant's definition
+   into the layout and gives the first bot a new bot's file
    when it has none), then every bot of the storage that is not
    deleted, in the order they were made. `opts` as `harness/open`
    takes them: `:home` (RRAGENT_HOME without), `:models`, `:provider`,
@@ -512,7 +513,7 @@
           preferences (when manager (wiki/preferences-file (home/bot-dir (:home agent) manager)))
           ids (remove hidden (await (conversations (:harness agent))))]
       (doseq [id ids]
-        (await (open-bot! id (when (and manager (= id manager)) {:preferences preferences}))))
+        (await (open-bot! id (when (and manager (= id manager)) {:preferences preferences :manager? true}))))
       (mapv bot ids))))
 
 (defn ^:async close-all!
@@ -650,14 +651,16 @@
 (defn ^:async adopt!
   "The conversation `id`, made ownerless by `create!` or by the `bot`
    tool, given its folder and definition (`rragent.bots/definition-text`
-   over the assistant's text with `:name`, `:instructions` and
-   `:skill`; with none of them the assistant's text as it is, and the
-   bot names itself after its first answer; `:text`, a definition of
-   its own, written as it is), opened and followed. Answers `{:id
-   :name}`, the name the definition's."
+   with `:name`, `:instructions` and `:skill`, the skill's description
+   as the bot's; with none of them a new bot's file, and the bot names
+   itself after its first answer; `:text`, a definition of its own,
+   written as it is), opened and followed. Answers `{:id :name}`, the
+   name the definition's."
   [id {:keys [skill text] :as given}]
   (skills/check! (home) skill)
-  (bots/write-definition! (home) id (or text (bots/definition-text (bots/assistant-text (home)) given)))
+  (let [taken (when (seq (str skill)) (skills/skill (home) skill))]
+    (bots/write-definition! (home) id (or text (bots/definition-text (cond-> given
+                                                                        taken (assoc :description (:description taken)))))))
   (await (open-bot! id))
   ;; the commit that made the conversation may have related the bot (`relate-in!`)
   (await (refresh-structure! (:harness (agent))))
@@ -665,7 +668,7 @@
 
 (defn ^:async create!
   "A new bot: an ownerless conversation of the storage, then
-   `adopt!`; `{}` for one from the assistant's definition as it is."
+   `adopt!`; `{}` for a new bot's file as it is."
   [{:keys [skill] :as given}]
   (skills/check! (home) skill)
   (let [conversation (await (.createConversation (:harness (agent)) #js {:ownership #js {:kind "ownerless"}} harness/context))]
