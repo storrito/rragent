@@ -58,6 +58,7 @@
       (is (str/includes? section "start a run of yours"))
       (is (str/includes? section "skill create"))
       (is (str/includes? section "never to learn how to use it"))
+      (is (str/includes? section "`write` is for a file that does not exist yet"))
       (is (str/includes? section "Offer what the person may not know exists"))
       (is (str/includes? section "none twice"))
       (is (str/includes? section "When a step of yours did not work")))))
