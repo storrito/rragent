@@ -953,6 +953,8 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   lists them and opens a bot that connects a service. See [docs/mcp.md](docs/mcp.md).
 - Why hooks and schedules start runs instead of chat messages, and why
   the person's know-how becomes a skill: [docs/runs-and-skills.md](docs/runs-and-skills.md).
+- How a program's calls are made once, also across a restart, by
+  small examples: [docs/programs.md](docs/programs.md).
 - `(spit "data/accounts.edn" accounts)` and `(slurp "data/accounts.edn")`:
   a file of the bot's work folder written (a string as it is, data as
   EDN that reads back, anything else refused) and read, the needs
