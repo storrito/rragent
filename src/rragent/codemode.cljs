@@ -24,6 +24,7 @@
             [rragent.events :as events]
             [rragent.gateway :as gateway]
             [rragent.mcp :as mcp]
+            [rragent.plan :as plan]
             [rragent.sprite :as sprite]
             [rragent.storrito :as storrito]
             [sci.core :as sci]))
@@ -76,16 +77,35 @@
     (str (subs printed 0 max-chars) " … (cut at " max-chars " characters)")
     printed))
 
+(defn command-doc
+  "The docstring of a command's function: that it answers the action,
+   not the API, then the procedure's own."
+  [{:keys [name] :as procedure}]
+  (str "A command: answers the action [:storrito/" name " args], it does not call the API. "
+       "Make the action the program's value, in a vector with the other actions, and it runs after the program, "
+       "once, in order, also across a restart of the machine; the answer lists what it did.\n\n"
+       (storrito/docstring procedure)))
+
 (defn- storrito-vars
   "One var per procedure of `catalog`, named as the procedure, its
-   docstring from the catalog, a call through the `connection`."
+   docstring from the catalog: a query a call through the
+   `connection`, a command a function that answers the action
+   `[:storrito/<name> args]` for the plan (`rragent.plan`)."
   [call connection catalog]
   (into {}
         (map (fn [{:keys [name] :as procedure}]
-               (let [sym (symbol name)]
+               (let [sym (symbol name)
+                     command? (storrito/command? name)]
                  [sym (sci/new-var sym
-                                   (fn [& [args]] (storrito/call call connection name args))
-                                   {:ns storrito-ns :name sym :doc (storrito/docstring procedure) :arglists '([] [args])})])))
+                                   (if command?
+                                     (fn [& [args]]
+                                       (when-not (or (nil? args) (map? args))
+                                         (throw (js/Error. (str "storrito/" name " takes a map of arguments"))))
+                                       [(keyword "storrito" name) (or args {})])
+                                     (fn [& [args]] (storrito/call call connection name args)))
+                                   {:ns storrito-ns :name sym
+                                    :doc (if command? (command-doc procedure) (storrito/docstring procedure))
+                                    :arglists '([] [args])})])))
         (:procedures catalog)))
 
 (defn- install-storrito!
@@ -243,14 +263,16 @@
   (str "Deleted " id))
 
 (defn procedures
-  "The procedures of the organization's Storrito API, {:name :doc}
-   each, every one a function storrito/<name> that takes a map:
-   (storrito/list-instagram-users {}); (doc storrito/<name>) says its
-   parameters."
+  "The procedures of the organization's Storrito API, {:name :doc
+   :kind} each, every one a function storrito/<name> that takes a
+   map: a :query answers at once, (storrito/list-instagram-users {});
+   a :command answers the action [:storrito/<name> args] that runs
+   after the program when it is in the program's value; (doc
+   storrito/<name>) says its parameters."
   [handle]
   (let [{:keys [catalog link error]} @(:storrito handle)]
     (cond
-      catalog (storrito/summary catalog)
+      catalog (mapv #(assoc % :kind (if (storrito/command? (:name %)) :command :query)) (storrito/summary catalog))
       error (throw (js/Error. (str "The Storrito catalog at " link " could not be read: " error)))
       :else (throw (js/Error. (str "No Storrito among the connections: no custom_api connection of the gateway "
                                    "has a catalog at its base. (connectors) lists what there is."))))))
@@ -456,7 +478,8 @@
    ["(composio/trigger-types \"googledrive\")" "the events a service offers and the config each takes"]
    ["(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\" {})" "every event of that kind on the connected account arrives in your conversation from now on; answers the trigger's id"]
    ["(composio/triggers)" "your triggers: {:id :slug :connected-account :state}; (composio/delete-trigger \"ti_1\") ends one"]
-   ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each"]
+   ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each: a query answers at once, a command answers an action"]
+   ["[[:storrito/schedule-social-post {...}] [:remember \"posted\" {:id [:plan/result 0 :socialPostUuid]}]]" "a plan: a vector of actions as the program's value; the host runs them after the program, in order, each once, also across a restart; [:plan/result i & path] in an action stands for that part of the result of action i (from 0); the first failure ends the plan; the answer lists what each did"]
    ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid some storrito/ procedures take"]
    ["(mcp/servers)" "the MCP servers of the machine: their namespaces, how many tools, whether connected, their instructions"]
    ["(mcp/tools \"github\")" "the tools of one server: {:name :fn :description}, (doc mcp.github/<tool>) says its arguments"]
@@ -667,6 +690,47 @@
     (cut (str printed
               (when (and (seq printed) (not (str/ends-with? printed "\n"))) "\n")
               "=> " (pr-str value)))))
+
+(defn storrito
+  "The Storrito connection and catalog as the handle found them:
+   `{:connection :catalog}`, or `{:link :error}`, or nil."
+  [handle]
+  @(:storrito handle))
+
+(defn known
+  "What `rragent.plan` takes to tell a plan from data and to check it:
+   the action namespaces and names the host runs, and the catalog's
+   procedures with their kinds."
+  [handle]
+  {:namespaces #{"storrito"}
+   :names #{:remember}
+   :procedures (storrito/kinds (:catalog @(:storrito handle)))})
+
+(defn evaluate-program
+  "`code` evaluated in the context of `handle` as `evaluate` does it,
+   and the plan in its value when it is one (`rragent.plan/of`):
+   `{:text :plan}`, the text of a plan what the program printed and
+   `=> ` with how many actions, not the actions themselves, which the
+   host's answer lists with what each did; a throw as `evaluate`
+   throws, a plan with an action the host does not run included."
+  [handle code]
+  (let [sb (gstring/StringBuffer.)
+        value (try
+                (sci/binding [sci/print-newline true
+                              sci/print-fn (fn [x] (.append sb x))]
+                  (sci/eval-string* (context! handle) (str code)))
+                (catch :default e
+                  (throw (js/Error. (cut (error-text e (str sb)))))))
+        plan (try
+               (plan/of (known handle) value)
+               (catch :default e
+                 (throw (js/Error. (cut (error-text e (str sb)))))))
+        printed (str sb)
+        break (when (and (seq printed) (not (str/ends-with? printed "\n"))) "\n")]
+    {:text (cut (str printed break "=> " (if plan
+                                             (str "a plan of " (count plan) " action" (when (not= 1 (count plan)) "s"))
+                                             (pr-str value))))
+     :plan plan}))
 
 (defn- tries-text
   "How many tries the list took at start, when more than one."

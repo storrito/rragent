@@ -91,15 +91,18 @@
   "One program in `handle`: the environment set, the MCP servers
    installed when they came with it, the events begun, the program
    evaluated. `{:text}` or `{:error}`, with `:pending`, what it
-   remembered, and `:images`, the pictures its MCP calls answered,
-   when there are any, either way."
+   remembered, `:plan`, the actions of its value when it is a plan
+   (`rragent.codemode/evaluate-program`), and `:images`, the pictures
+   its MCP calls answered, when there are any, either way."
   [handle {:keys [code events env mcp]}]
   (set-env! env)
   (when mcp
     (codemode/install-mcp! handle mcp))
   (codemode/begin! handle events)
   (let [answer (try
-                 {:text (codemode/evaluate handle code)}
+                 (let [{:keys [text plan]} (codemode/evaluate-program handle code)]
+                   (cond-> {:text text}
+                     plan (assoc :plan plan)))
                  (catch :default e
                    {:error (.-message e)}))]
     (cond-> (assoc answer :pending (codemode/pending handle))

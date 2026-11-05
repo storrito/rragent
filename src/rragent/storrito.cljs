@@ -169,3 +169,40 @@
   (mapv (fn [{:keys [name doc]}]
           {:name name :doc (first (str/split-lines (description doc)))})
         (:procedures catalog)))
+
+(def query-prefixes
+  "What a procedure's name starts with when it only reads: the
+   catalog says nothing of it yet, so the verb decides."
+  #{"list-" "status-" "get-" "search-" "find-" "generate-"})
+
+(defn command?
+  "Whether the procedure changes something, by its name: a query
+   reads (list-, status-, get-, search-, find-, generate-), every
+   other procedure is a command."
+  [name]
+  (not (some #(str/starts-with? (str name) %) query-prefixes)))
+
+(defn kinds
+  "`{name {:kind :query|:command}}` of the catalog's procedures, for
+   `rragent.plan/check`."
+  [catalog]
+  (into {}
+        (map (fn [{:keys [name]}] [name {:kind (if (command? name) :command :query)}]))
+        (:procedures catalog)))
+
+(defn ^:async call!
+  "The procedure `name` called with `args` through the `connection`
+   from the main thread, awaited (`rragent.gateway/fetch!`): the
+   answer as data; a throw with what the API said to a failed call.
+   A 429, 502, 503 or 504 is tried again, as `call` does it, after
+   `retry`'s delay."
+  [discovery connection name args]
+  (loop [tries 1]
+    (let [{:keys [status body]} (await (gateway/fetch! discovery (:id connection) (procedure-path connection name)
+                                                       {:method "POST" :body (or args {})}))]
+      (cond
+        (= 200 status) body
+        (and (contains? (:statuses retry) status) (< tries (:times retry)))
+        (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve (:delay-ms retry)))))
+            (recur (inc tries)))
+        :else (throw (ex-info (error-message name status body) {:status status :body body}))))))
