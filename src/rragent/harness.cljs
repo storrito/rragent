@@ -57,6 +57,7 @@
             [rragent.tools.fetch :as fetch-tool]
             [rragent.tools.hook :as hook-tool]
             [rragent.tools.media :as media-tool]
+            [rragent.tools.music-pick :as music-pick-tool]
             [rragent.tools.project :as project-tool]
             [rragent.tools.render :as render-tool]
             [rragent.tools.report :as report-tool]
@@ -79,7 +80,7 @@
   [codemode]
   (defineExtension #js {:name "rragent"
                         :tools #js [events-tool/remember events-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
-                                    (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode)
+                                    (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode) (music-pick-tool/tool codemode)
                                     (transcribe-tool/tool codemode) report-tool/tool skill-tool/tool share-tool/tool]
                         :tasks #js [schedule/Task runs/Task]}))
 
