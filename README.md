@@ -894,10 +894,14 @@ try); `rragent serve` says how many tries it took when more than one.
 
 The `eval` tool is the agent's REPL (`rragent.codemode`): a Clojure program
 evaluated by SCI in a worker thread of the agent's process
-(`rragent.codemode-worker`, below), one context for the life of the
-worker, so a `def` of one program is there for the next; what the
-program printed and its value, cut at ten thousand characters, are the
-answer, an error the tool's error. The context is closed: no `js/`, no
+(`rragent.codemode-worker`, below), each program one of its own, in a
+fresh fork of the context, since what the model cannot see in its
+conversation, once it is summarized, it cannot use; data for a later
+program goes into a file of the bot's work folder, `(spit
+"data/accounts.edn" accounts)` and `(edn/read-string (slurp
+"data/accounts.edn"))`, a file the model named and sees in the pane;
+what the program printed and its value, cut at ten thousand
+characters, are the answer, an error the tool's error. The context is closed: no `js/`, no
 interop on values, no `require` of anything but Clojure's own namespaces,
 no reading of the environment, and `aget`, `js-obj` and their kind say
 that they are not there. What a program reaches, it reaches through the
@@ -949,6 +953,11 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   lists them and opens a bot that connects a service. See [docs/mcp.md](docs/mcp.md).
 - Why hooks and schedules start runs instead of chat messages, and why
   the person's know-how becomes a skill: [docs/runs-and-skills.md](docs/runs-and-skills.md).
+- `(spit "data/accounts.edn" accounts)` and `(slurp "data/accounts.edn")`:
+  a file of the bot's work folder written (a string as it is, data as
+  EDN that reads back, anything else refused) and read, the needs
+  `spit` and `slurp` of the host, inside the work folder only; the
+  state between programs, named by the model.
 - `(remember "review-posted" {:id 4711})` and `(recall {:event
   "review-posted"})`: the bot's events (`rragent.events`, one EDN map
   per line in `bots/<id>/events.edn`), the same file the `remember` and
@@ -964,8 +973,8 @@ whatever the program does with the throw: the attempt is thrown away,
 the `eval` tool makes the call as a nested tool call of its own under
 the key of the form and the call (`c<form>-<call>`, the tools of
 `rragent.tools.host`, which only tools call: `gateway` and
-`gateway-read`, `mcp`, `mcp-admin`, `connectors`, and the bot's own
-`remember`), and sends the form again with the answer among the
+`gateway-read`, `mcp`, `mcp-admin`, `connectors`, `spit`, `slurp`, and
+the bot's own `remember`), and sends the form again with the answer among the
 answers, so the program walks its earlier calls from the answers and
 reaches the next, or its end. A form that is done is kept as the
 call's memo: what it printed, its value, and the vars it defined as

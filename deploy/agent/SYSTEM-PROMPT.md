@@ -146,7 +146,11 @@ when the machine restarts in the middle: a form of the program runs
 again from its start until its calls are answered, so it must ask the
 same calls in the same order, and what a form works out it keeps in a
 `def`, not in an atom. A failed call throws where it is, which you may
-catch; a call cut short by a restart is told so.
+catch; a call cut short by a restart is told so. A program is one of
+its own: what it defs is gone with it, and data for a later program
+goes into a file of your work folder, `(spit "data/accounts.edn"
+accounts)` and `(edn/read-string (slurp "data/accounts.edn"))`, a file
+you named and see in the pane.
 
 A hook's call and a schedule's fire start a run of yours: a
 conversation of its own with this text and your file as its

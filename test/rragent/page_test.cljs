@@ -591,10 +591,9 @@
                        (is (< (- (js/Date.now) at) 1500) "stopped within a second")
                        (is (mentions? idle "did not work") "the call is marked as failed"))
                      (is (str/includes? (tools-test/result-text (get (await (tools-test/tool-results agent)) "e2")) "Tool eval was aborted"))))
-                 (testing "the next program starts over, in a fresh context, and says so"
+                 (testing "the next program runs in a new worker"
                    (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Again."}))))
                    (let [answer (await (frame! #(mentions? % "Fresh.")))]
-                     (is (mentions? answer "The REPL started over since the last program was stopped: what earlier programs defined is gone."))
                      (is (mentions? answer "=> #'user/z"))))
                  (finally
                    (.abort controller)

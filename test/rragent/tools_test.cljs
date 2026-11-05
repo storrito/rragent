@@ -1,5 +1,6 @@
 (ns rragent.tools-test
-  (:require ["node:http" :as http]
+  (:require ["node:fs" :as fs]
+            ["node:http" :as http]
             ["@earendil-works/pi-ai/models" :refer [createModels]]
             ["@earendil-works/pi-ai/providers/faux" :refer [fauxAssistantMessage fauxProvider fauxText fauxToolCall]]
             [clojure.string :as str]
@@ -116,8 +117,8 @@
                               "  (println \"status\" (:status r))"
                               "  (count (recall {:event \"seen\"})))")]
              (.setResponses faux #js [(tool-call "eval" {:code program} "e1")
-                                      (tool-call "eval" {:code "(def n 5)"} "e2")
-                                      (tool-call "eval" {:code "(* n 2)"} "e3")
+                                      (tool-call "eval" {:code "(def n 5) (spit \"data/n.edn\" {:n n})"} "e2")
+                                      (tool-call "eval" {:code "(* 2 (:n (edn/read-string (slurp \"data/n.edn\"))))"} "e3")
                                       (tool-call "eval" {:code "(.-env js/process)"} "e4")
                                       (tool-call "recall" {:event "seen"} "r1")
                                       (answer "Done.")])
@@ -127,9 +128,10 @@
                  (let [results (await (tool-results agent))]
                    (testing "the program's printed output and its value, the call through the gateway, the event seen at once"
                      (is (= "status 200\n=> 1" (result-text (get results "e1")))))
-                   (testing "a def stays for the next call"
-                     (is (= "=> #'user/n" (result-text (get results "e2"))))
-                     (is (= "=> 10" (result-text (get results "e3")))))
+                   (testing "data for a later call goes through a file of the bot's work folder"
+                     (is (= "=> \"data/n.edn\"" (result-text (get results "e2"))))
+                     (is (= "=> 10" (result-text (get results "e3"))))
+                     (is (= "{:n 5}" (fs/readFileSync (str (:work agent) "/data/n.edn") "utf8"))))
                    (testing "the host is out of reach, as an error the model reads"
                      (is (true? (.-isError (get results "e4"))))
                      (is (str/includes? (result-text (get results "e4")) "Unable to resolve symbol: js/process")))

@@ -23,8 +23,7 @@
   [worker code & [more]]
   (let [answer (await (test-host/run-in-worker worker code more))]
     (cond-> (select-keys answer [:text :error])
-      (seq (:images answer)) (assoc :images (:images answer))
-      (:note answer) (assoc :note (:note answer)))))
+      (seq (:images answer)) (assoc :images (:images answer)))))
 
 (defn- ^:async stopped-within
   "The form of `code` run in `worker` and aborted after `after-ms`:
@@ -43,9 +42,13 @@
                  worker (codemode-worker/handle (codemode/handle url))
                  events (atom [{:event "old" :at 1}])]
              (try
-               (testing "a def stays for the next program"
-                 (is (= {:text "=> #'user/x"} (await (run worker "(def x 21)"))))
-                 (is (= {:text "=> 42"} (await (run worker "(* x 2)")))))
+               (testing "a program is one of its own: a def is there for its later forms, not for the next program"
+                 (is (= {:text "=> 42"} (await (run worker "(def x 21) (* x 2)"))))
+                 (is (str/includes? (:error (await (run worker "(* x 2)"))) "Unable to resolve symbol: x")))
+               (testing "data for a later program goes through a file"
+                 (let [files (atom {})]
+                   (is (= {:text "=> \"data/x.edn\""} (await (run worker "(spit \"data/x.edn\" {:x 21})" {:files files}))))
+                   (is (= {:text "=> 42"} (await (run worker "(* 2 (:x (edn/read-string (slurp \"data/x.edn\"))))" {:files files}))))))
                (testing "the events go in with the form, what it remembers the host notes"
                  (is (= {:text "=> 1"} (await (run worker "(remember \"seen\" {:n (count (recall))}) (:n (first (recall {:event \"seen\"})))" {:events events}))))
                  (is (= [{:event "old"} {:event "seen" :n 1}] (mapv #(dissoc % :at) @events))))
@@ -61,11 +64,13 @@
                    (is (not (str/includes? error "so far")) "an earlier form's print is its own"))
                  (let [{:keys [error]} (await (run worker "(do (println \"so far\") (undefined-fn))"))]
                    (is (str/includes? error "Printed before the error:\nso far"))))
-               (testing "the vars of a form done come back, a fresh worker takes them"
+               (testing "the vars of a form done come back, a fresh worker takes them into the program that begins"
                  (let [fresh (codemode-worker/handle (codemode/handle url))]
                    (try
+                     (is (= {:count 1} (await (codemode-worker/count! fresh "(reduce + y)" nil))))
                      (is (= {:done true} (await (codemode-worker/restore! fresh {'y "[1 2 3]"} nil))))
-                     (is (= {:text "=> 6"} (await (run fresh "(reduce + y)"))))
+                     (is (= {:done {:printed "" :value "6" :vars {}}}
+                            (await (codemode-worker/attempt! fresh {:code "(reduce + y)" :index 0 :answers [] :events []}))))
                      (finally
                        (codemode-worker/stop! fresh "over")))))
                (finally
@@ -86,11 +91,8 @@
                  (let [{:keys [answer took]} (await (stopped-within worker "(loop [] (recur))" 300))]
                    (is (= {:error "The program was stopped."} answer))
                    (is (< took 1300) (str "took " took " ms"))))
-               (testing "the next program runs in a fresh context and says so first"
-                 (let [{:keys [error note]} (await (run worker "x"))]
-                   (is (= codemode-worker/restart-note note))
-                   (is (str/includes? error "Unable to resolve symbol: x")))
-                 (is (= {:text "=> #'user/x"} (await (run worker "(def x 2)"))) "the note is said once"))
+               (testing "the next program runs in a new worker"
+                 (is (= {:text "=> #'user/x"} (await (run worker "(def x 2)")))))
                (testing "a signal aborted before the form starts"
                  (let [controller (js/AbortController.)]
                    (.abort controller)
@@ -121,10 +123,7 @@
                    (js/clearTimeout timer)
                    (is (= {:error "The program ran longer than 0.01 minutes and was stopped."} answer))
                    (is (< 500 (- (js/Date.now) started) 1600)))
-                 (let [{:keys [text error note]} (await (run worker "x"))]
-                   (is (nil? text))
-                   (is (= codemode-worker/restart-note note))
-                   (is (str/includes? error "Unable to resolve symbol: x"))))
+                 (is (= {:text "=> 3"} (await (run worker "(+ 1 2)"))) "the next program runs in a new worker"))
                (finally
                  (if (nil? before) (js-delete env "RRAGENT_PROGRAM_TIMEOUT_MIN") (aset env "RRAGENT_PROGRAM_TIMEOUT_MIN" before))
                  (codemode-worker/stop! worker "over")

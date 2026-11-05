@@ -19,12 +19,13 @@
    and the vars it defined, or its error (`rragent.codemode/evaluate-form`);
    the host answers the need and sends the form again
    (`rragent.tools.eval`). The vars of a form the host kept go to a
-   worker that starts over (`restore!`). Stop (the conversation aborted
+   worker that starts over (`restore!`). A program is one of its own:
+   the count of its forms begins it, in a fresh fork of the base
+   context (`rragent.codemode/begin!`). Stop (the conversation aborted
    while a form runs) and the host's timeout end the worker: the form
-   is answered with the reason, the next program starts a new worker
-   with a fresh context, and its first answer says that the defs are
-   gone. The servers and their tools of the MCP registry go with a
-   form when they changed since the worker last had them."
+   is answered with the reason, the next program starts a new worker.
+   The servers and their tools of the MCP registry go with a form
+   when they changed since the worker last had them."
   (:require ["node:url" :as url]
             ["node:worker_threads" :refer [Worker isMainThread parentPort workerData]]
             [rragent.codemode :as codemode]
@@ -41,10 +42,6 @@
 
 (def stopped-message
   "The program was stopped.")
-
-(def restart-note
-  "What the first answer after a stop says before the answer."
-  "The REPL started over since the last program was stopped: what earlier programs defined is gone.")
 
 (defn timeout-minutes
   "How long a program may run: RRAGENT_PROGRAM_TIMEOUT_MIN, ten
@@ -85,8 +82,9 @@
 (defn serve-message
   "One message of the host answered: a form evaluated (`:run`), the
    environment set and the MCP servers installed first when they came
-   with it; the forms of a program counted (`:count`), a reading error
-   the answer; vars restored (`:restore`)."
+   with it; the forms of a program counted (`:count`), which begins
+   the program, a reading error the answer; vars restored
+   (`:restore`)."
   [handle {:keys [op mcp vars code env] :as message}]
   (case op
     :run (do (set-env! env)
@@ -94,6 +92,7 @@
                (codemode/install-mcp! handle mcp))
              (codemode/evaluate-form handle message))
     :count (try
+             (codemode/begin! handle)
              {:count (count (codemode/forms handle code))}
              (catch :default e
                {:error (codemode/reading-error e)}))
@@ -119,11 +118,11 @@
 (defn handle
   "The worker of the REPL `codemode`, for the eval tool: `{:codemode
    :state}`, the state an atom with the worker while there is one, the
-   messages in it by id, the note the next answer carries after a
-   stop, and the version of the MCP servers it has (`rragent.mcp/snapshot`)."
+   messages in it by id, and the version of the MCP servers it has
+   (`rragent.mcp/snapshot`)."
   [codemode]
   {:codemode codemode
-   :state (atom {:worker nil :running {} :next-id 0 :note nil :mcp-version nil})})
+   :state (atom {:worker nil :running {} :next-id 0 :mcp-version nil})})
 
 (defn- module
   "The module a worker runs: this namespace's own, the bundle in
@@ -143,13 +142,12 @@
 
 (defn- ended!
   "`worker` is over, by a stop or by itself: the messages in it
-   answered with `reason`, the next program starts a new worker and
-   says that the defs are gone. Nothing for a worker that was
-   replaced already."
+   answered with `reason`, the next program starts a new worker.
+   Nothing for a worker that was replaced already."
   [{:keys [state]} worker reason]
   (when (identical? worker (:worker @state))
     (let [{:keys [running]} @state]
-      (swap! state assoc :worker nil :running {} :note restart-note :mcp-version nil)
+      (swap! state assoc :worker nil :running {} :mcp-version nil)
       (doseq [{:keys [resolve]} (vals running)]
         (resolve {:error reason})))))
 
@@ -204,7 +202,7 @@
   "`message` posted to the worker, started when there is none: a
    promise of its answer, `{:error stopped-message}` at once when
    `signal` is aborted already, the stop's reason when it is aborted
-   meanwhile. The first answer after a stop carries `:note`."
+   meanwhile."
   [{:keys [state] :as handle} message signal]
   (js/Promise.
    (fn [resolve]
@@ -212,15 +210,13 @@
        (resolve {:error stopped-message})
        (let [worker (or (:worker @state) (start! handle))
              id (:next-id (swap! state update :next-id inc))
-             note (:note @state)
              on-abort (fn [] (stop! handle stopped-message))]
          (when signal
            (.addEventListener signal "abort" on-abort #js {:once true}))
-         (swap! state assoc :note nil)
          (swap! state assoc-in [:running id] {:resolve (fn [answer]
                                                          (when signal
                                                            (.removeEventListener signal "abort" on-abort))
-                                                         (resolve (cond-> answer note (assoc :note note))))})
+                                                         (resolve answer))})
          (.ref worker)
          (.postMessage worker (transit/write-str (assoc message :id id))))))))
 
@@ -249,8 +245,9 @@
   (await (post! handle {:op :restore :vars vars} signal)))
 
 (defn ^:async count!
-  "How many forms `code` has, read in the worker: a promise of
-   `{:count}`, or `{:error}` with where the reading failed."
+  "How many forms `code` has, read in the worker, which begins the
+   program: a promise of `{:count}`, or `{:error}` with where the
+   reading failed."
   [handle code signal]
   (await (post! handle {:op :count :code code} signal)))
 

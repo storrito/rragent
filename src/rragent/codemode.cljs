@@ -18,13 +18,20 @@
    runs in: a call is a need (`rragent.need`), answered by the host,
    which runs the form again with the answer, until every call of the
    form is answered and the form is done. Each attempt runs in a fork
-   of the context; the fork of the attempt that finished is the
-   context from then on, what an unfinished attempt defined is gone
-   with it. A form that is done answers what it printed, its value,
-   and the vars it defined, as EDN when they can be read back, so that
-   the host keeps them and gives them back to a worker that starts
-   over (`restore!`), or says that the form is to be run again. The
-   events a program recalls come with every attempt
+   of the program's context; the fork of the attempt that finished is
+   the program's context from then on, what an unfinished attempt
+   defined is gone with it. A program is one of its own: it starts
+   from a fresh fork of the base context (`begin!`), nothing a
+   program defined is there for the next, since what the model cannot
+   see in its conversation, once it is summarized, it cannot use;
+   data for later programs goes into a file of the bot's work folder,
+   `(spit \"data/x.edn\" v)`, read back with `(edn/read-string (slurp
+   \"data/x.edn\"))`, a file the model names and sees. A form that is
+   done answers what it printed, its value, and the vars it defined,
+   as EDN when they can be read back, so that the host keeps them and
+   gives them back to a worker that starts over in the middle of the
+   program (`restore!`), or says that the form is to be run again.
+   The events a program recalls come with every attempt
    (`rragent.tools.eval`)."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
@@ -70,7 +77,7 @@
 (def preamble
   "What every program starts from: the agent namespace referred, doc
    at hand."
-  "(ns user (:require [agent :refer :all] [clojure.repl :refer [doc]]))")
+  "(ns user (:require [agent :refer :all] [clojure.edn :as edn] [clojure.repl :refer [doc]]))")
 
 (def agent-ns
   (sci/create-ns 'agent))
@@ -121,6 +128,8 @@
     (when (and catalog @(:context handle))
       (let [namespaces {:namespaces {'storrito (storrito-vars call connection catalog)}}]
         (swap! (:context handle) sci/merge-opts namespaces)
+        (when @(:program handle)
+          (swap! (:program handle) sci/merge-opts namespaces))
         (when *fork*
           (sci/merge-opts *fork* namespaces))))))
 
@@ -196,6 +205,51 @@
    date or milliseconds)."
   [handle & [opts]]
   (events/select (:known @(:events handle)) (or opts {})))
+
+(defn- edn
+  "`value` as EDN the host can keep and `restore!` can read back; nil
+   when it cannot be read back (a function, a regex, an object, a
+   record), or is longer than `max-var-chars`."
+  [value]
+  (let [s (binding [*print-length* 100000
+                    *print-level* 200]
+            (pr-str value))]
+    (when (<= (count s) max-var-chars)
+      (try
+        (when (= value (reader/read-string s))
+          s)
+        (catch :default _ nil)))))
+
+(defn- file-path
+  "`path` as a file of the bot's work folder: relative, nowhere
+   above it; a throw for any other."
+  [path]
+  (let [p (str path)]
+    (when (or (str/blank? p) (str/starts-with? p "/") (re-find #"(^|/)\.\.(/|$)" p) (str/includes? p "\\"))
+      (throw (js/Error. (str "spit and slurp take a path inside your work folder, such as \"data/accounts.edn\", not " (pr-str path)))))
+    p))
+
+(defn spit
+  "`data` written to the file `path` of your work folder, for a later
+   program: a string as it is, anything else as EDN, which
+   (edn/read-string (slurp path)) reads back; data that would not
+   read back (a function, a regex, an object) is refused. The folders
+   are made. Answers the path. Keep what later programs need in
+   data/<name>.edn: a file you named is in your conversation and in
+   the pane, a def is not."
+  [_handle path data]
+  (let [path (file-path path)
+        content (if (string? data) data (edn data))]
+    (when-not content
+      (throw (js/Error. (str "spit writes data that reads back as EDN: " (pr-str (type data)) " does not, or it is longer than " max-var-chars " characters."))))
+    (need/ask {:tool "spit" :args {:path path :content content}})))
+
+(defn slurp
+  "The text of the file `path` of your work folder; a throw when
+   there is none. (edn/read-string (slurp \"data/x.edn\")) reads data
+   a program wrote with spit."
+  [_handle path]
+  (need/ask {:tool "slurp" :args {:path (file-path path)}}))
 
 (defn search
   "The tools of the organization's services (Gmail, Google Drive,
@@ -383,7 +437,12 @@
   [handle catalog]
   (reset! (:mcp-catalog handle) catalog)
   (when @(:context handle)
-    (swap! (:context handle) sci/merge-opts {:namespaces (mcp-namespaces handle catalog)})))
+    (let [namespaces {:namespaces (mcp-namespaces handle catalog)}]
+      (swap! (:context handle) sci/merge-opts namespaces)
+      (when @(:program handle)
+        (swap! (:program handle) sci/merge-opts namespaces))
+      (when *fork*
+        (sci/merge-opts *fork* namespaces)))))
 
 (defn- catalog-server
   [server-name]
@@ -491,6 +550,8 @@
    ["(mcp/tools \"github\")" "the tools of one server: {:name :fn :description}, (doc mcp.github/<tool>) says its arguments"]
    ["(mcp/add! \"github\" {:url \"https://…/mcp\" :token \"GITHUB_TOKEN\"})" "connects an MCP server for the machine; :needs names the secrets the person types into a [:secret {:name \"GITHUB_TOKEN\"}] field of a ```hiccup block in your answer, never into the chat; (mcp/test \"github\") tries it again, (mcp/enable! \"github\" false), (mcp/remove! \"github\")"]
    ["(mcp.github/search_issues {:query \"bug\"})" "one tool of a server, a map of arguments: its structured content, else its text (JSON as data); pictures are shown to you after the answer; (mcp/call \"github\" \"search_issues\" {...}) the same by name"]
+   ["(spit \"data/accounts.edn\" accounts)" "data for a later program, as EDN in a file of your work folder, which you see in the pane; a program is one of its own, what it defs is gone with it"]
+   ["(edn/read-string (slurp \"data/accounts.edn\"))" "the data back, in a later program; (slurp path) is the file's text"]
    ["(remember \"review-posted\" {:id 4711})" "an event for later runs, kept through every summary and seen by your runs"]
    ["(recall {:event \"review-posted\"})" "your events, oldest first; :since narrows them"]])
 
@@ -535,7 +596,8 @@
 (defn help-text
   [handle]
   (str "Your REPL: Clojure with the organization's connectors as functions, nothing of the host. "
-       "Chain calls, loop and filter in one program, print only what matters.\n\n"
+       "Chain calls, loop and filter in one program, print only what matters; a program is one of its own, "
+       "data for a later one goes into a file with spit.\n\n"
        (str/join "\n" (map (fn [[form what]] (str form "\n    " what)) help-lines))
        "\n\n"
        (status-text handle)))
@@ -582,7 +644,7 @@
         ctx (sci/init {:features #{:cljs}
                        :namespaces (merge
                                     {'clojure.core denied-core
-                                     'agent (vars agent-ns handle [#'connectors #'connector #'call #'remember #'recall #'help])
+                                     'agent (vars agent-ns handle [#'connectors #'connector #'call #'remember #'recall #'spit #'slurp #'help])
                                      'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections #'accounts #'trigger-types #'triggers #'add-trigger #'delete-trigger])
                                      'storrito (cond-> (vars storrito-ns handle [#'procedures #'agent-uuid])
                                                  catalog (merge (storrito-vars (partial call handle) connection catalog)))
@@ -593,18 +655,32 @@
     ctx))
 
 (defn- context!
-  "The context of `handle`, made at the first program."
+  "The base context of `handle`, made at the first program; never
+   evaluated in, forked for every program."
   [handle]
   (or @(:context handle)
       (reset! (:context handle) (context handle))))
+
+(defn begin!
+  "A program begins: its context a fresh fork of the base, nothing of
+   an earlier program in it."
+  [handle]
+  (reset! (:program handle) (sci/fork (context! handle))))
+
+(defn- program!
+  "The context of the program that runs, begun when none has."
+  [handle]
+  (or @(:program handle)
+      (begin! handle)))
 
 (defn handle-of
   "The REPL over what another thread found: `{:gateway :discovery
    :storrito}` as `snapshot` answers them, no request made. `{:gateway
    :discovery :storrito :composio-session :events :mcp-catalog :context
-   :asked}`, the last six atoms; the context is made at the first
-   program, `asked` is when `connectors` last read the list again, 0
-   before it did."
+   :program :asked}`, the last seven atoms; the base context is made
+   at the first program and stays as it is, `program` the context of
+   the program that runs, a fork of it; `asked` is when `connectors`
+   last read the list again, 0 before it did."
   [{:keys [gateway discovery storrito]}]
   {:gateway gateway
    :discovery (atom discovery)
@@ -613,6 +689,7 @@
    :events (atom {:known []})
    :mcp-catalog (atom nil)
    :context (atom nil)
+   :program (atom nil)
    :asked (atom 0)})
 
 (defn handle
@@ -648,7 +725,7 @@
   [handle]
   @(:asked handle))
 
-(defn begin!
+(defn events!
   "The events an attempt sees: `known`, the bot's as they are now."
   [handle known]
   (reset! (:events handle) {:known (vec known)}))
@@ -667,15 +744,18 @@
          (str "\nPrinted before the error:\n" printed))))
 
 (defn evaluate
-  "`code` evaluated in the context of `handle`: what it printed, then
-   its value after `=>`, cut at ten thousand characters; a throw with
-   the error's message, where it was, and what was printed before it."
+  "`code` evaluated as one program of its own, in a fresh fork of the
+   base context of `handle`, with no host to answer a call: what it
+   printed, then its value after `=>`, cut at ten thousand
+   characters; a throw with the error's message, where it was, and
+   what was printed before it. For what needs no host: help, doc, the
+   closed context."
   [handle code]
   (let [sb (gstring/StringBuffer.)
         value (try
                 (sci/binding [sci/print-newline true
                               sci/print-fn (fn [x] (.append sb x))]
-                  (sci/eval-string* (context! handle) (str code)))
+                  (sci/eval-string* (sci/fork (context! handle)) (str code)))
                 (catch :default e
                   (throw (js/Error. (cut (error-text e (str sb)))))))
         printed (str sb)]
@@ -715,20 +795,6 @@
                   [sym @v])))
         (get-in @(:env ctx) [:namespaces 'user])))
 
-(defn- edn
-  "`value` as EDN the host can keep and `restore!` can read back; nil
-   when it cannot be read back (a function, a regex, an object, a
-   record), or is longer than `max-var-chars`."
-  [value]
-  (let [s (binding [*print-length* 100000
-                    *print-level* 200]
-            (pr-str value))]
-    (when (<= (count s) max-var-chars)
-      (try
-        (when (= value (reader/read-string s))
-          s)
-        (catch :default _ nil)))))
-
 (defn defined
   "What the form defined in `user`, `before` and `after` its vars:
    `{:vars {sym edn}}` when every value can be kept, else `{:redo
@@ -746,22 +812,23 @@
 
 (defn restore!
   "The vars `vars` (`{sym edn}`, as `defined` answered them) defined
-   in `user` again, for a worker that starts over."
+   in `user` of the program's context again, for a worker that starts
+   over in the middle of a program."
   [handle vars]
-  (let [ctx (context! handle)]
+  (let [ctx (program! handle)]
     (doseq [[sym s] vars]
       (sci/intern ctx 'user (symbol sym) (reader/read-string s)))))
 
 (defn evaluate-form
-  "The form at `index` of `code` evaluated in a fork of the context,
-   over `answers`, the host's to the calls of the form so far
+  "The form at `index` of `code` evaluated in a fork of the program's
+   context, over `answers`, the host's to the calls of the form so far
    (`rragent.need`), and `events`, the bot's as they are: `{:need}`
    with the first call the host has not answered, the attempt thrown
    away; `{:done {:printed :value :vars|:redo}}` when the form ran to
-   its end, the fork the context from now on, the value as text cut
-   at ten thousand characters; `{:error}` for a form that failed, with
-   where and what was printed before. The forms are read first, a
-   reading error is the answer."
+   its end, the fork the program's context from now on, the value as
+   text cut at ten thousand characters; `{:error}` for a form that
+   failed, with where and what was printed before. The forms are read
+   first, a reading error is the answer."
   [handle {:keys [code index answers events]}]
   (let [forms (try
                 {:forms (forms handle code)}
@@ -770,7 +837,7 @@
     (if (:error forms)
       forms
       (let [form (nth (:forms forms) index)
-            base (context! handle)
+            base (program! handle)
             fork (sci/fork base)
             before (user-vars fork)
             sb (gstring/StringBuffer.)
@@ -778,7 +845,7 @@
             outcome (try
                       (binding [need/*attempt* attempt
                                 *fork* fork]
-                        (begin! handle events)
+                        (events! handle events)
                         (sci/binding [sci/print-newline true
                                       sci/print-fn (fn [x] (.append sb x))]
                           (let [value (sci/eval-form fork form)
@@ -790,7 +857,7 @@
       (cond
         noted {:need noted}
         (:error outcome) outcome
-        :else (do (reset! (:context handle) fork)
+        :else (do (reset! (:program handle) fork)
                   {:done (merge {:printed (cut (str sb)) :value (:value outcome)}
                                 (defined before (user-vars fork)))}))))))
 

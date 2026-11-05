@@ -177,10 +177,16 @@
                  (is (str/includes? error "Unable to resolve symbol: nope (line 1"))
                  (is (str/includes? error "Printed before the error:\nbefore")))
                (is (str/includes? (:error (codemode/evaluate-form handle {:code "(def x" :index 0 :answers [] :events []})) "EOF")))
-             (testing "a var a form defined is read back into a fresh context"
+             (testing "a var a form defined is read back into the program's context of a fresh handle"
                (let [fresh (codemode/handle "http://127.0.0.1:1")]
+                 (codemode/begin! fresh)
                  (codemode/restore! fresh {'x "{:a 1, :b [1 2 3]}" 'y "#{:k}"})
-                 (is (= "=> [[1 2 3] #{:k}]" (codemode/evaluate fresh "[(:b x) y]")))))
+                 (is (= {:done {:printed "" :value "[[1 2 3] #{:k}]" :vars {}}}
+                        (codemode/evaluate-form fresh {:code "[(:b x) y]" :index 0 :answers [] :events []})))
+                 (codemode/begin! fresh)
+                 (is (str/includes? (:error (codemode/evaluate-form fresh {:code "x" :index 0 :answers [] :events []}))
+                                    "Unable to resolve symbol: x")
+                     "the next program starts fresh")))
              (sync-fetch/stop!))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
@@ -203,9 +209,9 @@
 
 (deftest evaluate-test
   (let [handle (codemode/handle "http://127.0.0.1:1")]
-    (testing "a def stays for the next program"
-      (is (= "=> #'user/x" (codemode/evaluate handle "(def x 21)")))
-      (is (= "=> 42" (codemode/evaluate handle "(* x 2)")))
+    (testing "a program is one of its own: a def is there for its later forms, not for the next program"
+      (is (= "=> 42" (codemode/evaluate handle "(def x 21) (* x 2)")))
+      (is (str/includes? (failure #(codemode/evaluate handle "(* x 2)")) "Unable to resolve symbol: x"))
       (is (= "=> 4" (codemode/evaluate handle "(defn twice [n] (* 2 n)) (twice 2)"))))
     (testing "what was printed, then the value"
       (is (= "hi\n{:a 1}\n=> 42" (codemode/evaluate handle "(println \"hi\") (prn {:a 1}) 42")))
@@ -228,6 +234,36 @@
       (let [doc (codemode/evaluate handle "(doc call)")]
         (is (str/includes? doc "agent/call\n((which path & [opts]))\n  An HTTP request through the gateway"))))
     (sync-fetch/stop!)))
+
+(deftest files-test
+  (async done
+    (-> ((^:async fn []
+           (let [handle (codemode/handle "http://127.0.0.1:1")
+                 files (atom {})
+                 run (fn [code] (test-host/run handle code {:files files}))]
+             (testing "data goes into a file as EDN and comes back in a later program, where a def does not"
+               (is (= "=> \"data/accounts.edn\"" (await (run "(def accounts [{:name \"a\" :n 1} {:name \"b\" :n 2}]) (spit \"data/accounts.edn\" accounts)"))))
+               (is (= {"data/accounts.edn" "[{:name \"a\", :n 1} {:name \"b\", :n 2}]"} @files))
+               (is (= "=> [\"a\" \"b\"]" (await (run "(mapv :name (edn/read-string (slurp \"data/accounts.edn\")))"))))
+               (is (str/includes? (await (fails #(run "accounts"))) "Unable to resolve symbol: accounts")))
+             (testing "a string is written as it is"
+               (is (= "=> \"notes.txt\"" (await (run "(spit \"notes.txt\" \"hello\")"))))
+               (is (= "hello" (get @files "notes.txt")))
+               (is (= "=> \"hello\"" (await (run "(slurp \"notes.txt\")")))))
+             (testing "what would not read back is refused before the host is asked"
+               (is (str/includes? (await (fails #(run "(spit \"data/f.edn\" (fn [x] x))"))) "spit writes data that reads back as EDN"))
+               (is (str/includes? (await (fails #(run "(spit \"data/r.edn\" #\"a+\")"))) "spit writes data that reads back as EDN"))
+               (is (= 2 (count @files))))
+             (testing "a path outside the work folder is refused"
+               (is (str/includes? (await (fails #(run "(spit \"/etc/passwd\" {})"))) "inside your work folder"))
+               (is (str/includes? (await (fails #(run "(slurp \"../secrets.json\")"))) "inside your work folder"))
+               (is (str/includes? (await (fails #(run "(slurp \"\")"))) "inside your work folder")))
+             (testing "a file that is not there throws where the call is, which the program may catch"
+               (is (= "=> \"No file data/none.edn in your work folder.\""
+                      (await (run "(try (slurp \"data/none.edn\") (catch :default e (ex-message e)))")))))
+             (sync-fetch/stop!))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
 
 (deftest events-test
   (async done

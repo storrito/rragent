@@ -10,17 +10,29 @@
    restart (a query: a GET, or a Storrito procedure that only reads);
    `mcp` a tool of an MCP server, its pictures in the value for the
    host to show; `mcp-admin` a change of the servers; `connectors` the
-   gateway's list read again, with the Storrito catalog; `remember` is
-   the bot's own tool (`rragent.tools.events`)."
+   gateway's list read again, with the Storrito catalog; `spit` and
+   `slurp` a file of the bot's work folder written and read, data
+   for a later program; `remember` is the bot's own tool
+   (`rragent.tools.events`)."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
+            [clojure.string :as str]
+            ["node:fs" :as fs]
+            ["node:path" :as path]
             [rragent.codemode :as codemode]
             [rragent.gateway :as gateway]
             [rragent.mcp :as mcp]
-            [rragent.storrito :as storrito]))
+            [rragent.storrito :as storrito]
+            [rragent.tools.work :as work]))
 
 (def names
-  ["gateway" "gateway-read" "mcp" "mcp-admin" "connectors"])
+  ["gateway" "gateway-read" "mcp" "mcp-admin" "connectors" "spit" "slurp"])
+
+(def max-file-chars
+  "How long a file spit writes or slurp reads may be: it travels as
+   the arguments or the value of a nested call, which pi-durable
+   keeps."
+  1000000)
 
 (defn- answer
   "A result whose value is `data`, for the program."
@@ -157,7 +169,64 @@
                      (reset! (:asked codemode) (js/Date.now))
                      (answer {:discovery discovery :storrito found})))}))
 
+(defn- file-of
+  "The file `given` of the call's work folder, absolute; a throw for
+   a path outside it."
+  [api given]
+  (let [dir (work/dir api)
+        file (path/resolve dir (str given))]
+    (when-not (str/starts-with? file (str dir path/sep))
+      (throw (js/Error. (str "spit and slurp take a path inside your work folder, not " (pr-str given)))))
+    file))
+
+(defn spit
+  "The `spit` tool: `content` written to the file `path` of the bot's
+   work folder, the folders made; answers the path. Written again
+   after a restart, the same content."
+  []
+  (defineTool
+   #js {:name "spit"
+        :description "A file of the bot's work folder written, for a program of the REPL."
+        :callers #js ["tools"]
+        :replay "safe"
+        :parameters (.Object Type #js {:path (.String Type) :content (.String Type)})
+        :structuredOutputSchema (.Any Type)
+        :execute (^:async fn [args api _call-context]
+                   (try
+                     (let [content (str (.-content args))]
+                       (when (< max-file-chars (count content))
+                         (throw (js/Error. (str "spit writes at most " max-file-chars " characters; this is " (count content)))))
+                       (let [file (file-of api (.-path args))]
+                         (fs/mkdirSync (path/dirname file) #js {:recursive true})
+                         (fs/writeFileSync file content "utf8")
+                         (answer (str (.-path args)))))
+                     (catch :default e
+                       (failure (ex-message e)))))}))
+
+(defn slurp
+  "The `slurp` tool: the text of the file `path` of the bot's work
+   folder; a missing file an error result."
+  []
+  (defineTool
+   #js {:name "slurp"
+        :description "A file of the bot's work folder read, for a program of the REPL."
+        :callers #js ["tools"]
+        :replay "safe"
+        :parameters (.Object Type #js {:path (.String Type)})
+        :structuredOutputSchema (.Any Type)
+        :execute (^:async fn [args api _call-context]
+                   (try
+                     (let [file (file-of api (.-path args))
+                           text (fs/readFileSync file "utf8")]
+                       (when (< max-file-chars (count text))
+                         (throw (js/Error. (str "slurp reads at most " max-file-chars " characters; " (.-path args) " has " (count text)))))
+                       (answer text))
+                     (catch :default e
+                       (failure (if (= "ENOENT" (.-code e))
+                                  (str "No file " (.-path args) " in your work folder.")
+                                  (ex-message e))))))}))
+
 (defn tools
   "All of them, over the REPL `codemode`."
   [codemode]
-  [(gateway codemode) (gateway-read codemode) (mcp-tool codemode) (mcp-admin codemode) (connectors codemode)])
+  [(gateway codemode) (gateway-read codemode) (mcp-tool codemode) (mcp-admin codemode) (connectors codemode) (spit) (slurp)])
