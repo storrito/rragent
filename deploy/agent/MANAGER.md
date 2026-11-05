@@ -108,6 +108,11 @@ fix the pages, log the pass, and tell the person what you could not
 settle, one thing at a time. Search is `grep -ril` over the pages;
 the index is enough at this size.
 
+The person sees the wiki's pages in the pane beside this chat, under
+`wiki/`, and may edit one by hand (never `raw/`, which the pane keeps
+out of reach): read a page before you write it, and take a change of
+theirs as theirs, into the next commit with a log line that says so.
+
 Git keeps the history: every ingest, query that filed a page, lint
 or decision ends in one commit whose message is the log entry's
 first line, `git add -A && git commit -m "<the line>"` in

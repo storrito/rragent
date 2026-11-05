@@ -663,3 +663,62 @@
         (is (contains? (strings (i18n/translate stopped :de)) "Der Prozess dieses Artefakts hat sich beendet (Exit 1). Seine .log sagt warum; er wird neu gestartet."))))
     (testing "nothing yet"
       (is (contains? (strings (i18n/translate (view/artifacts {}) :en)) "What the agent makes for you appears here.")))))
+
+(deftest wiki-test
+  (let [root (temp-dir "rragent-wiki-")
+        dir (path/join root "work" "artifacts")
+        wiki (path/join root "wiki")
+        db (atom {})]
+    (try
+      (touch! dir "card.html" 1000)
+      (touch! dir "wiki/stray.md" 1500)
+      (touch! wiki "index.md" 3000)
+      (touch! wiki "log.md" 2000)
+      (touch! wiki "projects/guest-reviews.md" 4000)
+      (touch! wiki "raw/mail.txt" 9000)
+      (touch! wiki ".git/HEAD" 9500)
+      (testing "the wiki's pages are on the list under wiki/, its raw sources and .git are not, nor a folder of that name among the artifacts"
+        (artifacts/refresh! db dir)
+        (is (= ["wiki/projects/guest-reviews.md" "wiki/index.md" "wiki/log.md" "card.html"]
+               (map :path (:artifacts/list @db))))
+        (is (= {:kind :markdown :ext "md" :title "Guest reviews"} (select-keys (first (:artifacts/list @db)) [:kind :ext :title]))))
+      (testing "the root shows the folder Wiki, the pages below it"
+        (is (= [{:path "wiki" :name "wiki" :title "Wiki" :kind :folder :count 3 :mtime 4000}]
+               (map #(dissoc % :size) (:folders (artifacts/level (:artifacts/list @db) "")))))
+        (is (= ["wiki/projects"] (map :path (:folders (artifacts/level (:artifacts/list @db) "wiki"))))))
+      (testing "where a path of the list lies on disk; the raw sources are out of reach"
+        (is (artifacts/wiki? "wiki"))
+        (is (artifacts/wiki? "wiki/index.md"))
+        (is (not (artifacts/wiki? "wikis/x")))
+        (is (= [wiki "index.md"] (artifacts/root-of dir "wiki/index.md")))
+        (is (= [wiki ""] (artifacts/root-of dir "wiki")))
+        (is (= (path/join wiki "projects/guest-reviews.md") (artifacts/file-of dir "wiki/projects/guest-reviews.md")))
+        (is (artifacts/inside? dir "wiki/index.md"))
+        (is (not (artifacts/inside? dir "wiki")) "the folder itself is the manager's")
+        (is (not (artifacts/inside? dir "wiki/raw/mail.txt")) "raw stays as it came")
+        (is (not (artifacts/inside? dir "wiki/.git/HEAD")))
+        (is (not (artifacts/inside? dir "wiki/../card.html"))))
+      (testing "the pane reads and saves a page like an artifact's text"
+        (is (= {:text "content of index.md" :truncated? false}
+               (artifacts/text-of dir {:path "wiki/index.md" :kind :markdown :mtime 3000})))
+        (is (= :written (artifacts/write! dir "wiki/index.md" "# Index\n\nedited by hand\n")))
+        (is (= "# Index\n\nedited by hand\n" (fs/readFileSync (path/join wiki "index.md") "utf8")))
+        (is (= :outside (artifacts/write! dir "wiki/raw/mail.txt" "x")) "not the raw sources"))
+      (testing "the screen line names a page as the agent reaches it"
+        (let [bot {:artifacts/list (:artifacts/list @db) :artifacts/current "wiki/index.md"}]
+          (is (= "on screen beside the chat: wiki/index.md" (artifacts/screen-line bot "wiki/index.md")))
+          (is (= "wiki/index.md" (artifacts/screen-of "Fix it\non screen beside the chat: wiki/index.md")))))
+      (testing "a bot without a wiki: nothing of it on the list, no folder made by the watch"
+        (let [other (temp-dir "rragent-nowiki-")
+              dir2 (path/join other "work" "artifacts")
+              db2 (atom {})]
+          (try
+            (touch! dir2 "a.txt" 1000)
+            (let [stop (artifacts/watch! db2 dir2)]
+              (stop))
+            (is (= ["a.txt"] (map :path (:artifacts/list @db2))))
+            (is (not (fs/existsSync (path/join other "wiki"))))
+            (finally
+              (fs/rmSync other #js {:recursive true :force true})))))
+      (finally
+        (fs/rmSync root #js {:recursive true :force true})))))
