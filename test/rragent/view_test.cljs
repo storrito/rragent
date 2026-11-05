@@ -642,6 +642,12 @@
             [_ attrs] (find-tag page :ui/code-editor)]
         (is (true? (:ui/read-only? attrs)))
         (is (some #(and (string? %) (str/includes? % "longer than this")) (strings page)))))
+    (testing "a markdown file with a frontmatter, a skill's SKILL.md, shows its fields as a list above the body, no heading made of them"
+      (let [page (shown "README.md" {:text "---\nname: \"review-stories\"\ndescription: \"A story from a review.\"\nmetadata:\n  title: \"Review stories\"\n  ask: \"Which apartment?\"\n---\n\n# Hello\n" :truncated? false})]
+        (is (= [["Name" "review-stories"] ["Description" "A story from a review."] ["Title" "Review stories"] ["Ask" "Which apartment?"]]
+               (map (fn [[_ [_ k] [_ v]]] [k v]) (rest (find-tag page :dl.frontmatter)))))
+        (is (nil? (find-tag page :h2)) "the frontmatter is no heading")
+        (is (some? (find-tag page :h1)) "the body is rendered")))
     (testing "a markdown file is rendered, with Edit in the bar; editing, its text is in the editor, with Preview"
       (let [page (shown "README.md" {:text "# Hello\n" :truncated? false})]
         (is (some? (find-tag page :div.markdown)))

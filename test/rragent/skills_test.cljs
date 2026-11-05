@@ -97,7 +97,7 @@
                                       (tools-test/answer "Kept and handed on.")])
              (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :manager? false :storage (harness/memory-storage)}))]
                (try
-                 (is (= "Kept and handed on." (await (harness/ask-in (:conversation bot) "Keep this as a how-to and make a bot for the second flat."))))
+                 (is (= "Kept and handed on." (await (harness/ask-in (:conversation bot) "Keep this as a skill and make a bot for the second flat."))))
                  (let [folder (path/join home "skills" "review-stories")
                        page (await (.entries (:conversation bot) #js {} 100 js/undefined harness/context))
                        results (->> (array-seq (.-items page))

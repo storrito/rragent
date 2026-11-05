@@ -1126,15 +1126,32 @@
     [:i18n :artifacts/render-waiting]
     [:i18n :artifacts/rendering {:progress (or (:progress render) "")}]))
 
+(defn- frontmatter-view
+  "The frontmatter of a markdown file, a skill's `SKILL.md`
+   (`rragent.definition/frontmatter`), as a small list of its fields
+   above the body: the name and the description, then the metadata as
+   it stands, each key as a word. Rendered as markdown, the lines
+   before the closing `---` would make a heading."
+  [{:keys [name description metadata]}]
+  (into [:dl.frontmatter]
+        (for [[k v] (concat [["name" name] ["description" description]] metadata)
+              :when (seq (str v))]
+          [:div [:dt (artifacts/title k)] [:dd (str v)]])))
+
 (defn- markdown-view
   "A markdown file on screen, rendered (`rragent.markdown`, the links
-   in it to the files and folders beside the file, `:folder`); a note
-   when this is the start of it only (`rragent.artifacts/text-of`)."
+   in it to the files and folders beside the file, `:folder`), its
+   frontmatter when it has one as a list of fields in front
+   (`frontmatter-view`); a note when this is the start of it only
+   (`rragent.artifacts/text-of`)."
   [{:keys [text truncated?]} base bot path]
-  [:div.document
-   (into [:div.markdown] (markdown/hiccup text {:base base :bot bot :folder (artifacts/folder-of path)}))
-   (when truncated?
-     [:p.hint [:i18n :artifacts/truncated]])])
+  (let [{:keys [body] :as frontmatter} (definition/frontmatter text)]
+    [:div.document
+     (when frontmatter
+       (frontmatter-view frontmatter))
+     (into [:div.markdown] (markdown/hiccup (if frontmatter body text) {:base base :bot bot :folder (artifacts/folder-of path)}))
+     (when truncated?
+       [:p.hint [:i18n :artifacts/truncated]])]))
 
 (defn- editor-view
   "A text file on screen in the editor (`[:ui/code-editor]`,

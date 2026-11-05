@@ -1,7 +1,7 @@
 (ns rragent.tools.skill
   "The `skill` tool: the person's own skills on the machine
    (`rragent.skills`), written by a bot when the person wants to keep
-   what it does as a how-to for their other bots, and listed."
+   what it does as a skill for their other bots, and listed."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [rragent.skills :as skills]
@@ -18,7 +18,7 @@
        "`ask` (the first question a new bot asks: the inputs, such as the account to post to), `instructions` (the body: the job as a skill, "
        "in the second person, with the inputs as the answers the person gives) and `files` (paths under your working directory to copy "
        "beside it: templates, examples; name them in the instructions as `<skill>/<file>`). "
-       "Use it when the person wants to keep what you do as a how-to for their other bots: \"keep this as a how-to\", \"make a skill of this\". "
+       "Use it when the person wants to keep what you do as a skill for their other bots: \"keep this as a skill\", \"make a skill of this\". "
        "A skill of ours a person wants changed is copied under a name of your own and changed there; ours stay as they are. "
        "`list` names the person's skills with their folders; a new bot takes one with the `bot` tool and `skill: <name>`."))
 

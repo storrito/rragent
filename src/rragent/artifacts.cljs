@@ -22,15 +22,18 @@
    what belongs together into folders. The programs the agent writes
    for its job, `work/programs/` beside the artifacts (`rragent.home`),
    are on the list as the root's folder `programs/` (`programs-folder`,
-   and the manager's wiki as `wiki/`, `wiki-folder`),
    `root-of`): the person sees the code that runs for them and can
    show it to someone who reads Clojure, while the agent keeps
-   reaching it as `programs/<name>/`. A `README.md` in a folder is
-   its first file and opens when the person enters the folder
-   (`readme`); the links in it lead to the files and folders beside it
-   (`rragent.markdown`). A recording (`rragent.recordings`,
-   `recordings/<stamp>/`) is a folder titled by its time, with the
-   length its `recording.json` says (`recording-durations`).
+   reaching it as `programs/<name>/`. The manager's pane lists two
+   folders more the same way: its wiki as `wiki/` (`wiki-folder`) and
+   the person's skills on the machine as `skills/` (`skills-folder`,
+   `skills-dir`), so that the person sees what skills their bots
+   have. A `README.md` in a folder is its first file and opens when
+   the person enters the folder (`readme`); the links in it lead to
+   the files and folders beside it (`rragent.markdown`). A recording
+   (`rragent.recordings`, `recordings/<stamp>/`) is a folder titled by
+   its time, with the length its `recording.json` says
+   (`recording-durations`).
 
    A directory with a package.json is a project, an artifact with a
    process of its own whose page is shown through `rragent.projects`;
@@ -64,6 +67,7 @@
             [clojure.string :as str]
             [rragent.db :as db]
             [rragent.home :as home]
+            [rragent.skills :as skills]
             [rragent.wiki :as wiki]
             [rragent.rframes.http :as http]))
 
@@ -154,16 +158,55 @@
   [dir]
   (wiki/dir (path/dirname (path/dirname dir))))
 
+(defn- directory?
+  [p]
+  (try
+    (.isDirectory (fs/statSync p))
+    (catch :default _
+      false)))
+
+(def skills-folder
+  "The folder of the root that holds the person's skills on the
+   machine (`rragent.skills`, `<home>/skills/`, one folder per skill
+   with its `SKILL.md`), in the manager's pane alone (`skills-dir`):
+   on the list as if it lay under the artifacts, so that the person
+   sees what skills their bots have, reads one and may edit it by
+   hand. Ours, the clone's, stay out: they are not the person's. A
+   folder of this name under artifacts/ itself stays off the list,
+   like `programs/`."
+  "skills")
+
+(defn skill?
+  "Whether the path is the skills folder or lies in it."
+  [p]
+  (let [p (str p)]
+    (or (= skills-folder p)
+        (str/starts-with? p (str skills-folder "/")))))
+
+(defn skills-dir
+  "The skills' folder on disk for the manager's pane: the machine's
+   `skills/` above the bot's folder, for the bot that keeps a wiki,
+   which `rragent.machine` seeds for the manager alone (`wiki-dir`);
+   nil for any other bot, whose pane shows its own work."
+  [dir]
+  (let [bot-dir (path/dirname (path/dirname dir))]
+    (when (directory? (wiki/dir bot-dir))
+      (skills/path-of (skills/machine-home bot-dir)))))
+
 (defn root-of
   "Where a path of the list lies on disk: `[folder relative]`, the
    artifacts' `dir` with the path as it is, the programs' folder with
-   the rest of a path in `programs/`, or the wiki's with the rest of a
-   path in `wiki/` (\"\" for the folder itself)."
+   the rest of a path in `programs/`, the wiki's with the rest of a
+   path in `wiki/`, or, in the manager's pane, the machine's skills
+   folder with the rest of a path in `skills/` (\"\" for the folder
+   itself)."
   [dir p]
-  (let [p (str p)]
+  (let [p (str p)
+        skills (when (skill? p) (skills-dir dir))]
     (cond
       (program? p) [(programs-dir dir) (subs p (min (count p) (inc (count programs-folder))))]
       (wiki? p) [(wiki-dir dir) (subs p (min (count p) (inc (count wiki-folder))))]
+      skills [skills (subs p (min (count p) (inc (count skills-folder))))]
       :else [dir p])))
 
 (defn file-of
@@ -282,8 +325,9 @@
    adds it at the end, after the lines of the attached files, so that
    a line of the same words the person wrote is not taken for it. The
    path under `artifacts/` in the first group, a program's path, as
-   the agent reaches it, in the second (`screen-line`)."
-  (re-pattern (str "\\n" screen-prefix "(?:artifacts/([^\\n]*)|(" programs-folder "/[^\\n]*)|(" wiki-folder "/[^\\n]*))$")))
+   the agent reaches it, in the second, a wiki page's in the third, a
+   skill's in the fourth (`screen-line`)."
+  (re-pattern (str "\\n" screen-prefix "(?:artifacts/([^\\n]*)|(" programs-folder "/[^\\n]*)|(" wiki-folder "/[^\\n]*)|(" skills-folder "/[^\\n]*))$")))
 
 (defn screen-line
   "The line the page adds to a message of the person's, what the pane
@@ -301,14 +345,14 @@
              (or (some #(= shown (screen {:artifacts/list [%] :artifacts/current (:path %)})) listed)
                  (and (str/ends-with? shown "/")
                       (= shown (screen {:artifacts/list listed :artifacts/folder (subs shown 0 (dec (count shown)))})))))
-    (str screen-prefix (if (or (program? shown) (wiki? shown)) shown (str "artifacts/" shown)))))
+    (str screen-prefix (if (or (program? shown) (wiki? shown) (skill? shown)) shown (str "artifacts/" shown)))))
 
 (defn screen-of
   "The path of the list the screen line of a message's text names,
    or nil."
   [text]
-  (let [[_ artifact program wiki] (re-find screen-pattern (str text))]
-    (or artifact program wiki)))
+  (let [[_ artifact program wiki skill] (re-find screen-pattern (str text))]
+    (or artifact program wiki skill)))
 
 (defn without-screen-line
   "The text of a message without its screen line."
@@ -348,13 +392,6 @@
          (not (hidden? rest))
          (not (wiki-raw? relative))
          (str/starts-with? (path/resolve root rest) (str root path/sep)))))
-
-(defn- directory?
-  [p]
-  (try
-    (.isDirectory (fs/statSync p))
-    (catch :default _
-      false)))
 
 (defn project?
   "A directory with a package.json is an artifact with a process of its
@@ -420,14 +457,25 @@
        (remove #(str/starts-with? (:path %) "raw/"))
        (map (fn [file] (update file :path #(str wiki-folder "/" %))))))
 
+(defn- skill-files
+  "The person's skills as files of the list, each under `skills/`
+   (`skills-folder`), in the manager's pane (`skills-dir`); none in
+   another bot's."
+  [dir]
+  (if-let [skills (skills-dir dir)]
+    (map (fn [file] (update file :path #(str skills-folder "/" %)))
+         (files skills))
+    []))
+
 (defn list-files
   "The artifacts of the directory, newest first: the files, and a project
    directory as one artifact more, whose time is its newest file's. A
    file below a project names it, `:project`; a page below one is a
    `:text`, its source, since the project's row is what plays it. The
-   bot's programs among them under `programs/` (`program-files`) and
-   its wiki's pages under `wiki/` (`wiki-files`), in place of folders
-   of those names in the directory itself."
+   bot's programs among them under `programs/` (`program-files`), its
+   wiki's pages under `wiki/` (`wiki-files`) and the person's skills
+   under `skills/` (`skill-files`), in place of folders of those names
+   in the directory itself."
   [dir]
   (if (directory? dir)
     (let [projects (->> (array-seq (fs/readdirSync dir #js {:withFileTypes true}))
@@ -436,6 +484,7 @@
                                        (not (str/starts-with? (.-name entry) "."))
                                        (not= programs-folder (.-name entry))
                                        (not= wiki-folder (.-name entry))
+                                       (not= skills-folder (.-name entry))
                                        (project? (path/join dir (.-name entry))))))
                         (map (fn [^js entry]
                                (let [name (.-name entry)]
@@ -445,9 +494,10 @@
                                   :mtime (newest-mtime (path/join dir name))
                                   :size 0}))))
           project-names (set (map :path projects))
-          plain (->> (concat (remove #(or (program? (:path %)) (wiki? (:path %))) (files dir))
+          plain (->> (concat (remove #(or (program? (:path %)) (wiki? (:path %)) (skill? (:path %))) (files dir))
                              (program-files dir)
-                             (wiki-files dir))
+                             (wiki-files dir)
+                             (skill-files dir))
                      (map (fn [{:keys [path] :as file}]
                             (let [project (project-names (first (str/split path #"/")))
                                   k (kind path)]
@@ -709,7 +759,8 @@
 (defn file-handler
   "GET /artifacts/<path>: the file, never a hidden one nor one of the
    wiki's raw sources; a path in `programs/` from the programs' folder,
-   in `wiki/` from the wiki's (`root-of`)."
+   in `wiki/` from the wiki's, in `skills/` from the machine's skills
+   in the manager's pane (`root-of`)."
   [dir w]
   (let [subpath (str (get-in w [:ring/route-params :*]))
         file (when-not (or (hidden? subpath) (wiki-raw? subpath))
@@ -732,15 +783,19 @@
 (defn watch!
   "The bot's map at `path` of the db follows the folder, and the
    programs' folder beside it (`programs-dir`), both made when
-   missing, and the bot's wiki when it has one (`wiki-dir`, never
-   made here): a recursive watch reports every change, the folders are
-   read again after a short pause, and every two seconds besides.
-   Answers a function that ends the watch."
+   missing, the bot's wiki when it has one (`wiki-dir`, never made
+   here) and, in the manager's pane, the person's skills on the
+   machine (`skills-dir`, made when missing): a recursive watch
+   reports every change, the folders are read again after a short
+   pause, and every two seconds besides. Answers a function that ends
+   the watch."
   ([db dir]
    (watch! db [] dir))
   ([db path dir]
   (fs/mkdirSync dir #js {:recursive true})
   (fs/mkdirSync (programs-dir dir) #js {:recursive true})
+  (when-let [skills (skills-dir dir)]
+    (fs/mkdirSync skills #js {:recursive true}))
   (refresh! db path dir)
   (let [pending (atom nil)
         refresh (fn []
@@ -760,7 +815,8 @@
                               (js/console.error "[artifacts] no watch on" folder (str e))
                               nil)))
                         (cond-> [dir (programs-dir dir)]
-                          (directory? (wiki-dir dir)) (conj (wiki-dir dir)))))
+                          (directory? (wiki-dir dir)) (conj (wiki-dir dir))
+                          (skills-dir dir) (conj (skills-dir dir)))))
         timer (js/setInterval refresh poll-ms)]
     (.unref timer)
     (fn []

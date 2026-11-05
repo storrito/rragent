@@ -142,6 +142,8 @@
       (is (= "card.html" (attribute (markdown/parse "[c](/artifacts/card.html)" opts) :a :data-artifact)))
       (is (= "/bot/b1/artifacts/programs/reviews/main.cljs" (attribute (markdown/parse "[m](programs/reviews/main.cljs)" opts) :a :href)) "a program, as the pane lists it")
       (is (= "programs/reviews/main.cljs" (attribute (markdown/parse "[m](programs/reviews/main.cljs)" opts) :a :data-artifact)))
+      (is (= "skills/review-stories/SKILL.md" (attribute (markdown/parse "[s](skills/review-stories/SKILL.md)" opts) :a :data-artifact)) "a skill, as the manager's pane lists it")
+      (is (= "/bot/b1/artifacts/wiki/projects/guest-reviews.md" (attribute (markdown/parse "[w](wiki/projects/guest-reviews.md)" opts) :a :href)) "a wiki page too")
       (is (= "../../x.md" (attribute (markdown/parse "[x](../../x.md)" opts) :a :href)) "one that leads above the artifacts stays as written")
       (is (= "docs/x.md" (attribute (markdown/parse "[x](docs/x.md)" {:base "/bot/b1"}) :a :href)) "in the chat, no folder, as before"))
     (testing "the path a relative link names"

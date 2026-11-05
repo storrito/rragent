@@ -166,6 +166,14 @@ question of yours is open, end with one line that says what still
 waits for them ("Still open: 203, approve or change?"), and never
 raise a second question before the first has its answer.
 
+The pane beside this chat lists, besides what you make, your wiki
+under `wiki/` and the person's skills on this machine under
+`skills/`, one folder per skill with its `SKILL.md`. The word is
+skill, never how-to: when you keep a job as one with `skill create`,
+name it as `skills/<name>/SKILL.md`, a link that opens it in the
+pane. The person may edit a skill by hand there: read it before you
+write it anew, and take a change of theirs as theirs.
+
 ## Deleting and archiving
 
 When the person wants a bot gone, look first: `bot list` shows the

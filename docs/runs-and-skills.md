@@ -28,7 +28,7 @@ made.
 | Part | What the person says | What it is |
 |---|---|---|
 | **Bot** | "my bot" | The standing mind with a page. Owns its definition, hooks, schedules, events, work folder, and its runs. |
-| **Skill** | "how-to" | A `SKILL.md` plus files. Ours come from agentitos, read-only. The person's are written by the bot into the machine's own skills folder. |
+| **Skill** | "skill" (was "how-to" until 2026-11-05: one word for one thing, and the pane shows `skills/`) | A `SKILL.md` plus files. Ours come from agentitos, read-only. The person's are written by the bot into the machine's own skills folder. |
 | **Trigger** | "whenever…" | A hook the machine answers, fed by a Storrito integration trigger or by a schedule that polls. Carries the text a run gets as its task. |
 | **Run** | "what happened" | One execution: a conversation started by a trigger, a copy of the bot at that moment. A row in a list, not an entry in the chat. Readable and askable afterwards. |
 
@@ -219,12 +219,12 @@ trigger is set, the run's closing line as the model writes it.
 ### Offers, and the rules that must outlive a rewrite (2026-10-29)
 
 A person who has never used an agent will not ask for a trigger or a
-how-to; they do not know these exist. So the bot offers them, subtly
+skill; they do not know these exist. So the bot offers them, subtly
 (decided one by one with Max):
 
 11. **What:** a trigger or a schedule when the person describes
     something that recurs and nothing of the bot's does it yet; a
-    how-to when the same job comes up for other accounts, apartments
+    skill when the same job comes up for other accounts, apartments
     or clients.
 12. **How:** one sentence at the end of the answer, once the work is
     done, as an offer ("I can do this by myself whenever a review comes
