@@ -44,5 +44,23 @@
            (storrito/docstring status)))
     (is (= [{:name "generate-uuid" :doc "Generates a UUID."}
             {:name "status-instagram-story" :doc "The status of a story post."}
-            {:name "flaky-once" :doc "Answers 503 the first time."}]
+            {:name "flaky-once" :doc "Answers 503 the first time."}
+            {:name "create-note" :doc "Makes a note; a command."}]
            (storrito/summary fake-gateway/catalog)))))
+
+(deftest command-test
+  (testing "the verb tells a query from a command while the catalog does not"
+    (is (false? (storrito/command? "list-social-accounts")))
+    (is (false? (storrito/command? "status-draft")))
+    (is (false? (storrito/command? "get-thing")))
+    (is (false? (storrito/command? "search-media")))
+    (is (false? (storrito/command? "find-file")))
+    (is (false? (storrito/command? "generate-uuid")))
+    (is (true? (storrito/command? "schedule-social-post")))
+    (is (true? (storrito/command? "create-draft")))
+    (is (true? (storrito/command? "cancel-social-post")))
+    (is (true? (storrito/command? "upload-temp-blob")))
+    (is (true? (storrito/command? "delete-draft"))))
+  (is (= {"generate-uuid" {:kind :query} "status-instagram-story" {:kind :query} "flaky-once" {:kind :command} "create-note" {:kind :command}}
+         (storrito/kinds fake-gateway/catalog)))
+  (is (= {} (storrito/kinds nil)) "no catalog, no procedures"))

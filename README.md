@@ -926,9 +926,11 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   is noted as a fact (`composio-trigger`), and its events arrive in the
   conversation of the bot that added it.
 - `(storrito/procedures)`: the catalog's procedures, each a function
-  `storrito/<name>` that takes a map and answers the API's data, a
-  failed call a throw with what the API said; a 429 or a 5xx is tried
-  again.
+  `storrito/<name>` that takes a map. A query (`list-…`, `status-…`,
+  `get-…`, `search-…`, `find-…`, `generate-…`) answers the API's data,
+  a failed call a throw with what the API said; a 429 or a 5xx is
+  tried again. A command answers the action `[:storrito/<name> args]`
+  instead of calling: it runs as part of the program's plan, below.
 - `(mcp.storrito/list_stories {:limit 5})`, `(mcp/servers)`,
   `(mcp/tools "storrito")`, `(mcp/call "files" "read.file" {...})`: the
   tools of the MCP servers named in `mcp.json` of the machine's folder
@@ -953,6 +955,29 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   `recall` tools write and read, shared with the bot's runs; a program
   sees the events as they were when it started, what it remembers is
   appended when it ends.
+
+A program reads; what changes something is an action it answers
+(`rragent.plan`, after [Nexus](https://github.com/cjohansen/nexus): an
+action is a vector led by a keyword, an instruction as data). A vector
+of actions as the program's value is a plan, and the `eval` tool runs
+it after the program, one action after the other, each as a nested
+tool call of its own under the action's key: the `storrito` tool for a
+command of the catalog (`rragent.tools.storrito`, which only tools
+call), the `remember` tool for an event, what the program remembered as
+it ran going first. A placeholder `[:plan/result 0 :uuid]` in the
+arguments of an action stands for that part of the result of the
+action at that index. The first failure ends the plan, the actions
+after it are not run, and the answer lists what each did, an error
+result when one failed; a plan an action of which is wrong, a query as
+an action, a placeholder that points forward, runs not at all. The
+tool is replay-safe: the program's answer is kept as the call's memo
+before anything of the plan runs, and a call the machine's restart
+interrupted runs again from the memo, not the program, and finds by
+their keys the actions that were done, so that nothing changes
+anything twice; the program, which only reads, is the one thing that
+may run again. Which procedures are commands the verb says, until the
+catalog does; Composio's and the MCP servers' tools are still called
+from the program, actions for them come later.
 
 A call blocks the thread it runs in until it is answered: SCI evaluates
 a program synchronously, so a call in the middle of a loop cannot

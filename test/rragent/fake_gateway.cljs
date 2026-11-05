@@ -59,7 +59,10 @@
                                :additionalProperties false}}
                 {:name "flaky-once"
                  :doc "Answers 503 the first time."
-                 :inputSchema {:type "object" :properties {}}}]})
+                 :inputSchema {:type "object" :properties {}}}
+                {:name "create-note"
+                 :doc "Makes a note; a command."
+                 :inputSchema {:type "object" :properties {:text {:type "string"}} :required ["text"]}}]})
 
 (def connections
   "The connections a test usually wants, as the gateway lists them:
@@ -166,6 +169,10 @@ const server = http.createServer(async (req, res) => {
     if (name === 'flaky-once') {
       if (flaky === 0) { flaky = 1; res.writeHead(503); return res.end('deploying'); }
       return json(res, 200, { ok: true });
+    }
+    if (name === 'create-note') {
+      if (!parsed || !parsed.text) return json(res, 400, { errorMessage: 'invalid params for procedure: create-note', validationErrorExplanation: { text: ['missing required key'] } });
+      return json(res, 200, { id: 'n_' + parsed.text, text: parsed.text });
     }
     return json(res, 404, { errorMessage: 'unknown procedure' });
   }

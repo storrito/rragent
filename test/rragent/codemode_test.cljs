@@ -58,7 +58,7 @@
               (is (str/includes? (failure #(codemode/connector handle "custom_api")) "3 connections have the provider \"custom_api\", name one by its id: custom_api conn_composio (backend.composio.dev)")))
             (testing "what the console gets"
               (is (str/includes? (codemode/report handle) "custom_api conn_composio (backend.composio.dev) = Composio"))
-              (is (str/includes? (codemode/report handle) "custom_api conn_storrito (127.0.0.1) = Storrito, 3 procedures"))
+              (is (str/includes? (codemode/report handle) "custom_api conn_storrito (127.0.0.1) = Storrito, 4 procedures"))
               (is (str/includes? (codemode/report handle) "available: github")))
             (testing "(connectors) reads the list again, as data"
               (is (= "=> (\"conn_echo\" \"conn_openrouter\" \"conn_composio\" \"conn_storrito\" \"conn_other\")"
@@ -214,8 +214,9 @@
   (async done
     (-> (with-fake nil
           (fn [_url handle]
-            (testing "the catalog's procedures are functions with docstrings"
-              (is (= "=> [\"generate-uuid\" \"status-instagram-story\" \"flaky-once\"]" (codemode/evaluate handle "(mapv :name (storrito/procedures))")))
+            (testing "the catalog's procedures are functions with docstrings, queries and commands"
+              (is (= "=> [\"generate-uuid\" \"status-instagram-story\" \"flaky-once\" \"create-note\"]" (codemode/evaluate handle "(mapv :name (storrito/procedures))")))
+              (is (= "=> [:query :query :command :command]" (codemode/evaluate handle "(mapv :kind (storrito/procedures))")))
               (let [doc (codemode/evaluate handle "(doc storrito/status-instagram-story)")]
                 (is (str/includes? doc "storrito/status-instagram-story\n([] [args])\n  The status of a story post.\n\nSecond paragraph.\n\nParameters, a map:\n  storyPostUuid (string), required: The UUID of the story post\n  verbose (boolean)\n  limit (integer)\n  destination\n"))))
             (testing "a call is the procedure's POST through the connection, the answer as data"
@@ -225,8 +226,25 @@
               (let [message (failure #(codemode/evaluate handle "(storrito/status-instagram-story {})"))]
                 (is (str/includes? message "Storrito answered HTTP 400 to status-instagram-story"))
                 (is (str/includes? message "missing required key"))))
-            (testing "a 503 is tried again"
-              (is (= "=> {:ok true}" (codemode/evaluate handle "(storrito/flaky-once)"))))))
+            (testing "a command is not called: it answers the action, for the plan"
+              (is (= "=> [:storrito/flaky-once {}]" (codemode/evaluate handle "(storrito/flaky-once)")))
+              (is (= "=> [:storrito/create-note {:text \"a\"}]" (codemode/evaluate handle "(storrito/create-note {:text \"a\"})")))
+              (is (str/includes? (failure #(codemode/evaluate handle "(storrito/create-note \"a\")")) "storrito/create-note takes a map of arguments"))
+              (is (str/starts-with? (codemode/evaluate handle "(doc storrito/create-note)")
+                                    "-------------------------\nstorrito/create-note\n([] [args])\n  A command: answers the action [:storrito/create-note args], it does not call the API.")))
+            (testing "the plan in a program's value"
+              (is (= {:text "=> a plan of 2 actions" :plan [[:storrito/create-note {:text "a"}] [:storrito/flaky-once {}]]}
+                     (codemode/evaluate-program handle "[(storrito/create-note {:text \"a\"}) (storrito/flaky-once)]")))
+              (is (= {:text "one\n=> a plan of 1 action" :plan [[:storrito/create-note {:text "b"}]]}
+                     (codemode/evaluate-program handle "(println \"one\") (storrito/create-note {:text \"b\"})")))
+              (is (= {:text "=> [[:a 1] [:b 2]]" :plan nil} (codemode/evaluate-program handle "(vec {:a 1 :b 2})")) "data is data")
+              (is (= {:text "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" :plan nil} (codemode/evaluate-program handle "(storrito/generate-uuid)")))
+              (is (str/includes? (failure #(codemode/evaluate-program handle "[(storrito/create-note {:text \"a\"}) [:foo 1]]"))
+                                 "action 2, foo 1, is none the host runs")))
+            (testing "what the host checks a plan with"
+              (is (= {:namespaces #{"storrito"} :names #{:remember}
+                      :procedures {"generate-uuid" {:kind :query} "status-instagram-story" {:kind :query} "flaky-once" {:kind :command} "create-note" {:kind :command}}}
+                     (codemode/known handle))))))
         (.finally done))))
 
 (deftest agent-uuid-test

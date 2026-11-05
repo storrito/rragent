@@ -143,6 +143,59 @@
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 
+(deftest plan-test
+  (async done
+    (-> ((^:async fn []
+           (let [{:keys [url stop]} (await (fake-gateway/start!))
+                 home (test-home/make)
+                 {:keys [faux models]} (faux-models)
+                 good (str "(let [notes (map #(storrito/create-note {:text %}) [\"a\" \"b\"])]"
+                           "  (println \"two notes\")"
+                           "  (into (vec notes) [[:remember \"noted\" {:id [:plan/result 0 :id] :second [:plan/result 1 :text]}] (storrito/flaky-once)]))")
+                 bad "[(storrito/create-note {}) (storrito/create-note {:text \"c\"})]"
+                 wrong "(storrito/create-note {:text [:plan/result 3 :id]})"
+                 query "[[:storrito/generate-uuid {}]]"]
+             (.setResponses faux #js [(tool-call "eval" {:code good} "p1")
+                                      (tool-call "eval" {:code bad} "p2")
+                                      (tool-call "eval" {:code wrong} "p3")
+                                      (tool-call "eval" {:code query} "p4")
+                                      (answer "Planned.")])
+             (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux" :gateway url}))]
+               (try
+                 (is (= "Planned." (await (harness/ask agent "Make the notes."))))
+                 (let [results (await (tool-results agent))]
+                   (testing "the plan ran after the program, in order, the placeholders filled, a 503 tried again"
+                     (is (= (str "two notes\n=> a plan of 4 actions\n"
+                                 "Plan of 4 actions: 4 done.\n"
+                                 "1. storrito/create-note {:text \"a\"}: done {:id \"n_a\", :text \"a\"}\n"
+                                 "2. storrito/create-note {:text \"b\"}: done {:id \"n_b\", :text \"b\"}\n"
+                                 "3. remember \"noted\" {:id [:plan/result 0 :id], :second [:plan/result 1 :text]}: done \"Noted noted\"\n"
+                                 "4. storrito/flaky-once {}: done {:ok true}")
+                            (result-text (get results "p1"))))
+                     (is (not (true? (.-isError (get results "p1"))))))
+                   (testing "the first failure ends the plan, an error result that says what happened"
+                     (let [text (result-text (get results "p2"))]
+                       (is (str/includes? text "Plan of 2 actions: 0 done, failed at action 1, the rest not run."))
+                       (is (str/includes? text "1. storrito/create-note {}: failed: Storrito answered HTTP 400 to create-note:"))
+                       (is (str/includes? text "2. storrito/create-note {:text \"c\"}: not run"))
+                       (is (true? (.-isError (get results "p2"))))))
+                   (testing "a plan that is not right runs not at all"
+                     (is (str/includes? (result-text (get results "p3"))
+                                        "Nothing of the plan ran, it is not right:\naction 1, storrito/create-note {:text [:plan/result 3 :id]}: the placeholder [:plan/result 3 :id] refers to action 4, which is not before this one"))
+                     (is (true? (.-isError (get results "p3"))))
+                     (is (str/includes? (result-text (get results "p4")) "storrito/generate-uuid is a query: call it in the program"))
+                     (is (true? (.-isError (get results "p4"))))))
+                 (testing "the event the plan remembered, with the results of earlier actions in it"
+                   (let [all (events/read (home/events-file (home/bot-dir home (.-id (:root agent)))))]
+                     (is (= [{:event "noted" :id "n_a" :second "b"}] (mapv #(dissoc % :at) all)))))
+                 (finally
+                   (await (harness/close agent))
+                   (test-home/remove! home)
+                   (stop)
+                   (sync-fetch/stop!)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
 (deftest redaction-test
   (async done
     (-> ((^:async fn []
