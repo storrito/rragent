@@ -49,6 +49,7 @@
       (is (false? (shares/shareable? artifacts "notes/x")))
       (is (false? (shares/shareable? artifacts "programs/reviews")) "the bot's programs, listed beside the artifacts")
       (is (false? (shares/shareable? artifacts "programs")))
+      (is (false? (shares/shareable? artifacts "skills/review-stories")) "the person's skills, listed in the manager's pane")
       (is (false? (shares/shareable? artifacts ".hidden")))
       (is (false? (shares/shareable? artifacts "loose.txt")) "a file is no folder")
       (is (false? (shares/shareable? artifacts "missing")))

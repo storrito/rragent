@@ -722,3 +722,64 @@
               (fs/rmSync other #js {:recursive true :force true})))))
       (finally
         (fs/rmSync root #js {:recursive true :force true})))))
+
+(deftest skills-test
+  (let [home (temp-dir "rragent-skills-")
+        bot (path/join home "bots" "7")
+        dir (path/join bot "work" "artifacts")
+        skills (path/join home "skills")
+        db (atom {})]
+    (try
+      (touch! dir "card.html" 1000)
+      (touch! dir "skills/stray.md" 1500)
+      (touch! (path/join bot "wiki") "index.md" 2000)
+      (touch! skills "review-stories/SKILL.md" 3000)
+      (touch! skills "review-stories/artifacts/stories/template.md" 4000)
+      (touch! skills ".DS_Store" 9000)
+      (testing "the manager's pane lists the person's skills under skills/, not a folder of that name among the artifacts"
+        (artifacts/refresh! db dir)
+        (is (= ["skills/review-stories/artifacts/stories/template.md" "skills/review-stories/SKILL.md" "wiki/index.md" "card.html"]
+               (map :path (:artifacts/list @db))))
+        (is (= {:kind :markdown :ext "md" :title "SKILL"} (select-keys (second (:artifacts/list @db)) [:kind :ext :title]))))
+      (testing "the root shows the folders Skills and Wiki, a skill's folder below"
+        (is (= ["skills" "wiki"] (map :path (:folders (artifacts/level (:artifacts/list @db) "")))))
+        (is (= [{:path "skills/review-stories" :name "review-stories" :title "Review stories" :kind :folder :count 2 :mtime 4000}]
+               (map #(dissoc % :size) (:folders (artifacts/level (:artifacts/list @db) "skills"))))))
+      (testing "where a path of the list lies on disk"
+        (is (artifacts/skill? "skills"))
+        (is (artifacts/skill? "skills/review-stories/SKILL.md"))
+        (is (not (artifacts/skill? "skillset/x")))
+        (is (= skills (artifacts/skills-dir dir)))
+        (is (= [skills "review-stories/SKILL.md"] (artifacts/root-of dir "skills/review-stories/SKILL.md")))
+        (is (= [skills ""] (artifacts/root-of dir "skills")))
+        (is (artifacts/inside? dir "skills/review-stories/SKILL.md"))
+        (is (not (artifacts/inside? dir "skills")) "the folder itself is the machine's")
+        (is (not (artifacts/inside? dir "skills/../bots/7/work/artifacts/card.html"))))
+      (testing "the pane reads and saves a skill like an artifact's text"
+        (is (= {:text "content of review-stories/SKILL.md" :truncated? false}
+               (artifacts/text-of dir {:path "skills/review-stories/SKILL.md" :kind :markdown :mtime 3000})))
+        (is (= :written (artifacts/write! dir "skills/review-stories/SKILL.md" "---\nname: review-stories\n---\n\nedited by hand\n")))
+        (is (= "---\nname: review-stories\n---\n\nedited by hand\n" (fs/readFileSync (path/join skills "review-stories" "SKILL.md") "utf8"))))
+      (testing "the screen line names a skill as the pane lists it"
+        (let [bot {:artifacts/list (:artifacts/list @db) :artifacts/current "skills/review-stories/SKILL.md"}]
+          (is (= "on screen beside the chat: skills/review-stories/SKILL.md" (artifacts/screen-line bot "skills/review-stories/SKILL.md")))
+          (is (= "skills/review-stories/SKILL.md" (artifacts/screen-of "Fix it\non screen beside the chat: skills/review-stories/SKILL.md")))))
+      (testing "the watch makes the skills folder for the manager"
+        (fs/rmSync skills #js {:recursive true :force true})
+        (let [stop (artifacts/watch! db dir)]
+          (stop))
+        (is (fs/existsSync skills)))
+      (testing "a worker's pane, no wiki: no skills on the list, a skills/ folder of its own stays off it too, no folder made"
+        (let [dir2 (path/join home "bots" "8" "work" "artifacts")
+              db2 (atom {})]
+          (fs/rmSync skills #js {:recursive true :force true})
+          (touch! dir2 "a.txt" 1000)
+          (touch! dir2 "skills/own.md" 1100)
+          (let [stop (artifacts/watch! db2 dir2)]
+            (stop))
+          (is (nil? (artifacts/skills-dir dir2)))
+          (is (= ["a.txt"] (map :path (:artifacts/list @db2))))
+          (is (= [dir2 "skills/own.md"] (artifacts/root-of dir2 "skills/own.md")))
+          (is (not (fs/existsSync skills)))))
+      (finally
+        (fs/rmSync home #js {:recursive true :force true})))))

@@ -987,6 +987,32 @@ body {
   font-size: 13px;
 }
 
+/* The frontmatter of a markdown file, a skill's SKILL.md: its fields
+   as a small list above the body (rragent.view/frontmatter-view). */
+.artifacts .document .frontmatter {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.artifacts .document .frontmatter div {
+  display: contents;
+}
+
+.artifacts .document .frontmatter dt {
+  color: var(--muted);
+}
+
+.artifacts .document .frontmatter dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 /* A text file in the editor (rragent.client.editor): CodeMirror fills
    the document, its own scroller inside; the strip under it shows
    while there is something to say. The colors of the editor are the

@@ -5,23 +5,30 @@
    `summary`, `ask` and `placeholder`; the body the job's
    instructions), beside the clone of ours (`rragent.bots/skills-dir`),
    which stays read-only. The `skill` tool writes here when the person
-   wants to keep what a bot does as a how-to for their other bots
+   wants to keep what a bot does as a skill for their other bots
    (`rragent.tools.skill`); a new bot offers both folders and takes a
    skill of either (`check!`): its file names the skill, and the
    skill's body is read after the shared prompt at every turn
    (`skill`, `rragent.reload`). A skill of ours a person
    wants changed is copied under a name of their own, so the two
-   never share a name."
+   never share a name. The person browses them in the manager's pane
+   as its root folder `skills/` (`rragent.artifacts/skills-folder`)
+   and may edit one by hand there."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
             [rragent.bots :as bots]
             [rragent.definition :as definition]))
 
+(defn path-of
+  "Where the person's skills lie, `<home>/skills/`, there or not."
+  [home]
+  (path/join home "skills"))
+
 (defn dir
   "The folder of the person's skills, made on first use."
   [home]
-  (let [dir (path/join home "skills")]
+  (let [dir (path-of home)]
     (fs/mkdirSync dir #js {:recursive true})
     dir))
 

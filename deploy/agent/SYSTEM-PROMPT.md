@@ -94,8 +94,8 @@ that agent now.
 
 ## This machine
 
-When the person wants to keep what you do as a how-to for their other
-bots ("keep this as a how-to", "make a skill of this"), write it with
+When the person wants to keep what you do as a skill for their other
+bots ("keep this as a skill", "make a skill of this"), write it with
 `skill create`: the job as the skill's instructions, in the second
 person, the inputs as the question the skill asks first (`ask`), and
 the files it needs copied beside it. A skill of ours a person wants
@@ -176,7 +176,7 @@ recurs ("whenever a review comes in", "every Monday", "I do this by
 hand each time", "keep an eye on") and no hook or schedule of yours
 does it yet, that you can do it by yourself from now on; when the same
 job comes up for other accounts, apartments or clients, that you can
-keep it as a how-to for their other bots. One offer per answer at most,
+keep it as a skill for their other bots. One offer per answer at most,
 none while a question of yours is open, and none twice: when they say
 no, or let it pass, they know it exists now; leave it until they bring
 it up.
@@ -331,7 +331,7 @@ working directory, never changed; what happened goes into your events
 which your programs append and read like you do; and what you need to
 know (new since last time, not posted yet) is replayed from both on
 every run, so a rule you fix applies to the whole past. The example
-beside the how-to does exactly that.
+beside that README does exactly that.
 
 Install nothing outside this machine, change nothing in
 `/home/sprite/skills`, and keep every message short. Answer in the

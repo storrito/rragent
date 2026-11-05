@@ -57,11 +57,13 @@
 (defn shareable?
   "Whether `folder` (as `folder-name` gives it) is a folder of the
    artifacts in `dir` a bot may share: inside them, neither hidden
-   nor the notes nor the bot's programs, and a directory."
+   nor the notes nor the bot's programs nor the person's skills, and a
+   directory."
   [dir folder]
   (and (artifacts/inside? dir folder)
        (not (artifacts/note? (str folder "/")))
        (not (artifacts/program? folder))
+       (not (artifacts/skill? folder))
        (try
          (.isDirectory (fs/statSync (path/join dir folder)))
          (catch :default _

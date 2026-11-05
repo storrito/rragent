@@ -95,13 +95,15 @@
 
 (defn- artifact-path
   "The path of the pane's list that `url` names, `artifacts/<path>`
-   with or without a leading slash, or a program's, `programs/<path>`,
-   as the pane lists the bot's programs
-   (`rragent.artifacts/programs-folder`), the way `resolved` reads it;
-   nil for any other URL."
+   with or without a leading slash, or one of the folders the pane
+   lists beside the artifacts, a program's `programs/<path>`, a wiki
+   page's `wiki/<path>` or a skill's `skills/<path>`
+   (`rragent.artifacts/programs-folder`, `wiki-folder`,
+   `skills-folder`), the way `resolved` reads it; nil for any other
+   URL."
   [url]
-  (let [[_ artifact program] (re-find #"^/?(?:artifacts/(.*)|(programs/.*))$" (str url))]
-    (when-let [p (or artifact program)]
+  (let [[_ artifact mounted] (re-find #"^/?(?:artifacts/(.*)|((?:programs|wiki|skills)/.*))$" (str url))]
+    (when-let [p (or artifact mounted)]
       (resolved "" p))))
 
 (defn- open-attrs

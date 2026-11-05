@@ -109,6 +109,23 @@ the open (`rragent.wiki`); the rest is MANAGER.md. The structure
 document and the status documents stay what the sidebar renders
 from; `remember` stays for the facts a program checks.
 
+## Skills in the pane (Max, 2026-11-05)
+
+The manager spoke of a "how-to" when it kept a job as a skill, after
+the shared prompt's wording; Max wants one word for one thing, so
+every prompt, tool and page says skill. And the person should see
+what skills their sprite has: the manager's pane lists the machine's
+`skills/` folder beside `wiki/` and `programs/`
+(`rragent.artifacts/skills-dir`, keyed on the wiki the open seeds for
+the manager alone), one folder per skill with its `SKILL.md`,
+readable and editable by hand, a link `skills/<name>/SKILL.md` in the
+chat opening it. Only the person's skills; ours, the clone's, stay
+out. Other bots' panes do not change. A `SKILL.md` has a frontmatter,
+which markdown-it would turn into a heading, so the pane shows it as
+a list of fields above the body (`rragent.view/frontmatter-view`).
+
+![The manager's pane with a skill open](images/skills-pane.png)
+
 ## Who is talking (Max, 2026-11-04)
 
 Several people may talk to one bot, the customer and the Storrito side
