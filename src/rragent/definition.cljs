@@ -7,9 +7,11 @@
    model id), `thinking` (a level, `default-thinking` without),
    `templates` (the templates the
    agent may make projects from, `[hyperframes]`; every
-   installed one without); and `renamed: true` when the person named
-   the bot from the page (`rragent.bots/rename!`), which the bot is
-   told to respect. The same reading of the frontmatter as Storrito's
+   installed one without); `skill`, the skill the bot took, whose
+   body `rragent.reload` reads after the shared prompt; and `renamed:
+   true` when the person named the bot from the page
+   (`rragent.bots/rename!`), which the bot is told to respect. The
+   same reading of the frontmatter as Storrito's
    `app.agent.skills` and pchat's `pchat.skills`."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
@@ -89,11 +91,11 @@
 (defn from-text
   "The definition in `text`, the content of `file`, whose folder is the
    agent's: `{:name :description :metadata :model :thinking :templates
-   :instructions :folder}`. Throws when the text has no frontmatter or
-   no name."
+   :skill :instructions :folder}`. Throws when the text has no
+   frontmatter or no name."
   [text file]
   (let [folder (path/dirname (path/resolve file))
-        {:keys [name description metadata body renamed] :as read} (frontmatter text)]
+        {:keys [name description metadata body renamed skill] :as read} (frontmatter text)]
     (when-not (and read name)
       (throw (ex-info (str "The definition " file " needs a frontmatter with a name.") {:file file})))
     {:name name
@@ -103,6 +105,7 @@
      :model (or (not-empty (get metadata "model")) default-model)
      :thinking (or (not-empty (get metadata "thinking")) default-thinking)
      :templates (templates metadata)
+     :skill (not-empty (str skill))
      :instructions (-> body
                        (str/replace "<skill>" folder)
                        (str/replace "<agent>" folder))
@@ -114,9 +117,9 @@
   (from-text (fs/readFileSync file "utf8") file))
 
 (def generic-name
-  "The name of the definition every new machine starts with
-   (`deploy/agent/AGENT.md`): an agent that has not taken a skill or a
-   job yet."
+  "The name of the file every new bot starts with
+   (`rragent.bots/definition-text`): a bot that has not taken a skill
+   or a job yet."
   "Assistant")
 
 (defn generic?
@@ -126,19 +129,20 @@
   (= generic-name name))
 
 (def generic-description
-  "The description of the generic definition (`deploy/agent/AGENT.md`),
-   which a bot replaces with its job's."
+  "The description of a new bot's file (`rragent.bots/definition-text`),
+   which the bot replaces with its job's."
   "A new agent on a machine of its own, which takes one of the skills on the machine, or the job the person describes, and becomes that agent.")
 
 (defn job-written?
-  "Whether the definition holds a job of its own: neither the generic
-   name nor the generic description is left. A run of the bot knows
-   only the definition, so a hook or a schedule on a definition
-   without a job gets a warning (`rragent.tools.hook`,
+  "Whether the definition holds a job of its own: it names a skill, or
+   neither the generic name nor the generic description is left. A run
+   of the bot knows only the definition, so a hook or a schedule on a
+   definition without a job gets a warning (`rragent.tools.hook`,
    `rragent.tools.schedule`)."
-  [{:keys [description] :as definition}]
-  (not (or (generic? definition)
-           (= generic-description (str description)))))
+  [{:keys [description skill] :as definition}]
+  (or (some? skill)
+      (not (or (generic? definition)
+               (= generic-description (str description))))))
 
 (defn display-name
   "The name the page shows for the definition: its own, unless it is

@@ -2,8 +2,8 @@
 # image, which brings Node through mise, without what the templates need
 # (deploy/Dockerfile.full has that: the renders answer why there is no
 # video here, everything else works). The agent's folder is
-# /home/sprite/rragent/agent with the generic AGENT.md every new machine
-# starts with (deploy/agent): an assistant that offers the skills of
+# /home/sprite/rragent/agent, empty in the image: the first start makes
+# the first bot in it, a new bot that offers the skills of
 # /home/sprite/skills, a clone of the GitHub repository SKILLS_REPO at
 # SKILLS_BRANCH made here (the Agent Skills format, one folder per skill
 # with a SKILL.md), and becomes the one the person picks; start.sh pulls
@@ -32,6 +32,3 @@ RUN npm install -g --prefix ~/.local --ignore-scripts --no-fund --no-audit --pro
 RUN git clone --depth 1 --branch "${SKILLS_BRANCH}" "https://github.com/${SKILLS_REPO}.git" /home/sprite/skills
 COPY --chown=sprite:sprite dist/ /home/sprite/rragent/dist/
 COPY --chown=sprite:sprite --chmod=700 deploy/start.sh /home/sprite/rragent/start.sh
-COPY --chown=sprite:sprite deploy/agent/ /home/sprite/rragent/agent/
-# the definition names the repository the skills come from
-RUN sed -i "s#github.com/SKILLS_REPO#github.com/${SKILLS_REPO}#" /home/sprite/rragent/agent/AGENT.md

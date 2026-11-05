@@ -238,7 +238,15 @@ how-to; they do not know these exist. So the bot offers them, subtly
     and tells the bot to carry that section over, word for word,
     whenever it writes its file anew for a skill or a job. (Found on
     the way: the test bot's own rewrite had kept none of the rules
-    about runs, reports, the job section or skills.)
+    about runs, reports, the job section or skills.) Revised on
+    2026-11-05: a copied section never changed again, so no release
+    reached a bot made before it, and a bot that edited its file for
+    every decision cost the whole conversation its prompt cache each
+    time. The rules now come from the release's shared prompt
+    (`deploy/agent/SYSTEM-PROMPT.md`), put in front of the bot's file
+    at every read (`rragent.reload`); the file holds the name, the
+    model and the job, and the bot edits it only when the job
+    changes.
 
 ## How it is built
 

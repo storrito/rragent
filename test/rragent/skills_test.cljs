@@ -112,8 +112,12 @@
                    (testing "another bot takes it"
                      (is (str/includes? (get results "c1") "is ready on its page"))
                      (let [second (second (machine/listed))
-                           text (fs/readFileSync (path/join (home/bot-dir home (:id second)) "AGENT.md") "utf8")]
-                       (is (str/includes? text (bots/skill-line "review-stories"))))))
+                           text (fs/readFileSync (path/join (home/bot-dir home (:id second)) "AGENT.md") "utf8")
+                           instructions (get-in (machine/bot (:id second)) [:definition :instructions])]
+                       (is (str/includes? text "skill: \"review-stories\"\n") "named in its file")
+                       (is (str/includes? text "description: \"A story from a 5-star review.\"\n"))
+                       (is (str/includes? text "## Your job\n\nThe same for the second apartment."))
+                       (is (str/includes? instructions (str "You turn a guest's words into a story with `" folder "/artifacts/stories/template.md`.")) "the skill's body after the job at the read, its folder filled in"))))
                  (finally
                    (await (machine/close-all!))
                    (test-home/remove! home)))))))

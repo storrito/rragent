@@ -11,7 +11,6 @@
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
-            [rragent.bots-test :as bots-test]
             [rragent.harness :as harness]
             [rragent.machine :as machine]
             [rragent.status :as status]
@@ -56,7 +55,6 @@
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)
                  model-before status/*model*]
-             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
              (set! status/*model* "faux-1")
              (try
                (let [[watcher] (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
@@ -68,7 +66,7 @@
                    (is (= status/initial (await (status/snapshot harness manager))))
                    (is (= status/initial (:status (machine/bot manager))))
                    (is (= status/initial (:status (first (machine/listed))))))
-                 (.setResponses faux #js [(tools-test/tool-call "bot" {:action "create" :name "Template 202" :instructions "Build the 202 template." :project "Guest reviews"} "c1")
+                 (.setResponses faux #js [(tools-test/tool-call "bot" {:action "create" :name "Template 202" :instructions "Build the 202 template." :project "Guest reviews" :model "faux-1"} "c1")
                                           (tools-test/answer "Made.")])
                  (is (= "Made." (await (harness/ask-in conversation "Make the 202 worker."))))
                  (let [worker (first (machine/children-of manager))

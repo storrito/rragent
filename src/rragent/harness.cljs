@@ -393,7 +393,7 @@
         _ (model-requests/install!)
         migrated (bots/migrate! home)
         _ (when-not (home/definition-file (home/bot-dir home bots/root-id))
-            (bots/write-definition! home bots/root-id (bots/assistant-text home)))
+            (bots/write-definition! home bots/root-id (bots/definition-text {})))
         storage (or storage (await (openNodeSqliteStorage (home/database home))))
         base (gateway/base gateway)
         codemode (assoc (codemode/handle base (await (gateway/discover-at-start base retry)))

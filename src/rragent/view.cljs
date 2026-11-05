@@ -1700,7 +1700,7 @@
 
 (defn- new-bot
   "The way to make a bot: one click, nothing asked. The bot starts
-   from the assistant's definition as it is and names itself after its
+   with a new bot's file as it is and names itself after its
    first answer; it opens in this tab (`:ui/tabid`, filled in by the
    runtime)."
   []

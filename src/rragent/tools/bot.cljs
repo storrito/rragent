@@ -1,11 +1,11 @@
 (ns rragent.tools.bot
   "The `bot` tool: a bot makes another bot on the machine, lists them,
    or sends one a message. `create` with a name, the instructions (the
-   new bot's job in a few sentences, put on top of the generic
-   assistant definition every bot starts from, so that it adopts a
-   skill or asks) and, when the job is one of the skills on the
-   machine, the skill's name, which the new bot takes at its first
-   message, one of ours or one of the person's on the machine
+   new bot's job in a few sentences, its file's `## Your job`; the
+   rules every bot works by come with the shared prompt) and, when
+   the job is one of the skills on the machine, the skill's name,
+   which its file names and whose instructions it gets with every
+   turn, one of ours or one of the person's on the machine
    (`rragent.skills`). The new bot's conversation is made in the
    call's own commit (`createConversation` of the transaction,
    ownerless, so it is a bot and not the call's subagent; the skill
@@ -23,7 +23,7 @@
    with `project`, a project it belongs to, both written in the
    commit that makes its conversation (`rragent.machine/relate-in!`),
    and starts on the `model` and `thinking` level given, else the
-   generic definition's. The manager's actions (`rragent.machine`,
+   defaults. The manager's actions (`rragent.machine`,
    `manager?`): `archive` marks a bot's chat as over, its files and
    page stay; `delete` removes one, refused while bots, schedules or
    hooks depend on it, so that the manager deals with those first;
@@ -49,8 +49,8 @@
 
 (def description
   (str "The bots of this machine, each a mind of its own with its own conversation, definition, schedules, hooks, facts and work folder. "
-       "`create` with `name` and `instructions` (the new bot's job in a few sentences) makes one: it starts from the generic assistant definition "
-       "with your instructions on top, so it adopts one of the skills on the machine or asks the person; `skill` names a skill it takes at once; "
+       "`create` with `name` and `instructions` (the new bot's job in a few sentences) makes one: the instructions are its job, "
+       "and it works by the same rules as you; `skill` names a skill it takes at once, whose instructions it gets with every turn; "
        "`project` names the project it belongs to, `model` and `thinking` what it runs on (the defaults without). You are its parent. "
        "The person reaches it on its own page. `list` shows the bots with their state, parent and project. "
        "`message` with a bot's `id` and a `text` sends it a message: it arrives in that bot's chat like a message of the person's, "

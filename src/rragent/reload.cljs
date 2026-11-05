@@ -2,15 +2,27 @@
   "The definition read again before every run. A bot's conversation
    is configured from its `AGENT.md` when the bot opens
    (`rragent.harness`); but the file changes while the bot runs: the
-   person edits it, or the bot writes it anew when it takes a skill
-   (`deploy/agent/AGENT.md`), and the next turn should run with the
-   new instructions and the new model, the page show the new name,
-   without a restart. So every submission, the composer's text, a
-   schedule's run and a hook's call, first reads the file again, a
-   cheap read, and configures the conversation when the text changed
-   since the last read; an unchanged file transacts nothing. A file
-   that does not read (no frontmatter, no name, gone) leaves the bot
-   as it was, with a line on stderr.
+   person edits it, or the bot edits it when it takes a skill or a
+   job, and the next turn should run with the new instructions and
+   the new model, the page show the new name, without a restart. So
+   every submission, the composer's text, a schedule's run and a
+   hook's call, first reads the file again, a cheap read, and
+   configures the conversation when the text changed since the last
+   read; an unchanged file transacts nothing. A file that does not
+   read (no frontmatter, no name, gone) leaves the bot as it was, with
+   a line on stderr.
+
+   What the conversation is configured with is more than the file
+   (`assemble`): the shared prompt of the bundle in front, the rules
+   every bot of the machine works by (`rragent.bots/system-prompt`),
+   which a release replaces and this read brings to every bot at its
+   next turn; then the file's body, the bot's job; then what the bot
+   is, the body of the skill its frontmatter names with the skill's
+   folder filled in for `<skill>` (`rragent.skills/skill`), or the
+   manager's instructions from the bundle (`rragent.bots/manager-body`);
+   then the person's preferences for the manager. Nothing of that is
+   copied into the file, so a change of any of it costs nothing on
+   disk and is live at the next turn.
 
    What the bot is reloaded from lives in its map of the one atom
    (`rragent.db`): `:reload`, `{:home :provider :text}`, its folder,
@@ -24,20 +36,54 @@
    the environment of every call with the conversation's id."
   (:require ["@earendil-works/pi-durable" :refer [configure]]
             ["node:fs" :as fs]
+            [clojure.string :as str]
+            [rragent.bots :as bots]
             [rragent.db :as db]
             [rragent.definition :as definition]
-            [rragent.home :as home]))
+            [rragent.home :as home]
+            [rragent.skills :as skills]))
 
 (defn register!
   "The bot of the conversation `id`: its folder and the models'
    provider; nothing applied yet. With `:preferences`, a file whose
    text is appended to the definition at every read, under a heading
    of its own: the manager's `preferences.md` (`rragent.wiki`), what
-   the person asked of it, which outlives the definition rragent
-   writes anew at every start."
-  [id {:keys [home provider preferences]}]
+   the person asked of it, which outlives every release. With
+   `:manager?`, the bot is the manager: its instructions are the
+   bundle's `MANAGER.md`, read after the shared prompt."
+  [id {:keys [home provider preferences manager?]}]
   (swap! db/db assoc-in (conj (db/bot-path id) :reload) (cond-> {:home home :provider provider}
-                                                           preferences (assoc :preferences preferences))))
+                                                           preferences (assoc :preferences preferences)
+                                                           manager? (assoc :manager? true))))
+
+(def ^:private frontmatter-pattern
+  #"(?s)^(---\r?\n.*?\r?\n---\r?\n)(.*)$")
+
+(defn assemble
+  "The text a bot is configured from: the frontmatter of `text`, its
+   file, then `shared`, the prompt every bot works by, then the file's
+   body, the bot's job, then `role`, what the bot is (a skill's body,
+   the manager's instructions); the parts separated by a blank line,
+   the blank ones left out. A text without a frontmatter stays as it
+   is, for `rragent.definition` to refuse."
+  [text {:keys [shared role]}]
+  (if-let [[_ head body] (re-find frontmatter-pattern (str text))]
+    (str head "\n" (str/join "\n\n" (remove str/blank? (map #(str/trim (str %)) [shared body role]))) "\n")
+    text))
+
+(defn- role-text
+  "What follows the job: the manager's instructions from the bundle
+   for the manager, else the body of the skill the file names, with
+   `<skill>` in it replaced by the skill's folder; nil without either.
+   A skill the machine does not have is said on stderr, and the bot
+   works without it."
+  [bot-dir text manager?]
+  (if manager?
+    (bots/manager-body)
+    (when-let [name (not-empty (str (:skill (or (definition/frontmatter text) {}))))]
+      (if-let [{:keys [body folder]} (skills/skill (skills/machine-home bot-dir) name)]
+        (str/replace (str body) "<skill>" folder)
+        (js/console.error "[definition]" (str "The skill " name " of " bot-dir " is not on the machine; the bot works without it."))))))
 
 (def preferences-heading
   "## Your preferences")
@@ -69,20 +115,24 @@
        :cwd work})
 
 (defn- read-text
-  "The text of the bot's definition file, with the preferences file
-   appended when the bot has one (`with-preferences`); nil when there
-   is no definition."
-  [home preferences]
+  "The text the bot is configured from (`assemble`): its definition
+   file with the shared prompt and what the bot is, and the
+   preferences file appended when the bot has one
+   (`with-preferences`); nil when there is no definition."
+  [home preferences manager?]
   (when-let [file (home/definition-file home)]
-    [file (with-preferences (fs/readFileSync file "utf8") preferences)]))
+    (let [text (fs/readFileSync file "utf8")]
+      [file (with-preferences (assemble text {:shared (bots/system-prompt)
+                                              :role (role-text home text manager?)})
+                              preferences)])))
 
 (defn changed
   "`{:text :definition}` when the file of the bot `id` reads and its
    text is not the one last applied; nil when it is, when the file
    does not read (said on stderr), or when no bot `id` is registered."
   [id]
-  (when-let [{:keys [home text preferences]} (get-in @db/db (conj (db/bot-path id) :reload))]
-    (let [[file now] (read-text home preferences)]
+  (when-let [{:keys [home text preferences manager?]} (get-in @db/db (conj (db/bot-path id) :reload))]
+    (let [[file now] (read-text home preferences manager?)]
       (cond
         (nil? file) (do (js/console.error "[definition]" (str "No AGENT.md or SKILL.md in " home ", the bot stays as it was.")) nil)
         (= text now) nil
