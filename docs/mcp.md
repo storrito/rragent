@@ -200,13 +200,14 @@ failed is tried again after thirty seconds, one whose connection closed
 call; a call whose session had expired is made again on the new one,
 the server having taken nothing of it.
 
-SCI evaluates a program synchronously in the bot's worker thread, so a
-call cannot await: the worker posts it on a port of its own and blocks
-on a shared flag (`Atomics.wait`), the main thread calls the tool with
-pi-mcp, posts the answer and raises the flag. The connections outlive
-the worker. Stop and the program's timeout end the worker as before;
-the calls it waited for are aborted, and pi-mcp tells the server
-(`notifications/cancelled`).
+SCI evaluates a program synchronously in the bot's worker thread, and
+the worker reaches nothing outside itself: a call of a tool is a need
+the form throws, the eval tool makes the call with pi-mcp in the main
+thread as a nested tool call (`mcp`, `rragent.tools.host`) and runs
+the form again with the answer (`rragent.need`). The connections
+outlive the worker. Stop and the program's timeout end the worker as
+before; a call in flight is aborted with the eval tool's call, and
+pi-mcp tells the server (`notifications/cancelled`).
 
 ## Tests
 

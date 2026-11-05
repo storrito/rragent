@@ -956,51 +956,35 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   sees the events as they were when it started, what it remembers is
   appended when it ends.
 
-A program reads; what changes something is an action it answers
-(`rragent.plan`, after [Nexus](https://github.com/cjohansen/nexus): an
-action is a vector led by a keyword, an instruction as data). A vector
-of actions as the program's value is a plan, and the `eval` tool runs
-it after the program, one action after the other, each as a nested
-tool call of its own under the action's key: the `storrito` tool for a
-command of the catalog (`rragent.tools.storrito`, which only tools
-call), the `remember` tool for an event, what the program remembered as
-it ran going first. A placeholder `[:plan/result 0 :uuid]` in the
-arguments of an action stands for that part of the result of the
-action at that index. The first failure ends the plan, the actions
-after it are not run, and the answer lists what each did, an error
-result when one failed; a plan an action of which is wrong, a query as
-an action, a placeholder that points forward, runs not at all. The
-tool is replay-safe: the program's answer is kept as the call's memo
-before anything of the plan runs, and a call the machine's restart
-interrupted runs again from the memo, not the program, and finds by
-their keys the actions that were done, so that nothing changes
-anything twice; the program, which only reads, is the one thing that
-may run again. Which procedures are commands the verb says, until the
-catalog does; Composio's and the MCP servers' tools are still called
-from the program, actions for them come later.
-
-A call blocks the thread it runs in until it is answered: SCI evaluates
-a program synchronously, so a call in the middle of a loop cannot
-await, and the request runs in a helper thread instead while the
-program's thread waits on a shared flag (`rragent.sync-fetch`:
-`Atomics.wait` and `receiveMessageOnPort`); a call has two minutes.
-That is why the programs run in a worker thread of their own
-(`rragent.codemode-worker`, `node:worker_threads`), one per bot,
-started at the first program from what the main thread discovered of
-the gateway: the main thread stays free meanwhile, the page renders,
-the hooks and the schedules fire, Stop reaches the agent. The worker
-runs the bundle itself, told apart by its `workerData`, so there is one
-file to deploy; it holds the SCI context, and the `eval` tool posts each
-program over the port with the facts the program sees and the
-environment the bindings read, and gets what it printed and its value,
-or its error, and what it remembered, which the tool commits. Stop
-while a program runs terminates the worker, and so does a program
-longer than `RRAGENT_PROGRAM_TIMEOUT_MIN` minutes (ten): the stopped
-call fails with the reason, the next program starts a new worker with a
-fresh context, and its answer says first that the defs are gone. The
-tests' fake gateway lives in a worker thread of its own as well, since
-the tests of the bindings evaluate in their own thread
-(`rragent.fake-gateway`).
+A program reaches nothing outside the worker it runs in: a call is a
+need (`rragent.need`), and the host answers it. The program is a
+sequence of forms, run one at a time; a form runs in a fork of the
+context until its first unanswered call, which it notes and throws,
+whatever the program does with the throw: the attempt is thrown away,
+the `eval` tool makes the call as a nested tool call of its own under
+the key of the form and the call (`c<form>-<call>`, the tools of
+`rragent.tools.host`, which only tools call: `gateway` and
+`gateway-read`, `mcp`, `mcp-admin`, `connectors`, and the bot's own
+`remember`), and sends the form again with the answer among the
+answers, so the program walks its earlier calls from the answers and
+reaches the next, or its end. A form that is done is kept as the
+call's memo: what it printed, its value, and the vars it defined as
+EDN when they can be read back, else that it is to be run again. The
+tool is replay-safe: a call the machine's restart interrupted runs
+again, takes the forms that were done from its memos and gives their
+vars to the new worker, and runs the rest, where the calls that were
+made come back by their keys, a Storrito query or a GET made again if
+the restart caught it in flight, a command not. So nothing changes
+anything twice, without any journal of the program's own: the shell
+keeps the answers, the core is pure (functional core, imperative
+shell). A form must ask the same calls in the same order each time it
+runs, which is what a program that computes from its answers does; a
+recorded failure is thrown where the call is, an error the program may
+catch, and a form that asks something else the second time is told
+so. The worker holds nothing but the SCI context: no network, no
+shared memory, no environment; the gateway's list at start and the
+OpenRouter probe are the main thread's one blocking request each
+(`rragent.sync-fetch`).
 
 Three variables: `RRAGENT_GATEWAY`, the gateway's base
 (`http://sprite.internal`, which answers only inside a sprite; elsewhere

@@ -11,26 +11,45 @@
    and `help`, with `composio/*`, `storrito/*` and `mcp/*` beside them
    (`rragent.gateway`, `rragent.composio`, `rragent.storrito`), and a
    namespace `mcp.<server>` per MCP server with its tools as functions
-   (`rragent.mcp`). A call
-   blocks its thread until it is answered (`rragent.sync-fetch`), so
-   a program loops over calls as over anything else; the agent runs
-   its programs in a worker thread for that (`rragent.codemode-worker`,
-   a handle of `handle-of` over what the main thread discovered). The
-   events a program recalls are read before it runs, what it remembers
-   is appended to the bot's events file after it (`rragent.tools.eval`)."
-  (:require [clojure.string :as str]
+   (`rragent.mcp`).
+
+   A program is a sequence of forms, evaluated one at a time
+   (`evaluate-form`), and nothing of it reaches outside the worker it
+   runs in: a call is a need (`rragent.need`), answered by the host,
+   which runs the form again with the answer, until every call of the
+   form is answered and the form is done. Each attempt runs in a fork
+   of the context; the fork of the attempt that finished is the
+   context from then on, what an unfinished attempt defined is gone
+   with it. A form that is done answers what it printed, its value,
+   and the vars it defined, as EDN when they can be read back, so that
+   the host keeps them and gives them back to a worker that starts
+   over (`restore!`), or says that the form is to be run again. The
+   events a program recalls come with every attempt
+   (`rragent.tools.eval`)."
+  (:require [cljs.reader :as reader]
+            [clojure.string :as str]
             [goog.string :as gstring]
             [rragent.composio :as composio]
             [rragent.events :as events]
             [rragent.gateway :as gateway]
             [rragent.mcp :as mcp]
-            [rragent.plan :as plan]
+            [rragent.need :as need]
             [rragent.sprite :as sprite]
             [rragent.storrito :as storrito]
             [sci.core :as sci]))
 
 (def max-chars
   10000)
+
+(def max-var-chars
+  "How long the EDN of a var a form defined may be for the host to
+   keep it; a longer one has the form run again instead."
+  1000000)
+
+(def ^:dynamic *fork*
+  "The context of the attempt that runs, for what installs namespaces
+   while a form runs; nil outside one."
+  nil)
 
 (def denied
   "The functions of cljs.core that reach JavaScript objects and would
@@ -77,47 +96,33 @@
     (str (subs printed 0 max-chars) " … (cut at " max-chars " characters)")
     printed))
 
-(defn command-doc
-  "The docstring of a command's function: that it answers the action,
-   not the API, then the procedure's own."
-  [{:keys [name] :as procedure}]
-  (str "A command: answers the action [:storrito/" name " args], it does not call the API. "
-       "Make the action the program's value, in a vector with the other actions, and it runs after the program, "
-       "once, in order, also across a restart of the machine; the answer lists what it did.\n\n"
-       (storrito/docstring procedure)))
-
 (defn- storrito-vars
   "One var per procedure of `catalog`, named as the procedure, its
-   docstring from the catalog: a query a call through the
-   `connection`, a command a function that answers the action
-   `[:storrito/<name> args]` for the plan (`rragent.plan`)."
+   docstring from the catalog, a call through the `connection`."
   [call connection catalog]
   (into {}
         (map (fn [{:keys [name] :as procedure}]
-               (let [sym (symbol name)
-                     command? (storrito/command? name)]
+               (let [sym (symbol name)]
                  [sym (sci/new-var sym
-                                   (if command?
-                                     (fn [& [args]]
-                                       (when-not (or (nil? args) (map? args))
-                                         (throw (js/Error. (str "storrito/" name " takes a map of arguments"))))
-                                       [(keyword "storrito" name) (or args {})])
-                                     (fn [& [args]] (storrito/call call connection name args)))
-                                   {:ns storrito-ns :name sym
-                                    :doc (if command? (command-doc procedure) (storrito/docstring procedure))
-                                    :arglists '([] [args])})])))
+                                   (fn [& [args]] (storrito/call call connection name args))
+                                   {:ns storrito-ns :name sym :doc (storrito/docstring procedure) :arglists '([] [args])})])))
         (:procedures catalog)))
 
 (defn- install-storrito!
-  "The `storrito/` functions of the catalog of the Storrito connection
-   among the gateway's, when there is one (`rragent.storrito/find-catalog`);
-   what went wrong kept for `procedures` to say. Into the context when
-   there is one already; else the context takes them when it is made."
-  [handle call]
-  (let [{:keys [connection catalog] :as found} (storrito/find-catalog @(:discovery handle))]
+  "The `storrito/` functions of the catalog of `found`, the Storrito
+   connection among the gateway's with its catalog
+   (`rragent.storrito/find-catalog`), when there is one; what went
+   wrong kept for `procedures` to say. Into the context when there is
+   one already, and into the fork of the attempt that runs; else the
+   context takes them when it is made."
+  [handle call found]
+  (let [{:keys [connection catalog]} found]
     (reset! (:storrito handle) found)
     (when (and catalog @(:context handle))
-      (swap! (:context handle) sci/merge-opts {:namespaces {'storrito (storrito-vars call connection catalog)}}))))
+      (let [namespaces {:namespaces {'storrito (storrito-vars call connection catalog)}}]
+        (swap! (:context handle) sci/merge-opts namespaces)
+        (when *fork*
+          (sci/merge-opts *fork* namespaces))))))
 
 (defn call
   "An HTTP request through the gateway to a connection: `which` is
@@ -129,7 +134,13 @@
    {:status :headers :body}, the body as data when it is JSON; look at
    :status, a failed request throws."
   [handle which path & [opts]]
-  (gateway/call @(:discovery handle) which path opts))
+  (let [discovery @(:discovery handle)
+        connection (or (gateway/connection discovery which)
+                       (throw (js/Error. (gateway/no-connector-message discovery which))))
+        method (str/upper-case (name (or (:method opts) "GET")))
+        read? (or (= "GET" method) (true? (:read? opts)))]
+    (need/ask {:tool (if read? "gateway-read" "gateway")
+               :args {:which (:id connection) :path (str path) :opts (dissoc (or opts {}) :read?)}})))
 
 (defn connectors
   "The connectors of the gateway, read now: {:connections [...]
@@ -141,10 +152,22 @@
    the gateway did not answer. The storrito/ functions follow the
    reading; the time of the reading is kept for `asked-at`."
   [handle]
+  (let [{:keys [discovery storrito]} (need/ask {:tool "connectors" :args {}})]
+    (reset! (:asked handle) (js/Date.now))
+    (reset! (:discovery handle) discovery)
+    (install-storrito! handle (partial call handle) storrito)
+    discovery))
+
+(defn refresh!
+  "The gateway's list read again by the main thread, one blocking
+   request, the Storrito catalog with it: what `connectors` does for a
+   program, for `rragent.openrouter`, which asks again while no
+   `openrouter` connection is known."
+  [handle]
   (reset! (:asked handle) (js/Date.now))
   (let [discovery (gateway/discover (:gateway handle))]
     (reset! (:discovery handle) discovery)
-    (install-storrito! handle (partial call handle))
+    (install-storrito! handle (partial call handle) (storrito/find-catalog discovery))
     discovery))
 
 (defn connector
@@ -157,16 +180,15 @@
   "An event for later runs: `event`, a short name such as
    \"review-posted\", and `data`, a map of your own keys. Events are
    never changed or lost, the conversation's summaries leave them
-   alone, and your runs see them as you do; recall sees this one at
-   once, it is written when the program ends."
+   alone, and your runs see them as you do; recall sees it at once."
   [handle event data]
   (when (str/blank? (str event))
     (throw (js/Error. "remember takes an event name")))
   (when-not (or (nil? data) (map? data))
     (throw (js/Error. "remember takes a map of data")))
-  (let [noted (assoc (or data {}) :event (str event) :at (js/Date.now))]
-    (swap! (:events handle) #(-> % (update :known conj noted) (update :pending conj noted)))
-    (str "Noted " event)))
+  (let [answer (need/ask {:tool "remember" :args {:event (str event) :data (or data {})}})]
+    (swap! (:events handle) update :known conj (assoc (or data {}) :event (str event) :at (js/Date.now)))
+    answer))
 
 (defn recall
   "Your events, oldest first: maps with :event, :at (milliseconds) and
@@ -263,16 +285,14 @@
   (str "Deleted " id))
 
 (defn procedures
-  "The procedures of the organization's Storrito API, {:name :doc
-   :kind} each, every one a function storrito/<name> that takes a
-   map: a :query answers at once, (storrito/list-instagram-users {});
-   a :command answers the action [:storrito/<name> args] that runs
-   after the program when it is in the program's value; (doc
-   storrito/<name>) says its parameters."
+  "The procedures of the organization's Storrito API, {:name :doc}
+   each, every one a function storrito/<name> that takes a map:
+   (storrito/list-instagram-users {}); (doc storrito/<name>) says its
+   parameters."
   [handle]
   (let [{:keys [catalog link error]} @(:storrito handle)]
     (cond
-      catalog (mapv #(assoc % :kind (if (storrito/command? (:name %)) :command :query)) (storrito/summary catalog))
+      catalog (storrito/summary catalog)
       error (throw (js/Error. (str "The Storrito catalog at " link " could not be read: " error)))
       :else (throw (js/Error. (str "No Storrito among the connections: no custom_api connection of the gateway "
                                    "has a catalog at its base. (connectors) lists what there is."))))))
@@ -290,35 +310,22 @@
 ;;; MCP
 
 (defn- invoke
-  "The tool `tool` of the MCP server `server` called with `args`
-   through the handle's `:mcp-rpc`, which blocks until the main thread
-   answered (`rragent.codemode-worker`): the value, its pictures kept
-   for the answer of the program; an error thrown."
-  [handle server tool args]
+  "The tool `tool` of the MCP server `server` called with `args`: a
+   need the main thread answers, which holds the connections
+   (`rragent.mcp`); the value, its pictures shown to the model by the
+   host; a failed call thrown."
+  [_handle server tool args]
   (when-not (or (nil? args) (map? args))
     (throw (js/Error. (str "mcp." server "/" tool " takes a map of arguments, such as {:query \"x\"}"))))
-  (let [rpc @(:mcp-rpc handle)]
-    (when-not rpc
-      (throw (js/Error. "The MCP servers are not reachable from this REPL.")))
-    (let [{:keys [value images error]} (rpc {:server server :tool tool :args args})]
-      (when error
-        (throw (js/Error. error)))
-      (swap! (:images handle) into images)
-      value)))
+  (:value (need/ask {:tool "mcp" :args {:server (str server) :tool (str tool) :args (or args {})}})))
 
 (defn- admin
-  "A change of the MCP servers made by the main thread, which owns
+  "A change of the MCP servers, made by the main thread, which owns
    `mcp.json` and the connections (`rragent.mcp`): `request` is
-   `{:admin :add|:test|:enable|:remove …}`; the answer's value, or
-   its error thrown."
-  [handle request]
-  (let [rpc @(:mcp-rpc handle)]
-    (when-not rpc
-      (throw (js/Error. "The MCP servers are not reachable from this REPL.")))
-    (let [{:keys [value error]} (rpc request)]
-      (when error
-        (throw (js/Error. error)))
-      value)))
+   `{:admin :add|:test|:enable|:remove …}`, a need; the answer's
+   value, a failure thrown."
+  [_handle request]
+  (:value (need/ask {:tool "mcp-admin" :args request})))
 
 (defn- param-line
   [required [k schema]]
@@ -478,8 +485,7 @@
    ["(composio/trigger-types \"googledrive\")" "the events a service offers and the config each takes"]
    ["(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\" {})" "every event of that kind on the connected account arrives in your conversation from now on; answers the trigger's id"]
    ["(composio/triggers)" "your triggers: {:id :slug :connected-account :state}; (composio/delete-trigger \"ti_1\") ends one"]
-   ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each: a query answers at once, a command answers an action"]
-   ["[[:storrito/schedule-social-post {...}] [:remember \"posted\" {:id [:plan/result 0 :socialPostUuid]}]]" "a plan: a vector of actions as the program's value; the host runs them after the program, in order, each once, also across a restart; [:plan/result i & path] in an action stands for that part of the result of action i (from 0); the first failure ends the plan; the answer lists what each did"]
+   ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each"]
    ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid some storrito/ procedures take"]
    ["(mcp/servers)" "the MCP servers of the machine: their namespaces, how many tools, whether connected, their instructions"]
    ["(mcp/tools \"github\")" "the tools of one server: {:name :fn :description}, (doc mcp.github/<tool>) says its arguments"]
@@ -595,18 +601,17 @@
 (defn handle-of
   "The REPL over what another thread found: `{:gateway :discovery
    :storrito}` as `snapshot` answers them, no request made. `{:gateway
-   :discovery :storrito :composio-session :events :context :asked}`, the
-   last six atoms; the context is made at the first program, `asked`
-   is when `connectors` last read the list again, 0 before it did."
+   :discovery :storrito :composio-session :events :mcp-catalog :context
+   :asked}`, the last six atoms; the context is made at the first
+   program, `asked` is when `connectors` last read the list again, 0
+   before it did."
   [{:keys [gateway discovery storrito]}]
   {:gateway gateway
    :discovery (atom discovery)
    :storrito (atom storrito)
    :composio-session (atom nil)
-   :events (atom {:known [] :pending []})
-   :images (atom [])
+   :events (atom {:known []})
    :mcp-catalog (atom nil)
-   :mcp-rpc (atom nil)
    :context (atom nil)
    :asked (atom 0)})
 
@@ -614,13 +619,13 @@
   "The REPL of the agent over the gateway at `base`: its connectors
    discovered now, one request, or `discovery` as another reading of
    them found it (`rragent.gateway/discover-at-start`, which tries
-   again while the gateway comes up); the Storrito catalog read; the
-   context is made at the first program."
+   again while the gateway comes up); the Storrito catalog read, one
+   request; the context is made at the first program."
   ([base]
    (handle base (gateway/discover base)))
   ([base discovery]
    (let [handle (handle-of {:gateway base :discovery discovery})]
-     (install-storrito! handle (partial call handle))
+     (install-storrito! handle (partial call handle) (storrito/find-catalog discovery))
      handle)))
 
 (defn snapshot
@@ -644,22 +649,9 @@
   @(:asked handle))
 
 (defn begin!
-  "The events a program sees: `known`, the bot's as they are now;
-   nothing pending, no pictures."
+  "The events an attempt sees: `known`, the bot's as they are now."
   [handle known]
-  (reset! (:images handle) [])
-  (reset! (:events handle) {:known (vec known) :pending []}))
-
-(defn images
-  "The pictures the program's MCP calls answered, `{:data :mime-type}`
-   each, for the model after the program's answer."
-  [handle]
-  @(:images handle))
-
-(defn pending
-  "What the program remembered, oldest first, for the events file."
-  [handle]
-  (:pending @(:events handle)))
+  (reset! (:events handle) {:known (vec known)}))
 
 (defn- location
   [e]
@@ -697,40 +689,110 @@
   [handle]
   @(:storrito handle))
 
-(defn known
-  "What `rragent.plan` takes to tell a plan from data and to check it:
-   the action namespaces and names the host runs, and the catalog's
-   procedures with their kinds."
-  [handle]
-  {:namespaces #{"storrito"}
-   :names #{:remember}
-   :procedures (storrito/kinds (:catalog @(:storrito handle)))})
+(defn reading-error
+  "What a throw of `forms` says: the message and where."
+  [e]
+  (cut (error-text e "")))
 
-(defn evaluate-program
-  "`code` evaluated in the context of `handle` as `evaluate` does it,
-   and the plan in its value when it is one (`rragent.plan/of`):
-   `{:text :plan}`, the text of a plan what the program printed and
-   `=> ` with how many actions, not the actions themselves, which the
-   host's answer lists with what each did; a throw as `evaluate`
-   throws, a plan with an action the host does not run included."
+(defn forms
+  "The forms of `code`, each with its line and column; a throw with
+   where the reading failed."
   [handle code]
-  (let [sb (gstring/StringBuffer.)
-        value (try
-                (sci/binding [sci/print-newline true
-                              sci/print-fn (fn [x] (.append sb x))]
-                  (sci/eval-string* (context! handle) (str code)))
+  (let [ctx (context! handle)
+        reader (sci/reader (str code))]
+    (loop [out []]
+      (let [form (sci/parse-next ctx reader)]
+        (if (= ::sci/eof form)
+          out
+          (recur (conj out form)))))))
+
+(defn- user-vars
+  "The vars of the `user` namespace of `ctx`, `{sym value}`."
+  [ctx]
+  (into {}
+        (keep (fn [[sym v]]
+                (when (and (symbol? sym) (satisfies? IDeref v))
+                  [sym @v])))
+        (get-in @(:env ctx) [:namespaces 'user])))
+
+(defn- edn
+  "`value` as EDN the host can keep and `restore!` can read back; nil
+   when it cannot be read back (a function, a regex, an object, a
+   record), or is longer than `max-var-chars`."
+  [value]
+  (let [s (binding [*print-length* 100000
+                    *print-level* 200]
+            (pr-str value))]
+    (when (<= (count s) max-var-chars)
+      (try
+        (when (= value (reader/read-string s))
+          s)
+        (catch :default _ nil)))))
+
+(defn defined
+  "What the form defined in `user`, `before` and `after` its vars:
+   `{:vars {sym edn}}` when every value can be kept, else `{:redo
+   true}`, the form to be run again by a worker that starts over."
+  [before after]
+  (let [changed (into {}
+                      (keep (fn [[sym value]]
+                              (when (or (not (contains? before sym))
+                                        (not (identical? (get before sym) value)))
+                                [sym (edn value)])))
+                      after)]
+    (if (some nil? (vals changed))
+      {:redo true}
+      {:vars changed})))
+
+(defn restore!
+  "The vars `vars` (`{sym edn}`, as `defined` answered them) defined
+   in `user` again, for a worker that starts over."
+  [handle vars]
+  (let [ctx (context! handle)]
+    (doseq [[sym s] vars]
+      (sci/intern ctx 'user (symbol sym) (reader/read-string s)))))
+
+(defn evaluate-form
+  "The form at `index` of `code` evaluated in a fork of the context,
+   over `answers`, the host's to the calls of the form so far
+   (`rragent.need`), and `events`, the bot's as they are: `{:need}`
+   with the first call the host has not answered, the attempt thrown
+   away; `{:done {:printed :value :vars|:redo}}` when the form ran to
+   its end, the fork the context from now on, the value as text cut
+   at ten thousand characters; `{:error}` for a form that failed, with
+   where and what was printed before. The forms are read first, a
+   reading error is the answer."
+  [handle {:keys [code index answers events]}]
+  (let [forms (try
+                {:forms (forms handle code)}
                 (catch :default e
-                  (throw (js/Error. (cut (error-text e (str sb)))))))
-        plan (try
-               (plan/of (known handle) value)
-               (catch :default e
-                 (throw (js/Error. (cut (error-text e (str sb)))))))
-        printed (str sb)
-        break (when (and (seq printed) (not (str/ends-with? printed "\n"))) "\n")]
-    {:text (cut (str printed break "=> " (if plan
-                                             (str "a plan of " (count plan) " action" (when (not= 1 (count plan)) "s"))
-                                             (pr-str value))))
-     :plan plan}))
+                  {:error (reading-error e)}))]
+    (if (:error forms)
+      forms
+      (let [form (nth (:forms forms) index)
+            base (context! handle)
+            fork (sci/fork base)
+            before (user-vars fork)
+            sb (gstring/StringBuffer.)
+            attempt (need/attempt answers)
+            outcome (try
+                      (binding [need/*attempt* attempt
+                                *fork* fork]
+                        (begin! handle events)
+                        (sci/binding [sci/print-newline true
+                                      sci/print-fn (fn [x] (.append sb x))]
+                          (let [value (sci/eval-form fork form)
+                                text (pr-str value)]
+                            {:value (cut text)})))
+                      (catch :default e
+                        {:error (cut (error-text e (str sb)))}))
+            noted (need/noted attempt)]
+      (cond
+        noted {:need noted}
+        (:error outcome) outcome
+        :else (do (reset! (:context handle) fork)
+                  {:done (merge {:printed (cut (str sb)) :value (:value outcome)}
+                                (defined before (user-vars fork)))}))))))
 
 (defn- tries-text
   "How many tries the list took at start, when more than one."

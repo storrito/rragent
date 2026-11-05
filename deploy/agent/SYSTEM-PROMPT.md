@@ -141,13 +141,12 @@ in with `[:sign-in {:server "<name>"}]` in your answer. Settings → MCP
 servers in the page shows them, and its "Connect a service" opens a
 bot made just for that.
 
-A change at Storrito (a post scheduled, a draft made, a story
-cancelled) is never a call of your program: the command answers an
-action, `[:storrito/schedule-social-post {...}]`, and the program's
-value, a vector of such actions, is a plan that runs after the
-program, each action once, also when the machine restarts in the
-middle; the answer lists what each did. Your program lists and filters
-with the queries and answers the actions for what is left.
+Every call of a program of yours is made by the host, once, also
+when the machine restarts in the middle: a form of the program runs
+again from its start until its calls are answered, so it must ask the
+same calls in the same order, and what a form works out it keeps in a
+`def`, not in an atom. A failed call throws where it is, which you may
+catch; a call cut short by a restart is told so.
 
 A hook's call and a schedule's fire start a run of yours: a
 conversation of its own with this text and your file as its

@@ -4,6 +4,8 @@
             ["@earendil-works/pi-ai/providers/faux" :refer [fauxAssistantMessage fauxProvider fauxText fauxToolCall]]
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
+            [rragent.codemode :as codemode]
+            [rragent.codemode-worker :as codemode-worker]
             [rragent.fake-gateway :as fake-gateway]
             [rragent.events :as events]
             [rragent.harness :as harness]
@@ -11,6 +13,7 @@
             [rragent.secrets :as secrets]
             [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
+            [rragent.test-host :as test-host]
             [rragent.tools.eval :as eval-tool]
             [rragent.tools.fetch :as fetch-tool]))
 
@@ -143,56 +146,79 @@
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 
-(deftest plan-test
+(defn- fake-api
+  "A durable API for the eval tool without pi-durable: memos kept by
+   name, nested calls performed by `perform` once per key and their
+   results kept, so a second run with the same keys gets them back;
+   `performed` counts what was performed."
+  [perform]
+  (let [memos (atom {})
+        calls (atom {})
+        performed (atom 0)]
+    {:memos memos
+     :performed performed
+     :api #js {:memo (fn [name & more]
+                       (js/Promise.resolve
+                        (if (= 1 (count more))
+                          (get @memos name js/undefined)
+                          (let [[candidate] more]
+                            (or (get @memos name)
+                                (do (swap! memos assoc name candidate) candidate))))))
+               :executeTool (fn [tool args _context opts]
+                              (let [key (.-key opts)]
+                                (if-let [kept (get @calls key)]
+                                  (js/Promise.resolve kept)
+                                  (-> (perform {:tool tool :args (js->clj args :keywordize-keys true)})
+                                      (.then (fn [{:keys [ok value error]}]
+                                               (swap! performed inc)
+                                               (let [result (if ok
+                                                              #js {:structuredOutput (clj->js value) :isError false}
+                                                              #js {:structuredOutput (clj->js {:error error}) :isError true})]
+                                                 (swap! calls assoc key result)
+                                                 result)))))))}}))
+
+(deftest resume-test
   (async done
     (-> ((^:async fn []
            (let [{:keys [url stop]} (await (fake-gateway/start!))
+                 codemode (codemode/handle url)
                  home (test-home/make)
-                 {:keys [faux models]} (faux-models)
-                 good (str "(let [notes (map #(storrito/create-note {:text %}) [\"a\" \"b\"])]"
-                           "  (println \"two notes\")"
-                           "  (into (vec notes) [[:remember \"noted\" {:id [:plan/result 0 :id] :second [:plan/result 1 :text]}] (storrito/flaky-once)]))")
-                 bad "[(storrito/create-note {}) (storrito/create-note {:text \"c\"})]"
-                 wrong "(storrito/create-note {:text [:plan/result 3 :id]})"
-                 query "[[:storrito/generate-uuid {}]]"]
-             (.setResponses faux #js [(tool-call "eval" {:code good} "p1")
-                                      (tool-call "eval" {:code bad} "p2")
-                                      (tool-call "eval" {:code wrong} "p3")
-                                      (tool-call "eval" {:code query} "p4")
-                                      (answer "Planned.")])
-             (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux" :gateway url}))]
-               (try
-                 (is (= "Planned." (await (harness/ask agent "Make the notes."))))
-                 (let [results (await (tool-results agent))]
-                   (testing "the plan ran after the program, in order, the placeholders filled, a 503 tried again"
-                     (is (= (str "two notes\n=> a plan of 4 actions\n"
-                                 "Plan of 4 actions: 4 done.\n"
-                                 "1. storrito/create-note {:text \"a\"}: done {:id \"n_a\", :text \"a\"}\n"
-                                 "2. storrito/create-note {:text \"b\"}: done {:id \"n_b\", :text \"b\"}\n"
-                                 "3. remember \"noted\" {:id [:plan/result 0 :id], :second [:plan/result 1 :text]}: done \"Noted noted\"\n"
-                                 "4. storrito/flaky-once {}: done {:ok true}")
-                            (result-text (get results "p1"))))
-                     (is (not (true? (.-isError (get results "p1"))))))
-                   (testing "the first failure ends the plan, an error result that says what happened"
-                     (let [text (result-text (get results "p2"))]
-                       (is (str/includes? text "Plan of 2 actions: 0 done, failed at action 1, the rest not run."))
-                       (is (str/includes? text "1. storrito/create-note {}: failed: Storrito answered HTTP 400 to create-note:"))
-                       (is (str/includes? text "2. storrito/create-note {:text \"c\"}: not run"))
-                       (is (true? (.-isError (get results "p2"))))))
-                   (testing "a plan that is not right runs not at all"
-                     (is (str/includes? (result-text (get results "p3"))
-                                        "Nothing of the plan ran, it is not right:\naction 1, storrito/create-note {:text [:plan/result 3 :id]}: the placeholder [:plan/result 3 :id] refers to action 4, which is not before this one"))
-                     (is (true? (.-isError (get results "p3"))))
-                     (is (str/includes? (result-text (get results "p4")) "storrito/generate-uuid is a query: call it in the program"))
-                     (is (true? (.-isError (get results "p4"))))))
-                 (testing "the event the plan remembered, with the results of earlier actions in it"
-                   (let [all (events/read (home/events-file (home/bot-dir home (.-id (:root agent)))))]
-                     (is (= [{:event "noted" :id "n_a" :second "b"}] (mapv #(dissoc % :at) all)))))
-                 (finally
-                   (await (harness/close agent))
-                   (test-home/remove! home)
-                   (stop)
-                   (sync-fetch/stop!)))))))
+                 file (home/events-file home)
+                 events (atom [])
+                 perform (fn [need]
+                           (case (:tool need)
+                             "remember" (do (events/append! file (:event (:args need)) (:data (:args need)) (js/Date.now))
+                                            (js/Promise.resolve {:ok true :value (str "Noted " (:event (:args need)))}))
+                             ((test-host/perform codemode events) need)))
+                 {:keys [api memos performed]} (fake-api perform)
+                 context #js {:abortSignal nil}
+                 code (str "(def notes (mapv #(:body (call \"echo\" (str \"/\" %))) [\"a\" \"b\"]))\n"
+                           "(defn paths [] (mapv :path notes))\n"
+                           "(remember \"seen\" {:paths (paths)})\n"
+                           "(println \"noted\") (count (recall {:event \"seen\"}))")
+                 worker (codemode-worker/handle codemode)
+                 run (fn [worker] (eval-tool/evaluate worker codemode api context {:code code :file file}))]
+             (try
+               (testing "the program runs, its calls each once, the forms kept as memos"
+                 (let [result (await (run worker))]
+                   (is (= "noted\n=> 1" (.-text (aget (.-output result) 0))))
+                   (is (= 3 @performed) "two calls and one remember")
+                   (is (= ["f0" "f1" "f2" "f3" "f4"] (sort (keys @memos))))
+                   (is (str/includes? (get @memos "f0") ":vars {notes") "the data var kept as EDN")
+                   (is (str/includes? (get @memos "f1") ":redo true") "the function is run again instead")))
+               (testing "a fresh worker, as after a restart: the forms come from the memos, the calls from their keys, nothing performed again"
+                 (codemode-worker/stop! worker "a restart")
+                 (let [fresh (codemode-worker/handle codemode)
+                       result (await (run fresh))]
+                   (is (= "noted\n=> 1" (.-text (aget (.-output result) 0))))
+                   (is (= 3 @performed))
+                   (is (= 1 (count (events/read file))) "the event was noted once")
+                   (codemode-worker/stop! fresh "over")))
+               (finally
+                 (codemode-worker/stop! worker "over")
+                 (test-home/remove! home)
+                 (stop)
+                 (sync-fetch/stop!))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 

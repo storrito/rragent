@@ -61,6 +61,4 @@
     (is (true? (storrito/command? "cancel-social-post")))
     (is (true? (storrito/command? "upload-temp-blob")))
     (is (true? (storrito/command? "delete-draft"))))
-  (is (= {"generate-uuid" {:kind :query} "status-instagram-story" {:kind :query} "flaky-once" {:kind :command} "create-note" {:kind :command}}
-         (storrito/kinds fake-gateway/catalog)))
-  (is (= {} (storrito/kinds nil)) "no catalog, no procedures"))
+  (is (true? (storrito/command? "flaky-once"))))

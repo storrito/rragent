@@ -10,6 +10,7 @@
             [rragent.openrouter :as openrouter]
             [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
+            [rragent.test-host :as test-host]
             [rragent.tools-test :as tools-test]))
 
 (def key-line
@@ -233,8 +234,8 @@
                    (is (= 5 (count (:connections (codemode/discovery (:codemode agent))))) "the REPL has the list")
                    (is (= 4 (count (get-in (codemode/snapshot (:codemode agent)) [:storrito :catalog :procedures]))) "and the Storrito catalog")
                    (is (= (str "OpenRouter through the Sprites gateway (" base ")") (openrouter/report (codemode/discovery (:codemode agent)))))
-                   (is (= {:text "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" :pending []}
-                          (await (codemode-worker/evaluate! (codemode-worker/of (:codemode agent) (.-id (:root agent))) {:code "(storrito/generate-uuid)" :events [] :env {}})))
+                   (is (= "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}"
+                          (:text (await (test-host/run-in-worker (codemode-worker/of (:codemode agent) (.-id (:root agent))) "(storrito/generate-uuid)"))))
                        "a worker of a bot started now works from the late discovery")))
                (finally
                  (await (harness/close agent))

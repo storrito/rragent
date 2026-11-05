@@ -63,8 +63,8 @@
             [rragent.tools.report :as report-tool]
             [rragent.tools.schedule :as schedule-tool]
             [rragent.tools.share :as share-tool]
+            [rragent.tools.host :as host-tool]
             [rragent.tools.skill :as skill-tool]
-            [rragent.tools.storrito :as storrito-tool]
             [rragent.tools.subagent :as subagent-tool]
             [rragent.tools.transcribe :as transcribe-tool]
             [rragent.warm-summary :as warm-summary]))
@@ -75,17 +75,17 @@
 
 (defn extension
   "rragent's own tools: the eval tool runs a program in the worker of
-   the bot of the call, over the REPL `codemode`, and the actions of
-   its plan as nested calls of the storrito tool, which only tools
-   call; the media tools reach OpenRouter the way it knows it
-   (`rragent.openrouter`), the project tool holds a call to the bot's
-   definition."
+   the bot of the call, over the REPL `codemode`, and answers the
+   program's calls as nested calls of the host tools, which only
+   tools call (`rragent.tools.host`); the media tools reach OpenRouter
+   the way it knows it (`rragent.openrouter`), the project tool holds
+   a call to the bot's definition."
   [codemode]
   (defineExtension #js {:name "rragent"
-                        :tools #js [events-tool/remember events-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
+                        :tools (clj->js (into [events-tool/remember events-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
                                     (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode) (music-pick-tool/tool codemode)
-                                    (transcribe-tool/tool codemode) report-tool/tool skill-tool/tool share-tool/tool
-                                    (storrito-tool/tool codemode)]
+                                    (transcribe-tool/tool codemode) report-tool/tool skill-tool/tool share-tool/tool]
+                                   (host-tool/tools codemode)))
                         :tasks #js [schedule/Task runs/Task]}))
 
 (def redacted-keys
