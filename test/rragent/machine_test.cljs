@@ -382,7 +382,6 @@
                                 (if (str/includes? last "did not answer your message")
                                   (tools-test/answer "Told the person.")
                                   (tools-test/answer (str "Unexpected: " last)))))]
-             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
              (.setResponses faux #js [by-request by-request])
              (try
                (let [[first-bot] (await (open! home models))
