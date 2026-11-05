@@ -371,3 +371,46 @@
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest bot-message-fault-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)
+                 by-request (fn [context]
+                              (let [last (last-message context)]
+                                (if (str/includes? last "did not answer your message")
+                                  (tools-test/answer "Told the person.")
+                                  (tools-test/answer (str "Unexpected: " last)))))]
+             (fs/writeFileSync (bots/assistant-file home) bots-test/assistant)
+             (.setResponses faux #js [by-request by-request])
+             (try
+               (let [[first-bot] (await (open! home models))
+                     watcher (:conversation first-bot)]
+                 ;; a message whose task fails on its way: the receiver's conversation is not there
+                 (await (.commit (:harness (machine/agent))
+                                 (fn [tx] (messages/create-in tx {:from 1 :from-name "watcher" :to 999 :to-name "Ghost" :text "Hello?"}))
+                                 harness/context))
+                 (loop [n 0]
+                   (when (and (< n 100)
+                              (not (some #(= "Told the person." (:content %)) (await (entries-of watcher)))))
+                     (await (sleep 100))
+                     (recur (inc n))))
+                 (let [answer (first (filter #(= "rragent.message" (:kind %)) (await (entries-of watcher))))]
+                   (testing "the sender reads that the receiver did not answer, and why, and answers it in its chat"
+                     (is (str/starts-with? (:content answer) "Ghost (bot 999) did not answer your message: "))
+                     (is (= true (get-in answer [:data :answer])))
+                     (is (= "Told the person." (:content (last (await (entries-of watcher)))))))
+                   (testing "the task ends unanswered, not faulted"
+                     (let [page (await (.commit (:harness (machine/agent))
+                                                (fn [tx] (.scanTasks tx #js {:conversationId 1 :kind messages/kind} 10))
+                                                harness/context))
+                           [task] (array-seq (.-items page))]
+                       (is (= "terminal" (.. task -state -status)))
+                       (is (= "completed" (.. task -state -outcome -status)))
+                       (is (= "unanswered" (.. task -state -outcome -result -state)))))))
+               (finally
+                 (await (machine/close-all!))
+                 (test-home/remove! home))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
