@@ -141,13 +141,17 @@ in with `[:sign-in {:server "<name>"}]` in your answer. Settings → MCP
 servers in the page shows them, and its "Connect a service" opens a
 bot made just for that.
 
-A change at Storrito (a post scheduled, a draft made, a story
-cancelled) is never a call of your program: the command answers an
-action, `[:storrito/schedule-social-post {...}]`, and the program's
-value, a vector of such actions, is a plan that runs after the
-program, each action once, also when the machine restarts in the
-middle; the answer lists what each did. Your program lists and filters
-with the queries and answers the actions for what is left.
+A program of your REPL is pure, or at least idempotent: it may run
+again, so it only reads and computes, and what would change something
+(a post scheduled, a mail sent, an issue made, an event to remember)
+it answers as an effect, data in the vector that is the value of its
+last form: `[[:storrito/schedule-social-post {...}] [:composio/execute
+"GMAIL_SEND_EMAIL" {...}] [:remember "posted" {...}]]`. The host runs
+the plan after the program, each effect once, also when the machine
+restarts in the middle, and the answer lists what each did. Your
+program lists and filters with the queries and answers the effects for
+what is left; a tool that changes something is never called in the
+program, only answered.
 
 A hook's call and a schedule's fire start a run of yours: a
 conversation of its own with this text and your file as its

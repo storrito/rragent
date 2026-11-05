@@ -151,7 +151,8 @@
                  {:keys [faux models]} (faux-models)
                  good (str "(let [notes (map #(storrito/create-note {:text %}) [\"a\" \"b\"])]"
                            "  (println \"two notes\")"
-                           "  (into (vec notes) [[:remember \"noted\" {:id [:plan/result 0 :id] :second [:plan/result 1 :text]}] (storrito/flaky-once)]))")
+                           "  (into (vec notes) [[:remember \"noted\" {:id [:plan/result 0 :id] :second [:plan/result 1 :text]}] (storrito/flaky-once)"
+                           "                     (composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"}) [:call \"echo\" \"/posted\" {:method :post :body {:ok 1}}]]))")
                  bad "[(storrito/create-note {}) (storrito/create-note {:text \"c\"})]"
                  wrong "(storrito/create-note {:text [:plan/result 3 :id]})"
                  query "[[:storrito/generate-uuid {}]]"]
@@ -160,28 +161,33 @@
                                       (tool-call "eval" {:code wrong} "p3")
                                       (tool-call "eval" {:code query} "p4")
                                       (answer "Planned.")])
+             (aset (.-env js/process) "COMPOSIO_SESSION_ID" "trs_1")
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux" :gateway url}))]
                (try
                  (is (= "Planned." (await (harness/ask agent "Make the notes."))))
                  (let [results (await (tool-results agent))]
-                   (testing "the plan ran after the program, in order, the placeholders filled, a 503 tried again"
-                     (is (= (str "two notes\n=> a plan of 4 actions\n"
-                                 "Plan of 4 actions: 4 done.\n"
-                                 "1. storrito/create-note {:text \"a\"}: done {:id \"n_a\", :text \"a\"}\n"
-                                 "2. storrito/create-note {:text \"b\"}: done {:id \"n_b\", :text \"b\"}\n"
-                                 "3. remember \"noted\" {:id [:plan/result 0 :id], :second [:plan/result 1 :text]}: done \"Noted noted\"\n"
-                                 "4. storrito/flaky-once {}: done {:ok true}")
-                            (result-text (get results "p1"))))
+                   (testing "the plan ran after the program, in order, the placeholders filled, a 503 tried again, Composio and the gateway reached"
+                     (let [lines (str/split-lines (result-text (get results "p1")))]
+                       (is (= ["two notes" "=> a plan of 6 effects"
+                               "Plan of 6 effects: 6 done."
+                               "1. storrito/create-note {:text \"a\"}: done {:id \"n_a\", :text \"a\"}"
+                               "2. storrito/create-note {:text \"b\"}: done {:id \"n_b\", :text \"b\"}"
+                               "3. remember \"noted\" {:id [:plan/result 0 :id], :second [:plan/result 1 :text]}: done \"Noted noted\""
+                               "4. storrito/flaky-once {}: done {:ok true}"]
+                              (subvec lines 0 7)))
+                       (is (str/starts-with? (nth lines 7) "5. composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"}: done {:results [{:index 0, :tool_slug \"GMAIL_SEND_EMAIL\", :response {:sent true}}]"))
+                       (is (str/starts-with? (nth lines 8) "6. call \"echo\" \"/posted\" {:method :post, :body {:ok 1}}: done {:status 200, :body {"))
+                       (is (str/includes? (nth lines 8) ":method \"POST\", :path \"/posted\"")))
                      (is (not (true? (.-isError (get results "p1"))))))
                    (testing "the first failure ends the plan, an error result that says what happened"
                      (let [text (result-text (get results "p2"))]
-                       (is (str/includes? text "Plan of 2 actions: 0 done, failed at action 1, the rest not run."))
+                       (is (str/includes? text "Plan of 2 effects: 0 done, failed at effect 1, the rest not run."))
                        (is (str/includes? text "1. storrito/create-note {}: failed: Storrito answered HTTP 400 to create-note:"))
                        (is (str/includes? text "2. storrito/create-note {:text \"c\"}: not run"))
                        (is (true? (.-isError (get results "p2"))))))
                    (testing "a plan that is not right runs not at all"
                      (is (str/includes? (result-text (get results "p3"))
-                                        "Nothing of the plan ran, it is not right:\naction 1, storrito/create-note {:text [:plan/result 3 :id]}: the placeholder [:plan/result 3 :id] refers to action 4, which is not before this one"))
+                                        "Nothing of the plan ran, it is not right:\neffect 1, storrito/create-note {:text [:plan/result 3 :id]}: the placeholder [:plan/result 3 :id] refers to effect 4, which is not before this one"))
                      (is (true? (.-isError (get results "p3"))))
                      (is (str/includes? (result-text (get results "p4")) "storrito/generate-uuid is a query: call it in the program"))
                      (is (true? (.-isError (get results "p4"))))))
@@ -189,6 +195,7 @@
                    (let [all (events/read (home/events-file (home/bot-dir home (.-id (:root agent)))))]
                      (is (= [{:event "noted" :id "n_a" :second "b"}] (mapv #(dissoc % :at) all)))))
                  (finally
+                   (js-delete (.-env js/process) "COMPOSIO_SESSION_ID")
                    (await (harness/close agent))
                    (test-home/remove! home)
                    (stop)

@@ -17,7 +17,16 @@
    its programs in a worker thread for that (`rragent.codemode-worker`,
    a handle of `handle-of` over what the main thread discovered). The
    events a program recalls are read before it runs, what it remembers
-   is appended to the bot's events file after it (`rragent.tools.eval`)."
+   is appended to the bot's events file after it (`rragent.tools.eval`).
+
+   A program is pure, or at least idempotent: it reads and computes,
+   and what would change something it answers as an effect, data in
+   the vector that is the value of its last form (`rragent.plan`):
+   a command of the Storrito catalog, `(storrito/schedule-social-post
+   {...})`, and the composio/ functions that change something answer
+   their effect instead of doing it; `[:call ...]`, `[:mcp/call ...]`
+   and `[:remember ...]` are written as data. The host runs the plan
+   after the program, each effect once, also across a restart."
   (:require [clojure.string :as str]
             [goog.string :as gstring]
             [rragent.composio :as composio]
@@ -78,11 +87,11 @@
     printed))
 
 (defn command-doc
-  "The docstring of a command's function: that it answers the action,
+  "The docstring of a command's function: that it answers the effect,
    not the API, then the procedure's own."
   [{:keys [name] :as procedure}]
-  (str "A command: answers the action [:storrito/" name " args], it does not call the API. "
-       "Make the action the program's value, in a vector with the other actions, and it runs after the program, "
+  (str "An effect: answers [:storrito/" name " args], it does not call the API. "
+       "Make it part of the program's last form, a vector of effects, and the host runs it after the program, "
        "once, in order, also across a restart of the machine; the answer lists what it did.\n\n"
        (storrito/docstring procedure)))
 
@@ -196,25 +205,41 @@
                       (composio/schemas-arguments slugs @(:composio-session handle))))
 
 (defn execute
-  "One tool found with search run with the arguments its schema asks
-   for: the results of the run; a failed run throws with Composio's
-   error (a service that is not connected, for one: connect it with
-   connections first)."
+  "An effect: one tool found with search run with the arguments its
+   schema asks for, [:composio/execute slug args]. Make it part of the
+   program's last form, a vector of effects, and the host runs it
+   after the program; the answer lists its results, a failed run
+   Composio's error (a service that is not connected, for one:
+   connect it with connections first). A tool that only reads
+   (a search, a list, a fetch) you may run in the program instead:
+   (composio/execute! slug args) answers at once."
+  [_handle slug & [args]]
+  (when-not (or (nil? args) (map? args))
+    (throw (js/Error. "composio/execute takes a map of arguments")))
+  [:composio/execute (str slug) (or args {})])
+
+(defn execute!
+  "One tool found with search run now, in the program: for a tool
+   that only reads, since the program may run again; a tool that
+   changes something is an effect, (composio/execute slug args). The
+   results of the run; a failed run throws with Composio's error."
   [handle slug & [args]]
   (composio/meta-call (partial call handle) @(:discovery handle) "COMPOSIO_MULTI_EXECUTE_TOOL"
                       (composio/execute-arguments slug args @(:composio-session handle))))
 
 (defn connections
-  "The organization's connections of services, by Composio toolkit
-   slug (googlesheets, gmail, googledrive, googledocs, googlecalendar,
-   slack, notion, github), a missing one started: the answer carries a
-   link the person opens to sign in at the service, good for ten
-   minutes. Call it in the answer in which the person names a service
-   of theirs, give them the link and go on once they say they are
-   connected."
-  [handle toolkits]
-  (composio/meta-call (partial call handle) @(:discovery handle) "COMPOSIO_MANAGE_CONNECTIONS"
-                      (composio/connections-arguments toolkits @(:composio-session handle))))
+  "An effect: the organization's connections of services, by Composio
+   toolkit slug (googlesheets, gmail, googledrive, googledocs,
+   googlecalendar, slack, notion, github), a missing one started,
+   [:composio/connections toolkits]. Its result carries a link the
+   person opens to sign in at the service, good for ten minutes. Make
+   it the program's last form in the answer in which the person names
+   a service of theirs, give them the link and go on once they say
+   they are connected."
+  [_handle toolkits]
+  (when-not (and (sequential? toolkits) (seq toolkits))
+    (throw (js/Error. "composio/connections takes a vector of toolkit slugs")))
+  [:composio/connections (vec toolkits)])
 
 (defn accounts
   "Your connected accounts at Composio, {:id :toolkit :status} each:
@@ -242,25 +267,23 @@
    (composio/rest-call (partial call handle) @(:discovery handle) "GET" composio/triggers-path {})))
 
 (defn add-trigger
-  "A trigger of the kind `slug` on the connected account
+  "An effect: a trigger of the kind `slug` on the connected account
    `connected-account-id` (one of accounts), with `config` as its type
-   asks: from now on every event of it is posted to this machine and
-   arrives in your conversation. Answers the trigger's id, which is
-   noted as a fact so that the events find you:
+   asks, [:composio/add-trigger slug account config]. Once the host
+   ran it, every event of it is posted to this machine and arrives in
+   your conversation; its result is {:id :slug :account}, the id noted
+   as a fact so that the events find you:
    (composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\")."
-  [handle slug connected-account-id & [config]]
-  (let [body (composio/rest-call (partial call handle) @(:discovery handle) "POST" (composio/upsert-trigger-path slug)
-                                 {:body (composio/upsert-trigger-body connected-account-id (composio/user-id!) config)})
-        id (or (:trigger_id body) (:id body))]
-    (remember handle composio/trigger-fact {:id id :slug (str slug) :account (str connected-account-id)})
-    id))
+  [_handle slug connected-account-id & [config]]
+  (when-not (or (nil? config) (map? config))
+    (throw (js/Error. "composio/add-trigger takes a map of config")))
+  [:composio/add-trigger (str slug) (str connected-account-id) (or config {})])
 
 (defn delete-trigger
-  "The trigger `id` deleted at Composio; its events stop."
-  [handle id]
-  (composio/rest-call (partial call handle) @(:discovery handle) "DELETE" (composio/delete-trigger-path id) {})
-  (remember handle composio/trigger-deleted-fact {:id (str id)})
-  (str "Deleted " id))
+  "An effect: the trigger `id` deleted at Composio, its events stop,
+   [:composio/delete-trigger id]."
+  [_handle id]
+  [:composio/delete-trigger (str id)])
 
 (defn procedures
   "The procedures of the organization's Storrito API, {:name :doc
@@ -472,19 +495,21 @@
    ["(call \"github\" \"/user/repos\" {:query {:per_page 5}})" "an HTTP call through the gateway, by provider name or connection id: {:status :headers :body}, JSON as data; :method, :body (data as JSON), :headers"]
    ["(composio/search \"send an email\" [\"gmail\"])" "the tools of the organization's services for a use case: slugs, schemas, what is connected"]
    ["(composio/schemas [\"GMAIL_SEND_EMAIL\"])" "the input schemas of tools by slug"]
-   ["(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})" "runs one tool with its arguments"]
-   ["(composio/connections [\"googlesheets\"])" "the connections of services by toolkit slug (googlesheets, gmail, googledrive, slack, notion, github), a missing one started: a sign-in link for the person, good for ten minutes; the answer to give as soon as they name a service of theirs"]
+   ["(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})" "an effect: one tool run with its arguments by the host after the program; (composio/execute! slug args) runs a tool that only reads at once, in the program"]
+   ["(composio/connections [\"googlesheets\"])" "an effect: the connections of services by toolkit slug (googlesheets, gmail, googledrive, slack, notion, github), a missing one started: its result is a sign-in link for the person, good for ten minutes; the plan to answer as soon as they name a service of theirs"]
    ["(composio/accounts)" "your connected accounts, by service: {:id :toolkit :status}"]
    ["(composio/trigger-types \"googledrive\")" "the events a service offers and the config each takes"]
-   ["(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\" {})" "every event of that kind on the connected account arrives in your conversation from now on; answers the trigger's id"]
-   ["(composio/triggers)" "your triggers: {:id :slug :connected-account :state}; (composio/delete-trigger \"ti_1\") ends one"]
+   ["(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\" {})" "an effect: every event of that kind on the connected account arrives in your conversation once the host ran it; its result has the trigger's :id"]
+   ["(composio/triggers)" "your triggers: {:id :slug :connected-account :state}; (composio/delete-trigger \"ti_1\") is the effect that ends one"]
    ["(storrito/procedures)" "the organization's Storrito API, one function storrito/<name> per procedure, a map of arguments each: a query answers at once, a command answers an action"]
-   ["[[:storrito/schedule-social-post {...}] [:remember \"posted\" {:id [:plan/result 0 :socialPostUuid]}]]" "a plan: a vector of actions as the program's value; the host runs them after the program, in order, each once, also across a restart; [:plan/result i & path] in an action stands for that part of the result of action i (from 0); the first failure ends the plan; the answer lists what each did"]
+   ["[[:storrito/schedule-social-post {...}] [:remember \"posted\" {:id [:plan/result 0 :socialPostUuid]}]]" "a plan: a vector of effects as the value of the program's last form; the host runs them after the program, in order, each once, also across a restart; [:plan/result i & path] in an effect stands for that part of the result of effect i (from 0); the first failure ends the plan; the answer lists what each did"]
+   ["[:call \"github\" \"/repos/x/issues\" {:method :post :body {...}}]" "an effect: a request through the gateway that changes something, as (call ...) makes it; (call ...) in the program is for reads"]
+   ["[:mcp/call \"github\" \"create_issue\" {...}]" "an effect: a tool of an MCP server that changes something; (mcp.<server>/<tool> ...) in the program is for reads"]
    ["(storrito/agent-uuid)" "your uuid at Storrito, the agentUuid some storrito/ procedures take"]
    ["(mcp/servers)" "the MCP servers of the machine: their namespaces, how many tools, whether connected, their instructions"]
    ["(mcp/tools \"github\")" "the tools of one server: {:name :fn :description}, (doc mcp.github/<tool>) says its arguments"]
    ["(mcp/add! \"github\" {:url \"https://…/mcp\" :token \"GITHUB_TOKEN\"})" "connects an MCP server for the machine; :needs names the secrets the person types into a [:secret {:name \"GITHUB_TOKEN\"}] field of a ```hiccup block in your answer, never into the chat; (mcp/test \"github\") tries it again, (mcp/enable! \"github\" false), (mcp/remove! \"github\")"]
-   ["(mcp.github/search_issues {:query \"bug\"})" "one tool of a server, a map of arguments: its structured content, else its text (JSON as data); pictures are shown to you after the answer; (mcp/call \"github\" \"search_issues\" {...}) the same by name"]
+   ["(mcp.github/search_issues {:query \"bug\"})" "one tool of a server that reads, a map of arguments: its structured content, else its text (JSON as data); pictures are shown to you after the answer; (mcp/call \"github\" \"search_issues\" {...}) the same by name; a tool that changes something is the effect [:mcp/call server tool args]"]
    ["(remember \"review-posted\" {:id 4711})" "an event for later runs, kept through every summary and seen by your runs"]
    ["(recall {:event \"review-posted\"})" "your events, oldest first; :since narrows them"]])
 
@@ -577,7 +602,7 @@
                        :namespaces (merge
                                     {'clojure.core denied-core
                                      'agent (vars agent-ns handle [#'connectors #'connector #'call #'remember #'recall #'help])
-                                     'composio (vars composio-ns handle [#'search #'schemas #'execute #'connections #'accounts #'trigger-types #'triggers #'add-trigger #'delete-trigger])
+                                     'composio (vars composio-ns handle [#'search #'schemas #'execute #'execute! #'connections #'accounts #'trigger-types #'triggers #'add-trigger #'delete-trigger])
                                      'storrito (cond-> (vars storrito-ns handle [#'procedures #'agent-uuid])
                                                  catalog (merge (storrito-vars (partial call handle) connection catalog)))
                                      'mcp (named-vars mcp-ns handle {'servers #'mcp-servers 'tools #'mcp-tools 'call #'mcp-call
@@ -699,12 +724,16 @@
 
 (defn known
   "What `rragent.plan` takes to tell a plan from data and to check it:
-   the action namespaces and names the host runs, and the catalog's
-   procedures with their kinds."
+   the catalog's procedures with their kinds; the other effects
+   `rragent.plan/kinds` knows by itself."
   [handle]
-  {:namespaces #{"storrito"}
-   :names #{:remember}
-   :procedures (storrito/kinds (:catalog @(:storrito handle)))})
+  {:procedures (storrito/kinds (:catalog @(:storrito handle)))})
+
+(defn composio-session
+  "The search session the program made, for its Composio effects; nil
+   without a search."
+  [handle]
+  @(:composio-session handle))
 
 (defn evaluate-program
   "`code` evaluated in the context of `handle` as `evaluate` does it,
@@ -728,7 +757,7 @@
         printed (str sb)
         break (when (and (seq printed) (not (str/ends-with? printed "\n"))) "\n")]
     {:text (cut (str printed break "=> " (if plan
-                                             (str "a plan of " (count plan) " action" (when (not= 1 (count plan)) "s"))
+                                             (str "a plan of " (count plan) " effect" (when (not= 1 (count plan)) "s"))
                                              (pr-str value))))
      :plan plan}))
 

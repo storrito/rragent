@@ -137,8 +137,8 @@
     (testing "help and doc"
       (let [help (codemode/evaluate handle "(help)")]
         (is (str/starts-with? help "Your REPL: Clojure"))
-        (is (str/includes? help "(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})\n    runs one tool with its arguments"))
-        (is (str/includes? help "(composio/connections [\"googlesheets\"])\n    the connections of services by toolkit slug") "the slug of a spreadsheet, and that the link is the answer to give")
+        (is (str/includes? help "(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})\n    an effect: one tool run with its arguments by the host after the program"))
+        (is (str/includes? help "(composio/connections [\"googlesheets\"])\n    an effect: the connections of services by toolkit slug") "the slug of a spreadsheet, and that the link is the answer to give")
         (is (str/includes? help "good for ten minutes"))
         (is (str/ends-with? help "=> nil")))
       (let [doc (codemode/evaluate handle "(doc call)")]
@@ -178,17 +178,23 @@
                   (is (= "=> {:session \"trs_1\", :slug \"COMPOSIO_GET_TOOL_SCHEMAS\", :arguments {:tool_slugs [\"GMAIL_SEND_EMAIL\"], :session_id \"search_1\"}}"
                          (codemode/evaluate handle "(:echo (composio/schemas [\"GMAIL_SEND_EMAIL\"]))")))
                   (is (= "=> [{:index 0, :tool_slug \"GMAIL_SEND_EMAIL\", :response {:sent true}}]"
-                         (codemode/evaluate handle "(:results (composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\" :subject \"Hi\"}))")))
+                         (codemode/evaluate handle "(:results (composio/execute! \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\" :subject \"Hi\"}))")))
                   (is (= "=> {:tools [{:tool_slug \"GMAIL_SEND_EMAIL\", :arguments {:to \"a@example.com\", :subject \"Hi\"}}], :session_id \"search_1\"}"
-                         (codemode/evaluate handle "(get-in (composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\" :subject \"Hi\"}) [:echo :arguments])")))
-                  (is (= "=> \"https://connect.example/gmail\""
-                         (codemode/evaluate handle "(get-in (composio/connections [\"gmail\"]) [:results :gmail :redirect_url])"))))
+                         (codemode/evaluate handle "(get-in (composio/execute! \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\" :subject \"Hi\"}) [:echo :arguments])"))))
+                (testing "a tool that changes something and a connection are effects, not calls"
+                  (is (= "=> [:composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"}]"
+                         (codemode/evaluate handle "(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})")))
+                  (is (= "=> [:composio/connections [\"gmail\"]]" (codemode/evaluate handle "(composio/connections [\"gmail\"])")))
+                  (is (str/includes? (failure #(codemode/evaluate handle "(composio/execute \"X\" 1)")) "takes a map of arguments"))
+                  (is (= {:text "=> a plan of 1 effect" :plan [[:composio/execute "GMAIL_SEND_EMAIL" {}]]}
+                         (codemode/evaluate-program handle "(composio/execute \"GMAIL_SEND_EMAIL\" {})")))
+                  (is (= "search_1" (codemode/composio-session handle)) "the search session the program made, for its effects"))
                 (testing "a failed run throws with Composio's error and the data"
-                  (let [message (failure #(codemode/evaluate handle "(composio/execute \"SLACK_SEND_MESSAGE\" {:channel \"#x\"})"))]
+                  (let [message (failure #(codemode/evaluate handle "(composio/execute! \"SLACK_SEND_MESSAGE\" {:channel \"#x\"})"))]
                     (is (str/includes? message "COMPOSIO_MULTI_EXECUTE_TOOL failed: SLACK_SEND_MESSAGE: slack is not connected"))
                     (is (str/includes? message "\"tool_slug\":\"SLACK_SEND_MESSAGE\""))))
                 (testing "a program catches it"
-                  (is (= "=> \"no slack\"" (codemode/evaluate handle "(try (composio/execute \"SLACK_SEND_MESSAGE\" {}) (catch :default e (if (ex-data e) \"no slack\" \"?\")))"))))))
+                  (is (= "=> \"no slack\"" (codemode/evaluate handle "(try (composio/execute! \"SLACK_SEND_MESSAGE\" {}) (catch :default e (if (ex-data e) \"no slack\" \"?\")))"))))))
             (testing "a session Composio does not know"
               (with-env "COMPOSIO_SESSION_ID" "trs_dead"
                 (fn []
@@ -231,19 +237,18 @@
               (is (= "=> [:storrito/create-note {:text \"a\"}]" (codemode/evaluate handle "(storrito/create-note {:text \"a\"})")))
               (is (str/includes? (failure #(codemode/evaluate handle "(storrito/create-note \"a\")")) "storrito/create-note takes a map of arguments"))
               (is (str/starts-with? (codemode/evaluate handle "(doc storrito/create-note)")
-                                    "-------------------------\nstorrito/create-note\n([] [args])\n  A command: answers the action [:storrito/create-note args], it does not call the API.")))
+                                    "-------------------------\nstorrito/create-note\n([] [args])\n  An effect: answers [:storrito/create-note args], it does not call the API.")))
             (testing "the plan in a program's value"
-              (is (= {:text "=> a plan of 2 actions" :plan [[:storrito/create-note {:text "a"}] [:storrito/flaky-once {}]]}
+              (is (= {:text "=> a plan of 2 effects" :plan [[:storrito/create-note {:text "a"}] [:storrito/flaky-once {}]]}
                      (codemode/evaluate-program handle "[(storrito/create-note {:text \"a\"}) (storrito/flaky-once)]")))
-              (is (= {:text "one\n=> a plan of 1 action" :plan [[:storrito/create-note {:text "b"}]]}
+              (is (= {:text "one\n=> a plan of 1 effect" :plan [[:storrito/create-note {:text "b"}]]}
                      (codemode/evaluate-program handle "(println \"one\") (storrito/create-note {:text \"b\"})")))
               (is (= {:text "=> [[:a 1] [:b 2]]" :plan nil} (codemode/evaluate-program handle "(vec {:a 1 :b 2})")) "data is data")
               (is (= {:text "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" :plan nil} (codemode/evaluate-program handle "(storrito/generate-uuid)")))
               (is (str/includes? (failure #(codemode/evaluate-program handle "[(storrito/create-note {:text \"a\"}) [:foo 1]]"))
-                                 "action 2, foo 1, is none the host runs")))
+                                 "effect 2, foo 1, is none the host runs")))
             (testing "what the host checks a plan with"
-              (is (= {:namespaces #{"storrito"} :names #{:remember}
-                      :procedures {"generate-uuid" {:kind :query} "status-instagram-story" {:kind :query} "flaky-once" {:kind :command} "create-note" {:kind :command}}}
+              (is (= {:procedures {"generate-uuid" {:kind :query} "status-instagram-story" {:kind :query} "flaky-once" {:kind :command} "create-note" {:kind :command}}}
                      (codemode/known handle))))))
         (.finally done))))
 
@@ -285,22 +290,19 @@
                              (codemode/evaluate handle "(composio/accounts)")))
                       (is (= "=> [\"GOOGLEDRIVE_FILE_CREATED_TRIGGER\"]"
                              (codemode/evaluate handle "(mapv :slug (composio/trigger-types \"googledrive\"))"))))
-                    (testing "a trigger added is noted as a fact, with the user id named for Composio, and listed; deleted it is noted too"
+                    (testing "adding and deleting a trigger are effects; the triggers are listed in the program"
                       (codemode/begin! handle [])
-                      (is (= "=> \"ti_1\"" (codemode/evaluate handle "(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\")")))
-                      (is (= [{:event "composio-trigger" :id "ti_1" :slug "GOOGLEDRIVE_FILE_CREATED_TRIGGER" :account "ca_1"}]
-                             (mapv #(dissoc % :at) (codemode/pending handle))))
-                      (is (= "=> [{:id \"ti_1\", :slug \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\", :connected-account \"ca_1\", :state \"active\"}]"
-                             (codemode/evaluate handle "(composio/triggers)")))
-                      (is (= "=> \"Deleted ti_1\"" (codemode/evaluate handle "(composio/delete-trigger \"ti_1\")")))
-                      (is (= ["composio-trigger" "composio-trigger-deleted"] (mapv :event (codemode/pending handle))))
-                      (is (= "=> []" (codemode/evaluate handle "(composio/triggers)"))))
+                      (is (= "=> [:composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\" {}]"
+                             (codemode/evaluate handle "(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\")")))
+                      (is (= "=> [:composio/delete-trigger \"ti_1\"]" (codemode/evaluate handle "(composio/delete-trigger \"ti_1\")")))
+                      (is (= [] (codemode/pending handle)) "nothing noted in the program: the host notes the fact when it runs the effect")
+                      (is (= "=> []" (codemode/evaluate handle "(composio/triggers)")) "nothing was added by the program itself"))
                     (testing "help names the session and the user id"
                       (is (str/includes? (codemode/evaluate handle "(help)") "session trs_1, your accounts and triggers under agent-1")))))
-                (testing "without a user id a trigger cannot be added: Composio wants the account's owner"
+                (testing "the effect is made without a user id; the host wants one when it runs it"
                   (with-env "COMPOSIO_USER_ID" nil
                     (fn []
-                      (is (str/includes? (failure #(codemode/evaluate handle "(composio/add-trigger \"X\" \"ca_1\")")) "No Composio user id")))))))))
+                      (is (= "=> [:composio/add-trigger \"X\" \"ca_1\" {}]" (codemode/evaluate handle "(composio/add-trigger \"X\" \"ca_1\")"))))))))))
         (.finally done))))
 
 (def mcp-catalog

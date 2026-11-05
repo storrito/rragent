@@ -912,24 +912,29 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   data; answers `{:status :headers :body}`, the body as data when it is
   JSON.
 - `(composio/search "send an email" ["gmail"])`, `(composio/schemas
-  ["GMAIL_SEND_EMAIL"])`, `(composio/execute "GMAIL_SEND_EMAIL" {:to
-  "a@example.com"})`, `(composio/connections ["googlesheets"])`: the four
-  meta tools, a completed run's data, a failed one a throw with
-  Composio's error; `connections` starts a connection the organization
-  lacks and answers a sign-in link for the person, good for ten
-  minutes, which the agent offers as soon as the person names a
-  service of theirs.
+  ["GMAIL_SEND_EMAIL"])`, `(composio/execute! "GMAIL_SEND_EMAIL" {...})`
+  for a tool that only reads: the meta tools called in the program, a
+  completed run's data, a failed one a throw with Composio's error.
+  `(composio/execute "GMAIL_SEND_EMAIL" {:to "a@example.com"})` and
+  `(composio/connections ["googlesheets"])` answer their effect instead,
+  `[:composio/execute …]` and `[:composio/connections …]`, run by the
+  host after the program; `connections` starts a connection the
+  organization lacks and its result is a sign-in link for the person,
+  good for ten minutes, which the agent offers as soon as the person
+  names a service of theirs.
 - `(composio/accounts)`, `(composio/trigger-types "googledrive")`,
-  `(composio/add-trigger "GOOGLEDRIVE_FILE_CREATED_TRIGGER" "ca_1" {})`,
-  `(composio/triggers)`, `(composio/delete-trigger "ti_1")`: the agent's
-  connected accounts and triggers at Composio, its own; a trigger added
-  is noted as a fact (`composio-trigger`), and its events arrive in the
-  conversation of the bot that added it.
+  `(composio/triggers)` read the agent's connected accounts and
+  triggers at Composio, its own; `(composio/add-trigger
+  "GOOGLEDRIVE_FILE_CREATED_TRIGGER" "ca_1" {})` and
+  `(composio/delete-trigger "ti_1")` are effects; a trigger added is
+  noted as a fact (`composio-trigger`) by the host when it runs the
+  effect, and its events arrive in the conversation of the bot that
+  added it.
 - `(storrito/procedures)`: the catalog's procedures, each a function
   `storrito/<name>` that takes a map. A query (`list-…`, `status-…`,
   `get-…`, `search-…`, `find-…`, `generate-…`) answers the API's data,
   a failed call a throw with what the API said; a 429 or a 5xx is
-  tried again. A command answers the action `[:storrito/<name> args]`
+  tried again. A command answers the effect `[:storrito/<name> args]`
   instead of calling: it runs as part of the program's plan, below.
 - `(mcp.storrito/list_stories {:limit 5})`, `(mcp/servers)`,
   `(mcp/tools "storrito")`, `(mcp/call "files" "read.file" {...})`: the
@@ -956,28 +961,35 @@ namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
   sees the events as they were when it started, what it remembers is
   appended when it ends.
 
-A program reads; what changes something is an action it answers
-(`rragent.plan`, after [Nexus](https://github.com/cjohansen/nexus): an
-action is a vector led by a keyword, an instruction as data). A vector
-of actions as the program's value is a plan, and the `eval` tool runs
-it after the program, one action after the other, each as a nested
-tool call of its own under the action's key: the `storrito` tool for a
-command of the catalog (`rragent.tools.storrito`, which only tools
-call), the `remember` tool for an event, what the program remembered as
-it ran going first. A placeholder `[:plan/result 0 :uuid]` in the
-arguments of an action stands for that part of the result of the
-action at that index. The first failure ends the plan, the actions
-after it are not run, and the answer lists what each did, an error
-result when one failed; a plan an action of which is wrong, a query as
-an action, a placeholder that points forward, runs not at all. The
-tool is replay-safe: the program's answer is kept as the call's memo
-before anything of the plan runs, and a call the machine's restart
-interrupted runs again from the memo, not the program, and finds by
-their keys the actions that were done, so that nothing changes
-anything twice; the program, which only reads, is the one thing that
-may run again. Which procedures are commands the verb says, until the
-catalog does; Composio's and the MCP servers' tools are still called
-from the program, actions for them come later.
+A program is pure, or at least idempotent: it reads and computes, and
+what would change something it answers as an effect, data in the
+vector that is the value of its last form (`rragent.plan`, after
+[Nexus](https://github.com/cjohansen/nexus): an effect is a vector led
+by a keyword, an instruction as data). The model is told so, and the
+functions that change something at Storrito and Composio answer their
+effect instead of calling; `[:call which path opts]` and `[:mcp/call
+server tool args]` are the effects of a request through the gateway
+and of an MCP tool that change something, `[:remember event data]` an
+event of the bot, where `(call …)`, `(mcp.<server>/<tool> …)` and
+`(composio/execute! …)` in the program are for reads. The `eval` tool
+runs the plan after the program, one effect after the other, each as a
+nested tool call of its own under the effect's key, the tools of
+`rragent.tools.effects`, which only tools call, and the `remember`
+tool; what the program remembered as it ran goes first. A placeholder
+`[:plan/result 0 :uuid]` in the arguments of an effect stands for that
+part of the result of the effect at that index. The first failure ends
+the plan, the effects after it are not run, and the answer lists what
+each did, an error result when one failed; a plan an effect of which
+is wrong, a query as an effect, a placeholder that points forward,
+runs not at all. The tool is replay-safe: the program's answer is kept
+as the call's memo before anything of the plan runs, and a call the
+machine's restart interrupted runs again from the memo, not the
+program, and finds by their keys the effects that were done, so that
+nothing changes anything twice; the program, which changes nothing, is
+the one thing that may run again, which is why it must not. Which
+Storrito procedures are commands the verb says, until the catalog
+does; which Composio and MCP tools change something the model judges
+from their names and descriptions. See [docs/effects.md](docs/effects.md).
 
 A call blocks the thread it runs in until it is answered: SCI evaluates
 a program synchronously, so a call in the middle of a loop cannot

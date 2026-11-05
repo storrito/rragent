@@ -9,21 +9,23 @@
    thousand characters; an error is the tool's error. The events of the
    bot are read before the program runs, so that it recalls them.
 
-   A program reads; what changes something is an action it answers
-   (`rragent.plan`): a command of the Storrito API answers
-   `[:storrito/<procedure> args]` instead of calling, and a vector of
-   actions as the program's value is a plan. The tool runs the plan
-   after the program, one action after the other, each as a nested
-   call of its own under the action's key, the `storrito` tool for a
-   command (`rragent.tools.storrito`), the `remember` tool for an
-   event, what the program remembered as it ran first. The tool is
-   replay-safe: the program's answer is kept as the call's memo the
-   moment it is there, and a call the machine's restart interrupted
-   runs again from the memo, not the program, and finds by their keys
-   the actions that were done. So nothing runs twice, and the
-   program, which only reads, is the one thing that may. Stop ends
-   the program with its worker, so does the timeout; the next call
-   starts a fresh worker and says that the defs are gone."
+   A program is pure, or at least idempotent: it reads and computes,
+   and what would change something it answers as an effect, data in
+   the vector that is the value of its last form (`rragent.plan`): a
+   command of the Storrito API, `[:storrito/<procedure> args]`, a
+   request through the gateway, a tool of Composio or of an MCP
+   server, an event to remember. The tool runs the plan after the
+   program, one effect after the other, each as a nested call of its
+   own under the effect's key, the tools of `rragent.tools.effects`
+   and the `remember` tool; what the program remembered as it ran
+   goes first. The tool is replay-safe: the program's answer is kept
+   as the call's memo the moment it is there, and a call the
+   machine's restart interrupted runs again from the memo, not the
+   program, and finds by their keys the effects that were done. So
+   nothing runs twice, and the program, which changes nothing, is the
+   one thing that may run again. Stop ends the program with its
+   worker, so does the timeout; the next call starts a fresh worker
+   and says that the defs are gone."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [cljs.reader :as reader]
@@ -62,33 +64,34 @@
     (catch :default _ nil)))
 
 (defn ^:async answer!
-  "The program's answer: `{:text :plan :pending :images}`. The first
-   time the call runs it, in `worker`, the events of the bot read
-   first, and keeps `:text`, `:plan` and `:pending` as the call's memo
-   (`memo-name`) before anything of the plan runs; a rerun of the
-   call takes the memo and does not run the program again, without
-   the pictures. A program that failed is the tool's error, and keeps
+  "The program's answer: `{:text :plan :pending :composio-session
+   :images}`. The first time the call runs it, in `worker`, the
+   events of the bot read first, and keeps all but the pictures as
+   the call's memo (`memo-name`) before anything of the plan runs; a
+   rerun of the call takes the memo and does not run the program
+   again. A program that failed is the tool's error, and keeps
    nothing: a rerun runs it again."
   [worker api call-context code]
   (let [kept (await (.memo api memo-name call-context))]
     (if (some? kept)
       (assoc (reader/read-string kept) :images [])
       (let [file (await (events-tool/file api call-context))
-            {:keys [text error plan pending images]} (await (codemode-worker/evaluate! worker {:code code
+            {:keys [text error plan pending images composio-session]} (await (codemode-worker/evaluate! worker {:code code
                                                                                           :events (events/read file)
                                                                                           :env (codemode-worker/environment)
                                                                                           :signal (.-abortSignal call-context)
                                                                                           :on-progress (partial progress! api)}))]
         (when error
           (throw (js/Error. error)))
-        (let [stored (await (.memo api memo-name (pr-str {:text text :plan plan :pending (vec pending)}) call-context))]
+        (let [stored (await (.memo api memo-name (pr-str {:text text :plan plan :pending (vec pending) :composio-session composio-session}) call-context))]
           (assoc (reader/read-string stored) :images (vec images)))))))
 
 (defn outcome
   "A nested call's result as `rragent.plan/perform!` takes it: the value
-   is the tool's structured output as data; an error's text the
-   value's `:error`, else its diagnostics, else the value itself when
-   it is text."
+   is the tool's structured output as data, the pictures of an MCP
+   call taken out under `:images`; an error's text the value's
+   `:error`, else its diagnostics, else the value itself when it is
+   text."
   [^js result]
   (let [value (when (some? (.-structuredOutput result))
                 (js->clj (.-structuredOutput result) :keywordize-keys true))]
@@ -98,10 +101,12 @@
                   (some->> (.-diagnostics result) array-seq (map #(.-message %)) seq (str/join "; "))
                   (when (string? value) value)
                   "failed")}
-      {:ok true :value value})))
+      {:ok true
+       :value (if (and (map? value) (contains? value :images)) (dissoc value :images) value)
+       :images (when (map? value) (vec (:images value)))})))
 
 (defn remembered
-  "What the program remembered as actions, `[:remember event data]`
+  "What the program remembered as effects, `[:remember event data]`
    each, oldest first."
   [pending]
   (mapv (fn [{:keys [event] :as noted}] [:remember event (dissoc noted :event :at)]) pending))
@@ -116,7 +121,7 @@
    and the pictures of its MCP calls (`output`), an error result when
    an action failed."
   [worker codemode api call-context code]
-  (let [{:keys [text plan pending images]} (await (answer! worker api call-context code))
+  (let [{:keys [text plan pending images composio-session]} (await (answer! worker api call-context code))
         actions (into (remembered pending) plan)
         problems (plan/check (codemode/known codemode) actions)]
     (when (seq problems)
@@ -124,10 +129,11 @@
     (let [outcomes (await (plan/perform! actions {:execute! (fn [key tool args]
                                                             (-> (.executeTool api tool (clj->js args) call-context #js {:key key})
                                                                 (.then outcome)))
-                                               :aborted? #(some-> (.-abortSignal call-context) .-aborted)}))
+                                               :aborted? #(some-> (.-abortSignal call-context) .-aborted)
+                                               :session composio-session}))
           failed? (plan/failed? outcomes)]
       (output (str text (when (or (seq plan) failed?) (str "\n" (plan/report outcomes))))
-              images
+              (into (vec images) (mapcat :images) outcomes)
               failed?))))
 
 (def description
@@ -135,12 +141,17 @@
        "the organization's connectors through the Sprites gateway, (connectors), (call provider path opts), composio/search, "
        "composio/execute, storrito/<procedure>, the tools of the machine's MCP servers as mcp.<server>/<tool> (mcp/servers lists them), "
        "remember and recall, and (doc f) explains any of them. "
-       "A program reads and decides; what changes something is an action it answers: a command of the organization's Storrito API, "
-       "(storrito/schedule-social-post {...}), answers the action [:storrito/schedule-social-post {...}] instead of calling, and a vector "
-       "of actions as the program's value is a plan, which runs after the program, in order, each action once, also when the machine "
-       "restarts in the middle; the answer lists what each did, and the first failure ends the plan. [:plan/result 0 :socialPostUuid] "
-       "in an action's arguments stands for that part of the result of the action at that index, from 0. A query of the API "
-       "(list-…, status-…, get-…) is called and answers at once, so a program lists, filters and answers the actions for what is left. "
+       "Write a pure program, or at least an idempotent one: it may run again, so it only reads and computes, and what would "
+       "change something it answers as an effect, data in the vector that is the value of its last form: "
+       "[[:storrito/schedule-social-post {...}] [:composio/execute \"GMAIL_SEND_EMAIL\" {...}] [:remember \"posted\" {:id [:plan/result 0 :socialPostUuid]}]]. "
+       "The host runs the plan after the program, in order, each effect once, also when the machine restarts in the middle; the answer "
+       "lists what each did, and the first failure ends the plan. A command of the Storrito API, (storrito/schedule-social-post {...}), "
+       "and composio/execute, composio/connections, composio/add-trigger and composio/delete-trigger answer their effect instead of "
+       "calling; [:call which path opts] and [:mcp/call server tool args] are the effects of a request through the gateway and of an "
+       "MCP tool that change something, where (call ...) and (mcp.<server>/<tool> ...) in the program are for reads. "
+       "[:plan/result 0 :socialPostUuid] in an effect's arguments stands for that part of the result of the effect at that index, from 0. "
+       "A query (list-…, status-…, get-…, composio/execute! for a Composio tool that only reads) is called and answers at once, "
+       "so a program lists, filters and answers the effects for what is left. "
        "A service of the person's that is not connected yet (a Google spreadsheet, Gmail, Drive, Slack, Notion, GitHub) is connected with "
        "(composio/connections [\"googlesheets\"]), by its slug at Composio: a sign-in link for the person, good for ten minutes, which you "
        "give them in the same answer in which they name the service, before you ask anything else about it. "

@@ -91,9 +91,11 @@
   "One program in `handle`: the environment set, the MCP servers
    installed when they came with it, the events begun, the program
    evaluated. `{:text}` or `{:error}`, with `:pending`, what it
-   remembered, `:plan`, the actions of its value when it is a plan
-   (`rragent.codemode/evaluate-program`), and `:images`, the pictures
-   its MCP calls answered, when there are any, either way."
+   remembered, `:plan`, the effects of its value when it is a plan
+   (`rragent.codemode/evaluate-program`), `:composio-session`, the
+   search session it made for its Composio effects, and `:images`,
+   the pictures its MCP calls answered, when there are any, either
+   way."
   [handle {:keys [code events env mcp]}]
   (set-env! env)
   (when mcp
@@ -106,6 +108,7 @@
                  (catch :default e
                    {:error (.-message e)}))]
     (cond-> (assoc answer :pending (codemode/pending handle))
+      (codemode/composio-session handle) (assoc :composio-session (codemode/composio-session handle))
       (seq (codemode/images handle)) (assoc :images (codemode/images handle)))))
 
 (defn rpc

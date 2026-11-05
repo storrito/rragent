@@ -6,9 +6,7 @@
             [rragent.plan :as plan]))
 
 (def known
-  {:namespaces #{"storrito"}
-   :names #{:remember}
-   :procedures {"generate-uuid" {:kind :query}
+  {:procedures {"generate-uuid" {:kind :query}
                 "status-instagram-story" {:kind :query}
                 "create-note" {:kind :command}
                 "flaky-once" {:kind :command}}})
@@ -33,30 +31,35 @@
     (is (nil? (plan/of known [[:storrito/x {}] 3])) "not every element an action: data"))
   (testing "a plan with a stranger in it is a mistake"
     (is (str/includes? (failure #(plan/of known [[:storrito/create-note {}] [:foo 1]]))
-                       "action 2, foo 1, is none the host runs"))))
+                       "effect 2, foo 1, is none the host runs")))
+  (testing "the other effects the host runs"
+    (is (= [[:call "echo" "/x" {:method :post}] [:composio/execute "GMAIL_SEND_EMAIL" {:to "a"}] [:composio/connections ["gmail"]]
+            [:composio/add-trigger "T" "ca_1" {}] [:composio/delete-trigger "ti_1"] [:mcp/call "github" "create_issue" {:title "x"}]]
+           (plan/of known [[:call "echo" "/x" {:method :post}] [:composio/execute "GMAIL_SEND_EMAIL" {:to "a"}] [:composio/connections ["gmail"]]
+                           [:composio/add-trigger "T" "ca_1" {}] [:composio/delete-trigger "ti_1"] [:mcp/call "github" "create_issue" {:title "x"}]])))))
 
 (deftest check-test
   (is (= [] (plan/check known [[:storrito/create-note {:text "a"}]
                                [:storrito/flaky-once]
                                [:remember "noted" {:id [:plan/result 0 :id]}]
                                [:remember "bare"]])))
-  (is (= ["action 1, storrito/nope {}: storrito/nope is no procedure of the catalog; (storrito/procedures) lists them"]
+  (is (= ["effect 1, storrito/nope {}: storrito/nope is no procedure of the catalog; (storrito/procedures) lists them"]
          (plan/check known [[:storrito/nope {}]])))
-  (is (= ["action 1, storrito/generate-uuid: storrito/generate-uuid is a query: call it in the program, (storrito/generate-uuid {...}) answers at once"]
+  (is (= ["effect 1, storrito/generate-uuid: storrito/generate-uuid is a query: call it in the program, (storrito/generate-uuid {...}) answers at once"]
          (plan/check known [[:storrito/generate-uuid]])))
-  (is (= ["action 1, storrito/create-note \"a\": its arguments are no map"]
+  (is (= ["effect 1, storrito/create-note \"a\": its arguments are no map"]
          (plan/check known [[:storrito/create-note "a"]])))
-  (is (= ["action 1, storrito/create-note {} {}: a storrito/ action is the keyword and one map"]
+  (is (= ["effect 1, storrito/create-note {} {}: a storrito/ effect is the keyword and one map"]
          (plan/check known [[:storrito/create-note {} {}]])))
-  (is (= ["action 1, remember \"\": remember takes an event name"
-          "action 2, remember \"x\" 3: remember takes a map of data"]
+  (is (= ["effect 1, remember \"\": remember takes an event name"
+          "effect 2, remember \"x\" 3: remember takes a map of data"]
          (plan/check known [[:remember ""] [:remember "x" 3]])))
   (testing "a placeholder points back, never forward or at itself"
-    (is (= ["action 1, storrito/create-note {:text [:plan/result 0 :id]}: the placeholder [:plan/result 0 :id] refers to action 1, which is not before this one (the first action is 0)"]
+    (is (= ["effect 1, storrito/create-note {:text [:plan/result 0 :id]}: the placeholder [:plan/result 0 :id] refers to effect 1, which is not before this one (the first effect is 0)"]
            (plan/check known [[:storrito/create-note {:text [:plan/result 0 :id]}]])))
-    (is (= ["action 2, storrito/create-note {:text [:plan/result 5 :id]}: the placeholder [:plan/result 5 :id] refers to action 6, which is not before this one (the first action is 0)"]
+    (is (= ["effect 2, storrito/create-note {:text [:plan/result 5 :id]}: the placeholder [:plan/result 5 :id] refers to effect 6, which is not before this one (the first effect is 0)"]
            (plan/check known [[:storrito/flaky-once] [:storrito/create-note {:text [:plan/result 5 :id]}]])))
-    (is (= ["action 2, storrito/create-note {:text [:plan/result \"0\"]}: the placeholder [:plan/result \"0\"] names no index"]
+    (is (= ["effect 2, storrito/create-note {:text [:plan/result \"0\"]}: the placeholder [:plan/result \"0\"] names no index"]
            (plan/check known [[:storrito/flaky-once] [:storrito/create-note {:text [:plan/result "0"]}]])))))
 
 (deftest interpolate-test
@@ -65,7 +68,27 @@
            (plan/interpolate [:remember "noted" {:id [:plan/result 0 :id] :second [:plan/result 0 :tags 1] :all [:plan/result 0]}] outcomes)))
     (is (= [:remember "noted" {:id nil}] (plan/interpolate [:remember "noted" {:id [:plan/result 0 :missing]}] outcomes)) "a part that is not there is nil")))
 
+(deftest check-kinds-test
+  (is (= [] (plan/check known [[:call "echo" "/x"] [:call "echo" "/x" {:method :post}] [:composio/execute "S"] [:composio/execute "S" {:a 1}]
+                               [:composio/connections ["gmail"]] [:composio/add-trigger "T" "ca_1"] [:composio/add-trigger "T" "ca_1" {:x 1}]
+                               [:composio/delete-trigger "ti_1"] [:mcp/call "s" "t"] [:mcp/call "s" "t" {:q 1}]])))
+  (is (= ["effect 1, call \"echo\": it takes which, path at least"] (plan/check known [[:call "echo"]])))
+  (is (= ["effect 1, call \"echo\" \"/x\" {} 4: it takes which, path, opts and no more"] (plan/check known [[:call "echo" "/x" {} 4]])))
+  (is (= ["effect 1, call \"echo\" \"/x\" 3: the opts of call are a map"] (plan/check known [[:call "echo" "/x" 3]])))
+  (is (= ["effect 1, composio/execute \"S\" 1: the arguments of composio/execute are a map"] (plan/check known [[:composio/execute "S" 1]])))
+  (is (= ["effect 1, composio/connections \"gmail\": composio/connections takes a vector of toolkit slugs"] (plan/check known [[:composio/connections "gmail"]])))
+  (is (= ["effect 1, composio/add-trigger \"T\": it takes slug, account at least"] (plan/check known [[:composio/add-trigger "T"]])))
+  (is (= ["effect 1, mcp/call \"s\" \"t\" 1: the arguments of mcp/call are a map"] (plan/check known [[:mcp/call "s" "t" 1]]))))
+
 (deftest effect-test
+  (is (= {:tool "gateway" :args {:which "echo" :path "/x" :opts {:method :post}}} (plan/effect [:call "echo" "/x" {:method :post}])))
+  (is (= {:tool "gateway" :args {:which "echo" :path "/x" :opts {}}} (plan/effect [:call "echo" "/x"])))
+  (is (= {:tool "composio-execute" :args {:slug "S" :args {:a 1} :session "search_1"}} (plan/effect [:composio/execute "S" {:a 1}] "search_1")))
+  (is (= {:tool "composio-execute" :args {:slug "S" :args {}}} (plan/effect [:composio/execute "S"])))
+  (is (= {:tool "composio-connections" :args {:toolkits ["gmail"] :session "search_1"}} (plan/effect [:composio/connections ["gmail"]] "search_1")))
+  (is (= {:tool "composio-add-trigger" :args {:slug "T" :account "ca_1" :config {}}} (plan/effect [:composio/add-trigger "T" "ca_1"])))
+  (is (= {:tool "composio-delete-trigger" :args {:id "ti_1"}} (plan/effect [:composio/delete-trigger "ti_1"])))
+  (is (= {:tool "mcp" :args {:server "s" :tool "t" :args {:q 1}}} (plan/effect [:mcp/call "s" "t" {:q 1}])))
   (is (= {:tool "storrito" :args {:procedure "create-note" :args {:text "a"}}} (plan/effect [:storrito/create-note {:text "a"}])))
   (is (= {:tool "storrito" :args {:procedure "flaky-once" :args {}}} (plan/effect [:storrito/flaky-once])))
   (is (= {:tool "remember" :args {:event "noted" :data {:id 1}}} (plan/effect [:remember "noted" {:id 1}])))
@@ -91,7 +114,7 @@
                        ["e1" "remember" {:event "noted" :data {:id "n_a"}}]]
                       @log))
                (is (= [:done :done] (mapv :status outcomes)))
-               (is (= "Plan of 2 actions: 2 done.\n1. storrito/create-note {:text \"a\"}: done {:id \"n_a\"}\n2. remember \"noted\" {:id [:plan/result 0 :id]}: done \"Noted noted\""
+               (is (= "Plan of 2 effects: 2 done.\n1. storrito/create-note {:text \"a\"}: done {:id \"n_a\"}\n2. remember \"noted\" {:id [:plan/result 0 :id]}: done \"Noted noted\""
                       (plan/report outcomes)))
                (is (false? (plan/failed? outcomes)))))
            (testing "the first failure ends the plan"
@@ -102,7 +125,7 @@
                (is (= ["e0" "e1"] (mapv first @log)) "the third is never called")
                (is (= [:done :failed :skipped] (mapv :status outcomes)))
                (is (true? (plan/failed? outcomes)))
-               (is (= "Plan of 3 actions: 1 done, failed at action 2, the rest not run.\n1. storrito/flaky-once: done {:ok true}\n2. storrito/create-note {:text \"b\"}: failed: Storrito answered HTTP 400 to create-note: no\n3. remember \"after\": not run"
+               (is (= "Plan of 3 effects: 1 done, failed at effect 2, the rest not run.\n1. storrito/flaky-once: done {:ok true}\n2. storrito/create-note {:text \"b\"}: failed: Storrito answered HTTP 400 to create-note: no\n3. remember \"after\": not run"
                       (plan/report outcomes)))))
            (testing "a stop ends it too"
              (let [log (atom [])
@@ -113,9 +136,9 @@
                                                            ((execute-with log {}) key tool args))
                                                :aborted? #(deref stopped)}))]
                (is (= [:done :aborted] (mapv :status outcomes)))
-               (is (= "Plan of 2 actions: 1 done, stopped at action 2." (plan/summary outcomes)))))
+               (is (= "Plan of 2 effects: 1 done, stopped at effect 2." (plan/summary outcomes)))))
            (testing "a plan of one"
-             (is (= "Plan of 1 action: 1 done.\n1. remember \"x\": done"
+             (is (= "Plan of 1 effect: 1 done.\n1. remember \"x\": done"
                     (plan/report (await (plan/perform! [[:remember "x"]] {:execute! (execute-with (atom []) {})}))))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
