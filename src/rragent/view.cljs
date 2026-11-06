@@ -1055,6 +1055,8 @@
                                 :usb-connect [:i18n :record/usb-connect]
                                 :usb-picking [:i18n :record/usb-picking]
                                 :usb-connecting [:i18n :record/usb-connecting]
+                                :usb-choose [:i18n :record/usb-choose]
+                                :usb-network [:i18n :record/usb-network]
                                 :usb-none [:i18n :record/usb-none]
                                 :usb-busy [:i18n :record/usb-busy]
                                 :usb-no-phone [:i18n :record/usb-no-phone]
