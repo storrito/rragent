@@ -67,6 +67,7 @@
             [rragent.tools.skill :as skill-tool]
             [rragent.tools.subagent :as subagent-tool]
             [rragent.tools.transcribe :as transcribe-tool]
+            [rragent.tools.youtube :as youtube-tool]
             [rragent.warm-summary :as warm-summary]))
 
 (def context
@@ -84,7 +85,7 @@
   (defineExtension #js {:name "rragent"
                         :tools (clj->js (into [events-tool/remember events-tool/recall fetch-tool/tool (machine-tool/tool codemode) schedule-tool/tool hook-tool/tool
                                                (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode) (music-pick-tool/tool codemode)
-                                               (transcribe-tool/tool codemode) report-tool/tool skill-tool/tool share-tool/tool]
+                                               (transcribe-tool/tool codemode) youtube-tool/tool report-tool/tool skill-tool/tool share-tool/tool]
                                               (host-tool/tools codemode)))
                         :tasks #js [schedule/Task runs/Task]}))
 

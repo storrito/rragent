@@ -345,7 +345,7 @@
 
 (defn- ^:async user-media
   "The camera and the microphone, the ones chosen when the browser has
-   them, any otherwise, and only the kinds the laptop has (`devices`):
+   them (exactly those), any otherwise, and only the kinds the laptop has (`devices`):
    a remembered id that is gone, or one kind that cannot be had, does
    not stop the panel; the other alone is asked for then. Without
    either, an empty stream: the screen alone records still. The camera
@@ -355,8 +355,12 @@
   (let [picture (effects/picture settings)
         camera? (and webcam? (seq cameras))
         chosen (cond-> {}
-                 (seq mics) (assoc :audio (if mic {:deviceId {:ideal mic}} true))
-                 camera? (assoc :video (cond-> picture camera (assoc :deviceId {:ideal camera}))))
+                 ;; `exact`, not `ideal`: Chrome weighs an ideal device
+                 ;; against the ideal size and rate, and a second camera
+                 ;; that cannot do 1920 x 1080 at 30 loses to the first;
+                 ;; a chosen device that is gone fails over to `any`.
+                 (seq mics) (assoc :audio (if mic {:deviceId {:exact mic}} true))
+                 camera? (assoc :video (cond-> picture camera (assoc :deviceId {:exact camera}))))
         any (cond-> {}
               (seq mics) (assoc :audio true)
               camera? (assoc :video true))
@@ -639,15 +643,14 @@
       (#{"SecurityError" "NotAllowedError"} (some-> error .-name)) (or (:usb-denied words) "Chrome may not use this USB device. On Linux it needs a udev rule for the phone.")
       :else (str (or (some-> error .-message) error)))))
 
-(defn connect-usb!
-  "The phone's screen over USB from the click: Chrome's picker, the
-   phone asked to allow this browser once, then its picture live in the
-   panel. A phone unplugged ends a recording, as Chrome's Stop sharing
-   does, and is let go."
-  [store]
-  (update! store assoc :usb {:status :picking} :error nil)
+(defn- open-usb!
+  "The phone of `serial` (nil: the one `usb/connect!` takes), its
+   picture live in the panel once it comes. A phone unplugged ends a
+   recording, as Chrome's Stop sharing does, and is let go."
+  [store serial]
   (-> (usb/connect! (fn [name]
-                      (update! store assoc :usb {:status :connecting :name name})))
+                      (update! store assoc :usb {:status :connecting :name name}))
+                    serial)
       (.then (fn [{:keys [name exited] :as connection}]
                (cond
                  (not connection)
@@ -682,6 +685,29 @@
       (.catch (fn [error]
                 (js/console.error "[recorder] usb" error)
                 (update! store assoc :usb nil :error (usb-error error))))))
+
+(defn connect-usb!
+  "The phone's screen over USB from the click: Chrome's picker, the
+   phone asked to allow this browser once, then its picture live in the
+   panel. With the laptop's bridge and more than one phone on its adb
+   server (one for the webcam, one for its screen, say), the panel
+   lists them first and connects the one clicked (`serial`), so that a
+   phone is never woken that was not meant."
+  ([store]
+   (update! store assoc :usb {:status :picking} :error nil)
+   (-> (usb/phones)
+       (.then (fn [phones]
+                (cond
+                  ;; unticked or the panel closed meanwhile
+                  (not= :picking (get-in @store [:ui/recorder :usb :status])) nil
+                  (< 1 (count phones)) (update! store assoc :usb {:status :choosing :phones phones})
+                  :else (open-usb! store nil))))
+       (.catch (fn [error]
+                 (js/console.error "[recorder] usb" error)
+                 (update! store assoc :usb nil :error (usb-error error))))))
+  ([store serial]
+   (update! store assoc :usb {:status :connecting} :error nil)
+   (open-usb! store serial)))
 
 (defn- usb-track
   "The phone's picture over USB, nil while none is connected."
@@ -1362,7 +1388,7 @@
   "The phone's screen over USB when it is ticked: live once connected,
    the button to connect it otherwise; a word when this browser cannot
    reach a phone over USB."
-  [store labels {:keys [status name id dark?]} ready?]
+  [store labels {:keys [status name id dark? phones]} ready?]
   [:figure.usb-screen {:replicant/key "usb"}
    (cond
      (not (usb/supported?))
@@ -1377,6 +1403,16 @@
       [:figcaption name]
       (when dark?
         [:p.hint (:usb-dark labels)]))
+
+     (= :choosing status)
+     [:div.usb-phones
+      [:p.hint (:usb-choose labels)]
+      (for [{:keys [serial name network?]} phones]
+        [:button.phone {:type "button"
+                        :replicant/key serial
+                        :disabled (not ready?)
+                        :on {:click (fn [_] (connect-usb! store serial))}}
+         (if network? (str name " · " (:usb-network labels)) name)])]
 
      :else
      [:button.choose {:type "button"
