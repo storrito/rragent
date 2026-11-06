@@ -11,7 +11,7 @@
    gateway, or no such connection (the gateway of a fresh sprite comes
    up after the service), so nothing is fixed: every call looks at
    the discovery as it is and, while no connection is known, asks the
-   gateway again, one blocking request (`rragent.codemode/connectors`),
+   gateway again, one blocking request (`rragent.codemode/refresh!`),
    at most every ten seconds; what it lists is the REPL's from then
    on. Nothing else reads the two variables."
   (:require [clojure.string]
@@ -71,11 +71,11 @@
    knows, else the gateway asked again, one request, when the last
    asking (`rragent.codemode/asked-at`) is `interval-ms`
    (`probe-interval-ms` without) ago; what it lists is the REPL's from
-   then on (`rragent.codemode/connectors`)."
+   then on (`rragent.codemode/refresh!`)."
   [codemode & [interval-ms]]
   (or (known-connection codemode)
       (when (<= (or interval-ms probe-interval-ms) (- (js/Date.now) (codemode/asked-at codemode)))
-        (gateway/connection (codemode/connectors codemode) "openrouter"))))
+        (gateway/connection (codemode/refresh! codemode) "openrouter"))))
 
 (defn- env
   [name]

@@ -169,3 +169,55 @@
   (mapv (fn [{:keys [name doc]}]
           {:name name :doc (first (str/split-lines (description doc)))})
         (:procedures catalog)))
+
+(defn ^:async call!
+  "The procedure `name` called with `args` through the `connection`
+   from the main thread, awaited (`rragent.gateway/fetch!`): the
+   answer as data; a throw with what the API said to a failed call.
+   A 429, 502, 503 or 504 is tried again, as `call` does it, after
+   `retry`'s delay."
+  [discovery connection name args]
+  (loop [tries 1]
+    (let [{:keys [status body]} (await (gateway/fetch! discovery (:id connection) (procedure-path connection name)
+                                                       {:method "POST" :body (or args {})}))]
+      (cond
+        (= 200 status) body
+        (and (contains? (:statuses retry) status) (< tries (:times retry)))
+        (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve (:delay-ms retry)))))
+            (recur (inc tries)))
+        :else (throw (ex-info (error-message name status body) {:status status :body body}))))))
+
+(defn ^:async catalog!
+  "`catalog` for the main thread, awaited instead of blocking."
+  [url]
+  (let [controller (js/AbortController.)
+        timer (js/setTimeout #(.abort controller) catalog-timeout-ms)]
+    (try
+      (let [response (await (js/fetch url #js {:headers #js {:accept "application/json"} :signal (.-signal controller)}))
+            text (await (.text response))]
+        (when-not (= 200 (.-status response))
+          (throw (js/Error. (str "The Storrito catalog at " url " answered HTTP " (.-status response)))))
+        (let [catalog (try (js->clj (js/JSON.parse text) :keywordize-keys true) (catch :default _ nil))]
+          (when-not (sequential? (:procedures catalog))
+            (throw (js/Error. (str "No procedures in the Storrito catalog at " url))))
+          catalog))
+      (finally
+        (js/clearTimeout timer)))))
+
+(defn ^:async find-catalog!
+  "`find-catalog` for the main thread, awaited instead of blocking."
+  [discovery]
+  (loop [[connection & more] (filter candidate? (:connections discovery))
+         failed nil]
+    (if-not connection
+      failed
+      (let [link (catalog-link connection)
+            read (when link
+                   (try
+                     {:connection connection :link link :catalog (await (catalog! link))}
+                     (catch :default e
+                       {:link link :error (.-message e)})))]
+        (cond
+          (:catalog read) read
+          (and read (or (storrito-host? connection) (note-link connection))) (recur more (or failed read))
+          :else (recur more failed))))))

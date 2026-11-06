@@ -15,12 +15,12 @@
    id, the machine's `agent:` label, or taken from
    `COMPOSIO_SESSION_ID` when the environment names one; both live in
    the environment of the process (`set-session!`, `set-user-id!`),
-   where the REPL's worker reads them per program
-   (`rragent.codemode-worker/environment`). The agent's triggers and
+   where the host tools that run a machine's calls read them
+   (`rragent.tools.host`). The agent's triggers and
    connected accounts are its own too, managed through the same
    connection with Composio's REST (`rest-call`, the paths and bodies
    below); the events of its triggers come straight to its page
-   (`rragent.composio-events`). In the REPL the functions are
+   (`rragent.composio-events`). In a machine the functions are
    `composio/search`, `composio/schemas`, `composio/execute`,
    `composio/connections`, `composio/triggers`,
    `composio/trigger-types`, `composio/add-trigger`,

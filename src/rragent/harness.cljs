@@ -7,8 +7,8 @@
    OpenRouter, or what a test passes), the registry with pi-durable's
    coding tools (read, write, edit, bash in the bot's `work/`) and
    rragent's own (remember and recall over the bot's events file,
-   `rragent.events`, fetch, the REPL `eval` with
-   the connectors of the gateway as functions, schedule, hook, report
+   `rragent.events`, fetch, the `machine` with the connectors of the
+   gateway as calls, schedule, hook, report
    (a run's word to the bot's chat, `rragent.runs`), skill (the
    person's own skills on the machine, `rragent.skills`), and
    the tools of the artifacts: project, render, image, voice, music,
@@ -52,10 +52,11 @@
             [rragent.runs :as runs]
             [rragent.schedule :as schedule]
             [rragent.secrets :as secrets]
-            [rragent.tools.eval :as eval-tool]
             [rragent.tools.events :as events-tool]
             [rragent.tools.fetch :as fetch-tool]
             [rragent.tools.hook :as hook-tool]
+            [rragent.tools.host :as host-tool]
+            [rragent.tools.machine :as machine-tool]
             [rragent.tools.media :as media-tool]
             [rragent.tools.music-pick :as music-pick-tool]
             [rragent.tools.project :as project-tool]
@@ -74,15 +75,18 @@
   BACKGROUND_CONTEXT)
 
 (defn extension
-  "rragent's own tools: the eval tool runs a program in the worker of
-   the bot of the call, over the REPL `codemode`, the media tools
-   reach OpenRouter the way it knows it (`rragent.openrouter`), the
-   project tool holds a call to the bot's definition."
+  "rragent's own tools: the machine tool runs a program in the worker
+   of the bot of the call, over the core `codemode`, and the calls of
+   its state as nested calls of the host tools, which only tools call
+   (`rragent.tools.host`); the media tools reach OpenRouter the way it
+   knows it (`rragent.openrouter`), the project tool holds a call to
+   the bot's definition."
   [codemode]
   (defineExtension #js {:name "rragent"
-                        :tools #js [events-tool/remember events-tool/recall fetch-tool/tool (eval-tool/tool codemode) schedule-tool/tool hook-tool/tool
-                                    (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode) (music-pick-tool/tool codemode)
-                                    (transcribe-tool/tool codemode) youtube-tool/tool report-tool/tool skill-tool/tool share-tool/tool]
+                        :tools (clj->js (into [events-tool/remember events-tool/recall fetch-tool/tool (machine-tool/tool codemode) schedule-tool/tool hook-tool/tool
+                                               (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode) (music-pick-tool/tool codemode)
+                                               (transcribe-tool/tool codemode) youtube-tool/tool report-tool/tool skill-tool/tool share-tool/tool]
+                                              (host-tool/tools codemode)))
                         :tasks #js [schedule/Task runs/Task]}))
 
 (def redacted-keys

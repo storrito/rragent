@@ -236,12 +236,13 @@
 
 (defn ^:async fetch!
   "`call` for the main thread: the same request through the gateway,
-   awaited instead of blocking (`js/fetch`), `{:status :body}`, the
-   body as data when it is JSON; a throw when there is no such
-   connection. For what the agent sets up at start
+   awaited instead of blocking (`js/fetch`), `{:status :headers
+   :body}`, the body as data when it is JSON, or `{:status :headers
+   :bytes}` with the body as a Buffer when `:to-file` is set; a throw
+   when there is no such connection. For what the agent sets up at start
    (`rragent.composio-setup`), where a blocked thread would stall the
    page. `opts` as `call` takes them, without `:retry`."
-  [discovery which path {:keys [method body headers query]}]
+  [discovery which path {:keys [method body headers query to-file]}]
   (let [connection (or (connection discovery which)
                        (throw (js/Error. (no-connector-message discovery which))))
         controller (js/AbortController.)
@@ -252,7 +253,31 @@
                                            :headers (clj->js (request-headers headers body))
                                            :body (or (request-body body) js/undefined)
                                            :signal (.-signal controller)}))
-            text (await (.text response))]
-        {:status (.-status response) :body (parse text)})
+            headers (into {} (map (fn [[k v]] [(keyword k) v])) (js/Array.from (.entries (.-headers response))))]
+        (if to-file
+          (let [bytes (js/Buffer.from (await (.arrayBuffer response)))]
+            {:status (.-status response) :headers headers :bytes bytes})
+          (let [text (await (.text response))]
+            {:status (.-status response) :headers headers :body (parse text)})))
+      (finally
+        (js/clearTimeout timer)))))
+
+(defn ^:async discover!
+  "`discover` for the main thread, awaited instead of blocking: the
+   connectors of the gateway at `base`, read now, one request."
+  [base]
+  (let [controller (js/AbortController.)
+        timer (js/setTimeout #(.abort controller) list-timeout-ms)]
+    (try
+      (let [response (await (js/fetch (list-url base) #js {:signal (.-signal controller)}))
+            body (parse (await (.text response)))]
+        (merge {:gateway base :connections [] :available []}
+               (cond
+                 (not= 200 (.-status response)) {:error (str "HTTP " (.-status response) " from " (list-url base))}
+                 (not (map? body)) {:error (str "no list from " (list-url base))}
+                 :else {:connections (vec (:connections body))
+                        :available (vec (:available body))})))
+      (catch :default e
+        {:gateway base :connections [] :available [] :error (.-message e)})
       (finally
         (js/clearTimeout timer)))))

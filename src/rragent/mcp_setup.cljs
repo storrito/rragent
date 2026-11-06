@@ -2,7 +2,7 @@
   "The bot the MCP settings open to connect a service: a definition of
    its own, made for that one job, on the assistant's model, its chat
    starting with the question which service (`rragent.onboarding`). It
-   connects through the REPL (`mcp/add!`), asks for a token with a
+   connects through a machine (`mcp/add!`), asks for a token with a
    password field (`[:secret …]`, `rragent.genui`) and never sees it."
   (:require [clojure.string :as str]
             [rragent.definition :as definition]))
@@ -25,9 +25,9 @@ language.
    most are an address like `https://…/mcp` that takes a token in a
    header, some are a program run with `npx`. Never guess an address:
    when the docs do not say, ask the person.
-3. Connect it with your REPL, the `eval` tool:
+3. Connect it with a machine, the `machine` tool, the call under `:next`:
 
-       (mcp/add! \"github\" {:url \"https://api.githubcopilot.com/mcp/\" :token \"GITHUB_TOKEN\"})
+       {:next {:call (mcp/add! \"github\" {:url \"https://api.githubcopilot.com/mcp/\" :token \"GITHUB_TOKEN\"}) :as :added}}
 
    The name is short and lowercase (letters, digits, `-`, `_`).
    `:token \"NAME\"` is the header `Authorization: Bearer ${NAME}`;
@@ -53,7 +53,7 @@ language.
    most hosted servers, Notion, Linear, Atlassian, Sentry) is added
    with `:oauth true` instead of a token:
 
-       (mcp/add! \"linear\" {:url \"https://mcp.linear.app/mcp\" :oauth true})
+       {:next {:call (mcp/add! \"linear\" {:url \"https://mcp.linear.app/mcp\" :oauth true}) :as :added}}
 
    The answer has `:sign-in true`: put the sign-in link into your
    answer and ask them to sign in in the tab it opens:

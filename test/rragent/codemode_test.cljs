@@ -1,7 +1,8 @@
 (ns rragent.codemode-test
-  "The REPL against the fake gateway: discovery, calls with JSON in
-   and out, the closed context, defs that stay, the output cap, the
-   Composio and Storrito functions, the facts a program notes."
+  "The core against the fake gateway: discovery, a program loaded for
+   its state, a step on a state, the functions answering calls as
+   data, the closed context, help and doc, the Storrito catalog and
+   the MCP servers as calls."
   (:require [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.codemode :as codemode]
@@ -16,8 +17,6 @@
   (try (thunk) nil (catch :default e (.-message e))))
 
 (defn- with-env
-  "`thunk` run with the environment variable `k` as `v` (nil unset),
-   the variable restored after."
   [k v thunk]
   (let [env (.-env js/process)
         before (aget env k)]
@@ -41,6 +40,11 @@
                (sync-fetch/stop!))))))
       (.catch (fn [e] (is (nil? e) (str e))))))
 
+(defn- state
+  "The initial state `code` loads to in `handle`."
+  [handle code]
+  (:state (codemode/load handle code)))
+
 (deftest discovery-test
   (async done
     (-> (with-fake nil
@@ -58,12 +62,14 @@
               (is (str/includes? (failure #(codemode/connector handle "custom_api")) "3 connections have the provider \"custom_api\", name one by its id: custom_api conn_composio (backend.composio.dev)")))
             (testing "what the console gets"
               (is (str/includes? (codemode/report handle) "custom_api conn_composio (backend.composio.dev) = Composio"))
-              (is (str/includes? (codemode/report handle) "custom_api conn_storrito (127.0.0.1) = Storrito, 3 procedures"))
+              (is (str/includes? (codemode/report handle) "custom_api conn_storrito (127.0.0.1) = Storrito, 4 procedures"))
               (is (str/includes? (codemode/report handle) "available: github")))
-            (testing "(connectors) reads the list again, as data"
-              (is (= "=> (\"conn_echo\" \"conn_openrouter\" \"conn_composio\" \"conn_storrito\" \"conn_other\")"
-                     (codemode/evaluate handle "(map :id (:connections (connectors)))")))
-              (is (= "=> \"github\"" (codemode/evaluate handle "(:provider (first (:available (connectors))))"))))))
+            (testing "(connectors) is a call, (connector ...) answers from the reading at start"
+              (is (= {:next {:call [:connectors] :as :c}} (state handle "{:next {:call (connectors) :as :c}}")))
+              (is (= {:id "conn_echo"} (state handle "{:id (:id (connector \"echo\"))}"))))
+            (testing "the main thread reads the list again itself"
+              (is (= 5 (count (:connections (codemode/refresh! handle)))))
+              (is (pos? (codemode/asked-at handle))))))
         (.finally done))))
 
 (deftest no-gateway-test
@@ -74,159 +80,122 @@
       (is (= [] available))
       (is (str/includes? (str error) "failed"))
       (is (str/starts-with? (codemode/report handle) "no gateway at http://127.0.0.1:1 ("))
-      (is (str/includes? (codemode/evaluate handle "(help)") "did not answer"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(call \"github\" \"/user\")")) "Nothing is connected. The gateway did not answer"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(storrito/procedures)")) "No Storrito among the connections"))
+      (is (str/includes? (:help (state handle "(help)")) "did not answer"))
+      (is (str/includes? (failure #(codemode/load handle "(call \"github\" \"/user\")")) "Nothing is connected. The gateway did not answer"))
+      (is (str/includes? (failure #(codemode/load handle "(storrito/procedures)")) "No Storrito among the connections"))
       (sync-fetch/stop!))))
 
-(deftest call-test
-  (async done
-    (-> (with-fake nil
-          (fn [_url handle]
-            (testing "JSON in and out, the query and the headers"
-              (is (= "=> {:method \"POST\", :path \"/x\", :query {:a \"1\"}, :headers {:content-type \"application/json\", :x-extra \"y\"}, :body {:a [1 2]}}"
-                     (codemode/evaluate handle "(-> (call \"echo\" \"x\" {:method :post :body {:a [1 2]} :headers {:x-extra \"y\"} :query {:a 1}}) :body (dissoc :id))"))))
-            (testing "a string body goes as it is, a text answer comes as text, the status is the program's to look at"
-              (is (= "=> [200 \"raw\" \"text/plain\"]"
-                     (codemode/evaluate handle "(let [r (call \"echo\" \"/x\" {:method \"POST\" :body \"raw\" :headers {\"Content-Type\" \"text/plain\"}})] [(:status r) (get-in r [:body :body]) (get-in r [:body :headers :content-type])])")))
-              (is (= "=> [200 \"plain /y\" \"text/plain\"]"
-                     (codemode/evaluate handle "(let [r (call \"echo\" \"/y\" {:query {:text 1}})] [(:status r) (:body r) (get-in r [:headers \"content-type\"])])")))
-              (is (= "=> 404" (codemode/evaluate handle "(:status (call \"echo\" \"/z\" {:query {:status 404}}))"))))
-            (testing "no such connection"
-              (let [message (failure #(codemode/evaluate handle "(call \"github\" \"/user\")"))]
-                (is (str/includes? message "No connection \"github\". Connected: echo conn_echo, openrouter conn_openrouter"))
-                (is (str/includes? message "GitHub is available, the person can set it up"))))
-            (testing "a program loops over calls"
-              (is (= "=> [\"/0\" \"/1\" \"/2\"]"
-                     (codemode/evaluate handle "(vec (for [i (range 3)] (get-in (call \"conn_other\" (str \"/\" i)) [:body :path])))"))))))
-        (.finally done))))
+(deftest load-test
+  (let [handle (codemode/handle "http://127.0.0.1:1")]
+    (testing "a program's value is its state, a map that reads back"
+      (is (= {:state {:a 1 :b [1 2]} :step? false :printed "hi\n"} (codemode/load handle "(println \"hi\") {:a 1 :b [1 2]}")))
+      (is (= {:state {} :step? false :printed ""} (codemode/load handle "{}"))))
+    (testing "step is seen"
+      (is (= {:state {:n 0} :step? true :printed ""} (codemode/load handle "(defn step [s] (update s :n inc)) {:n 0}")))
+      (is (= {:state {:n 1} :printed ""} (codemode/step handle {:n 0})))
+      (is (= {:state {:n 6 :x 1} :printed ""} (codemode/step handle {:n 5 :x 1})) "a step is a function of the state it is given"))
+    (testing "a step runs in the core's own context: read-string and its kin work there"
+      (codemode/load handle "(defn step [s] (assoc s :v (read-string (:text s)) :e (edn/read-string (:text s)))) {}")
+      (is (= {:state {:text "[1 2]" :v [1 2] :e [1 2]} :printed ""} (codemode/step handle {:text "[1 2]"}))))
+    (testing "a value that is no map, no data, or a step that is no function"
+      (is (str/includes? (failure #(codemode/load handle "(+ 1 2)")) "A program's value is a map, the state of the machine"))
+      (is (str/includes? (failure #(codemode/load handle "nil")) "A program's value is a map"))
+      (is (str/includes? (failure #(codemode/load handle "{:f (fn [x] x)}")) "must be data that reads back as EDN"))
+      (is (str/includes? (failure #(codemode/load handle "{:r #\"a\"}")) "must be data"))
+      (is (str/includes? (failure #(codemode/load handle "(def step 1) {}")) "step is a function"))
+      (codemode/load handle "(defn step [s] (assoc s :f (fn [] 1))) {}")
+      (is (str/includes? (failure #(codemode/step handle {})) "A step's value must be data")))
+    (testing "a call written as a statement is refused at load: it would do nothing"
+      (is (str/includes? (failure #(codemode/load handle "(remember \"seen\" {:n 1}) {:done true}"))
+                         "(remember \"seen\" {:n 1}) is a call, data that does nothing by itself: put it under :next of the state, {:next {:call (remember \"seen\" {:n 1}) :as :remember}}"))
+      (is (str/includes? (failure #(codemode/load handle "(spit \"data/x.edn\" {:a 1})\n{}")) "is a call, data that does nothing by itself"))
+      (is (= {:c [:recall {}]} (state handle "(def c (recall)) {:c c}")) "a def of a call is fine, the value is a var")
+      (is (= {:next {:call [:recall {}] :as :events}} (state handle "{:next {:call (recall) :as :events}}")) "under :next as it should be"))
+    (testing "a program is one of its own: a def is there for its steps, not for the next program"
+      (is (= {:n 21} (state handle "(def n 21) {:n n}")))
+      (is (str/includes? (failure #(codemode/load handle "{:n n}")) "Unable to resolve symbol: n"))
+      (codemode/load handle "(def k 3) (defn step [s] (assoc s :k k)) {}")
+      (is (= {:k 3} (:state (codemode/step handle {})))))
+    (testing "an error says where, and what was printed before it"
+      (let [message (failure #(codemode/load handle "(println \"so far\")\n(undefined-fn 1)"))]
+        (is (str/includes? message "Unable to resolve symbol: undefined-fn (line 2, column 1)"))
+        (is (str/includes? message "Printed before the error:\nso far")))
+      (codemode/load handle "(defn step [s] (println \"in step\") (throw (ex-info \"boom\" {:x 1}))) {}")
+      (let [message (failure #(codemode/step handle {}))]
+        (is (str/includes? message "boom"))
+        (is (str/includes? message "Printed before the error:\nin step"))))
+    (testing "what was printed is cut"
+      (is (str/ends-with? (:printed (codemode/load handle "(print (apply str (repeat 20000 \"a\"))) {}")) "(cut at 10000 characters)")))
+    (sync-fetch/stop!)))
 
 (deftest closed-context-test
   (let [handle (codemode/handle "http://127.0.0.1:1")]
     (testing "nothing of the host: no js/, no require of a module, no environment, no interop on values"
-      (is (str/includes? (failure #(codemode/evaluate handle "(.-title js/process)")) "Unable to resolve symbol: js/process"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(.-env js/process)")) "Unable to resolve symbol: js/process"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(js/require \"fs\")")) "Unable to resolve symbol: js/require"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(require '[\"node:fs\" :as fs])")) "Could not find namespace node:fs"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(require 'rragent.harness)")) "Could not find namespace rragent.harness"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(.-constructor (fn []))")) "not allowed"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(aget (fn []) \"constructor\")")) "aget is not available in this REPL"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(js-obj)")) "js-obj is not available in this REPL")))
-    (testing "Clojure's own namespaces are there"
-      (is (= "=> #{1 2}" (codemode/evaluate handle "(require '[clojure.set :as set]) (set/union #{1} #{2})")))
-      (is (= "=> \"a-b\"" (codemode/evaluate handle "(clojure.string/join \"-\" [\"a\" \"b\"])"))))
+      (is (str/includes? (failure #(codemode/load handle "(.-title js/process)")) "Unable to resolve symbol: js/process"))
+      (is (str/includes? (failure #(codemode/load handle "(js/require \"fs\")")) "Unable to resolve symbol: js/require"))
+      (is (str/includes? (failure #(codemode/load handle "(require '[\"node:fs\" :as fs])")) "Could not find namespace node:fs"))
+      (is (str/includes? (failure #(codemode/load handle "(require 'rragent.harness)")) "Could not find namespace rragent.harness"))
+      (is (str/includes? (failure #(codemode/load handle "(.-constructor (fn []))")) "not allowed"))
+      (is (str/includes? (failure #(codemode/load handle "(aget (fn []) \"constructor\")")) "aget is not available in a machine"))
+      (is (str/includes? (failure #(codemode/load handle "(js-obj)")) "js-obj is not available in a machine")))
+    (testing "Clojure's own namespaces are there, EDN at hand"
+      (is (= {:u #{1 2}} (state handle "(require '[clojure.set :as set]) {:u (set/union #{1} #{2})}")))
+      (is (= {:s "a-b"} (state handle "{:s (clojure.string/join \"-\" [\"a\" \"b\"])}")))
+      (is (= {:m {:a 1}} (state handle "{:m (edn/read-string \"{:a 1}\")}"))))
+    (testing "parse-long and parse-double, which models expect"
+      (is (= {:n 42 :m -7 :x nil :d 1.5 :e nil} (state handle "{:n (parse-long \"42\") :m (parse-long \"-7\") :x (parse-long \"4x\") :d (parse-double \"1.5\") :e (parse-double \"\")}"))))
+    (testing "rand and the clock are free: nothing is replayed"
+      (is (number? (:r (state handle "{:r (rand)}")))))
     (sync-fetch/stop!)))
 
-(deftest evaluate-test
-  (let [handle (codemode/handle "http://127.0.0.1:1")]
-    (testing "a def stays for the next program"
-      (is (= "=> #'user/x" (codemode/evaluate handle "(def x 21)")))
-      (is (= "=> 42" (codemode/evaluate handle "(* x 2)")))
-      (is (= "=> 4" (codemode/evaluate handle "(defn twice [n] (* 2 n)) (twice 2)"))))
-    (testing "what was printed, then the value"
-      (is (= "hi\n{:a 1}\n=> 42" (codemode/evaluate handle "(println \"hi\") (prn {:a 1}) 42")))
-      (is (= "=> nil" (codemode/evaluate handle "nil"))))
-    (testing "an error says where, and what was printed before it"
-      (let [message (failure #(codemode/evaluate handle "(println \"so far\")\n(undefined-fn 1)"))]
-        (is (str/includes? message "Unable to resolve symbol: undefined-fn (line 2, column 1)"))
-        (is (str/includes? message "Printed before the error:\nso far")))
-      (is (str/includes? (failure #(codemode/evaluate handle "(throw (ex-info \"boom\" {:x 1}))")) "boom")))
-    (testing "the output is cut"
-      (is (str/ends-with? (codemode/evaluate handle "(apply str (repeat 20000 \"a\"))") "(cut at 10000 characters)"))
-      (is (= (+ codemode/max-chars (count " … (cut at 10000 characters)")) (count (codemode/evaluate handle "(apply str (repeat 20000 \"a\"))")))))
-    (testing "help and doc"
-      (let [help (codemode/evaluate handle "(help)")]
-        (is (str/starts-with? help "Your REPL: Clojure"))
-        (is (str/includes? help "(composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\"})\n    runs one tool with its arguments"))
-        (is (str/includes? help "(composio/connections [\"googlesheets\"])\n    the connections of services by toolkit slug") "the slug of a spreadsheet, and that the link is the answer to give")
-        (is (str/includes? help "good for ten minutes"))
-        (is (str/ends-with? help "=> nil")))
-      (let [doc (codemode/evaluate handle "(doc call)")]
-        (is (str/includes? doc "agent/call\n((which path & [opts]))\n  An HTTP request through the gateway"))))
-    (sync-fetch/stop!)))
-
-(deftest events-test
-  (let [handle (codemode/handle "http://127.0.0.1:1")
-        at 1700000000000]
-    (codemode/begin! handle [{:event "review-posted" :at at :id 4711}])
-    (testing "what a program recalls, and what it remembers is pending for the commit and recalled at once"
-      (is (= "=> [4711]" (codemode/evaluate handle "(mapv :id (recall {:event \"review-posted\"}))")))
-      (is (= "=> [\"Noted review-posted\" 2]" (codemode/evaluate handle "[(remember \"review-posted\" {:id 4712 :stars 4}) (count (recall))]")))
-      (is (= "=> []" (codemode/evaluate handle "(recall {:since \"2099-01-01\"})")))
-      (let [pending (codemode/pending handle)]
-        (is (= 1 (count pending)))
-        (is (= {:event "review-posted" :id 4712 :stars 4} (dissoc (first pending) :at)))
-        (is (number? (:at (first pending))))))
-    (testing "the data is a map, the event a name"
-      (is (str/includes? (failure #(codemode/evaluate handle "(remember \"x\" 1)")) "remember takes a map of data"))
-      (is (str/includes? (failure #(codemode/evaluate handle "(remember \"\" {})")) "remember takes an event name")))
-    (testing "the next program starts with the events given to it"
-      (codemode/begin! handle [])
-      (is (= "=> 0" (codemode/evaluate handle "(count (recall))")))
-      (is (= [] (codemode/pending handle))))
-    (sync-fetch/stop!)))
-
-(deftest composio-test
+(deftest calls-test
   (async done
     (-> (with-fake nil
           (fn [_url handle]
-            (with-env "COMPOSIO_SESSION_ID" "trs_1"
-              (fn []
-                (testing "the four meta tools, each one execute_meta of the session through the Composio connection, the search session kept"
-                  (is (= "=> {:session \"trs_1\", :slug \"COMPOSIO_SEARCH_TOOLS\", :arguments {:queries [{:use_case \"send an email\"}], :session {:generate_id true}, :toolkits [\"gmail\"]}}"
-                         (codemode/evaluate handle "(:echo (composio/search \"send an email\" [\"gmail\"]))")))
-                  (is (= "=> {:session \"trs_1\", :slug \"COMPOSIO_GET_TOOL_SCHEMAS\", :arguments {:tool_slugs [\"GMAIL_SEND_EMAIL\"], :session_id \"search_1\"}}"
-                         (codemode/evaluate handle "(:echo (composio/schemas [\"GMAIL_SEND_EMAIL\"]))")))
-                  (is (= "=> [{:index 0, :tool_slug \"GMAIL_SEND_EMAIL\", :response {:sent true}}]"
-                         (codemode/evaluate handle "(:results (composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\" :subject \"Hi\"}))")))
-                  (is (= "=> {:tools [{:tool_slug \"GMAIL_SEND_EMAIL\", :arguments {:to \"a@example.com\", :subject \"Hi\"}}], :session_id \"search_1\"}"
-                         (codemode/evaluate handle "(get-in (composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a@example.com\" :subject \"Hi\"}) [:echo :arguments])")))
-                  (is (= "=> \"https://connect.example/gmail\""
-                         (codemode/evaluate handle "(get-in (composio/connections [\"gmail\"]) [:results :gmail :redirect_url])"))))
-                (testing "a failed run throws with Composio's error and the data"
-                  (let [message (failure #(codemode/evaluate handle "(composio/execute \"SLACK_SEND_MESSAGE\" {:channel \"#x\"})"))]
-                    (is (str/includes? message "COMPOSIO_MULTI_EXECUTE_TOOL failed: SLACK_SEND_MESSAGE: slack is not connected"))
-                    (is (str/includes? message "\"tool_slug\":\"SLACK_SEND_MESSAGE\""))))
-                (testing "a program catches it"
-                  (is (= "=> \"no slack\"" (codemode/evaluate handle "(try (composio/execute \"SLACK_SEND_MESSAGE\" {}) (catch :default e (if (ex-data e) \"no slack\" \"?\")))"))))))
-            (testing "a session Composio does not know"
-              (with-env "COMPOSIO_SESSION_ID" "trs_dead"
-                (fn []
-                  (is (str/includes? (failure #(codemode/evaluate handle "(composio/search \"x\")")) "Composio answered HTTP 404 to COMPOSIO_SEARCH_TOOLS: Session not found")))))
-            (testing "without the session"
-              (with-env "COMPOSIO_SESSION_ID" nil
-                (fn []
-                  (is (str/includes? (failure #(codemode/evaluate handle "(composio/search \"x\")")) "No Composio session"))
-                  (is (str/includes? (codemode/evaluate handle "(help)") "Composio: no session yet")))))))
-        (.finally done))))
-
-(deftest no-composio-test
-  (async done
-    (-> (with-fake {:connections (remove #(= "conn_composio" (:id %)) fake-gateway/connections) :available []}
-          (fn [_url handle]
-            (with-env "COMPOSIO_SESSION_ID" "trs_1"
-              (fn []
-                (is (str/includes? (failure #(codemode/evaluate handle "(composio/search \"x\")")) "No connection to Composio: no custom_api connection of the gateway goes to backend.composio.dev"))
-                (is (str/includes? (codemode/evaluate handle "(help)") "Composio: no connection"))))))
+            (testing "every function of a connector answers its call, data, which goes under :next"
+              (is (= {:next {:call [:call "echo" "/x" {:method :post :body {:a 1}}] :as :r}}
+                     (state handle "{:next {:call (call \"echo\" \"/x\" {:method :post :body {:a 1}}) :as :r}}")))
+              (is (= [:call "echo" "/x" {}] (:c (state handle "{:c (call \"echo\" \"/x\")}"))))
+              (is (= [:remember "seen" {:n 1}] (:c (state handle "{:c (remember \"seen\" {:n 1})}"))))
+              (is (= [:recall {:event "seen"}] (:c (state handle "{:c (recall {:event \"seen\"})}"))))
+              (is (= [:recall {}] (:c (state handle "{:c (recall)}"))))
+              (is (= [:spit "data/x.edn" "{:a 1}"] (:c (state handle "{:c (spit \"data/x.edn\" {:a 1})}"))) "data as EDN")
+              (is (= [:spit "notes.txt" "hello"] (:c (state handle "{:c (spit \"notes.txt\" \"hello\")}"))) "a string as it is")
+              (is (= [:slurp "data/x.edn"] (:c (state handle "{:c (slurp \"data/x.edn\")}")))))
+            (testing "what is refused before the host is asked"
+              (is (str/includes? (failure #(codemode/load handle "(call \"github\" \"/user\")")) "No connection \"github\". Connected: echo conn_echo"))
+              (is (str/includes? (failure #(codemode/load handle "(remember \"\" {})")) "remember takes an event name"))
+              (is (str/includes? (failure #(codemode/load handle "(remember \"x\" 1)")) "remember takes a map of data"))
+              (is (str/includes? (failure #(codemode/load handle "(spit \"/etc/passwd\" {})")) "inside your work folder"))
+              (is (str/includes? (failure #(codemode/load handle "(slurp \"../secrets.json\")")) "inside your work folder"))
+              (is (str/includes? (failure #(codemode/load handle "(spit \"data/f.edn\" (fn [x] x))")) "spit writes data that reads back as EDN")))
+            (testing "the composio/ calls"
+              (is (= [:composio/search "send an email" ["gmail"]] (:c (state handle "{:c (composio/search \"send an email\" [\"gmail\"])}"))))
+              (is (= [:composio/search "x" []] (:c (state handle "{:c (composio/search \"x\")}"))))
+              (is (= [:composio/schemas ["GMAIL_SEND_EMAIL"]] (:c (state handle "{:c (composio/schemas [\"GMAIL_SEND_EMAIL\"])}"))))
+              (is (= [:composio/execute "GMAIL_SEND_EMAIL" {:to "a"}] (:c (state handle "{:c (composio/execute \"GMAIL_SEND_EMAIL\" {:to \"a\"})}"))))
+              (is (= [:composio/connections ["gmail"]] (:c (state handle "{:c (composio/connections [\"gmail\"])}"))))
+              (is (= [:composio/accounts] (:c (state handle "{:c (composio/accounts)}"))))
+              (is (= [:composio/trigger-types "googledrive"] (:c (state handle "{:c (composio/trigger-types \"googledrive\")}"))))
+              (is (= [:composio/triggers] (:c (state handle "{:c (composio/triggers)}"))))
+              (is (= [:composio/add-trigger "T" "ca_1" {}] (:c (state handle "{:c (composio/add-trigger \"T\" \"ca_1\")}"))))
+              (is (= [:composio/delete-trigger "ti_1"] (:c (state handle "{:c (composio/delete-trigger \"ti_1\")}"))))
+              (is (str/includes? (failure #(codemode/load handle "(composio/execute \"X\" 1)")) "takes a map of arguments"))
+              (is (str/includes? (failure #(codemode/load handle "(composio/connections \"gmail\")")) "takes a vector of toolkit slugs")))))
         (.finally done))))
 
 (deftest storrito-test
   (async done
     (-> (with-fake nil
           (fn [_url handle]
-            (testing "the catalog's procedures are functions with docstrings"
-              (is (= "=> [\"generate-uuid\" \"status-instagram-story\" \"flaky-once\"]" (codemode/evaluate handle "(mapv :name (storrito/procedures))")))
-              (let [doc (codemode/evaluate handle "(doc storrito/status-instagram-story)")]
-                (is (str/includes? doc "storrito/status-instagram-story\n([] [args])\n  The status of a story post.\n\nSecond paragraph.\n\nParameters, a map:\n  storyPostUuid (string), required: The UUID of the story post\n  verbose (boolean)\n  limit (integer)\n  destination\n"))))
-            (testing "a call is the procedure's POST through the connection, the answer as data"
-              (is (= "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" (codemode/evaluate handle "(storrito/generate-uuid)")))
-              (is (= "=> {:status \"scheduled\", :params {:storyPostUuid \"u1\", :limit 2}}" (codemode/evaluate handle "(storrito/status-instagram-story {:storyPostUuid \"u1\" :limit 2})"))))
-            (testing "what the API said about a bad call reaches the program"
-              (let [message (failure #(codemode/evaluate handle "(storrito/status-instagram-story {})"))]
-                (is (str/includes? message "Storrito answered HTTP 400 to status-instagram-story"))
-                (is (str/includes? message "missing required key"))))
-            (testing "a 503 is tried again"
-              (is (= "=> {:ok true}" (codemode/evaluate handle "(storrito/flaky-once)"))))))
+            (testing "the catalog's procedures are functions with docstrings, each answering its call"
+              (is (= {:p ["generate-uuid" "status-instagram-story" "flaky-once" "create-note"]} (state handle "{:p (mapv :name (storrito/procedures))}")))
+              (let [doc (:doc (state handle "(doc storrito/status-instagram-story)"))]
+                (is (str/starts-with? doc "storrito/status-instagram-story\n([] [args])\n  A call, for :next: answers [:storrito/status-instagram-story args].\n\nThe status of a story post."))
+                (is (str/includes? doc "storyPostUuid (string), required: The UUID of the story post")))
+              (is (= [:storrito/generate-uuid {}] (:c (state handle "{:c (storrito/generate-uuid)}"))))
+              (is (= [:storrito/create-note {:text "a"}] (:c (state handle "{:c (storrito/create-note {:text \"a\"})}"))))
+              (is (str/includes? (failure #(codemode/load handle "(storrito/create-note \"a\")")) "storrito/create-note takes a map of arguments")))))
         (.finally done))))
 
 (deftest agent-uuid-test
@@ -235,12 +204,12 @@
           (fn [_url handle]
             (testing "the agent's uuid is the machine's agent: label"
               (binding [sprite/*sprite-env* (:script (fake-sprite-env/make! {:discover (fake-sprite-env/discover-json ["token:test123" "agent:7b1b2c3d-0000-4000-8000-000000000042"])}))]
-                (is (= "=> \"7b1b2c3d-0000-4000-8000-000000000042\"" (codemode/evaluate handle "(storrito/agent-uuid)")))))
+                (is (= {:u "7b1b2c3d-0000-4000-8000-000000000042"} (state handle "{:u (storrito/agent-uuid)}")))))
             (testing "a machine without the label"
               (binding [sprite/*sprite-env* (:script (fake-sprite-env/make! {:discover (fake-sprite-env/discover-json ["token:test123"])}))]
-                (is (str/includes? (failure #(codemode/evaluate handle "(storrito/agent-uuid)")) "No agent uuid"))))
+                (is (str/includes? (failure #(codemode/load handle "{:u (storrito/agent-uuid)}")) "No agent uuid"))))
             (testing "help names it and the trigger recipe"
-              (let [help (codemode/evaluate handle "(help)")]
+              (let [help (:help (state handle "(help)"))]
                 (is (str/includes? help "(storrito/agent-uuid)"))
                 (is (str/includes? help "(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\" {})"))))))
         (.finally done))))
@@ -249,41 +218,24 @@
   (async done
     (-> (with-fake {:connections (remove #(= "conn_storrito" (:id %)) fake-gateway/connections) :available []}
           (fn [_url handle]
-            (is (str/includes? (failure #(codemode/evaluate handle "(storrito/procedures)")) "No Storrito among the connections"))
-            (is (str/includes? (failure #(codemode/evaluate handle "(storrito/generate-uuid)")) "Unable to resolve symbol: storrito/generate-uuid"))
-            (is (str/includes? (codemode/evaluate handle "(help)") "Storrito: no connection with a catalog"))))
+            (is (str/includes? (failure #(codemode/load handle "{:p (storrito/procedures)}")) "No Storrito among the connections"))
+            (is (str/includes? (failure #(codemode/load handle "{:c (storrito/generate-uuid)}")) "Unable to resolve symbol: storrito/generate-uuid"))
+            (is (str/includes? (:help (state handle "(help)")) "Storrito: no connection with a catalog"))))
         (.finally done))))
 
-(deftest composio-triggers-test
-  (async done
-    (-> (with-fake nil
-          (fn [_url handle]
-            (with-env "COMPOSIO_SESSION_ID" "trs_1"
-              (fn []
-                (with-env "COMPOSIO_USER_ID" "agent-1"
-                  (fn []
-                    (testing "the accounts and the trigger types of the agent's user id, through the Composio connection"
-                      (is (= "=> [{:id \"ca_1\", :toolkit \"googledrive\", :status \"ACTIVE\"}]"
-                             (codemode/evaluate handle "(composio/accounts)")))
-                      (is (= "=> [\"GOOGLEDRIVE_FILE_CREATED_TRIGGER\"]"
-                             (codemode/evaluate handle "(mapv :slug (composio/trigger-types \"googledrive\"))"))))
-                    (testing "a trigger added is noted as a fact, with the user id named for Composio, and listed; deleted it is noted too"
-                      (codemode/begin! handle [])
-                      (is (= "=> \"ti_1\"" (codemode/evaluate handle "(composio/add-trigger \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\" \"ca_1\")")))
-                      (is (= [{:event "composio-trigger" :id "ti_1" :slug "GOOGLEDRIVE_FILE_CREATED_TRIGGER" :account "ca_1"}]
-                             (mapv #(dissoc % :at) (codemode/pending handle))))
-                      (is (= "=> [{:id \"ti_1\", :slug \"GOOGLEDRIVE_FILE_CREATED_TRIGGER\", :connected-account \"ca_1\", :state \"active\"}]"
-                             (codemode/evaluate handle "(composio/triggers)")))
-                      (is (= "=> \"Deleted ti_1\"" (codemode/evaluate handle "(composio/delete-trigger \"ti_1\")")))
-                      (is (= ["composio-trigger" "composio-trigger-deleted"] (mapv :event (codemode/pending handle))))
-                      (is (= "=> []" (codemode/evaluate handle "(composio/triggers)"))))
-                    (testing "help names the session and the user id"
-                      (is (str/includes? (codemode/evaluate handle "(help)") "session trs_1, your accounts and triggers under agent-1")))))
-                (testing "without a user id a trigger cannot be added: Composio wants the account's owner"
-                  (with-env "COMPOSIO_USER_ID" nil
-                    (fn []
-                      (is (str/includes? (failure #(codemode/evaluate handle "(composio/add-trigger \"X\" \"ca_1\")")) "No Composio user id")))))))))
-        (.finally done))))
+(deftest help-test
+  (let [handle (codemode/handle "http://127.0.0.1:1")]
+    (testing "help and doc are maps, a program of them is a machine that runs nothing"
+      (let [help (:help (state handle "(help)"))]
+        (is (str/starts-with? help "A machine: Clojure with the organization's connectors as calls"))
+        (is (str/includes? help "{:next {:call (storrito/list-social-accounts {}) :as :accounts}}"))
+        (is (str/includes? help "(defn step [state] ...)"))
+        (is (str/includes? help "(composio/connections [\"googlesheets\"])\n    a call: the connections of services by toolkit slug"))
+        (is (str/includes? help "good for ten minutes")))
+      (is (= {:doc "agent/call\n((which path & [opts]))\n  A call, for :next: an HTTP request through the gateway to a\n   connection, `which` its id, or its provider name when one\n   connection has it (several custom_api connections: name the id).\n   `path` is appended to the connection's base, the gateway adds the\n   credential. `opts`: :method (GET), :body (data goes as JSON, a\n   string as it is), :headers (a map), :query (a map, appended to the\n   URL), :to-file (a path under your work folder: the body is written\n   there, the answer carries the file instead of the body; for\n   anything big or binary). The answer under :as is {:status :headers\n   :body}, the body as data when it is JSON; a failed request\n   {:error ...}. A connection that is not there is refused here."}
+             (state handle "(doc call)")))
+      (is (str/includes? (failure #(codemode/load handle "(doc nope)")) "No such function: nope")))
+    (sync-fetch/stop!)))
 
 (def mcp-catalog
   "Two MCP servers as `rragent.mcp/snapshot` answers them: one with
@@ -300,84 +252,40 @@
                       {:name "fail" :description "Fails." :input-schema {"type" "object"}}]}
              {:name "down" :ns "mcp.down" :tools [] :error "connection refused"}]})
 
-(defn- mcp-handle
-  "A REPL with the catalog above, its calls answered by a fake of the
-   main thread's half, which notes them in `calls`."
-  [calls]
-  (let [handle (codemode/handle "http://127.0.0.1:1")]
-    (reset! (:mcp-rpc handle)
-            (fn [{:keys [tool args admin] :as request}]
-              (swap! calls conj request)
-              (case (or admin tool)
-                :add (if (:token (:opts request))
-                       {:value {:name (:name request) :connected false :tools [] :needs [(:token (:opts request))]}}
-                       {:error "mcp/add! takes either :url (a Streamable HTTP server) or :command (a program over stdio)"})
-                :test {:value {:name (:name request) :connected true :tools ["echo"]}}
-                :enable {:value {:name (:name request) :off (not (:on? request))}}
-                :remove {:value true}
-                "echo" {:value (str "echo: " (:text args)) :images []}
-                "files.read" {:value {:read true} :images []}
-                "picture" {:value ["a dot" "[picture, image/png, shown to you after the program's answer]"]
-                           :images [{:data "iVBO" :mime-type "image/png"}]}
-                {:error (str "mcp.fake/" tool " failed: it broke")})))
-    (codemode/install-mcp! handle mcp-catalog)
-    (codemode/begin! handle [])
-    handle))
-
 (deftest mcp-test
-  (let [calls (atom [])
-        handle (mcp-handle calls)]
-    (testing "a tool is a function of its server's namespace, a map of arguments in, its value out"
-      (is (= "=> \"echo: hi\"" (codemode/evaluate handle "(mcp.fake/echo {:text \"hi\"})")))
-      (is (= {:server "fake" :tool "echo" :args {:text "hi"}} (last @calls))))
-    (testing "a name that is no symbol: its symbol, or mcp/call by the name itself"
-      (is (= "=> {:read true}" (codemode/evaluate handle "(mcp.fake/files-read)")))
-      (is (= {:server "fake" :tool "files.read" :args nil} (last @calls)))
-      (is (= "=> {:read true}" (codemode/evaluate handle "(mcp/call \"fake\" \"files.read\" {})")))
-      (is (= {:server "fake" :tool "files.read" :args {}} (last @calls))))
-    (testing "a failure throws with what the server said, which a program can catch"
-      (is (str/includes? (failure #(codemode/evaluate handle "(mcp.fake/fail {})")) "mcp.fake/fail failed: it broke"))
-      (is (= "=> \"mcp.fake/fail failed: it broke\"" (codemode/evaluate handle "(try (mcp.fake/fail {}) (catch :default e (ex-message e)))"))))
-    (testing "arguments that are no map are refused before the call"
-      (let [before (count @calls)]
-        (is (str/includes? (failure #(codemode/evaluate handle "(mcp.fake/echo \"hi\")")) "takes a map of arguments"))
-        (is (= before (count @calls)))))
-    (testing "the pictures of a program's calls are kept for its answer, begin! forgets them"
-      (codemode/evaluate handle "(mcp.fake/picture)")
-      (is (= [{:data "iVBO" :mime-type "image/png"}] (codemode/images handle)))
-      (codemode/begin! handle [])
-      (is (= [] (codemode/images handle))))
+  (let [handle (codemode/handle "http://127.0.0.1:1")]
+    (codemode/install-mcp! handle mcp-catalog)
+    (testing "a tool is a function of its server's namespace that answers its call"
+      (is (= [:mcp/call "fake" "echo" {:text "hi"}] (:c (state handle "{:c (mcp.fake/echo {:text \"hi\"})}"))))
+      (is (= [:mcp/call "fake" "files.read" {}] (:c (state handle "{:c (mcp.fake/files-read)}"))) "a name that is no symbol: its symbol")
+      (is (= [:mcp/call "fake" "files.read" {}] (:c (state handle "{:c (mcp/call \"fake\" \"files.read\" {})}"))) "or mcp/call by the name itself")
+      (is (str/includes? (failure #(codemode/load handle "{:c (mcp.fake/echo \"hi\")}")) "takes a map of arguments")))
     (testing "doc says the tool's arguments from its schema"
-      (let [doc (codemode/evaluate handle "(doc mcp.fake/echo)")]
-        (is (str/includes? doc "mcp.fake/echo\n([args])\n  Answers with the text it was given.\n\nThe tool echo of the MCP server fake. It takes a map:\n  :text (string, required) The text to echo\n  :mode (string, one of \"loud\" \"soft\")")))
-      (is (str/includes? (codemode/evaluate handle "(doc mcp.fake/picture)") "A picture\nThe tool picture of fake.")))
-    (testing "mcp/servers and mcp/tools say what there is"
-      (is (= "=> [{:name \"fake\", :ns \"mcp.fake\", :tools 4, :connected true, :instructions \"Use echo to test.\"} {:name \"down\", :ns \"mcp.down\", :tools 0, :error \"connection refused\"}]"
-             (codemode/evaluate handle "(mcp/servers)")))
-      (is (= "=> {:name \"files.read\", :fn mcp.fake/files-read, :description \"A dotted name.\"}"
-             (codemode/evaluate handle "(second (mcp/tools \"fake\"))")))
-      (is (str/includes? (failure #(codemode/evaluate handle "(mcp/tools \"ghost\")")) "There is no MCP server ghost")))
+      (let [doc (:doc (state handle "(doc mcp.fake/echo)"))]
+        (is (str/includes? doc "mcp.fake/echo\n([args])\n  Answers with the text it was given.\n\nA call, for :next: answers [:mcp/call \"fake\" \"echo\" args]. It takes a map:\n  :text (string, required) The text to echo\n  :mode (string, one of \"loud\" \"soft\")")))
+      (is (str/includes? (:doc (state handle "(doc mcp.fake/picture)")) "A picture\nThe tool picture of fake.")))
+    (testing "mcp/servers and mcp/tools say what there is, pure"
+      (is (= [{:name "fake" :ns "mcp.fake" :tools 4 :connected true :instructions "Use echo to test."} {:name "down" :ns "mcp.down" :tools 0 :error "connection refused"}]
+             (:s (state handle "{:s (mcp/servers)}"))))
+      (is (= {:name "files.read" :fn 'mcp.fake/files-read :description "A dotted name."} (:t (state handle "{:t (second (mcp/tools \"fake\"))}"))))
+      (is (str/includes? (failure #(codemode/load handle "{:t (mcp/tools \"ghost\")}")) "There is no MCP server ghost")))
     (testing "help names the servers"
       (is (str/includes? (codemode/help-text handle) "MCP: fake as mcp.fake/<tool>, 4 tools, down (failed: connection refused)."))
       (is (str/includes? (codemode/help-text handle) "(mcp/servers)")))
-    (testing "mcp/add!, mcp/test, mcp/enable! and mcp/remove! go to the main thread, its errors thrown"
-      (is (= "=> {:name \"gh\", :connected false, :tools [], :needs [\"GH_TOKEN\"]}"
-             (codemode/evaluate handle "(mcp/add! \"gh\" {:url \"https://gh.example/mcp\" :token \"GH_TOKEN\"})")))
-      (is (= {:admin :add :name "gh" :opts {:url "https://gh.example/mcp" :token "GH_TOKEN"}} (last @calls)))
-      (is (str/includes? (failure #(codemode/evaluate handle "(mcp/add! \"gh\" {})")) "either :url"))
-      (is (= "=> [\"echo\"]" (codemode/evaluate handle "(:tools (mcp/test 'gh))")))
-      (is (= {:admin :test :name "gh"} (last @calls)))
-      (is (= "=> {:name \"gh\", :off true}" (codemode/evaluate handle "(mcp/enable! \"gh\" false)")))
-      (is (= {:admin :enable :name "gh" :on? false} (last @calls)))
-      (is (= "=> true" (codemode/evaluate handle "(mcp/remove! \"gh\")")))
-      (is (str/includes? (codemode/evaluate handle "(doc mcp/add!)") "[:secret {:name")))
+    (testing "the changes of the servers are calls"
+      (is (= [:mcp/add! "gh" {:url "https://gh.example/mcp" :token "GH_TOKEN"}] (:c (state handle "{:c (mcp/add! \"gh\" {:url \"https://gh.example/mcp\" :token \"GH_TOKEN\"})}"))))
+      (is (= [:mcp/test "gh"] (:c (state handle "{:c (mcp/test 'gh)}"))))
+      (is (= [:mcp/enable! "gh" false] (:c (state handle "{:c (mcp/enable! \"gh\" false)}"))))
+      (is (= [:mcp/remove! "gh"] (:c (state handle "{:c (mcp/remove! \"gh\")}"))))
+      (is (str/includes? (:doc (state handle "(doc mcp/add!)")) "[:secret {:name")))
     (testing "servers installed after the context was made are there for the next program"
       (codemode/install-mcp! handle {:version 2 :servers [{:name "late" :ns "mcp.late" :tools [{:name "echo" :input-schema {}}]}]})
-      (is (= "=> \"echo: late\"" (codemode/evaluate handle "(mcp.late/echo {:text \"late\"})")))
-      (is (= {:server "late" :tool "echo" :args {:text "late"}} (last @calls))))))
+      (is (= [:mcp/call "late" "echo" {:text "late"}] (:c (state handle "{:c (mcp.late/echo {:text \"late\"})}")))))
+    (sync-fetch/stop!)))
 
 (deftest no-mcp-test
   (let [handle (codemode/handle "http://127.0.0.1:1")]
-    (is (= "=> []" (codemode/evaluate handle "(mcp/servers)")))
+    (is (= {:s []} (state handle "{:s (mcp/servers)}")))
     (is (str/includes? (codemode/help-text handle) "MCP: no servers yet; (mcp/add! …) connects one."))
-    (is (str/includes? (failure #(codemode/evaluate handle "(mcp/call \"x\" \"y\" {})")) "The MCP servers are not reachable from this REPL."))))
+    (is (= [:mcp/call "x" "y" {}] (:c (state handle "{:c (mcp/call \"x\" \"y\" {})}"))) "a call, whatever the servers; the host says what there is")
+    (sync-fetch/stop!)))

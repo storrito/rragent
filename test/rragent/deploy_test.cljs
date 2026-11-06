@@ -73,10 +73,11 @@
       (is (str/includes? text "When a step of yours did not work")))))
 
 (deftest the-shared-prompt-offers-the-connection-test
-  (testing "a service the person names is connected in the same answer, through the REPL"
+  (testing "a service the person names is connected in the same answer, through a machine"
     (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
       (is (str/includes? text "offer the connection in the same answer"))
-      (is (str/includes? text "`(composio/connections [\"googlesheets\"])`"))
+      (is (str/includes? text "(composio/connections [\"googlesheets\"])"))
+      (is (str/includes? text "in your `machine` tool"))
       (is (str/includes? text "good for ten minutes")))))
 
 (defn- pull-skills

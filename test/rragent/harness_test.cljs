@@ -231,10 +231,10 @@
                    (is (= base (.-baseUrl (.getModel models "openrouter" "openai/gpt-6.1-sol"))) "the first model call after the gateway came up goes through it")
                    (is (= (str url "/v1/gateway/openrouter/conn_openrouter") (.-baseUrl (.getModel models "openrouter" "anthropic/claude-opus-5.5"))))
                    (is (= 5 (count (:connections (codemode/discovery (:codemode agent))))) "the REPL has the list")
-                   (is (= 3 (count (get-in (codemode/snapshot (:codemode agent)) [:storrito :catalog :procedures]))) "and the Storrito catalog")
+                   (is (= 4 (count (get-in (codemode/snapshot (:codemode agent)) [:storrito :catalog :procedures]))) "and the Storrito catalog")
                    (is (= (str "OpenRouter through the Sprites gateway (" base ")") (openrouter/report (codemode/discovery (:codemode agent)))))
-                   (is (= {:text "=> {:uuid \"0f0d6c2e-6a4b-4b1a-9d6c-8b7e2a5f1c3d\"}" :pending []}
-                          (await (codemode-worker/evaluate! (codemode-worker/of (:codemode agent) (.-id (:root agent))) {:code "(storrito/generate-uuid)" :events [] :env {}})))
+                   (is (= {:state {:c [:storrito/generate-uuid {}]} :step? false :printed ""}
+                          (await (codemode-worker/load! (codemode-worker/of (:codemode agent) (.-id (:root agent))) {:code "{:c (storrito/generate-uuid)}"})))
                        "a worker of a bot started now works from the late discovery")))
                (finally
                  (await (harness/close agent))
