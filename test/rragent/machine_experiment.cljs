@@ -48,7 +48,12 @@
                                            (when (= "toolCall" (.-type block))
                                              {:id (.-id block) :tool (.-name block) :code (some-> block .-arguments .-code)}))
                                          (array-seq (.-content message)))))))
-            results (await (tools-test/tool-results agent))]
+            results (await (tools-test/tool-results agent))
+            others (->> items
+                        (remove #(contains? #{"pi.user" "pi.assistant" "pi.tool-result" "pi.system" "pi.usage"} (.-kind %)))
+                        (mapv (fn [entry] (str (.-kind entry) " " (subs (js/JSON.stringify (.-model entry)) 0 400)))))]
+        (when (seq others)
+          (println (str "---- other entries:\n" (str/join "\n" others))))
         {:answer answer
          :calls (mapv (fn [{:keys [id tool code]}]
                         (let [result (get results id)]
@@ -74,7 +79,10 @@
     (-> ((^:async fn []
            (if-not (aget (.-env js/process) "OPENROUTER_API_KEY")
              (println "no OPENROUTER_API_KEY: nothing run")
-             (let [{:keys [url stop]} (await (fake-gateway/start!))
+             ;; without the fake's openrouter connection: the models go to
+             ;; OpenRouter itself with the key of the environment
+             (let [{:keys [url stop]} (await (fake-gateway/start! {:connections (remove #(= "conn_openrouter" (:id %)) fake-gateway/connections)
+                                                                  :available []}))
                    chosen (let [only (aget (.-env js/process) "RRAGENT_EXPERIMENT_TASKS")]
                             (if (seq only) (filter #(str/includes? only (:name %)) tasks) tasks))]
                (aset (.-env js/process) "COMPOSIO_SESSION_ID" "trs_1")
