@@ -691,8 +691,8 @@
    phone asked to allow this browser once, then its picture live in the
    panel. With the laptop's bridge and more than one phone on its adb
    server (one for the webcam, one for its screen, say), the panel
-   lists them first and connects the one clicked (`serial`), so that a
-   phone is never woken that was not meant."
+   lists them in a dropdown first and connects the one chosen
+   (`serial`), so that a phone is never woken that was not meant."
   ([store]
    (update! store assoc :usb {:status :picking} :error nil)
    (-> (usb/phones)
@@ -1405,14 +1405,17 @@
         [:p.hint (:usb-dark labels)]))
 
      (= :choosing status)
-     [:div.usb-phones
-      [:p.hint (:usb-choose labels)]
-      (for [{:keys [serial name network?]} phones]
-        [:button.phone {:type "button"
-                        :replicant/key serial
-                        :disabled (not ready?)
-                        :on {:click (fn [_] (connect-usb! store serial))}}
-         (if network? (str name " · " (:usb-network labels)) name)])]
+     [:label.usb-phones
+      (:usb-choose labels)
+      [:select {:disabled (not ready?)
+                :on {:change (fn [^js event]
+                               (when-let [serial (not-empty (.. event -target -value))]
+                                 (connect-usb! store serial)))}}
+       ;; none chosen yet: a phone is only woken once picked
+       [:option {:value "" :selected true :disabled true} "…"]
+       (for [{:keys [serial name network?]} phones]
+         [:option {:value serial}
+          (if network? (str name " · " (:usb-network labels)) name)])]]
 
      :else
      [:button.choose {:type "button"

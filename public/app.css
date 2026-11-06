@@ -2388,31 +2388,34 @@ pre {
   flex: 0 1 120px;
 }
 
+/* Choosing a phone: wide enough for the dropdown and the phones' names. */
+.recorder .preview figure.usb-screen:has(.usb-phones) {
+  flex-basis: 220px;
+}
+
 .recorder figure.usb-screen button.choose {
   aspect-ratio: 9 / 16;
 }
 
-/* More than one phone on the laptop's adb server: one button each. */
+/* More than one phone on the laptop's adb server: a dropdown of them. */
 .recorder .usb-phones {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
-.recorder .usb-phones button.phone {
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  padding: 8px;
-  background: var(--code-bg);
+.recorder .usb-phones select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
   color: var(--text);
   font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.recorder .usb-phones button.phone:disabled {
-  cursor: default;
-  opacity: 0.6;
+  font-size: 14px;
 }
 
 .recorder .usb-video video {
