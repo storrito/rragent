@@ -535,8 +535,8 @@ GlobalByte modem in the USA), whose password the redaction keeps from
 the model; a laptop needs none. What YouTube refuses comes back as a
 sentence: the bot check, a video locked for the USA, a private or an
 age-restricted one. The
-`eval` tool is the agent's REPL (`rragent.codemode`, see [Connectors
-and the REPL](#connectors-and-the-repl)).
+`machine` tool runs the agent's programs (`rragent.codemode`, see
+[Connectors and the REPL](#connectors-and-the-repl)).
 
 ## Templates
 

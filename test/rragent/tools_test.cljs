@@ -216,3 +216,62 @@
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(defn ^:async wait-for
+  "`ready?` asked every 50 ms until it answers true, at most `ms`:
+   whether it did."
+  [ready? ms]
+  (let [until (+ (js/Date.now) ms)]
+    (loop []
+      (cond (ready?) true
+            (> (js/Date.now) until) false
+            :else (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                      (recur))))))
+
+(deftest machine-resume-test
+  (async done
+    (-> ((^:async fn []
+           (let [{:keys [url stop]} (await (fake-gateway/start!))
+                 home (test-home/make)
+                 ;; a write, a slow read, a write: the agent closes while
+                 ;; the read is in flight
+                 program (str "(defn step [s] (case (:phase s)"
+                              "  :start (assoc s :phase :slow :next {:call (remember \"started\" {:n 1}) :as :started})"
+                              "  :slow (assoc s :phase :finish :next {:call (call \"echo\" \"/slow\" {:query {:delay 4000}}) :as :slow})"
+                              "  :finish (assoc s :phase :end :next {:call (remember \"finished\" {:n 2}) :as :finished})"
+                              "  :end (assoc s :done (:status (:slow s)))))"
+                              "{:phase :start}")
+                 events-of (fn [agent]
+                             (let [file (home/events-file (home/bot-dir home (.-id (:root agent))))]
+                               (if (fs/existsSync file) (mapv :event (events/read file)) [])))
+                 draft #js {:type "input" :content "Run the machine." :requestId "resume-1"}]
+             (try
+               (testing "closed in the middle of a machine: the state kept with the calls made so far"
+                 (let [{:keys [faux models]} (faux-models)
+                       _ (.setResponses faux #js [(tool-call "machine" {:code program} "m1")])
+                       agent (await (harness/open {:home home :models models :provider "faux" :gateway url}))]
+                   (await (harness/submit (:root agent) draft))
+                   (is (await (wait-for #(= ["started"] (events-of agent)) 15000)) "the first call, a write, is done; the second, a slow read, is in flight")
+                   (await (harness/close agent))
+                   (is (= ["started"] (events-of agent)) "closed while the read was in flight, the machine unfinished")))
+               (testing "opened again: the machine goes on where it was, the write before the close not made again"
+                 (let [{:keys [faux models]} (faux-models)
+                       _ (.setResponses faux #js [(answer "Resumed.")])
+                       agent (await (harness/open {:home home :models models :provider "faux" :gateway url}))]
+                   (try
+                     (let [submission (await (harness/submit (:root agent) draft))
+                           settled (await (.wait submission harness/context))]
+                       (is (= "done" (.-status settled)) "the same submission, by its request id, answered")
+                       (let [t (result-text (get (await (tool-results agent)) "m1"))]
+                         (is (str/starts-with? t "After 3 calls.\nDone: 200\n") t)
+                         (is (str/includes? t ":started \"Noted started\"") "the answer of the call before the close, from its nested call")
+                         (is (str/includes? t ":finished \"Noted finished\"")))
+                       (is (= ["started" "finished"] (events-of agent)) "each write once"))
+                     (finally
+                       (await (harness/close agent))))))
+               (finally
+                 (test-home/remove! home)
+                 (stop)
+                 (sync-fetch/stop!))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
