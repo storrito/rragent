@@ -4,8 +4,8 @@
    run with its own build profile and OPENROUTER_API_KEY in the
    environment. Prints every machine the model wrote, the host's
    answer, and the model's final answer, for a person to judge."
-  (:require ["node:fs" :as fs]
-            ["node:path" :as path]
+  (:require ["@earendil-works/pi-ai/models" :refer [createModels]]
+            ["@earendil-works/pi-ai/providers/openrouter" :refer [openrouterProvider]]
             [clojure.string :as str]
             [clojure.test :refer [async deftest is]]
             [rragent.fake-gateway :as fake-gateway]
@@ -30,16 +30,36 @@
    {:name "failure" :text "Call the status-instagram-story procedure with no arguments at all and tell me what the API answered, word for word if you can."}
    {:name "composio" :text "Send an email through Composio with the tool GMAIL_SEND_EMAIL to a@example.com with the subject Hi, and tell me whether it was sent."}])
 
+(defn models
+  "OpenRouter's models with the key of the environment; a model the
+   catalog does not list (a newer one) is added as a copy of
+   `openai/gpt-6.1-sol` under its id, with the same window and prices
+   as a guess."
+  []
+  (let [provider (openrouterProvider)
+        listed (fn [models] (some #(when (= model (.-id %)) %) (array-seq models)))
+        known (.getModels provider)
+        added (when-not (listed known)
+                (when-let [sol (some #(when (= "openai/gpt-6.1-sol" (.-id %)) %) (array-seq known))]
+                  (js/Object.assign #js {} sol #js {:id model :name (str "OpenAI: " model)})))
+        with (fn [models] (if added (.concat models #js [added]) models))
+        wrapped (js/Object.assign #js {} provider
+                                  #js {:getModels (fn [] (with (.getModels provider)))
+                                       :getAllModels (fn [] (with (.getAllModels provider)))})]
+    (when added
+      (println (str "[experiment] " model " is not in the catalog: using the entry of openai/gpt-6.1-sol under its id")))
+    (doto (createModels) (.setProvider wrapped))))
+
 (defn- ^:async run-task!
   "`task` asked of a fresh bot: `{:answer :calls}`, the machine calls
    as `{:code :result :error?}`."
   [url {:keys [text]}]
   (let [home (test-home/make "AGENT.md" definition)
-        agent (await (harness/open {:home home :storage (harness/memory-storage) :gateway url}))]
+        agent (await (harness/open {:home home :models (models) :storage (harness/memory-storage) :gateway url}))]
     (try
       (let [answer (await (harness/ask agent text))
             page (await (.entries (:root agent) #js {} 200 js/undefined harness/context))
-            items (array-seq (.-items page))
+            items (sort-by #(.-id %) (array-seq (.-items page)))
             calls (->> items
                        (filter #(= "pi.assistant" (.-kind %)))
                        (mapcat (fn [entry]

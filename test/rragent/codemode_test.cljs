@@ -94,6 +94,9 @@
       (is (= {:state {:n 0} :step? true :printed ""} (codemode/load handle "(defn step [s] (update s :n inc)) {:n 0}")))
       (is (= {:state {:n 1} :printed ""} (codemode/step handle {:n 0})))
       (is (= {:state {:n 6 :x 1} :printed ""} (codemode/step handle {:n 5 :x 1})) "a step is a function of the state it is given"))
+    (testing "a step runs in the core's own context: read-string and its kin work there"
+      (codemode/load handle "(defn step [s] (assoc s :v (read-string (:text s)) :e (edn/read-string (:text s)))) {}")
+      (is (= {:state {:text "[1 2]" :v [1 2] :e [1 2]} :printed ""} (codemode/step handle {:text "[1 2]"}))))
     (testing "a value that is no map, no data, or a step that is no function"
       (is (str/includes? (failure #(codemode/load handle "(+ 1 2)")) "A program's value is a map, the state of the machine"))
       (is (str/includes? (failure #(codemode/load handle "nil")) "A program's value is a map"))
@@ -139,6 +142,8 @@
       (is (= {:u #{1 2}} (state handle "(require '[clojure.set :as set]) {:u (set/union #{1} #{2})}")))
       (is (= {:s "a-b"} (state handle "{:s (clojure.string/join \"-\" [\"a\" \"b\"])}")))
       (is (= {:m {:a 1}} (state handle "{:m (edn/read-string \"{:a 1}\")}"))))
+    (testing "parse-long and parse-double, which models expect"
+      (is (= {:n 42 :m -7 :x nil :d 1.5 :e nil} (state handle "{:n (parse-long \"42\") :m (parse-long \"-7\") :x (parse-long \"4x\") :d (parse-double \"1.5\") :e (parse-double \"\")}"))))
     (testing "rand and the clock are free: nothing is replayed"
       (is (number? (:r (state handle "{:r (rand)}")))))
     (sync-fetch/stop!)))

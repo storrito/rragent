@@ -52,8 +52,12 @@
     (throw (js/Error. (str sym " is not available in a machine: it reaches JavaScript objects, and a machine has data, not objects.")))))
 
 (def denied-core
-  "What `clojure.core` holds for the denied names."
-  (into {} (map (fn [sym] [sym (denied-fn sym)])) denied))
+  "What `clojure.core` holds for the denied names, and `parse-long`
+   and `parse-double` of ClojureScript's core, which SCI's leaves out
+   and models reach for."
+  (merge (into {} (map (fn [sym] [sym (denied-fn sym)])) denied)
+         {'parse-long cljs.core/parse-long
+          'parse-double cljs.core/parse-double}))
 
 (def preamble
   "What every program starts from: the agent namespace referred, EDN
@@ -771,15 +775,17 @@
 
 (defn step
   "`(step state)` evaluated in the context of the machine that was
-   loaded: `{:state :printed}`, the state a map that reads back as
-   EDN; a throw with the error's text for a step that fails or answers
-   no such map."
+   loaded, as a form SCI evaluates, so that the core's own functions
+   that need its context (`read-string` for one) work in a step:
+   `{:state :printed}`, the state a map that reads back as EDN; a
+   throw with the error's text for a step that fails or answers no
+   such map."
   [handle state]
   (let [fork (or @(:program handle)
                  (throw (js/Error. "No program is loaded in this worker.")))
-        step (or (sci/resolve fork 'user/step)
-                 (throw (js/Error. "The program defines no step.")))
-        {:keys [value printed]} (evaluating fork #(@step state))]
+        _ (when-not (sci/resolve fork 'user/step)
+            (throw (js/Error. "The program defines no step.")))
+        {:keys [value printed]} (evaluating fork #(sci/eval-form fork (list 'user/step (list 'quote state))))]
     {:state (map-of-data! "A step's value" value) :printed printed}))
 
 (defn- tries-text
