@@ -44,5 +44,6 @@
            (storrito/docstring status)))
     (is (= [{:name "generate-uuid" :doc "Generates a UUID."}
             {:name "status-instagram-story" :doc "The status of a story post."}
-            {:name "flaky-once" :doc "Answers 503 the first time."}]
+            {:name "flaky-once" :doc "Answers 503 the first time."}
+            {:name "create-note" :doc "Makes a note; a command."}]
            (storrito/summary fake-gateway/catalog)))))

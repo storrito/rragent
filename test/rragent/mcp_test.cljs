@@ -17,7 +17,7 @@
             [rragent.mcp :as mcp]
             [rragent.secrets :as secrets]
             [rragent.test-home :as test-home]
-            [rragent.tools.eval :as eval-tool]))
+            [rragent.tools.machine :as machine-tool]))
 
 (defn- write-servers!
   [home servers]
@@ -348,8 +348,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 (deftest eval-output-test
   (testing "the eval tool's result: the program's text, then the pictures of its MCP calls, at most eight"
     (is (= [{:type "text" :text "=> 1"}]
-           (js->clj (.-output (eval-tool/output "=> 1" nil)) :keywordize-keys true)))
-    (let [output (js->clj (.-output (eval-tool/output "=> 1" (repeat 10 {:data "iVBO" :mime-type "image/png"}))) :keywordize-keys true)]
+           (js->clj (.-output (machine-tool/output "=> 1" nil)) :keywordize-keys true)))
+    (let [output (js->clj (.-output (machine-tool/output "=> 1" (repeat 10 {:data "iVBO" :mime-type "image/png"}))) :keywordize-keys true)]
       (is (= 9 (count output)))
       (is (= {:type "image" :data "iVBO" :mimeType "image/png"} (second output))))))
 

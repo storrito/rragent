@@ -546,10 +546,10 @@
            (let [{:keys [url stop]} (await (fake-gateway/start!))
                  home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
-             (.setResponses faux #js [(tools-test/tool-call "eval" {:code "(def slow (call \"echo\" \"/slow\" {:query {:delay 3000}})) (:status slow)"} "e1")
+             (.setResponses faux #js [(tools-test/tool-call "machine" {:code "{:next {:call (call \"echo\" \"/slow\" {:query {:delay 3000}}) :as :slow}}"} "e1")
                                       (tools-test/answer "Slow done.")
-                                      (tools-test/tool-call "eval" {:code "(loop [] (recur))"} "e2")
-                                      (tools-test/tool-call "eval" {:code "(def z 1)"} "e3")
+                                      (tools-test/tool-call "machine" {:code "(loop [] (recur))"} "e2")
+                                      (tools-test/tool-call "machine" {:code "{:z 1}"} "e3")
                                       (tools-test/answer "Fresh.")])
              (let [{:keys [id base stop!]} (await (start! home models {:gateway url}))
                    bot-url (str base "/bot/" id)
@@ -566,10 +566,10 @@
                    (is (= {:success? true} (await (command! base cookie :chat/fold {:tab "t2" :id call :fold :open})))))
                  (testing "the main thread is free while a program blocks in a call: the page answers meanwhile"
                    (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Call slowly."}))))
-                   (let [running (await (frame! #(mentions? % "Evaluated")))
+                   (let [running (await (frame! #(mentions? % "Ran a machine")))
                          at (js/Date.now)]
                      (is (mentions? running "Stop") "the run goes")
-                     (is (mentions? running "(:status slow)") "the program is on the page")
+                     (is (mentions? running ":as :slow") "the program is on the page")
                      (is (= 200 (.-status (await (within 1000 (js/fetch bot-url #js {:headers #js {:cookie cookie}}))))) "the shim answers")
                      (testing "a message sent meanwhile steers the run: pending on the page until the model reads it after the call"
                        (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Also this."}))))
@@ -579,7 +579,7 @@
                            entries (:entries (page/conversation (:value (machine/bot id))))
                            index-of (fn [s] (some (fn [[i entry]] (when (str/includes? (pr-str entry) s) i)) (map-indexed vector entries)))]
                        (is (<= 2000 (- (js/Date.now) at)) "the call was still blocked when the shim answered")
-                       (is (mentions? answer "=> 200") "the call's answer, from the worker")
+                       (is (mentions? answer ":status 200") "the call's answer, made by the host")
                        (is (< (index-of "Also this.") (index-of "Slow done.")) "the steer joined the run: read before its answer, no run of its own")
                        (is (empty? (get-in (page/conversation (:value (machine/bot id))) [:inbox :items])) "nothing left waiting"))))
                  (testing "Stop ends a program that never would, within a second; the model reads that the call was aborted"
@@ -590,12 +590,11 @@
                      (let [idle (await (frame! #(nil? (:ui/stop (second (find-tag % :ui/composer))))))]
                        (is (< (- (js/Date.now) at) 1500) "stopped within a second")
                        (is (mentions? idle "did not work") "the call is marked as failed"))
-                     (is (str/includes? (tools-test/result-text (get (await (tools-test/tool-results agent)) "e2")) "Tool eval was aborted"))))
-                 (testing "the next program starts over, in a fresh context, and says so"
+                     (is (str/includes? (tools-test/result-text (get (await (tools-test/tool-results agent)) "e2")) "Tool machine was aborted"))))
+                 (testing "the next program runs in a new worker"
                    (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Again."}))))
                    (let [answer (await (frame! #(mentions? % "Fresh.")))]
-                     (is (mentions? answer "The REPL started over since the last program was stopped: what earlier programs defined is gone."))
-                     (is (mentions? answer "=> #'user/z"))))
+                     (is (mentions? answer "State: {:z 1}"))))
                  (finally
                    (.abort controller)
                    (await (stop!))

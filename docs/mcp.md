@@ -2,7 +2,7 @@
 
 A service with an [MCP](https://modelcontextprotocol.io) server (a
 calendar, a file store, a database, Storrito's own agent endpoint)
-becomes a namespace of the bots' REPL: every tool of the server is a
+becomes a namespace of the bots' machines: every tool of the server is a
 function `mcp.<server>/<tool>` that takes a map and answers data. The
 client is [`@earendil-works/pi-mcp`](https://github.com/earendil-works/pi/tree/main/packages/mcp);
 rragent's side is `rragent.mcp` (the connections), `rragent.codemode`
@@ -144,50 +144,29 @@ one changed: a new server is there for the next program, one whose
 entry or secret changed is connected anew, a removed one closed. No
 restart.
 
-## In the REPL
+## In a machine
 
-```clojure
-(mcp/servers)
-;; => [{:name "storrito" :ns "mcp.storrito" :tools 12 :connected true
-;;      :instructions "..."} ...]
-
-(mcp/tools "storrito")
-;; => [{:name "list_stories" :fn mcp.storrito/list_stories :description "..."} ...]
-
-(doc mcp.storrito/list_stories)        ; the description and the arguments from the schema
-
-(->> (mcp.storrito/list_stories {:limit 50})
-     :stories
-     (filter #(= "draft" (:status %)))
-     (map :title))
-
-(mcp/call "files" "read.file" {:path "notes.md"})   ; by name, for a name that is no symbol
-
-(mcp/add! "github" {:url "https://api.githubcopilot.com/mcp/" :token "GITHUB_TOKEN"})
-;; => {:name "github" :connected false :tools [] :needs ["GITHUB_TOKEN"] :error "needs the secret …"}
-(mcp/test "github")          ; connected anew: {:connected true :tools ["get_me" …]} or the :error
-(mcp/enable! "github" false) ; off, the entry kept
-(mcp/remove! "github")
-```
-
-The four that change the servers are done by the main thread, which
-owns `mcp.json`; a new server's `mcp.<server>/…` functions are there
-from the next program on, `mcp/call` reaches them at once.
-
-- A tool's symbol is its name with anything but letters, digits, `_`
-  and `-` replaced by `-` (`files.read` is `mcp.files/files-read`).
-- The value is the tool's structured content when it gives one, else
-  its text, as data when the text is a JSON object or array (keys as
-  keywords, as `call` reads a body), several content blocks a vector,
-  none `nil`.
-- A picture in the answer is shown to the model after the program's
-  answer (up to four per call, eight per program); the value has a line
-  in its place.
-- A tool that fails (`isError` in its result), an unknown tool, a
-  server that cannot be reached, a timeout: the call throws with what
-  went wrong, which a program can catch.
-- Progress the server reports shows as the eval call's running output.
-- `(help)` lists the servers, what each has and what failed.
+Every tool of a connected server is a function of the namespace
+`mcp.<server>`, `(mcp.github/search_issues {:query "bug"})`, named as
+the tool with dots and other odd characters turned into dashes;
+`(mcp/tools "github")` lists them with the function each has, and
+`(mcp/call "github" "search_issues" {...})` reaches a tool by its own
+name. The function does not call the server: it answers the call as
+data, `[:mcp/call "github" "search_issues" {:query "bug"}]`, which the
+program puts under `:next` of its state, and the machine tool runs it
+(`rragent.tools.host`, the `mcp` tool). The answer under `:as` is the
+tool's structured content when it gives one, else its text, as data
+when it is JSON; a failed call answers `{:error ...}` with what the
+server said, and the next step decides. Pictures a tool answers are
+shown to the model after the machine's answer, eight at most; the
+state keeps none. `(doc mcp.github/search_issues)` answers the tool's
+description and its arguments from its schema; `(mcp/servers)` says
+which servers there are, whether each is connected, and the
+instructions a server gives for its use. `(mcp/add! ...)`,
+`(mcp/test ...)`, `(mcp/enable! ...)` and `(mcp/remove! ...)` are
+calls too, run by the main thread, which owns `mcp.json` and the
+connections; a server added is there, with its functions, from the
+next machine on.
 
 ## How it runs
 
@@ -200,13 +179,13 @@ failed is tried again after thirty seconds, one whose connection closed
 call; a call whose session had expired is made again on the new one,
 the server having taken nothing of it.
 
-SCI evaluates a program synchronously in the bot's worker thread, so a
-call cannot await: the worker posts it on a port of its own and blocks
-on a shared flag (`Atomics.wait`), the main thread calls the tool with
-pi-mcp, posts the answer and raises the flag. The connections outlive
-the worker. Stop and the program's timeout end the worker as before;
-the calls it waited for are aborted, and pi-mcp tells the server
-(`notifications/cancelled`).
+A program never calls a tool itself: `(mcp.<server>/<tool> args)`
+answers the call as data, the machine puts it under `:next`, and the
+machine tool runs it with pi-mcp in the main thread as a nested tool
+call (`mcp`, `rragent.tools.host`), the answer going into the state.
+The connections outlive the worker. Stop and the machine's timeout end
+the worker as before; a call in flight is aborted with the machine
+tool's call, and pi-mcp tells the server (`notifications/cancelled`).
 
 ## Tests
 

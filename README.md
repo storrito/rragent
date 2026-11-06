@@ -892,90 +892,99 @@ try); `rragent serve` says how many tries it took when more than one.
   procedure of the catalog becomes a function of the REPL, with a
   docstring from the catalog (`rragent.storrito`).
 
-The `eval` tool is the agent's REPL (`rragent.codemode`): a Clojure program
-evaluated by SCI in a worker thread of the agent's process
-(`rragent.codemode-worker`, below), one context for the life of the
-worker, so a `def` of one program is there for the next; what the
-program printed and its value, cut at ten thousand characters, are the
-answer, an error the tool's error. The context is closed: no `js/`, no
-interop on values, no `require` of anything but Clojure's own namespaces,
-no reading of the environment, and `aget`, `js-obj` and their kind say
-that they are not there. What a program reaches, it reaches through the
-namespace `agent`, referred in `user`, with `composio/*`, `storrito/*`,
-`mcp/*` and `mcp.<server>/*` beside it; `(help)` lists them and `(doc f)` explains each:
+The `machine` tool runs a program as a machine (`rragent.state-machine`,
+`rragent.tools.machine`): Clojure evaluated by SCI in a worker thread
+of the agent's process (`rragent.codemode-worker`), each program one of
+its own, for its value, a map, the machine's state. Nothing runs inside
+the program: the functions of the connectors answer a call as data,
+`(storrito/list-social-accounts {})` is `[:storrito/list-social-accounts
+{}]`, and the program puts one under `:next` with the key its answer
+goes under, `{:next {:call (storrito/list-social-accounts {}) :as
+:accounts}}`. The tool, the imperative shell of the functional core,
+runs the call as a nested tool call of its own under the step's key
+(the tools of `rragent.tools.host`, which only tools call, and the
+bot's `remember`), puts the answer under `:as`, a failed call as
+`{:error ...}`, and, when the program defined `(defn step [state]
+...)`, has the worker evaluate it on the state for the next one, until
+a state without `:next` or with `:done`; an initial state without
+`:next` is stepped first. The state after every answer is a memo of
+the call, so the tool is replay-safe: a call the machine's restart
+interrupted loads the program again (pure), takes each state from its
+memo and each call from its key, and goes on where it was; nothing is
+made twice. The model reads what the program printed, how many calls
+were made, and the final state. Every program starts from a fresh
+fork of the context: a `def` of one is not there for the next, since
+what the model cannot see in its conversation, once it is summarized,
+it cannot use; data for a later program goes into a file with
+`(spit "data/x.edn" v)`, read back with `(edn/read-string (slurp
+"data/x.edn"))`, both calls. A big or binary HTTP body goes to a file
+with `:to-file` in the call's opts; an answer over a megabyte fails
+the call and says so. `(help)` and `(doc f)` are pure and answer
+`{:help ...}` and `{:doc ...}`. See [docs/machines.md](docs/machines.md).
 
-- `(connectors)`: the gateway's list, read now, as data; `(connector
-  "github")`: one connection, by provider name or by id.
+The calls:
+
+- `(connectors)`: the gateway's list, read again, as data;
+  `(connector "github")`: one connection, by provider name or by id, as
+  the machine started, pure.
 - `(call "github" "/user/repos" {:method "GET" :query {:per_page 5}})`:
-  an HTTP call through the gateway, by provider name or connection id
+  an HTTP request through the gateway, by provider name or connection id
   (several `custom_api` connections: the id), `:body` as JSON when it is
-  data; answers `{:status :headers :body}`, the body as data when it is
-  JSON.
+  data, `:to-file` for the body as a file; answers `{:status :headers
+  :body}`, the body as data when it is JSON. A GET is a read the host
+  makes again when a restart caught it in flight; anything else is
+  abandoned and answers an error then.
 - `(composio/search "send an email" ["gmail"])`, `(composio/schemas
   ["GMAIL_SEND_EMAIL"])`, `(composio/execute "GMAIL_SEND_EMAIL" {:to
   "a@example.com"})`, `(composio/connections ["googlesheets"])`: the four
-  meta tools, a completed run's data, a failed one a throw with
+  meta tools, a completed run's data, a failed one `{:error ...}` with
   Composio's error; `connections` starts a connection the organization
   lacks and answers a sign-in link for the person, good for ten
   minutes, which the agent offers as soon as the person names a
-  service of theirs.
+  service of theirs. The search session a search answers is the
+  shell's to carry into the calls after it.
 - `(composio/accounts)`, `(composio/trigger-types "googledrive")`,
   `(composio/add-trigger "GOOGLEDRIVE_FILE_CREATED_TRIGGER" "ca_1" {})`,
   `(composio/triggers)`, `(composio/delete-trigger "ti_1")`: the agent's
   connected accounts and triggers at Composio, its own; a trigger added
-  is noted as a fact (`composio-trigger`), and its events arrive in the
-  conversation of the bot that added it.
-- `(storrito/procedures)`: the catalog's procedures, each a function
-  `storrito/<name>` that takes a map and answers the API's data, a
-  failed call a throw with what the API said; a 429 or a 5xx is tried
-  again.
+  is noted as a fact (`composio-trigger`) by the host, and its events
+  arrive in the conversation of the bot that added it.
+- `(storrito/procedures)`: the catalog's procedures, pure, each a
+  function `storrito/<name>` that takes a map and answers its call; a
+  failed one `{:error ...}` with what the API said; a 429 or a 5xx is
+  tried again.
 - `(mcp.storrito/list_stories {:limit 5})`, `(mcp/servers)`,
   `(mcp/tools "storrito")`, `(mcp/call "files" "read.file" {...})`: the
   tools of the MCP servers named in `mcp.json` of the machine's folder
   (the `mcpServers` file of pi and pchat, a URL with headers or a
   program), a namespace per server, connected by the main thread at the
   first program (`rragent.mcp`, over `@earendil-works/pi-mcp`); the
-  structured content or the text (JSON as data), a failure a throw,
-  pictures shown after the answer. `(mcp/add! "github" {:url …
-  :token "GITHUB_TOKEN"})`, `mcp/test`, `mcp/enable!`, `mcp/remove!`
-  change the servers; a token is typed by the person into a password
-  field the bot asks for (`[:secret …]`), saved in `secrets.json`,
-  never seen by the model, and replaced by its name in any tool output.
-  A server that signs in with OAuth (`:oauth true`) gets a Sign in
-  link in the settings, or `[:sign-in …]` in a bot's answer; its
-  tokens are kept and refreshed by the machine. Settings → MCP servers
-  lists them and opens a bot that connects a service. See [docs/mcp.md](docs/mcp.md).
+  structured content or the text (JSON as data), a failure
+  `{:error ...}`, pictures shown after the answer. `(mcp/add! "github"
+  {:url … :token "GITHUB_TOKEN"})`, `mcp/test`, `mcp/enable!`,
+  `mcp/remove!` are calls that change the servers; a token is typed by
+  the person into a password field the bot asks for (`[:secret …]`),
+  saved in `secrets.json`, never seen by the model, and replaced by its
+  name in any tool output. A server that signs in with OAuth (`:oauth
+  true`) gets a Sign in link in the settings, or `[:sign-in …]` in a
+  bot's answer; its tokens are kept and refreshed by the machine.
+  Settings → MCP servers lists them and opens a bot that connects a
+  service. See [docs/mcp.md](docs/mcp.md).
 - Why hooks and schedules start runs instead of chat messages, and why
   the person's know-how becomes a skill: [docs/runs-and-skills.md](docs/runs-and-skills.md).
 - `(remember "review-posted" {:id 4711})` and `(recall {:event
   "review-posted"})`: the bot's events (`rragent.events`, one EDN map
   per line in `bots/<id>/events.edn`), the same file the `remember` and
-  `recall` tools write and read, shared with the bot's runs; a program
-  sees the events as they were when it started, what it remembers is
-  appended when it ends.
+  `recall` tools write and read, shared with the bot's runs.
+- `(spit "data/accounts.edn" accounts)` and `(slurp "data/accounts.edn")`:
+  a file of the bot's work folder written (a string as it is, data as
+  EDN that reads back, anything else refused) and read, inside the work
+  folder only; the state between machines, named by the model.
 
-A call blocks the thread it runs in until it is answered: SCI evaluates
-a program synchronously, so a call in the middle of a loop cannot
-await, and the request runs in a helper thread instead while the
-program's thread waits on a shared flag (`rragent.sync-fetch`:
-`Atomics.wait` and `receiveMessageOnPort`); a call has two minutes.
-That is why the programs run in a worker thread of their own
-(`rragent.codemode-worker`, `node:worker_threads`), one per bot,
-started at the first program from what the main thread discovered of
-the gateway: the main thread stays free meanwhile, the page renders,
-the hooks and the schedules fire, Stop reaches the agent. The worker
-runs the bundle itself, told apart by its `workerData`, so there is one
-file to deploy; it holds the SCI context, and the `eval` tool posts each
-program over the port with the facts the program sees and the
-environment the bindings read, and gets what it printed and its value,
-or its error, and what it remembered, which the tool commits. Stop
-while a program runs terminates the worker, and so does a program
-longer than `RRAGENT_PROGRAM_TIMEOUT_MIN` minutes (ten): the stopped
-call fails with the reason, the next program starts a new worker with a
-fresh context, and its answer says first that the defs are gone. The
-tests' fake gateway lives in a worker thread of its own as well, since
-the tests of the bindings evaluate in their own thread
-(`rragent.fake-gateway`).
+The worker holds nothing but the SCI context: no network, no shared
+memory, no environment. The gateway's list at start and the OpenRouter
+probe are the main thread's one blocking request each
+(`rragent.sync-fetch`).
 
 Three variables: `RRAGENT_GATEWAY`, the gateway's base
 (`http://sprite.internal`, which answers only inside a sprite; elsewhere

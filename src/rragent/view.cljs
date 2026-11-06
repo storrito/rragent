@@ -65,7 +65,7 @@
     "read" [:i18n :tool/read]
     "write" [:i18n :tool/write]
     "edit" [:i18n :tool/edit]
-    "eval" [:i18n :tool/eval]
+    "machine" [:i18n :tool/machine]
     "fetch" [:i18n :tool/fetch]
     "remember" [:i18n :tool/remember]
     "recall" [:i18n :tool/recall]
