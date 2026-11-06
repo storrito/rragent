@@ -135,11 +135,11 @@
             (testing "what an attempt defined before its need is gone with it"
               (is (= "=> [1 1]"
                      (await (test-host/run handle "(def n (atom 0)) (swap! n inc) (call \"echo\" \"/once\") [(deref n) 1]")))))
-            (testing "a form that asks something else the second time is an error"
+            (testing "a form that asks something else the second time is an error: an atom of an earlier form survives the attempt that is thrown away"
               (let [calls (atom 0)
                     perform (test-host/perform handle (atom []))
                     changing (fn [need] (swap! calls inc) (perform need))]
-                (is (str/includes? (await (fails #(test-host/run handle "(let [k (rand-int 1000000)] (call \"echo\" (str \"/\" k)))" {:perform changing})))
+                (is (str/includes? (await (fails #(test-host/run handle "(def n (atom 0)) (call \"echo\" (str \"/\" (swap! n inc)))" {:perform changing})))
                                    "The program asked something else than before at call 1 of this form"))
                 (is (= 1 @calls) "the host answered once, the rerun asked another path")))
             (testing "a recorded failure is thrown where the call is, which the program may catch"
@@ -150,6 +150,34 @@
                        (await (test-host/run handle "(try (call \"echo\" \"/x\") (catch :default e (ex-message e)))" {:perform perform}))))))
             (testing "the need describes the call"
               (is (= "gateway-read conn_echo /x" (need/describe {:tool "gateway-read" :args {:which "conn_echo" :path "/x"}}))))))
+        (.finally done))))
+
+(deftest chance-test
+  (async done
+    (-> (with-fake nil
+          (^:async fn [_url handle]
+           (let [asked (atom [])
+                 perform (test-host/perform handle (atom []))
+                 noting (fn [need] (swap! asked conj (:tool need)) (perform need))
+                 run (fn [code] (test-host/run handle code {:perform noting}))
+                 program "(let [k (rand-int 1000)] [k (rand) (rand-nth [:a :b :c]) (shuffle [1 2 3 4 5]) (str (random-uuid)) (get-in (call \"echo\" (str \"/\" k)) [:body :path])])"]
+             (testing "random numbers come from a generator the host seeded for the form, so a form draws the same before and after its calls are answered"
+               (let [first-run (await (run program))
+                     second-run (await (run program))]
+                 (is (= first-run second-run) "the same seed, the same draws")
+                 (is (= ["seed" "gateway-read"] (take 2 @asked)) "the seed is the form's first need, the call comes after it, on the rerun")
+                 (is (re-find #"^=> \[\d+ 0\.\d+ :[abc] \[\d \d \d \d \d\] \"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\" \"/\d+\"\]$" first-run) first-run)))
+             (testing "every form that draws asks for a seed of its own, a form that draws nothing asks none"
+               (reset! asked [])
+               (await (run "(rand) (+ 1 2) (rand)"))
+               (is (= ["seed" "seed"] @asked)))
+             (testing "the clock is a need, the same on every attempt of the form"
+               (reset! asked [])
+               (is (= "=> [1700000000000 \"/x\"]" (await (run "[(system-time) (get-in (call \"echo\" \"/x\") [:body :path])]"))))
+               (is (= ["clock" "gateway-read"] @asked)))
+             (testing "a draw outside a form, with no host"
+               (is (str/includes? (failure #(codemode/evaluate handle "(rand)")) "No host to answer the seed of rand here."))
+               (is (str/includes? (failure #(codemode/evaluate handle "(system-time)")) "No host to answer clock here."))))))
         (.finally done))))
 
 (deftest forms-test

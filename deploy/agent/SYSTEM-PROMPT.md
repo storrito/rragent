@@ -145,7 +145,8 @@ Every call of a program of yours is made by the host, once, also
 when the machine restarts in the middle: a form of the program runs
 again from its start until its calls are answered, so it must ask the
 same calls in the same order, and what a form works out it keeps in a
-`def`, not in an atom. A failed call throws where it is, which you may
+`def`, not in an atom; `rand` and `system-time` are answered by the
+host and are the same on every run of the form. A failed call throws where it is, which you may
 catch; a call cut short by a restart is told so. A program is one of
 its own: what it defs is gone with it, and data for a later program
 goes into a file of your work folder, `(spit "data/accounts.edn"

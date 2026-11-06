@@ -68,21 +68,29 @@ on the rerun that the program asks the same thing at k. This program
 breaks:
 
 ```clojure
-(let [k (rand-int 1000)]
-  (call "echo" (str "/" k)))
+(def n (atom 0))
+(call "echo" (str "/" (swap! n inc)))
 ```
 
-Attempt 1 asks `/417`, the shell answers it. Attempt 2 draws a new
-number and asks `/92` at position 0, where `/417` is recorded. The
-form ends with an error that says so: "The program asked something
-else than before at call 1 of this form".
+Attempt 1 of the second form asks `/1`, the shell answers it. The
+attempt is thrown away, but the atom was made by the first form and
+survives, so attempt 2 asks `/2` at position 0, where `/1` is
+recorded. The form ends with an error that says so: "The program
+asked something else than before at call 1 of this form".
 
 The rule: given the same answers, a form must make the same calls in
 the same order. A program that computes from its answers does this by
-itself. What breaks it is randomness and the clock before a call. Do
-not draw a random id in the program; take ids from the data, or ask a
-service for one (`(storrito/generate-uuid)` is a call, so its answer
-is recorded like any other).
+itself; what breaks it is state that outlives an attempt, an atom
+from an earlier form. Keep what a form works out in `def`s.
+
+Randomness and the clock do not break it, because they come from the
+shell too. `rand`, `rand-int`, `rand-nth`, `shuffle` and
+`random-uuid` draw from a generator the form seeds at its first draw,
+and the seed is a need like a call, recorded at its position; every
+attempt of the form draws the same numbers in the same order.
+`system-time` is a need of its own, the host's clock recorded once.
+So `(let [k (rand-int 1000)] (call "echo" (str "/" k)))` works: the
+seed is call 0, the echo call 1, and both replay.
 
 ## A `try` around a call
 
@@ -244,8 +252,9 @@ so a `recall` after a `remember` sees it.
 
 - A call is made once, by the host, also across a restart. A form
   runs again from its start until its calls are answered.
-- Same calls in the same order: no randomness, no clock, no `swap!`
-  before a call.
+- Same calls in the same order: no `swap!` on an atom from an earlier
+  form before a call. Randomness and the clock are answered by the
+  host and replay with the form.
 - `try` catches failures of calls. A need is not catchable in any way
   that matters.
 - Keep a form's results in `def`s. Keep data for a later program in a

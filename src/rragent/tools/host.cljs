@@ -12,8 +12,9 @@
    host to show; `mcp-admin` a change of the servers; `connectors` the
    gateway's list read again, with the Storrito catalog; `spit` and
    `slurp` a file of the bot's work folder written and read, data
-   for a later program; `remember` is the bot's own tool
-   (`rragent.tools.events`)."
+   for a later program; `seed` and `clock` the randomness and the
+   time of a form, recorded so that every attempt draws the same;
+   `remember` is the bot's own tool (`rragent.tools.events`)."
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [clojure.string :as str]
@@ -26,7 +27,7 @@
             [rragent.tools.work :as work]))
 
 (def names
-  ["gateway" "gateway-read" "mcp" "mcp-admin" "connectors" "spit" "slurp"])
+  ["gateway" "gateway-read" "mcp" "mcp-admin" "connectors" "spit" "slurp" "seed" "clock"])
 
 (def max-file-chars
   "How long a file spit writes or slurp reads may be: it travels as
@@ -226,7 +227,36 @@
                                   (str "No file " (.-path args) " in your work folder.")
                                   (ex-message e))))))}))
 
+(defn seed
+  "The `seed` tool: a 32-bit number for the generator of a form's
+   random numbers, drawn once and recorded, so that the form draws
+   the same on every attempt."
+  []
+  (defineTool
+   #js {:name "seed"
+        :description "A seed for the random numbers of a program of the REPL."
+        :callers #js ["tools"]
+        :replay "safe"
+        :parameters (.Object Type #js {})
+        :structuredOutputSchema (.Any Type)
+        :execute (^:async fn [_args _api _call-context]
+                   (answer {:seed (aget (js/crypto.getRandomValues (js/Uint32Array. 1)) 0)}))}))
+
+(defn clock
+  "The `clock` tool: the host's time in milliseconds, recorded, so
+   that a form reads the same time on every attempt."
+  []
+  (defineTool
+   #js {:name "clock"
+        :description "The time, for a program of the REPL."
+        :callers #js ["tools"]
+        :replay "safe"
+        :parameters (.Object Type #js {})
+        :structuredOutputSchema (.Any Type)
+        :execute (^:async fn [_args _api _call-context]
+                   (answer {:now (js/Date.now)}))}))
+
 (defn tools
   "All of them, over the REPL `codemode`."
   [codemode]
-  [(gateway codemode) (gateway-read codemode) (mcp-tool codemode) (mcp-admin codemode) (connectors codemode) (spit) (slurp)])
+  [(gateway codemode) (gateway-read codemode) (mcp-tool codemode) (mcp-admin codemode) (connectors codemode) (spit) (slurp) (seed) (clock)])

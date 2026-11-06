@@ -19,7 +19,8 @@
    thread or a worker handle's `:codemode`), the events in the atom
    `events` (maps with :event and :at), MCP calls through `registry`
    when there is one, the files of spit and slurp in the atom `files`
-   (`{path content}`, a fresh one without): the need's outcome,
+   (`{path content}`, a fresh one without), the seed of a form's
+   random numbers 42 and the clock 1700000000000: the need's outcome,
    `{:ok :value}` or `{:ok false :error}`, and the images of an MCP
    call under `:images`."
   [codemode events & [registry files]]
@@ -36,6 +37,12 @@
                (if-let [content (get @files (:path args))]
                  {:ok true :value content}
                  {:ok false :error (str "No file " (:path args) " in your work folder.")})
+
+               "seed"
+               {:ok true :value {:seed 42}}
+
+               "clock"
+               {:ok true :value {:now 1700000000000}}
 
                ("gateway" "gateway-read")
                {:ok true :value (await (host/request codemode (:which args) (:path args) (:opts args)))}

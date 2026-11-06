@@ -975,8 +975,8 @@ whatever the program does with the throw: the attempt is thrown away,
 the `eval` tool makes the call as a nested tool call of its own under
 the key of the form and the call (`c<form>-<call>`, the tools of
 `rragent.tools.host`, which only tools call: `gateway` and
-`gateway-read`, `mcp`, `mcp-admin`, `connectors`, `spit`, `slurp`, and
-the bot's own `remember`), and sends the form again with the answer among the
+`gateway-read`, `mcp`, `mcp-admin`, `connectors`, `spit`, `slurp`, `seed`,
+`clock`, and the bot's own `remember`), and sends the form again with the answer among the
 answers, so the program walks its earlier calls from the answers and
 reaches the next, or its end. A form that is done is kept as the
 call's memo: what it printed, its value, and the vars it defined as
@@ -989,10 +989,12 @@ the restart caught it in flight, a command not. So nothing changes
 anything twice, without any journal of the program's own: the shell
 keeps the answers, the core is pure (functional core, imperative
 shell). A form must ask the same calls in the same order each time it
-runs, which is what a program that computes from its answers does; a
-recorded failure is thrown where the call is, an error the program may
-catch, and a form that asks something else the second time is told
-so. The worker holds nothing but the SCI context: no network, no
+runs, which is what a program that computes from its answers does;
+`rand` and its kin draw from a generator the form seeds through a
+need of its own, and `system-time` is a need, so they replay with the
+form; a recorded failure is thrown where the call is, an error the
+program may catch, and a form that asks something else the second
+time is told so. The worker holds nothing but the SCI context: no network, no
 shared memory, no environment; the gateway's list at start and the
 OpenRouter probe are the main thread's one blocking request each
 (`rragent.sync-fetch`).

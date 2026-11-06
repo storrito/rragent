@@ -70,9 +70,92 @@
   (fn [& _]
     (throw (js/Error. (str sym " is not available in this REPL: it reaches JavaScript objects, and the REPL has data, not objects.")))))
 
+(def ^:dynamic *chance*
+  "The random numbers of the attempt that runs: an atom with the
+   state of the generator, nil until the form's first draw asked the
+   host for its seed; nil outside an attempt."
+  nil)
+
+(defn- next-chance!
+  "The next number of the generator in [0, 1): mulberry32 over the
+   seed the host gave this form, asked for at the first draw
+   (`rragent.need`), so that every attempt of the form draws the same
+   numbers in the same order and a program may use them before a
+   call. One need per form that draws."
+  []
+  (let [chance *chance*]
+    (when-not chance
+      (throw (js/Error. "No host to answer the seed of rand here.")))
+    (when (nil? @chance)
+      (reset! chance (:seed (need/ask {:tool "seed" :args {}}))))
+    (let [a (swap! chance #(bit-or (+ % 0x6D2B79F5) 0))
+          t (js/Math.imul (bit-xor a (unsigned-bit-shift-right a 15)) (bit-or 1 a))
+          t (bit-xor (+ t (js/Math.imul (bit-xor t (unsigned-bit-shift-right t 7)) (bit-or 61 t))) t)]
+      (/ (unsigned-bit-shift-right (bit-xor t (unsigned-bit-shift-right t 14)) 0) 4294967296))))
+
+(defn- chance-rand
+  ([] (next-chance!))
+  ([n] (* n (next-chance!))))
+
+(defn- chance-rand-int
+  [n]
+  (js/Math.floor (* n (next-chance!))))
+
+(defn- chance-rand-nth
+  [coll]
+  (nth coll (chance-rand-int (count coll))))
+
+(defn- chance-shuffle
+  [coll]
+  (let [a (to-array coll)]
+    (loop [i (dec (alength a))]
+      (when (pos? i)
+        (let [j (chance-rand-int (inc i))
+              x (aget a i)]
+          (aset a i (aget a j))
+          (aset a j x)
+          (recur (dec i)))))
+    (vec a)))
+
+(defn- hex
+  [n width]
+  (let [s (.toString n 16)]
+    (str (apply str (repeat (- width (count s)) "0")) s)))
+
+(defn- chance-uuid
+  "A version 4 UUID from the generator."
+  []
+  (let [a (chance-rand-int 0x100000000)
+        b (chance-rand-int 0x100000000)
+        c (chance-rand-int 0x100000000)
+        d (chance-rand-int 0x100000000)
+        b (bit-or (bit-and b 0xffff0fff) 0x4000)
+        c (bit-or (bit-and c 0x3fffffff) 0x80000000)]
+    (uuid (str (hex (unsigned-bit-shift-right a 0) 8) "-"
+               (hex (unsigned-bit-shift-right b 16) 4) "-" (hex (bit-and b 0xffff) 4) "-"
+               (hex (unsigned-bit-shift-right c 16) 4) "-" (hex (bit-and c 0xffff) 4) (hex (unsigned-bit-shift-right d 0) 8)))))
+
+(defn- host-time
+  "The clock of the host, milliseconds, a need recorded like a call:
+   the same on every attempt of the form."
+  []
+  (:now (need/ask {:tool "clock" :args {}})))
+
+(def chance-core
+  "What `clojure.core` holds for randomness and the clock: numbers
+   from a generator the host seeded for the form, the host's clock."
+  {'rand chance-rand
+   'rand-int chance-rand-int
+   'rand-nth chance-rand-nth
+   'shuffle chance-shuffle
+   'random-uuid chance-uuid
+   'system-time host-time})
+
 (def denied-core
-  "What `clojure.core` holds for the denied names."
-  (into {} (map (fn [sym] [sym (denied-fn sym)])) denied))
+  "What `clojure.core` holds for the denied names, and for randomness
+   and the clock (`chance-core`)."
+  (merge (into {} (map (fn [sym] [sym (denied-fn sym)])) denied)
+         chance-core))
 
 (def preamble
   "What every program starts from: the agent namespace referred, doc
@@ -828,7 +911,9 @@
    its end, the fork the program's context from now on, the value as
    text cut at ten thousand characters; `{:error}` for a form that
    failed, with where and what was printed before. The forms are read
-   first, a reading error is the answer."
+   first, a reading error is the answer. Randomness and the clock in
+   the form come from the host (`chance-core`), so that every attempt
+   draws the same."
   [handle {:keys [code index answers events]}]
   (let [forms (try
                 {:forms (forms handle code)}
@@ -844,6 +929,7 @@
             attempt (need/attempt answers)
             outcome (try
                       (binding [need/*attempt* attempt
+                                *chance* (atom nil)
                                 *fork* fork]
                         (events! handle events)
                         (sci/binding [sci/print-newline true
