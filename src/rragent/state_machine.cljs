@@ -53,6 +53,14 @@
   [x]
   (and (vector? x) (keyword? (first x))))
 
+(defn known-call?
+  "Whether the call's keyword is one the shell runs: a storrito/
+   procedure or one of `calls`."
+  [call]
+  (let [k (first call)]
+    (boolean (or (= "storrito" (namespace k))
+                 (contains? calls k)))))
+
 (defn- read-method?
   [opts]
   (let [method (:method opts)]

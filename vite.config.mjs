@@ -61,6 +61,7 @@ export default ({ command }) => {
               recursive: true,
               filter: (source) => !/(^|\/)(node_modules|package-lock\.json|\.nrepl-port|[^/]*\.sqlite)$/.test(source),
             });
+            cpSync('docs', 'dist/docs', { recursive: true });
           }
         },
       },

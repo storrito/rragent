@@ -102,6 +102,12 @@
       (is (str/includes? (failure #(codemode/load handle "(def step 1) {}")) "step is a function"))
       (codemode/load handle "(defn step [s] (assoc s :f (fn [] 1))) {}")
       (is (str/includes? (failure #(codemode/step handle {})) "A step's value must be data")))
+    (testing "a call written as a statement is refused at load: it would do nothing"
+      (is (str/includes? (failure #(codemode/load handle "(remember \"seen\" {:n 1}) {:done true}"))
+                         "(remember \"seen\" {:n 1}) is a call, data that does nothing by itself: put it under :next of the state, {:next {:call (remember \"seen\" {:n 1}) :as :remember}}"))
+      (is (str/includes? (failure #(codemode/load handle "(spit \"data/x.edn\" {:a 1})\n{}")) "is a call, data that does nothing by itself"))
+      (is (= {:c [:recall {}]} (state handle "(def c (recall)) {:c c}")) "a def of a call is fine, the value is a var")
+      (is (= {:next {:call [:recall {}] :as :events}} (state handle "{:next {:call (recall) :as :events}}")) "under :next as it should be"))
     (testing "a program is one of its own: a def is there for its steps, not for the next program"
       (is (= {:n 21} (state handle "(def n 21) {:n n}")))
       (is (str/includes? (failure #(codemode/load handle "{:n n}")) "Unable to resolve symbol: n"))

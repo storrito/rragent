@@ -943,9 +943,12 @@ made twice. The model reads what the program printed, how many calls
 were made, and the final state. Every program starts from a fresh
 fork of the context: a `def` of one is not there for the next, since
 what the model cannot see in its conversation, once it is summarized,
-it cannot use; data for a later program goes into a file with
-`(spit "data/x.edn" v)`, read back with `(edn/read-string (slurp
-"data/x.edn"))`, both calls. A big or binary HTTP body goes to a file
+it cannot use; data for a later program goes into a file, `{:next
+{:call (spit "data/x.edn" v) :as :path}}`, read back in a later
+machine with `{:next {:call (slurp "data/x.edn") :as :text}}` and
+`(edn/read-string (:text state))` in its step. A program that writes
+a call as a statement, `(spit "data/x.edn" v)` on its own, is refused
+at load, since the vector would do nothing. A big or binary HTTP body goes to a file
 with `:to-file` in the call's opts; an answer over a megabyte fails
 the call and says so. `(help)` and `(doc f)` are pure and answer
 `{:help ...}` and `{:doc ...}`. See [docs/machines.md](docs/machines.md).

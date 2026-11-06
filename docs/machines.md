@@ -1,135 +1,152 @@
 # Machines
 
-The `machine` tool runs a Clojure program the model writes, and this
-is how it works, by small examples: what a program is, how a call is
-made, how a loop goes, what a restart does, and what the model is told.
+How a bot runs a Clojure program with the `machine` tool. Read this
+before your first machine; every example is complete and runs as it
+stands.
 
-## A program is a map
+## The contract, in five lines
 
-The program's value is a map, the machine's state. Nothing runs inside
-the program. The functions of the connectors answer a call as data:
+1. A program's value is a map, the machine's state.
+2. Nothing runs inside the program. A function such as
+   `(storrito/list-social-accounts {})` answers a *call*, a vector
+   `[:storrito/list-social-accounts {}]`.
+3. You put one call under `:next`, with the key its answer goes under:
+   `{:next {:call (storrito/list-social-accounts {}) :as :accounts}}`.
+   The host runs the call and puts the answer under that key.
+4. With `(defn step [state] ...)` defined, the host calls `step` with
+   the state after every answer and runs the `:next` it returns, until
+   a state without `:next`, or with `:done`.
+5. You read what the program printed, how many calls were made, and
+   the final state.
 
-```clojure
-(storrito/list-social-accounts {})   ; => [:storrito/list-social-accounts {}]
-(call "github" "/user/repos")        ; => [:call "github" "/user/repos" {}]
-(remember "posted" {:id 4711})       ; => [:remember "posted" {:id 4711}]
-```
-
-A program puts one under `:next`, with the key its answer goes under:
+## A read
 
 ```clojure
 {:next {:call (storrito/list-social-accounts {}) :as :accounts}}
 ```
 
-The tool runs the call and puts the answer under `:accounts`. With no
-`step` defined, the machine is done, and the model reads the state:
+The answer:
 
 ```
 After 1 call.
-State: {:accounts {:socialAccounts [{:platformName "Instagram" ...} ...]}}
+State: {:accounts {:socialAccounts [{:platformName "Instagram" :name "carfunnews" ...} ...]}}
 ```
 
-That is the one-shot read, most of what a bot does with the tool.
+Most machines are this: one call, the answer, done. The same with any
+call: `(call "github" "/user/repos" {:query {:per_page 5}})`,
+`(composio/search "send an email" ["gmail"])`, `(mcp.github/search_issues {:query "bug"})`,
+`(recall {:event "posted"})`.
 
-## A step function
-
-With `step` defined, the tool calls it with the state after every
-answer, and runs the `:next` of the state it returns, until a state
-without `:next`, or with `:done`:
+## A step machine: read, then act
 
 ```clojure
 (defn step [s]
   (cond
-    (nil? (:accounts s)) (assoc s :next {:call (storrito/list-social-accounts {}) :as :accounts})
-    (nil? (:post s))     (let [insta (first (filter #(= "Instagram" (:platformName %)) (:socialAccounts (:accounts s))))]
-                           (assoc s :next {:call (storrito/schedule-social-post {:socialAccountUuid (:uuid insta) :text "Hello"}) :as :post}))
-    :else                (assoc s :done (:socialPostUuid (:post s)))))
+    (nil? (:accounts s))
+    (assoc s :next {:call (storrito/list-social-accounts {}) :as :accounts})
+
+    (nil? (:post s))
+    (let [insta (first (filter #(= "Instagram" (:platformName %)) (:socialAccounts (:accounts s))))]
+      (assoc s :next {:call (storrito/schedule-social-post {:socialAccountUuid (:uuid insta) :text "Hello"}) :as :post}))
+
+    :else
+    (assoc s :done (:socialPostUuid (:post s)))))
+
 {}
 ```
 
-An initial state without `:next` is stepped first. One call per step;
-`step` is a function of the state and nothing else.
+The initial state `{}` has no `:next`, so the host steps it first.
+Step 1 asks for the accounts; the host answers; step 2 picks one and
+asks for the post; step 3 says done. Every value a later step needs is
+in the state, under a key you chose. `step` is a function of the state
+and nothing else: no def, no atom, no clock.
 
 ## A loop
 
 ```clojure
 (defn step [s]
-  (let [s (if (contains? s :last) (-> s (update :posted conj (:id (:last s))) (dissoc :last)) s)]
+  (let [s (if (contains? s :last)
+            (-> s (update :posted conj (:id (:last s))) (dissoc :last))
+            s)]
     (if-let [row (first (:todo s))]
-      (assoc s :todo (rest (:todo s)) :next {:call (storrito/schedule-social-post (post-of row)) :as :last})
+      (assoc s :todo (rest (:todo s))
+               :next {:call (storrito/create-note {:text (:text row)}) :as :last})
       (assoc s :done (count (:posted s))))))
-{:todo rows :posted []}
+
+{:todo [{:text "a"} {:text "b"} {:text "c"}] :posted []}
 ```
 
-Two hundred rows, two hundred steps, two hundred calls, each a nested
-tool call of the machine tool under its key, `c0`, `c1`, …, which
-pi-durable records before it runs and after it settles. The state
-after each answer is a memo of the call, `s0`, `s1`, …
+One call per step. Three rows, three calls, then `:done 3`. Two
+hundred rows work the same way, and a machine that the host restarts
+in the middle goes on at the row it was at: the state after every
+answer is kept, and a call that was made is not made again.
 
 ## A failed call
 
-A failed call answers `{:error "…"}` under `:as`, with `:status` and
-`:body` when a request answered, and `step` runs with it. The step
-decides: retry, skip, or `:done` with what it has.
+A failed call answers `{:error "..."}` under its key, with `:status`
+and `:body` when a request answered. The step decides what to do:
 
 ```clojure
 (defn step [s]
-  (if (:error (:post s))
-    (assoc s :done {:failed (:error (:post s))})
-    ...))
+  (cond
+    (:error (:status-answer s)) (assoc s :done {:failed (:error (:status-answer s))})
+    (:status-answer s)          (assoc s :done (:status (:status-answer s)))
+    :else                       (assoc s :next {:call (storrito/status-instagram-story {:storyPostUuid "…"}) :as :status-answer})))
+
+{}
 ```
 
-A step that neither handles the error nor asks for anything new ends
-the machine with an error result that says so, the state included.
+A machine that ends right after a failed call it neither handled nor
+followed up ends as an error, with the state shown, so that you see
+what failed.
 
-## A restart in the middle
+## Files: data for a later machine
 
-The machine died after call 120 of 200. On the next start pi-durable
-runs the `machine` call again, since the tool is replay-safe. It loads
-the program again, which is pure, steps the initial state, and then,
-for each step, asks the memo for the state after that step and the
-nested call under that step's key. Memo `s119` is there, call `c119`
-is there, finished with its result, and so on up to the one that was
-interrupted. A call that was in flight when the process died follows
-its tool's rule: a GET or a read at Composio is made again, a POST is
-abandoned and answers `{:error "interrupted"}`, which the step sees.
-Nothing is made twice, and the pure code that runs again costs
-nothing.
-
-There is no replay of the program's logic, no determinism it has to
-keep, no journal of its own: the state is data, pi-durable keeps the
-data and the calls, and a step is a function of the state.
-
-## Files, events, big answers
-
-A program's defs are gone with it; what the model cannot see in its
-conversation after a summary it must not depend on. Data for a later
-machine goes into a file, named by the model and visible in the pane:
+A program's defs are gone with it. What a later machine needs goes
+into a file of your work folder, which you see in the pane:
 
 ```clojure
-{:next {:call (spit "data/accounts.edn" accounts) :as :path}}      ; one machine
-{:next {:call (slurp "data/accounts.edn") :as :text}}              ; a later one, then (edn/read-string (:text s))
+{:next {:call (spit "data/accounts.edn" accounts) :as :path}}
 ```
 
-`(remember "posted" {...})` and `(recall {:event "posted"})` are calls
-too, the bot's events as data. A big or binary HTTP body goes to a file
-with `:to-file` in the call's opts, and the state gets `{:file :size
-:type :status}` instead of the body; an answer over a megabyte fails
-the call and says so.
+and in a later machine:
 
-## What the model is told
+```clojure
+(defn step [s]
+  (if (:text s)
+    (assoc s :done (count (edn/read-string (:text s))))
+    (assoc s :next {:call (slurp "data/accounts.edn") :as :text})))
 
-- A program's value is its state, a map. A call is data under `:next`.
-- `step`, when defined, is called after every answer; one call per
-  step; `:done` or no `:next` ends it.
-- Keep what a step works out in the state, not in defs or atoms.
-- A failed call is `{:error ...}` under its key; the step decides.
-- Big data in files; `:to-file` for bodies.
-- `(help)` and `(doc f)` are pure and answer maps.
+{}
+```
 
-Where it is: `rragent.codemode` (the closed context, the functions
-that answer calls, `load` and `step`), `rragent.codemode-worker` (the
-worker, `load!` and `step!`), `rragent.state-machine` (what a call
-names, the answer into the state, done, the text),
-`rragent.tools.machine` (the loop, the memos, the keys),
-`rragent.tools.host` (the tools that run the calls).
+`spit` writes a string as it is and anything else as EDN that reads
+back; a function or an object in the data is refused. A big or binary
+HTTP body goes straight to a file with `:to-file` in the call's opts,
+`(call "drive" "/file" {:to-file "data/photo.jpg"})`, and the state
+gets `{:file "data/photo.jpg" :size … :type …}`; an answer over a
+megabyte that is not sent to a file fails the call and says so.
+
+## Mistakes the host catches
+
+- `(spit "data/x.edn" v)` or `(remember "seen" {...})` written on its
+  own line, as a statement: refused at load, since a call is data that
+  does nothing by itself. Put it under `:next`.
+- `(:socialAccounts (storrito/list-social-accounts {}))` inside the
+  program: gives `nil`, since the function answers a call, not the
+  accounts. The accounts are under `:as` in the state of the next step.
+- A value that is no map, `(+ 1 2)` or `nil`: refused. `(help)` and
+  `(doc f)` answer maps, `{:help "…"}` and `{:doc "…"}`, so a program
+  that is just `(help)` is a machine that runs nothing and shows them.
+- A step that keeps something in a def or an atom: it is gone or stale
+  after a restart. Keep it in the state.
+- `(call "github" …)` for a connection that is not there: refused at
+  once, with the connections that are.
+
+## Where things live
+
+`rragent.codemode` (the closed context, the functions that answer
+calls, `load` and `step`), `rragent.codemode-worker` (the worker),
+`rragent.state-machine` (what a call names, the answer into the
+state, done, the text), `rragent.tools.machine` (the loop, the memos,
+the keys), `rragent.tools.host` (the tools that run the calls).

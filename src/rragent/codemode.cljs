@@ -27,6 +27,7 @@
             [rragent.gateway :as gateway]
             [rragent.mcp :as mcp]
             [rragent.sprite :as sprite]
+            [rragent.state-machine :as state-machine]
             [rragent.storrito :as storrito]
             [sci.core :as sci]))
 
@@ -718,16 +719,48 @@
       (catch :default e
         (throw (js/Error. (cut (error-text e (str sb)))))))))
 
+(defn- forms
+  "The forms of `code`, read in `fork`; a throw with where the reading
+   failed."
+  [fork code]
+  (let [reader (sci/reader (str code))]
+    (loop [out []]
+      (let [form (sci/parse-next fork reader)]
+        (if (= ::sci/eof form)
+          out
+          (recur (conj out form)))))))
+
+(defn- discarded-call!
+  "A throw when `value`, the value of a form that is not the last, is
+   a call: written as a statement, it would do nothing, since a call
+   is data for :next."
+  [form value]
+  (when (and (state-machine/call? value)
+             (state-machine/known-call? value))
+    (throw (js/Error. (str (pr-str form) " is a call, data that does nothing by itself: put it under :next of the state, "
+                           "{:next {:call " (pr-str form) " :as :" (name (first value)) "}}, and the host runs it.")))))
+
 (defn load
   "`code` evaluated as a machine of its own, in a fresh fork of the
-   base context, which is the program's context from then on: its
-   value, a map that reads back as EDN, is the initial state;
-   `{:state :step? :printed}`, `step?` whether the program defined
-   `step`. A throw with the error's text for a program that fails,
-   whose value is no map, or whose step is no function."
+   base context, which is the program's context from then on, one
+   form after the other: the value of the last, a map that reads back
+   as EDN, is the initial state; `{:state :step? :printed}`, `step?`
+   whether the program defined `step`. A throw with the error's text
+   for a program that fails, whose value is no map, whose step is no
+   function, or one of whose other forms is a call written as a
+   statement (`discarded-call!`)."
   [handle code]
   (let [fork (sci/fork (context! handle))
-        {:keys [value printed]} (evaluating fork #(sci/eval-string* fork (str code)))
+        {:keys [value printed]} (evaluating fork (fn []
+                                                   (let [forms (forms fork code)]
+                                                     (loop [[form & more] forms
+                                                            value nil]
+                                                       (if-not form
+                                                         value
+                                                         (let [value (sci/eval-form fork form)]
+                                                           (when (seq more)
+                                                             (discarded-call! form value))
+                                                           (recur more value)))))))
         state (map-of-data! "A program's value" value)
         step (sci/resolve fork 'user/step)
         step? (some? step)]
