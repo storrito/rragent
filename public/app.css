@@ -2392,6 +2392,29 @@ pre {
   aspect-ratio: 9 / 16;
 }
 
+/* More than one phone on the laptop's adb server: one button each. */
+.recorder .usb-phones {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recorder .usb-phones button.phone {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--code-bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recorder .usb-phones button.phone:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .recorder .usb-video video {
   display: block;
   width: 100%;

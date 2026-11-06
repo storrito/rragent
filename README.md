@@ -800,7 +800,11 @@ It listens on `ws://127.0.0.1:15037` and turns each WebSocket into one
 connection to the adb server (port 5037), bytes both ways; adb is a
 shell on the phone, so only pages of the origins named are let in, and
 only from the laptop. *Connect the phone* tries the bridge first and
-goes over USB itself when no bridge answers. Chrome asks once whether
+goes over USB itself when no bridge answers. When the adb server knows
+more than one phone (one the webcam, another whose screen is to be
+recorded, say), the panel lists them, those plugged in by USB first and
+those over the network marked so, and connects the one clicked; no
+other phone is touched, not even woken. Chrome asks once whether
 the page may reach apps on this device. Over USB on Linux, Chrome needs
 a udev rule for the phone.
 

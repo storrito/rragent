@@ -115,17 +115,46 @@
     (catch :default _
       false)))
 
+(defn- network?
+  "Whether the adb server reaches the phone over the network (adb
+   connect, its serial a host and port) rather than by USB."
+  [serial]
+  (boolean (re-find #":" serial)))
+
+(defn- phone-name
+  "A phone as the panel names it: its model, else its serial."
+  [^js device]
+  (or (some-> (.-model device) (.replaceAll "_" " ")) (.-serial device)))
+
+(defn ^:async phones
+  "The phones the laptop's adb server knows, when its bridge answers:
+   each a map of its `:serial`, its `:name` and whether it is reached
+   over the `:network?`, the ones plugged in by USB first; nil without
+   the bridge (Chrome's USB picker chooses then)."
+  []
+  (when (await (bridge?))
+    (->> (array-seq (await (.getDevices (AdbServerClient. connector) #js ["device"])))
+         (map (fn [^js device]
+                {:serial (.-serial device)
+                 :name (phone-name device)
+                 :network? (network? (.-serial device))}))
+         (sort-by :network?)
+         vec)))
+
 (defn- ^:async adb-from-server!
-  "The phone through the laptop's adb server: the one plugged in by USB
-   when there is one, else the first it knows; nil when it knows none."
-  [on-picked]
+  "The phone through the laptop's adb server: the one of `serial` when
+   it is given, else the one plugged in by USB when there is one, else
+   the first it knows; nil when it knows none."
+  [on-picked serial]
   (let [client (AdbServerClient. connector)
         devices (array-seq (await (.getDevices client #js ["device"])))
-        ^js device (or (first (remove #(re-find #":" (.-serial ^js %)) devices))
-                       (first devices))]
+        ^js device (if serial
+                     (first (filter #(= serial (.-serial ^js %)) devices))
+                     (or (first (remove #(network? (.-serial ^js %)) devices))
+                         (first devices)))]
     (when-not device
       (throw (ex-info "no phone" {:reason :no-phone})))
-    (let [name (or (some-> (.-model device) (.replaceAll "_" " ")) (.-serial device))]
+    (let [name (phone-name device)]
       (on-picked name)
       {:adb (Adb. (await (.createTransport client #js {:transportId (.-transportId device)})))
        :name name
@@ -204,10 +233,11 @@
    closed the picker. A phone another program holds throws with
    `{:reason :busy}`, an adb server that knows no phone with
    `{:reason :no-phone}`. `on-picked` hears of the phone once it is
-   chosen."
-  [on-picked]
+   chosen. `serial` names the phone of the adb server to take (one of
+   `phones`), when the person chose among several."
+  [on-picked serial]
   (when-let [{:keys [^js adb name via]} (await (if (await (bridge?))
-                                                 (adb-from-server! on-picked)
+                                                 (adb-from-server! on-picked serial)
                                                  (adb-over-usb! on-picked)))]
     (try
       (await (wake! adb))
