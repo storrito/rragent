@@ -510,7 +510,31 @@ text. OpenRouter takes 25 MB of audio inline, so ffmpeg cuts a file of
 any length into pieces of ten minutes (mono, 16 kHz, 48 kbit/s MP3,
 the audio alone of a video), each written down on its own, the times
 shifted; without ffmpeg a small file in a format the model reads goes
-whole. The
+whole. The `youtube` tool (`rragent.tools.youtube`, `rragent.youtube`)
+fetches a YouTube video the person has the rights to use: the video as
+an mp4 of h264 and aac up to `height` lines (1080 by default) into
+`artifacts/downloads/<id>.mp4`, or a `section` of it alone
+(`10:00-12:30`), the audio as an m4a, or the subtitles as a transcript
+into `artifacts/transcripts/<id>.md` the way `transcribe` writes one,
+the written ones in the video's language before its automatic
+captions, without a download. yt-dlp does the fetching, with what
+YouTube's bot checks ask for: a JavaScript runtime that solves its
+challenges, which is the Node that runs rragent, and the bgutil PO
+token provider as yt-dlp's plugin, its token script run by that Node
+once per token. rragent installs the three into a folder of its own,
+`~/.local/share/rragent/youtube`, at the first call on a machine,
+since a release swaps `dist/` alone and the image of a Sprite never
+changes, and has yt-dlp update itself once a day, since YouTube changes
+every few weeks (`RRAGENT_YOUTUBE_PROGRAMS` names a folder of someone
+else's with the same layout, in which nothing is installed). A
+Sprite's own address is a datacenter's, which YouTube answers with
+"Sign in to confirm you're not a bot" whatever the tokens, so every
+request, the page, the token and the stream, leaves through
+`RRAGENT_YOUTUBE_PROXY`, a mobile proxy paid by the month (a
+GlobalByte modem in the USA), whose password the redaction keeps from
+the model; a laptop needs none. What YouTube refuses comes back as a
+sentence: the bot check, a video locked for the USA, a private or an
+age-restricted one. The
 `eval` tool is the agent's REPL (`rragent.codemode`, see [Connectors
 and the REPL](#connectors-and-the-repl)).
 
@@ -1094,6 +1118,10 @@ writes into it is the contract between the two:
   organization covers the sprite: the models, dictation and the media
   tools all go through the connector, and all fall back to the key
   (`rragent.openrouter`).
+- `RRAGENT_YOUTUBE_PROXY`, `http://user:password@host:port` of the
+  mobile proxy the `youtube` tool's requests leave through
+  (`rragent.youtube`); without it yt-dlp goes out directly, which
+  YouTube refuses from a datacenter's address.
 
 The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<x.y.z>
 --image-auth <auth> --service http:8080

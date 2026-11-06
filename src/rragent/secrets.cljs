@@ -89,7 +89,7 @@
 
 (def secret-env-pattern
   "The names of environment variables whose values are secrets."
-  #"(?i)(^|_)(KEY|TOKEN|SECRET|PASSWORD|PASS|PWD|CREDENTIALS?)$")
+  #"(?i)(^|_)(KEY|TOKEN|SECRET|PASSWORD|PASS|PWD|CREDENTIALS?|PROXY)$")
 
 (defn env-secrets
   "`{name value}` of the environment variables named like secrets."
