@@ -5,7 +5,8 @@
    with the live views shown and hidden."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [rragent.client.recorder :as recorder]))
+            [rragent.client.recorder :as recorder]
+            [rragent.client.usb-screen :as usb]))
 
 (deftest draft-line-test
   (let [labels {:draft "New recording in {folder}: {files}; every file carries a microphone. "
@@ -53,7 +54,9 @@
    :no-mic "No microphone: no sound."
    :no-camera "No camera"
    :source-webcam "Webcam"
-   :source-mic "Microphone alone"})
+   :source-mic "Microphone alone"
+   :usb-choose "Which phone's screen?"
+   :usb-network "network"})
 
 (defn- render
   [state]
@@ -112,6 +115,20 @@
       (is (str/includes? html "No camera"))
       (is (not (str/includes? html ":video.camera")))
       (is (str/includes? html ":span.meter"))))
+  (testing "more than one phone on the laptop's adb server: a dropdown of them, none chosen"
+    (with-redefs [usb/supported? (constantly true)]
+      (let [html (render {:ui/recorder {:status :ready
+                                        :sources #{:phone-screen}
+                                        :devices {:mics [] :cameras []}
+                                        :usb {:status :choosing
+                                              :phones [{:serial "a1" :name "Pixel 8"}
+                                                       {:serial "b2" :name "Galaxy" :network? true}]}}})]
+        (is (str/includes? html ":label.usb-phones"))
+        (is (str/includes? html "Which phone's screen?"))
+        (is (re-find #":option \{:value \"\", :selected true, :disabled true\}" html) "a phone is only woken once picked")
+        (is (str/includes? html "[:option {:value \"a1\"} \"Pixel 8\"]"))
+        (is (str/includes? html "[:option {:value \"b2\"} \"Galaxy · network\"]"))
+        (is (not (str/includes? html ":button.phone"))))))
   (testing "while it records: the time, when it started, Stop and the live views"
 
     (let [started (.getTime (js/Date. 2026 9 22 15 25 22))
