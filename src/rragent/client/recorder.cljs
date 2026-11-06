@@ -345,7 +345,7 @@
 
 (defn- ^:async user-media
   "The camera and the microphone, the ones chosen when the browser has
-   them, any otherwise, and only the kinds the laptop has (`devices`):
+   them (exactly those), any otherwise, and only the kinds the laptop has (`devices`):
    a remembered id that is gone, or one kind that cannot be had, does
    not stop the panel; the other alone is asked for then. Without
    either, an empty stream: the screen alone records still. The camera
@@ -355,8 +355,12 @@
   (let [picture (effects/picture settings)
         camera? (and webcam? (seq cameras))
         chosen (cond-> {}
-                 (seq mics) (assoc :audio (if mic {:deviceId {:ideal mic}} true))
-                 camera? (assoc :video (cond-> picture camera (assoc :deviceId {:ideal camera}))))
+                 ;; `exact`, not `ideal`: Chrome weighs an ideal device
+                 ;; against the ideal size and rate, and a second camera
+                 ;; that cannot do 1920 x 1080 at 30 loses to the first;
+                 ;; a chosen device that is gone fails over to `any`.
+                 (seq mics) (assoc :audio (if mic {:deviceId {:exact mic}} true))
+                 camera? (assoc :video (cond-> picture camera (assoc :deviceId {:exact camera}))))
         any (cond-> {}
               (seq mics) (assoc :audio true)
               camera? (assoc :video true))
