@@ -141,7 +141,7 @@
         :else
         [{:file file :format format}]))))
 
-(defn- clock
+(defn clock
   "Seconds as m:ss, or h:mm:ss from an hour on."
   [seconds]
   (let [s (js/Math.floor (max 0 seconds))
