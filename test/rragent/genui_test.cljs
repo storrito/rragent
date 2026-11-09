@@ -6,7 +6,7 @@
 (defn- send-of
   [text]
   {:click [[:data/command {:command/kind :chat/send
-                           :command/data {:text text}}]]})
+                           :command/data {:text text :tab :ui/tabid}}]]})
 
 (deftest parse-test
   (testing "a hiccup vector"
@@ -137,8 +137,9 @@
     (let [opts {:base "/bot/ab12cd34" :bot "ab12cd34"}]
       (is (= [:img {:src "/bot/ab12cd34/artifacts/card/a.png"}] (genui/sanitize [:img {:src "artifacts/card/a.png"}] opts)))
       (is (= [:video {:src "/bot/ab12cd34/uploads/c.mp4" :controls true}] (genui/sanitize [:video {:src "/uploads/c.mp4" :controls true}] opts)))
-      (is (= {:bot "ab12cd34" :text "Do this"}
-             (get-in (genui/sanitize [:button {:send "Do this"} "x"] opts) [1 :on :click 0 1 :command/data])))
+      (is (= {:bot "ab12cd34" :text "Do this" :tab :ui/tabid}
+             (get-in (genui/sanitize [:button {:send "Do this"} "x"] opts) [1 :on :click 0 1 :command/data]))
+          "with the tab, whose view names the topic the message belongs to")
       (is (= {:bot "ab12cd34" :path "shorts" :tab :ui/tabid}
              (get-in (genui/sanitize [:button {:open "artifacts/shorts/"} "x"] opts) [1 :on :click 0 1 :command/data])
              (get-in (genui/sanitize [:button {:open "/bot/ab12cd34/artifacts/shorts"} "x"] opts) [1 :on :click 0 1 :command/data])))

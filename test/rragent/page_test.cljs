@@ -865,6 +865,8 @@
                    other (js/AbortController.)
                    bot-url (str base "/bot/" id)]
                (try
+                 ;; a run's page is the advanced switch's
+                 (await (machine/set-advanced! (:harness (machine/agent)) true))
                  (let [cookie (await (login base "s3cret"))
                        {:keys [reader decoder]} (await (stream bot-url cookie controller "t1"))
                        {first-frame :view buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))

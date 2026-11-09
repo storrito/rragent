@@ -69,14 +69,32 @@
       back
       "/")))
 
+(defn label
+  "What stands in front of a message for the model: the name, the
+   topic's name in brackets, or both, `Lydia (Content week)`; nil
+   without either."
+  [name topic]
+  (let [name (not-empty (str/trim (str name)))
+        topic (not-empty (str/trim (str topic)))]
+    (cond
+      (and name topic) (str name " (" topic ")")
+      name name
+      topic (str "(" topic ")"))))
+
 (defn prefix
-  [name]
-  (str name ": "))
+  [label]
+  (str label ": "))
+
+(defn strip-prefix
+  "`text` without the label and the colon in front of it, for the
+   page: what a message of our kind carries for the model."
+  [text]
+  (str/replace (str text) #"^[^\n:]{1,160}: " ""))
 
 (defn with-name
-  "The model's content with the name in front: a string prefixed, a
-   list of blocks with its first text block prefixed, or a text block
-   of the name put first."
+  "The model's content with the label (`label`) in front: a string
+   prefixed, a list of blocks with its first text block prefixed, or a
+   text block of the label put first."
   [content name]
   (cond
     (string? content) (str (prefix name) content)
@@ -96,10 +114,18 @@
 
 (defn draft
   "The submission of the person's message: the input with `content`
-   (`rragent.uploads/content`), steering a run that goes; with a `name`,
-   the content prefixed and the entry of our kind with the name."
-  [content name]
-  (let [draft #js {:type "input" :content (clj->js (if name (with-name content name) content)) :whenBusy "steer"}]
-    (when name
-      (aset draft "entry" #js {:kind kind :data #js {:name (str name)}}))
+   (`rragent.uploads/content`), steering a run that goes; with a `name`
+   or a `topic` (`{:id :name}`, the view the message came from,
+   docs/one-loop.md §3), the content prefixed with the label and the
+   entry of our kind with the name and the topic's id."
+  [content name & [topic]]
+  (let [label (label name (:name topic))
+        draft #js {:type "input" :content (clj->js (if label (with-name content label) content)) :whenBusy "steer"}]
+    (when label
+      (let [data #js {:kind kind :data #js {}}]
+        (when (seq (str name))
+          (aset (.-data data) "name" (str name)))
+        (when (:id topic)
+          (aset (.-data data) "topic" (str (:id topic))))
+        (aset draft "entry" data)))
     draft))

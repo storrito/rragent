@@ -26,7 +26,8 @@
   [name]
   (let [s (-> (str name)
               (str/lower-case)
-              (str/replace #"[^\p{L}\p{N}]+" "-")
+              ;; the u flag, for the letter classes
+              (str/replace (re-pattern "(?u)[^\\p{L}\\p{N}]+") "-")
               (str/replace #"^-+|-+$" ""))]
     (if (str/blank? s) "topic" s)))
 

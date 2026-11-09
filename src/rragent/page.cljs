@@ -227,10 +227,12 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes tab-views expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
-        run-id (shown-run tab-runs (:tabid w) (url-run w))
+        advanced? (:advanced? (machine/current-structure))
+        ;; a run's or a task's transcript is the advanced switch's
+        run-id (when advanced? (shown-run tab-runs (:tabid w) (url-run w)))
         run (when-let [run (run-of bot run-id)]
               (let [text (get-in bot [:runs/definitions run-id])]
                 (cond-> run
@@ -250,10 +252,14 @@
                                     (conversation (get-in bot [:runs/values run-id]))
                                     (conversation (:value bot) (:history bot)))
                     :expanded (get expanded (:tabid w))
-                    :artifacts (assoc (artifacts-pane bot)
-                                      :pane/shown (get tab-panes (:tabid w) :artifacts)
-                                      :pane/step (get-in bot [:pane/steps (:tabid w)])
-                                      :runs/current run-id)
+                    :artifacts (cond-> (assoc (artifacts-pane bot)
+                                              :pane/shown (get tab-panes (:tabid w) :artifacts)
+                                              :pane/step (get-in bot [:pane/steps (:tabid w)])
+                                              :runs/current run-id)
+                                 ;; the activity, the runs and the tasks, is the advanced switch's
+                                 (not advanced?) (dissoc :runs))
+                    :view (get tab-views (:tabid w) {:kind :all})
+                    :topics (machine/topics)
                     :phone (phone/status (:phone bot))
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
@@ -261,7 +267,7 @@
                     :settings? (contains? settings-open (:tabid w))
                     :settings-section (get settings-section (:tabid w))
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
-                    :advanced? (:advanced? (machine/current-structure))
+                    :advanced? advanced?
                     :link (page-link (:ring/request w))
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)
@@ -349,8 +355,13 @@
    not wait for work it makes moot. A hook's call, a schedule's run and
    a bot's message stay follow-ups, each a run of its own."
   [w]
-  (let [{:keys [text attachments screen run]} (command/command-data w)
+  (let [{:keys [text attachments screen run topic tab]} (command/command-data w)
         text (str/trim (str text))
+        ;; the topic of the message: the command's, else the tab's view's
+        topic-id (or (not-empty (str topic))
+                     (when tab (let [view (get-in @db/db [:tab-views tab])]
+                                 (when (= :topic (:kind view)) (:topic view)))))
+        topic (when topic-id {:id topic-id :name (or (:name (get (machine/topics) topic-id)) topic-id)})
         {:keys [uploads] :as bot} (bot-of-command w)
         conversation (conversation-of-command w)
         attachments (when conversation (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
@@ -367,7 +378,7 @@
             content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
-            draft (person/draft content (person/name-of (:ring/request w)))]
+            draft (person/draft content (person/name-of (:ring/request w)) (when-not run topic))]
         ;; a run keeps the instructions it started with; the bot reads its file again
         (if run
           (await (.submit conversation draft harness/context))
@@ -435,6 +446,22 @@
       (await (machine/open-run! bot run)) (do (swap! db/db #(-> % (assoc-in [:tabs tab] (str bot)) (assoc-in [:tab-runs tab] run) (chat-in tab)))
                                               (command/accepted w))
       :else (command/rejected w :no-such-run))))
+
+(defn- view-show-command
+  "The tab `tab` shows the view `kind` of the loop's conversation,
+   `all`, `needs` or `topic` with its `topic` id (docs/one-loop.md
+   §3); the tab shows the loop then, whatever bot it showed."
+  [w]
+  (let [{:keys [tab kind topic]} (command/command-data w)
+        kind (keyword (str (some-> kind name)))]
+    (cond
+      (nil? tab) (command/rejected w :no-tab)
+      (not (#{:all :needs :topic} kind)) (command/rejected w :no-such-view)
+      (and (= :topic kind) (str/blank? (str topic))) (command/rejected w :no-topic)
+      :else (do (swap! db/db assoc-in [:tab-views tab] (cond-> {:kind kind} (= :topic kind) (assoc :topic (str topic))))
+                (when-let [loop (machine/loop-id)]
+                  (swap! db/db assoc-in [:tabs tab] loop))
+                (command/accepted w)))))
 
 (defn- pane-show-command
   "The tab `tab` sees the `pane` of the two lists of the pane,
@@ -1411,6 +1438,8 @@
       :ring/handler #'project-command}
      {:command/kind :chat/send
       :command/fn #'send-command}
+     {:command/kind :view/show
+      :command/fn #'view-show-command}
      {:command/kind :chat/stop
       :command/fn #'stop-command}
      {:command/kind :chat/compact

@@ -309,6 +309,21 @@
      :ended (or (some-> result .-ended) (.-endedAt record))
      :conversation (or (some-> result .-conversation) (some-> checkpoint .-conversation))}))
 
+(defn as-run
+  "A task as the activity of the pane lists a run
+   (`rragent.runs/run-of`): `{:id :bot :trigger :state :line :started
+   :ended :conversation}`, the trigger a task's with the text's first
+   sentence as its line and the topic as its name."
+  [{:keys [id loop text topic state line started ended conversation]}]
+  {:id id
+   :bot loop
+   :trigger {:kind "task" :name (or topic "task") :line (runs/short-line text)}
+   :state state
+   :line line
+   :started started
+   :ended ended
+   :conversation conversation})
+
 (defn ^:async listed
   "The newest `n` tasks of the loop whose conversation is `loop-id`,
    through a commit of `harness` that changes nothing."

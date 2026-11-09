@@ -57,6 +57,7 @@
             [rragent.runs :as runs]
             [rragent.skills :as skills]
             [rragent.status :as status]
+            [rragent.tasks :as tasks]
             [rragent.tools.bot :as bot-tool]
             [rragent.tools.topic :as topic-tool]
             [rragent.transcript :as transcript]
@@ -78,7 +79,7 @@
                   :history "latest"
                   :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil :advanced false :topics #js {}})}))
 
-(declare adopt! listed refresh-spend! refresh-structure! dependents delete! transcript status-of write-status!)
+(declare adopt! listed loop? refresh-spend! refresh-structure! dependents delete! transcript status-of write-status!)
 
 (defn agent
   "The harness map of the machine."
@@ -138,15 +139,24 @@
 
 (defn refresh-runs!
   "The newest runs of the bot `id` read into its map, `:runs`, for the
-   page. A promise."
+   page; for the loop its tasks among them (`rragent.tasks/as-run`),
+   newest first. A promise."
   [id]
   (let [id (str id)
         {:keys [harness]} (agent)]
     (if (and harness (bot id))
-      (-> (runs/listed harness (js/Number id) runs-shown harness/context)
-          (.then (fn [runs]
-                   (when (bot id)
-                     (swap! db/db assoc-in (conj (db/bot-path id) :runs) runs))))
+      (-> (js/Promise.all #js [(runs/listed harness (js/Number id) runs-shown harness/context)
+                               (if (loop? id)
+                                 (tasks/listed harness id runs-shown harness/context)
+                                 (js/Promise.resolve []))])
+          (.then (fn [both]
+                   (let [[runs tasks] (array-seq both)
+                         rows (->> (concat runs (map tasks/as-run tasks))
+                                   (sort-by #(- (or (:started %) 0)))
+                                   (take runs-shown)
+                                   (vec))]
+                     (when (bot id)
+                       (swap! db/db assoc-in (conj (db/bot-path id) :runs) rows)))))
           (.catch (fn [e] (js/console.error "[runs]" (str e)))))
       (js/Promise.resolve nil))))
 
@@ -163,8 +173,9 @@
         path (db/bot-path id)
         {:keys [harness]} (agent)
         run (when (and harness (bot id))
-              (await (runs/run harness run-id harness/context)))]
-    (when (and run (= (js/Number id) (:bot run)))
+              (or (await (runs/run harness run-id harness/context))
+                  (some-> (await (tasks/task harness run-id harness/context)) tasks/as-run)))]
+    (when (and run (= (js/Number id) (js/Number (:bot run))))
       (when (:definition run)
         (swap! db/db assoc-in (conj path :runs/definitions run-id) (:definition run)))
       (when (and (:conversation run) (not (get-in @db/db (conj path :runs/open run-id))))
