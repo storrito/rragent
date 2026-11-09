@@ -14,8 +14,11 @@ name: Release
 # building the app: releases/download/v<version>/rragent.tar.gz, or the
 # newest from releases/latest/download/rragent.tar.gz, which a running
 # agent takes by itself (rragent.update). The release comes last so
-# that whoever sees a release can count on its image: Storrito picks
-# the newest release's image for a new agent.
+# that whoever sees a release can count on its image, and it names
+# that image in a third asset, `image`, one line with the full
+# reference: Storrito reads the newest release's `image` for a new
+# agent, so that the image may be built apart from the release one day
+# without a change on Storrito's side.
 on:
   push:
     tags: ["v*"]
@@ -75,6 +78,10 @@ jobs:
         with:
           tag: ${{ steps.version.outputs.version }}
           latest: "true"
+      - name: The image the release runs on, as the asset `image`
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: echo "ghcr.io/storrito/rragent-sprite:$VERSION" > image
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -82,9 +89,9 @@ jobs:
         # replaced instead.
         run: |
           if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 --clobber
+            gh release upload "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 image --clobber
           else
-            gh release create "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 \
+            gh release create "${GITHUB_REF_NAME}" rragent.tar.gz rragent.tar.gz.sha256 image \
               --title "rragent ${GITHUB_REF_NAME}" \
               --generate-notes
           fi

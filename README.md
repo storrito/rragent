@@ -1053,9 +1053,12 @@ sets it into `package.json` for that build alone (`npm version
 the bundle says the tag's version (`scripts/version.mjs` writes
 `src/rragent/version.cljs` from `package.json` before a build); it
 builds the bundle, publishes a GitHub release with `rragent.tar.gz` (the
-`dist/` folder: `rragent.js`, `public/` and `templates/`) and its
-checksum, and builds the Sprite image from that same `dist/` (below). A
-machine image built elsewhere downloads
+`dist/` folder: `rragent.js`, `public/` and `templates/`), its
+checksum and `image`, one line with the image the release runs on
+(`ghcr.io/storrito/rragent-sprite:<x.y.z>`, which a provisioner reads
+instead of deriving it from the version, so that the image may one day
+be built apart from the release), and builds the Sprite image from
+that same `dist/` (below). A machine image built elsewhere downloads
 `releases/latest/download/rragent.tar.gz` instead of building the app,
 and a running agent takes the release by itself (Updates, below).
 
