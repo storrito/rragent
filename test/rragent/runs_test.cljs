@@ -200,7 +200,7 @@
                    (is (= :done state))
                    (testing "the run keeps the text of the definition it worked from, the shared prompt in it; the list leaves it out"
                      (is (str/starts-with? definition "---\nname: watcher\n"))
-                     (is (str/includes? definition "# Every bot of this machine"))
+                     (is (str/includes? definition "# Every conversation of this machine"))
                      (is (str/includes? definition "You watch a page."))
                      (is (not (contains? (first (await (schedule-test/runs-of agent))) :definition)))))
                  (finally

@@ -1,0 +1,326 @@
+(ns rragent.tasks
+  "The tasks of the loop (docs/one-loop.md, §2): a task is a
+   fresh-context subagent the loop starts with its `task` tool
+   (`rragent.tools.task`), a background task of the loop's
+   conversation (`Task`, kind `rragent.task`) that makes a
+   conversation of its own, owned by the task, configured with the
+   shared prompt and the bundle's `TASK.md` (`rragent.bots/
+   task-instructions`), a task's tools (`rragent.roles`), the model of
+   the call or the default, and the loop's `work/` as cwd, so that
+   what it makes lands in the loop's artifacts; submits the text to
+   it, waits for the answer and keeps it as its result, the answer's
+   first line as the line the activity shows. A `continue` id makes
+   the task submit into an earlier task's conversation instead, which
+   keeps what it knew.
+
+   The result reaches the loop one of two ways, never both: the loop's
+   `task` call waits for it (`wait: true`, up to a minute) and takes
+   it as the call's result, or the task delivers it into the loop as a
+   follow-up input, kind `rragent.task-done`, which wakes the loop for
+   one turn. The `Taken` document decides: the call marks the task
+   `taken` in one transaction, the task marks itself `delivering` in
+   another, and each gives way to the mark it finds. The result is in
+   the task's checkpoint before either happens, so a call that polls
+   finds it.
+
+   A stop (`task stop`) aborts the task: its conversation's turn is
+   aborted through the harness (`harness`, set at open), the task ends
+   aborted and delivers nothing. The tasks of the loop are its tasks
+   of the kind, newest first (`listed`), which the activity of the
+   pane shows behind Advanced, each with its conversation to open."
+  (:refer-clojure :exclude [run!])
+  (:require ["@earendil-works/pi-durable" :refer [configure defineDoc defineTask]]
+            [clojure.string :as str]
+            [rragent.bots :as bots]
+            [rragent.definition :as definition]
+            [rragent.roles :as roles]
+            [rragent.runs :as runs]
+            [rragent.tools.subagent :as subagent-tool]))
+
+(def kind
+  "rragent.task")
+
+(def done-kind
+  "The entry of a task's result in the loop's chat."
+  "rragent.task-done")
+
+(def input-kind
+  "The entry of the task's text in its own conversation."
+  "rragent.task-input")
+
+(def wait-ms
+  "How long a `wait: true` call waits before the task goes on alone."
+  60000)
+
+(defonce harness
+  (atom nil))
+
+(def Taken
+  "A session document: the tasks whose result the loop's call took
+   (`taken`), the tasks a waiting call let go of when its minute ran
+   out (`released`), and the tasks that deliver theirs into the loop
+   (`delivering`), each task id to true. A waited task (`wait` in its
+   input) holds its result until the call took or released it, so the
+   call wins while it waits."
+  (defineDoc #js {:kind "rragent.tasks"
+                  :version 1
+                  :scope "session"
+                  :history "latest"
+                  :initial (fn [] #js {:taken #js {} :released #js {} :delivering #js {}})}))
+
+(def hold-ms
+  "How long a waited task holds its result for the call before it
+   delivers anyway: the call's minute and a margin."
+  (+ wait-ms 10000))
+
+(defn- ^:async marks
+  "The `Taken` document's marks for the task `id`: `{:taken? :released?}`,
+   read through a commit of the task that changes nothing."
+  [runtime id context]
+  (let [found (atom nil)]
+    (await (.commit runtime
+                    (^:async fn [tx]
+                      (let [^js doc (await (.doc tx Taken))
+                            key (str id)]
+                        (reset! found {:taken? (boolean (aget (.-taken doc) key))
+                                       :released? (boolean (aget (or (.-released doc) #js {}) key))}))
+                      js/undefined)
+                    context))
+    @found))
+
+(defn- sleep
+  [ms]
+  (js/Promise. (fn [resolve] (js/setTimeout resolve ms))))
+
+(defn- terminal
+  [outcome]
+  #js {:status "terminal" :outcome outcome})
+
+(defn done-content
+  "What the loop reads when a task is done."
+  [id topic result]
+  (str "The task " id (when (seq topic) (str " (" topic ")")) " is done. Its result:\n\n" result
+       "\n\nTell the person what matters to them of it, in a sentence or a card, and file in the wiki what is worth keeping. "
+       "When the task asks for an answer from the person, ask them, and continue the task with its id once you have it."))
+
+(defn failed-content
+  "What the loop reads when a task did not answer."
+  [id topic reason]
+  (str "The task " id (when (seq topic) (str " (" topic ")")) " did not answer: " reason
+       ". Tell the person in a sentence what did not happen and what you propose."))
+
+(defn- conversation-id
+  "An id as the storage keys it, a conversation's or a task's: a
+   number when the text is one."
+  [value]
+  (let [text (str/trim (str value))]
+    (if (re-matches #"\d+" text) (js/Number text) text)))
+
+(defn- ^:async made!
+  "The task's conversation: the one it owns when a rerun finds it, the
+   earlier task's when the input continues one, else a new one
+   configured as a task's; and the checkpoint that names it."
+  [task runtime context]
+  (let [id (.-taskId runtime)
+        ^js input (.-input task)
+        ^js agent (await (.agent runtime context))
+        provider (or (some-> agent .-model .-provider) "openrouter")
+        model (or (not-empty (str (.-model input))) definition/default-model)
+        thinking (not-empty (str (.-thinking input)))
+        continued (not-empty (str (.-continue input)))]
+    (await (.commit runtime
+                    (^:async fn [tx]
+                      (let [existing (aget (.-items (await (.scanConversations tx #js {:ownerTaskId id} 1))) 0)
+                            conversation (cond
+                                           existing (.-id existing)
+                                           continued (conversation-id continued)
+                                           :else (let [created (.-id (await (.createConversation tx #js {:ownership #js {:kind "task" :taskId id}})))]
+                                                   (await (configure tx created #js {:model #js {:provider provider :modelId model}
+                                                                                     :thinkingLevel (or thinking js/undefined)
+                                                                                     :instructions (bots/task-instructions)
+                                                                                     :modelTools (roles/model-tools :task)
+                                                                                     :cwd (or (.-cwd agent) js/undefined)}))
+                                                   created))]
+                        #js {:status "running"
+                             :checkpoint #js {:phase "run" :conversation conversation :started (.now runtime)}}))
+                    context))
+    (runs/changed! (.-conversationId runtime))))
+
+(defn- ^:async answer-of
+  "The text of the answer entry `id`, read through a commit of the task
+   that changes nothing."
+  [runtime id context]
+  (let [found (atom nil)]
+    (await (.commit runtime
+                    (^:async fn [tx]
+                      (reset! found (await (.entry tx id)))
+                      js/undefined)
+                    context))
+    (when @found
+      (subagent-tool/answer-text @found))))
+
+(defn- ^:async run!
+  "The task's text submitted to its conversation (deduplicated by the
+   task's id, so a rerun waits on the same submission), the answer
+   kept in the checkpoint as the result."
+  [task runtime context]
+  (let [id (.-taskId runtime)
+        ^js checkpoint (.. task -state -checkpoint)
+        ^js input (.-input task)
+        conversation (await (.conversation runtime (.-conversation checkpoint) context))
+        submission (await (.submit conversation
+                                   #js {:type "input"
+                                        :content (.-text input)
+                                        :requestId (str "task:" id)
+                                        :entry #js {:kind input-kind :data #js {:topic (or (.-topic input) js/undefined)}}}
+                                   context))
+        ^js settled (await (.wait submission context))
+        done? (= "done" (.-status settled))
+        answer (when done?
+                 (or (not-empty (await (answer-of runtime (.-answer settled) context)))
+                     "(The task answered without text.)"))
+        line (if done? (runs/first-line answer) (str "did not answer: " (.-reason settled)))]
+    (await (.commit runtime
+                    (fn [] #js {:status "running"
+                                :checkpoint (doto checkpoint
+                                              (aset "phase" "deliver")
+                                              (aset "done" #js {:state (if done? "done" "failed")
+                                                                :line line
+                                                                :result (or answer js/undefined)
+                                                                :reason (if done? js/undefined (.-reason settled))}))})
+                    context))))
+
+(defn- ^:async deliver!
+  "The result into the loop, unless the loop's call took it: the claim
+   in one transaction on the `Taken` document, then the input, which
+   the request id deduplicates."
+  [runtime ^js input ^js done context]
+  (let [id (.-taskId runtime)
+        key (str id)
+        claimed (atom false)]
+    (await (.commit runtime
+                    (^:async fn [tx]
+                      (let [^js doc (await (.doc tx Taken))]
+                        (when-not (aget (.-taken doc) key)
+                          (aset (.-delivering doc) key true)
+                          (reset! claimed true)))
+                      js/undefined)
+                    context))
+    (when @claimed
+      (let [loop (await (.conversation runtime (.-conversationId runtime) context))
+            topic (not-empty (str (.-topic input)))
+            state (.-state done)]
+        (await (.submit loop
+                        #js {:type "input"
+                             :content (if (= "done" state)
+                                        (done-content id topic (.-result done))
+                                        (failed-content id topic (.-reason done)))
+                             :whenBusy "followUp"
+                             :requestId (str "task-done:" id)
+                             :entry #js {:kind done-kind
+                                         :data #js {:task id :topic (or topic js/undefined) :state state :line (.-line done)}}}
+                        context))))))
+
+(defn- ^:async held!
+  "A waited task's pause: until the call took the result (nothing to
+   deliver then) or released it, at most `hold-ms`; answers whether to
+   deliver."
+  [runtime context]
+  (let [id (.-taskId runtime)
+        started (js/Date.now)]
+    (loop []
+      (let [{:keys [taken? released?]} (await (marks runtime id context))]
+        (cond
+          taken? false
+          released? true
+          (< hold-ms (- (js/Date.now) started)) true
+          :else (do (await (sleep 250))
+                    (recur)))))))
+
+(defn- ^:async finish!
+  "The result delivered, unless a waiting call takes it, and the task
+   ended with it."
+  [task runtime context]
+  (let [^js checkpoint (.. task -state -checkpoint)
+        ^js done (.-done checkpoint)
+        ^js input (.-input task)]
+    (when (or (not (true? (.-wait input)))
+              (await (held! runtime context)))
+      (await (deliver! runtime input done context)))
+    (await (.commit runtime
+                    (fn [] (terminal #js {:status "completed"
+                                          :result #js {:state (.-state done)
+                                                       :line (.-line done)
+                                                       :result (.-result done)
+                                                       :topic (or (.-topic input) js/undefined)
+                                                       :text (.-text input)
+                                                       :conversation (.-conversation checkpoint)
+                                                       :started (.-started checkpoint)
+                                                       :ended (.now runtime)}}))
+                    context))
+    (runs/changed! (.-conversationId runtime))))
+
+(def Task
+  (defineTask
+   #js {:name kind
+        :version 1
+        :initial (fn [_input] #js {:phase "make"})
+        :phases
+        #js {:make (fn [task runtime context] (made! task runtime context))
+             :run (fn [task runtime context] (run! task runtime context))
+             :deliver (fn [task runtime context] (finish! task runtime context))}
+        :abort (fn [task runtime context]
+                 (let [conversation (some-> (.. task -state -checkpoint) .-conversation)]
+                   (-> (if (and conversation @harness)
+                         (-> (.conversation @harness conversation context)
+                             (.then (fn [handle] (when handle (.abort handle context))))
+                             (.catch (fn [_] nil)))
+                         (js/Promise.resolve nil))
+                       (.then (fn [] (.commit runtime (fn [] (terminal #js {:status "aborted"})) context)))
+                       (.then (fn [] (runs/changed! (.-conversationId runtime)))))))}))
+
+(defn task-of
+  "A task record as the page and the model read it: `{:id :loop :text
+   :topic :state :line :result :started :ended :conversation}`, the
+   state `:queued` before the conversation is made, `:running` while
+   the answer is waited for, then `:done`, `:failed` or `:aborted`."
+  [record]
+  (let [^js state (.-state record)
+        ^js checkpoint (.-checkpoint state)
+        ^js outcome (.-outcome state)
+        ^js result (some-> outcome .-result)
+        ^js done (or result (some-> checkpoint .-done))
+        ^js input (.-input record)]
+    {:id (.-id record)
+     :loop (.-conversationId record)
+     :text (.-text input)
+     :topic (not-empty (str (.-topic input)))
+     :state (cond
+              (some? outcome) (case (.-status outcome)
+                                "completed" (keyword (or (some-> result .-state) "done"))
+                                "aborted" :aborted
+                                :failed)
+              done (keyword (.-state done))
+              (some-> checkpoint .-conversation) :running
+              :else :queued)
+     :line (or (some-> done .-line) (when (and outcome (= "failed" (.-status outcome))) (some-> outcome .-error .-message)))
+     :result (some-> done .-result)
+     :started (or (some-> checkpoint .-started) (.-startedAt record))
+     :ended (or (some-> result .-ended) (.-endedAt record))
+     :conversation (or (some-> result .-conversation) (some-> checkpoint .-conversation))}))
+
+(defn ^:async listed
+  "The newest `n` tasks of the loop whose conversation is `loop-id`,
+   through a commit of `harness` that changes nothing."
+  [harness loop-id n context]
+  (let [page (await (.commit harness
+                             (fn [tx] (.scanTasks tx #js {:conversationId (conversation-id loop-id) :kind kind :order "descending"} n))
+                             context))]
+    (mapv #(dissoc (task-of %) :result) (array-seq (.-items page)))))
+
+(defn ^:async task
+  "One task by its id, nil for none."
+  [harness id context]
+  (when-let [record (await (.getTask harness (conversation-id id) context))]
+    (when (= kind (.-kind record))
+      (task-of record))))

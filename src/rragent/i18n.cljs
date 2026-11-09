@@ -87,6 +87,8 @@
    :chat/run-failed [:fn/str "A run failed · {{:about}}"]
    :chat/run-report "A run reported"
    :chat/run-started [:fn/str "Started by {{:about}}"]
+   :chat/task-done [:fn/str "A task is done · {{:line}}"]
+   :chat/task-started "Started as a task"
    :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/ready "Ready"
@@ -439,6 +441,8 @@
    :chat/run-failed [:fn/str "Ein Durchlauf ist fehlgeschlagen · {{:about}}"]
    :chat/run-report "Ein Durchlauf hat gemeldet"
    :chat/run-started [:fn/str "Gestartet durch {{:about}}"]
+   :chat/task-done [:fn/str "Eine Aufgabe ist fertig · {{:line}}"]
+   :chat/task-started "Als Aufgabe gestartet"
    :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/ready "Bereit"

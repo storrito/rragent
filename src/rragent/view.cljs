@@ -213,6 +213,8 @@
     "rragent.schedule" [(call-item id [:i18n :chat/schedule-ran {:name (:name data)}] data model)]
     "rragent.run-report" [(call-item id (report-label data) data model)]
     "rragent.run-input" [(call-item id [:i18n :chat/run-started {:about (or (:line data) (str (:kind data) " " (:name data)))}] data model)]
+    "rragent.task-done" [(call-item id [:i18n :chat/task-done {:line (or (:line data) "")}] data model)]
+    "rragent.task-input" [(call-item id [:i18n :chat/task-started] data model)]
     "pi.assistant" (let [message (first model)]
                      (cons (assistant-item id message)
                            (tool-items message results slots)))
@@ -1855,7 +1857,7 @@
 
 (defn sidebar
   "The machine's structure as sections, top to bottom: the manager
-   (`:manager?` of the bots, under the word Manager), what needs the
+   (`:loop?` of the bots, under the word Manager), what needs the
    person (`needs-you`), the projects with their workers folded
    (`projects`), the other bots, the ones without a project (the
    archived ones last, dimmed), and, with the advanced switch on
@@ -1867,8 +1869,8 @@
    (`bot-row`). A section with nothing in it is left out, the
    manager's when the machine has none."
   [bots shown version settings? advanced? & [person]]
-  (let [manager (some #(when (:manager? %) %) bots)
-        others (archived-last (remove #(or (:manager? %) (:project %)) bots))]
+  (let [manager (some #(when (:loop? %) %) bots)
+        others (archived-last (remove #(or (:loop? %) (:project %)) bots))]
     [:aside.sidebar
      [:div.brand "rragent"
       (when version
@@ -1899,7 +1901,7 @@
 
 (defn page
   "`opts`: `:bots`, the bots of the sidebar, each `{:id :name :label
-   :state :deleting? :renaming? :manager? :project :archived?
+   :state :deleting? :renaming? :loop? :project :archived?
    :status}` (`rragent.machine/listed`); `:advanced?`, whether the
    sidebar shows every bot and the raw list (the settings' switch);
    `:bot`, the one shown, its `:id`,

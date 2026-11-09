@@ -241,7 +241,7 @@
 
 (deftest sidebar-sections-test
   (let [bots [{:id "1" :name "watcher" :state :idle}
-              {:id "2" :name "Chef" :label "Chef" :state :running :manager? true}
+              {:id "2" :name "Chef" :label "Chef" :state :running :loop? true}
               {:id "3" :name "Template 202" :state :idle :parent "2" :project "Guest reviews"
                :status {:summary "Waits for the reference image." :needs [{:id "n1" :ask "Which image?"} {:id "n2" :ask "Approve?"}]}}
               {:id "4" :name "Template 203" :state :asleep :parent "2" :project "Guest reviews" :archived? true}
@@ -303,7 +303,7 @@
         (is (every? #(nil? (:open (second %))) (projects p)))
         (is (= [["idle" "current"] ["idle"]] (map #(:class (second %)) (rows (find-tag p :section.other)))) "marked under Other")))
     (testing "without a manager the section is absent and Needs you goes nowhere"
-      (let [p (page {:bots (map #(dissoc % :manager?) bots)})]
+      (let [p (page {:bots (map #(dissoc % :loop?) bots)})]
         (is (= [:div.needs :section.projects :section.other] (sections p)))
         (is (nil? (find-tag (find-tag p :div.needs) :a.row)))
         (is (= "2" (last (find-tag p :span.badge))) "the count stays")

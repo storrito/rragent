@@ -39,36 +39,55 @@
       (is (not (str/includes? action "--build-arg")))
       (is (not (str/includes? action "-plain")) "no plain image is published"))))
 
-(deftest the-shared-prompt-tells-the-bot-to-name-itself-test
+(deftest the-shared-prompt-is-for-every-conversation-test
   (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
-    (is (str/includes? text "Name yourself:"))
-    (is (str/includes? text "`name:` line"))
-    (is (str/includes? text "`renamed: true`") "the person's rename, which the bot leaves alone")))
-
-(deftest the-shared-prompt-holds-the-rules-test
-  (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
-    (testing "a text, not a definition: no frontmatter, nothing copied into a bot's file"
+    (testing "a text, not a definition: no frontmatter, for the loop and the tasks alike"
       (is (not (str/starts-with? text "---")))
-      (is (not (str/includes? text "word for word")))
-      (is (str/includes? text "`<agent>/AGENT.md`") "the bot's file, its folder filled in at the read"))
-    (testing "the bot's file is the job, changed when the job changes; a file of before is rewritten once"
-      (is (str/includes? text "## Your file"))
-      (is (str/includes? text "never a log"))
-      (is (str/includes? text "costs the\nwhole conversation its cache"))
-      (is (str/includes? text "a copy of these rules as they were then")))
-    (testing "a new bot offers the skills and takes one by naming it in its frontmatter"
-      (is (str/includes? text "## A new bot"))
-      (is (str/includes? text "`skill: <the skill's folder name>`"))
-      (is (str/includes? text "github.com/SKILLS_REPO") "the placeholder rragent fills from the clone"))
-    (testing "the rules of runs, the job, skills, offers and failed steps"
-      (is (str/includes? text "## This machine"))
-      (is (str/includes? text "start a run of yours"))
+      (is (str/starts-with? text "# Every conversation of this machine"))
+      (is (str/includes? text "the tasks it starts"))
+      (is (not (str/includes? text "## Your file")) "no file of a bot's: the loop's is written by rragent, a task has none")
+      (is (not (str/includes? text "bot create")) "no bots are made any more")
+      (is (not (str/includes? text "`remember`")) "the wiki is the memory, not the events tools")
+      (is (not (str/includes? text "Name yourself")))
+      (is (not (str/includes? text "start a run of yours")) "no runs: a trigger is a message into the loop"))
+    (testing "the skills: read and done, offered when several fit, kept with skill create"
+      (is (str/includes? text "## Skills"))
+      (is (str/includes? text "github.com/SKILLS_REPO") "the placeholder rragent fills from the clone")
+      (is (str/includes? text "read that skill's `SKILL.md`"))
       (is (str/includes? text "skill create"))
-      (is (str/includes? text "never to learn how to use it"))
+      (is (str/includes? text "never to learn how to use it")))
+    (testing "the rules of files, programs, offers and failed steps"
+      (is (str/includes? text "## Files and programs"))
       (is (str/includes? text "`write` is for a file that does not exist yet"))
+      (is (str/includes? text "[:remember ...]") "programs keep their events through the machine's effects")
       (is (str/includes? text "Offer what the person may not know exists"))
       (is (str/includes? text "none twice"))
-      (is (str/includes? text "When a step of yours did not work")))))
+      (is (str/includes? text "When a step of yours did not work"))
+      (is (str/includes? text "One folder per topic at the top")))))
+
+(deftest the-loop-and-task-texts-test
+  (let [loop-text (fs/readFileSync "deploy/agent/LOOP.md" "utf8")
+        task-text (fs/readFileSync "deploy/agent/TASK.md" "utf8")]
+    (testing "the loop's text: a frontmatter with the model, then the rules of the one conversation"
+      (is (str/starts-with? loop-text "---\nname: Assistant\n"))
+      (is (str/includes? loop-text "  model: anthropic/claude-opus-5.5\n"))
+      (is (str/includes? loop-text "## Hard rules"))
+      (is (str/includes? loop-text "One thing at a time."))
+      (is (str/includes? loop-text "## Topics"))
+      (is (str/includes? loop-text "`topic create`"))
+      (is (str/includes? loop-text "## Tasks"))
+      (is (str/includes? loop-text "`wait: true`"))
+      (is (str/includes? loop-text "## Your wiki"))
+      (is (str/includes? loop-text "`topics/<name>.md`"))
+      (is (str/includes? loop-text "## When your memory is about to shrink"))
+      (is (str/includes? loop-text "answer \"ready\" and nothing else"))
+      (is (not (str/includes? loop-text "bot create")))
+      (is (not (str/includes? loop-text "`remember`"))))
+    (testing "a task's text: no frontmatter, the result rules"
+      (is (str/starts-with? task-text "# A task"))
+      (is (str/includes? task-text "Your last message is your result"))
+      (is (str/includes? task-text "You answer a bot, not a person"))
+      (is (str/includes? task-text "set\nnone, start none")))))
 
 (deftest the-shared-prompt-offers-the-connection-test
   (testing "a service the person names is connected in the same answer, through a machine"

@@ -80,12 +80,19 @@
   []
   (bundled "system-prompt.md" "deploy/agent/SYSTEM-PROMPT.md"))
 
-(defn bundled-manager-file
-  "The manager's definition as the bundle carries it: `manager.md`
-   beside the bundle (the build copies `deploy/agent/MANAGER.md`
-   there), else that file of the checkout."
+(defn bundled-loop-file
+  "The loop's definition as the bundle carries it: `loop.md` beside
+   the bundle (the build copies `deploy/agent/LOOP.md` there), else
+   that file of the checkout."
   []
-  (bundled "manager.md" "deploy/agent/MANAGER.md"))
+  (bundled "loop.md" "deploy/agent/LOOP.md"))
+
+(defn bundled-task-file
+  "A task's text as the bundle carries it: `task.md` beside the bundle
+   (the build copies `deploy/agent/TASK.md` there), else that file of
+   the checkout."
+  []
+  (bundled "task.md" "deploy/agent/TASK.md"))
 
 (declare skills-dir)
 
@@ -112,12 +119,18 @@
       (str/replace text "`github.com/SKILLS_REPO`" (str "`github.com/" repo "`"))
       text)))
 
-(defn manager-body
-  "The manager's instructions: the body of the bundle's `MANAGER.md`,
-   read after the shared prompt at every read of the manager's
-   definition (`rragent.reload`)."
+(defn loop-body
+  "The loop's instructions: the body of the bundle's `LOOP.md`, read
+   after the shared prompt at every read of the loop's definition
+   (`rragent.reload`)."
   []
-  (:body (definition/frontmatter (fs/readFileSync (bundled-manager-file) "utf8"))))
+  (:body (definition/frontmatter (fs/readFileSync (bundled-loop-file) "utf8"))))
+
+(defn task-instructions
+  "What a task's conversation is configured with (`rragent.tasks`):
+   the shared prompt, then the bundle's `TASK.md`."
+  []
+  (str (str/trim (system-prompt)) "\n\n" (str/trim (fs/readFileSync (bundled-task-file) "utf8")) "\n"))
 
 (defn- split-frontmatter
   "`[head body]` of a definition text, the head with its fences;
@@ -281,29 +294,29 @@
   [text]
   (select-keys (:metadata (or (definition/frontmatter text) {})) ["model" "thinking"]))
 
-(defn manager-text
-  "The manager's file: the frontmatter of the bundle's `MANAGER.md`
-   alone, its name, description, model and thinking level, with the
-   `model` and `thinking` of `current`, the file as it was, kept when
-   they differ from the bundle's, since the person picks them on the
-   page (`set-metadata!`). No body: the manager's instructions are the
-   bundle's at every read (`manager-body`, `rragent.reload`), and the
+(defn loop-text
+  "The loop's file: the frontmatter of the bundle's `LOOP.md` alone,
+   its name, description, model and thinking level, with the `model`
+   and `thinking` of `current`, the file as it was, kept when they
+   differ from the bundle's, since the person picks them on the page
+   (`set-metadata!`). No body: the loop's instructions are the
+   bundle's at every read (`loop-body`, `rragent.reload`), and the
    person's part lives in the wiki's `preferences.md`. Written anew at
    every start of the machine (`rragent.machine`)."
   [current]
-  (let [[head] (split-frontmatter (fs/readFileSync (bundled-manager-file) "utf8"))
+  (let [[head] (split-frontmatter (fs/readFileSync (bundled-loop-file) "utf8"))
         kept (when current (metadata-of current))]
     (reduce (fn [head [k v]] (with-metadata head k v)) head kept)))
 
-(defn write-manager-definition!
-  "The manager's folder, `bots/<id>/` of `home`, with its `AGENT.md`
-   written from the bundle (`manager-text`), the file as it was read
+(defn write-loop-definition!
+  "The loop's folder, `bots/<id>/` of `home`, with its `AGENT.md`
+   written from the bundle (`loop-text`), the file as it was read
    first for the picks it keeps; answers the folder."
   [home id]
   (let [dir (home/bot-dir home id)
         file (path/join dir "AGENT.md")
         current (when (fs/existsSync file) (fs/readFileSync file "utf8"))]
-    (write-definition! home id (manager-text current))))
+    (write-definition! home id (loop-text current))))
 
 (defn trash!
   "The bot's folder moved to `<home>/trash/<id>` (an earlier folder of

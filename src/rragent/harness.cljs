@@ -50,6 +50,7 @@
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
             [rragent.runs :as runs]
+            [rragent.tasks :as tasks]
             [rragent.schedule :as schedule]
             [rragent.secrets :as secrets]
             [rragent.tools.events :as events-tool]
@@ -66,6 +67,7 @@
             [rragent.tools.share :as share-tool]
             [rragent.tools.skill :as skill-tool]
             [rragent.tools.subagent :as subagent-tool]
+            [rragent.tools.task :as task-tool]
             [rragent.tools.transcribe :as transcribe-tool]
             [rragent.tools.youtube :as youtube-tool]
             [rragent.warm-summary :as warm-summary]))
@@ -85,9 +87,9 @@
   (defineExtension #js {:name "rragent"
                         :tools (clj->js (into [events-tool/remember events-tool/recall fetch-tool/tool (machine-tool/tool codemode) schedule-tool/tool hook-tool/tool
                                                (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode) (music-pick-tool/tool codemode)
-                                               (transcribe-tool/tool codemode) youtube-tool/tool report-tool/tool skill-tool/tool share-tool/tool]
+                                               (transcribe-tool/tool codemode) youtube-tool/tool report-tool/tool skill-tool/tool share-tool/tool task-tool/tool]
                                               (host-tool/tools codemode)))
-                        :tasks #js [schedule/Task runs/Task]}))
+                        :tasks #js [schedule/Task runs/Task tasks/Task]}))
 
 (def redacted-keys
   "The parts of a tool's result that reach the model, a program or the
@@ -418,6 +420,7 @@
                                    :onReport (fn [error] (js/console.error "[harness]" error))}
                               context))
         _ (reset! opened harness)
+        _ (reset! tasks/harness harness)
         root (await (.root harness context))
         view (await (.viewState root context))
         agent {:harness harness :home home :models models :codemode codemode :provider (or provider "openrouter")}

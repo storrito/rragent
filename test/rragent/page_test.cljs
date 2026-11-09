@@ -165,7 +165,7 @@
   (let [[bot] (await (machine/open! (merge {:home home
                                             :models models
                                             :provider "faux"
-                                            :manager? false
+                                            :loop? false
                                             :storage (harness/memory-storage)}
                                            opts)))
         server (await (http/listen (page/handler "s3cret") 0))]
