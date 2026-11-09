@@ -3114,6 +3114,25 @@ pre {
   font-size: 13px;
 }
 
+/* The page on the phone (rragent.view/mobile-section): the secret link
+   as a QR code, white whatever the theme so that a camera reads it, and
+   the browser's own install when it offers one. */
+.main .settings .mobile .code {
+  margin: 0 0 16px;
+}
+
+.main .settings .mobile svg.qr {
+  display: block;
+  width: 200px;
+  height: 200px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.main .settings .mobile .install {
+  margin-top: 16px;
+}
+
 /* The tabs of the settings' sections (rragent.view/settings). */
 .main .settings nav.tabs {
   display: flex;
@@ -3121,11 +3140,16 @@ pre {
   max-width: 720px;
   margin: 0 0 16px;
   border-bottom: 1px solid var(--line);
+  /* more tabs than a phone is wide scroll sideways, each on its line */
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .main .settings nav.tabs button.tab {
+  flex-shrink: 0;
   margin-bottom: -1px;
   padding: 6px 12px;
+  white-space: nowrap;
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: 6px 6px 0 0;

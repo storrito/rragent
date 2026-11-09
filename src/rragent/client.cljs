@@ -547,6 +547,49 @@
                                 (swap! state/store assoc :ui/effects-timing k))}}]
         " " label])]))
 
+(defn- watch-install!
+  "The browser's offer to install the page as an app, kept in the
+   store for the settings' button (`install-alias`): Chrome and Edge
+   fire `beforeinstallprompt` once the page qualifies, and would show
+   a bar of their own without the preventDefault. Gone once installed."
+  []
+  (.addEventListener js/window "beforeinstallprompt"
+                     (fn [^js event]
+                       (.preventDefault event)
+                       (swap! state/store assoc :ui/install-prompt event)))
+  (.addEventListener js/window "appinstalled"
+                     (fn [_]
+                       (swap! state/store dissoc :ui/install-prompt))))
+
+(defn- standalone?
+  "Whether this is the installed app, the page without the browser's
+   bars: the display mode of the manifest, or Safari's word for it."
+  []
+  (boolean (or (some-> (js/window.matchMedia "(display-mode: standalone)") .-matches)
+               (.-standalone js/navigator))))
+
+(defn install-alias
+  "`[:ui/install {:ui/explain :ui/install :ui/installed}]` in the
+   settings (`rragent.view/mobile-section`): the browser's install of
+   the page as an app, a button, when it offered one
+   (`watch-install!`); the word that this is the installed app when it
+   is; nothing in a browser with neither, where the text above says
+   how to add the page by hand."
+  [{:keys [ui/explain ui/install ui/installed ui/state]} _children]
+  (cond
+    (standalone?)
+    [:div.install [:p.result installed]]
+
+    (:ui/install-prompt state)
+    [:div.install
+     [:p explain]
+     [:button.link.install {:on {:click (fn [_]
+                                          (when-let [^js prompt (:ui/install-prompt @state/store)]
+                                            ;; an offer prompts once; the browser makes a new one
+                                            (swap! state/store dissoc :ui/install-prompt)
+                                            (.prompt prompt)))}}
+      install]]))
+
 (defn- break-line!
   "A line break at the caret of the textarea, as typing one would: an
    input event, which puts the text in the store, and a step of undo."
@@ -1320,6 +1363,8 @@
     :ui.alias/fn send-key-alias}
    {:ui.alias/kind :ui/effects-timing
     :ui.alias/fn effects-timing-alias}
+   {:ui.alias/kind :ui/install
+    :ui.alias/fn install-alias}
    {:ui.alias/kind :ui/url
     :ui.alias/fn url-alias}
    {:ui.alias/kind :ui/pane-history
@@ -1349,6 +1394,7 @@
   []
   (if-let [node (js/document.getElementById "phone")]
     (phone/mount! node)
-    (rframes/init! {:register register})))
+    (do (watch-install!)
+        (rframes/init! {:register register}))))
 
 (init!)

@@ -492,7 +492,7 @@
         (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
     (testing "the Input section: which key sends, the browser's choice"
       (let [input (i18n/translate (view/page {:agent {} :conversation nil :locale :de :settings? true :settings-section :input}) :de)]
-        (is (= ["Updates" "Eingabe" "Aufnahme" "MCP-Server" "Erweitert"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
+        (is (= ["Updates" "Auf dem Handy" "Eingabe" "Aufnahme" "MCP-Server" "Erweitert"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
         (is (= {:ui/ctrl-enter "Strg+Enter sendet (⌘+Enter auf dem Mac), Enter bricht die Zeile um"
                 :ui/enter "Enter sendet, Strg+Enter (⌘+Enter auf dem Mac) bricht die Zeile um"}
                (second (find-tag input :ui/send-key))))))
@@ -781,7 +781,7 @@
   (let [find-tag (fn [tree tag] (some #(when (and (vector? %) (= tag (first %))) %) (tree-seq coll? seq tree)))
         texts (fn [tree] (str/join " " (filter string? (tree-seq coll? seq tree))))]
     (testing "the updates without a section picked, the MCP servers as a tab"
-      (let [page (i18n/translate (view/settings {:current "1.0.0"} nil nil nil) :en)]
+      (let [page (i18n/translate (view/settings {:current "1.0.0"} nil nil nil nil) :en)]
         (is (str/includes? (texts page) "Check for updates"))
         (is (str/includes? (texts page) "MCP servers"))))
     (testing "the MCP section: a row per server with its state, a field per missing secret, the setup button"
@@ -789,7 +789,7 @@
                                                                          {:name "files" :address "npx" :tools 12 :connected true}
                                                                          {:name "old" :tools 0 :off true}]
                                                                :secrets ["OTHER_TOKEN"]}
-                                                          nil)
+                                                          nil nil)
                                           :en)
             text (texts page)]
         (is (str/includes? text "Waiting for GH_TOKEN"))
@@ -800,10 +800,10 @@
         (is (= "GH_TOKEN" (:ui/name (second (find-tag page :ui/secret-field)))))
         (is (nil? (:ui/bot (second (find-tag page :ui/secret-field)))) "no bot is told of a secret saved in the settings")))
     (testing "a remove asks in the row first"
-      (let [page (i18n/translate (view/settings nil :mcp {:servers [{:name "gh" :tools 0}] :removing "gh"} nil) :en)]
+      (let [page (i18n/translate (view/settings nil :mcp {:servers [{:name "gh" :tools 0}] :removing "gh"} nil nil) :en)]
         (is (str/includes? (texts page) "Remove gh? Your bots lose its tools."))))
     (testing "no servers"
-      (is (str/includes? (texts (i18n/translate (view/settings nil :mcp {:servers []} nil) :en)) "No MCP server is connected yet.")))))
+      (is (str/includes? (texts (i18n/translate (view/settings nil :mcp {:servers []} nil nil) :en)) "No MCP server is connected yet.")))))
 
 (deftest mcp-section-test
   (let [servers [{:name "github" :address "https://api.githubcopilot.com/mcp/" :tools 40 :connected true}
@@ -841,11 +841,20 @@
     (is (some #(= [:i18n :mcp/none] %) (tree-seq coll? seq (view/mcp-section {}))))))
 
 (deftest settings-tabs-test
-  (let [tree (view/settings {:current "1.0"} :mcp {:servers []} nil)]
+  (let [tree (view/settings {:current "1.0"} :mcp {:servers []} nil nil)]
     (is (some #(= [:i18n :mcp/title] %) (tree-seq coll? seq tree)) "the MCP section when the tab picked it")
     (is (not (some #(= [:i18n :updates/title] %) (tree-seq coll? seq tree)))))
-  (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil nil))) "the updates without a pick")
-  (is (some #(= [:i18n :advanced/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} :advanced nil true))) "the advanced switch when the tab picked it"))
+  (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil nil nil))) "the updates without a pick")
+  (is (some #(= [:i18n :advanced/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} :advanced nil true nil))) "the advanced switch when the tab picked it")
+  (testing "the phone: the link as a QR code and the browser's install"
+    (let [tree (view/settings {:current "1.0"} :mobile nil nil "https://a.test/?token=s")
+          tags (set (keep #(when (vector? %) (first %)) (tree-seq coll? seq tree)))]
+      (is (contains? tags :svg.qr))
+      (is (contains? tags :ui/install))
+      (is (some #(= [:i18n :mobile/title] %) (tree-seq coll? seq tree))))
+    (is (not (some #(and (vector? %) (= :svg.qr (first %)))
+                   (tree-seq coll? seq (view/settings {:current "1.0"} :mobile nil nil nil))))
+        "no code without a link")))
 
 (deftest message-items-test
   (let [conversation {:entries [(user 1 "Ask the counter.")

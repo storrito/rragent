@@ -103,7 +103,8 @@
             [rragent.templates :as templates]
             [rragent.update :as update]
             [rragent.uploads :as uploads]
-            [rragent.view :as view]))
+            [rragent.view :as view]
+            [rragent.webapp :as webapp]))
 
 (def bot-value-keys
   "The keys of a bot's map the page is a function of: its
@@ -203,6 +204,23 @@
   (when run-id
     (some #(when (= run-id (:id %)) %) (:runs bot))))
 
+(def page-token
+  "The token the page is behind, nil for none: set when the handler is
+   made (`handler`), read for the manifest (`manifest-handler`) and the
+   link the settings show for the phone (`page-view`)."
+  (atom nil))
+
+(declare page-base)
+
+(defn- page-link
+  "The page's address with its token, the one a phone scans
+   (`rragent.view/mobile-section`); the address alone without a token."
+  [request]
+  (let [base (page-base request)]
+    (if-let [token @page-token]
+      (auth/link base token)
+      base)))
+
 (defn page-view
   "The page in the language of the connection, with the bot of the
    tab. The bot's name and model are its definition's as last read
@@ -244,6 +262,7 @@
                     :settings-section (get settings-section (:tabid w))
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
                     :advanced? (:advanced? (machine/current-structure))
+                    :link (page-link (:ring/request w))
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)
                     :person {:name (person/name-of (:ring/request w))
@@ -1148,6 +1167,12 @@
       w
       (assoc w :ring/response http/not-found))))
 
+(defn- manifest-handler
+  "GET /manifest.webmanifest: the web app manifest of the page, its
+   start URL the secret link (`rragent.webapp`)."
+  [w]
+  (assoc w :ring/response (webapp/response @page-token)))
+
 (defn- shim
   [w]
   (assoc w :ring/response {:status 200
@@ -1371,6 +1396,8 @@
 
      {:ring/route [:get "/"]
       :ring/handler #'root-handler}
+     {:ring/route [:get webapp/manifest-path]
+      :ring/handler #'manifest-handler}
      {:ring/route [:get "/person"]
       :ring/handler #'person-get}
      {:ring/route [:post "/person"]
@@ -1500,9 +1527,14 @@
   "The routes outside the token: the hooks, the songs of Storrito's
    music pick page (`rragent.music-picks`), Composio's events, the
    pairing of a phone (`rragent.phone`), which lets the phone in with
-   the token's cookie, and the shared folders (`rragent.shares`)."
+   the token's cookie, the shared folders (`rragent.shares`) and the
+   app's icons (`rragent.webapp`), which a browser may fetch without
+   the cookie; built into public/icons, under the dev server from the
+   sources."
   [token]
-  [{:ring/route [:post "/hook/*"]
+  [(http/files "/icons/*" [(path/join (assets/public-dir) "icons")
+                           (path/resolve "public/icons")])
+   {:ring/route [:post "/hook/*"]
     :ring/handler #'hook-handler}
    {:ring/route [:post (str music-picks/prefix "*")]
     :ring/handler #'music-pick-handler}
@@ -1520,6 +1552,7 @@
   "The ring handler: the open routes as they are, everything else behind
    the token."
   [token]
+  (reset! page-token token)
   (let [open-routes (open-register token)
         open (http/ring-handler (fn [] open-routes))
         secured (auth/wrap (http/ring-handler get-register) {:token token})]

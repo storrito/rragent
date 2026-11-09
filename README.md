@@ -391,6 +391,25 @@ for the machine, every bot behind it. The hooks of the bots,
 `POST /hook/<name>/<secret>`, are outside the token; their secrets are
 their keys.
 
+## On the phone
+
+The page is an app on a phone's home screen, and on a desktop
+(`rragent.webapp`): a web app manifest names it Storrito, with the
+burrito as its icon (`public/icons`), and the head's tags make it open
+without the browser's bars. Settings → On the phone shows the page's
+secret link as a QR code: the phone's camera opens the page signed in,
+and from there Share → Add to Home Screen (Safari) or the menu → Add
+to Home screen (Chrome) puts it among the apps; a browser that
+installs by itself (Chrome, Edge, on Android and on a desktop) gets a
+button instead. The manifest is served behind the token, so it is
+the person's, and its start URL is the secret link: an app opened
+from the home screen signs itself in with every start. That is for
+iOS, where a home screen app keeps a cookie store of its own, apart
+from Safari's; Android's and the desktop's share the browser's. A
+rotated token leaves the installed app on the access-required page
+until it is added again, as it leaves the link. The icons are open
+routes, nothing of the person is in them.
+
 ## The artifacts
 
 The right half of the page is the pane of the artifacts, the way pchat has

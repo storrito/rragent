@@ -8,7 +8,8 @@
    in dist/ names them."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
-            ["node:url" :as url]))
+            ["node:url" :as url]
+            [rragent.webapp :as webapp]))
 
 (def entry
   "The namespace of the page's bundle, its name in the manifest."
@@ -65,11 +66,13 @@
   "<script>try{var t=localStorage.getItem(\"rragent.theme\");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>")
 
 (defn head
-  "The head of the shim: the title, the theme chosen, the stylesheet,
-   the preloads and the scripts of the page."
+  "The head of the shim: the title, what makes the page an app on a
+   home screen (`rragent.webapp/head`: the manifest, the icons, the
+   colors of the bars), the theme chosen, the stylesheet, the preloads
+   and the scripts of the page."
   [{:keys [scripts preload css]}]
   (str "<title>rragent</title>"
-       "<link rel=\"icon\" href=\"data:,\">"
+       webapp/head
        theme-script
        "<link rel=\"stylesheet\" href=\"" css "\">"
        (apply str (for [href preload]
