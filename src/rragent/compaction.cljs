@@ -63,7 +63,7 @@
         conversation (await (.conversation runtime (.-conversationId runtime) context))
         submission (await (.submit conversation
                                    #js {:type "input"
-                                        :content (instruction reason)
+                                        :content (or (not-empty (str (.-instruction (.-input task)))) (instruction reason))
                                         :whenBusy "followUp"
                                         :requestId (str "compaction:" id)
                                         :entry #js {:kind notice-kind :data #js {:reason reason}}}
@@ -111,9 +111,11 @@
 (defn ^:async start!
   "The compaction of the loop `loop-id` begun for `reason` (`budget`,
    `away`, `asked`, `migration`): the task made in a commit of the
-   loop's conversation, unless one runs or a compaction is under way.
-   Answers the task's id, nil when nothing was started."
-  [harness loop-id reason context]
+   loop's conversation, unless one runs or a compaction is under way;
+   with an `:instruction` the notice says that instead of the usual
+   (the migration's handover, `rragent.migration`). Answers the
+   task's id, nil when nothing was started."
+  [harness loop-id reason context & [{:keys [instruction]}]]
   (let [live (await (.snapshot harness LiveDoc loop-id context))]
     (when (and (empty? (some-> live .-compactions array-seq))
                (not (await (running? harness loop-id context))))
@@ -121,7 +123,10 @@
         (await (.commit conversation
                         (fn [tx]
                           (.createTask tx Task
-                                       #js {:reason (str reason)}
+                                       (let [input #js {:reason (str reason)}]
+                                         (when (seq (str instruction))
+                                           (aset input "instruction" (str instruction)))
+                                         input)
                                        #js {:ownership #js {:kind "conversation"}
                                             :conversationId loop-id
                                             :background true}))

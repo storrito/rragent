@@ -59,6 +59,7 @@
    `:secret/save` and `:secret/remove` its secrets (`rragent.secrets`),
    from the settings or from a bot's field, which tells the bot."
   (:require ["node:path" :as path]
+            ["node:fs" :as fs]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
             [rragent.assets :as assets]
@@ -1232,10 +1233,18 @@
    file."
   [w]
   (let [[id rest] (split-bot (get-in w [:ring/route-params :*]))
-        bot (machine/bot id)]
+        bot (machine/bot id)
+        ;; a link of before to an archived bot's artifact: the loop's folder of its topic
+        moved (when (and (str/starts-with? (str rest) "artifacts/") (not (fs/existsSync (str (:dir bot) "/work/" rest))))
+                (when-let [slug (get (:bot-topics (machine/current-structure)) (str id))]
+                  (when-let [loop (machine/loop-id)]
+                    (str (bots/url loop) "/artifacts/" slug "/" (subs (str rest) (count "artifacts/"))))))]
     (cond
       (str/blank? rest)
       (shim w)
+
+      moved
+      (assoc w :ring/response {:status 302 :headers {"Location" moved "Cache-Control" "no-store"} :body ""})
 
       (nil? bot)
       (assoc w :ring/response http/not-found)

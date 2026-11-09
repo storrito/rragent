@@ -17,6 +17,7 @@
             [rragent.roles :as roles]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]
+            [rragent.version :as version]
             [rragent.wiki :as wiki]))
 
 (defn- ^:async open!
@@ -96,7 +97,8 @@
                    (is (= [false true] (map :loop? (machine/listed))))
                    (is (= "Assistant" (:name (second (machine/listed)))))
                    (is (= loop (machine/default-id)) "the root of the page goes to the loop")
-                   (is (= {:hidden #{} :archived #{} :parents {} :projects {} :topics {} :manager loop :advanced? false} (machine/current-structure)))
+                   (is (= {:hidden #{} :archived #{} :parents {} :projects {} :topics {} :bot-topics {} :migrated version/version :manager loop :advanced? false} (machine/current-structure))
+                       "the loop as the manager of the structure, and the adoption of a machine of before marked done, nothing to adopt")
                    (is (= "Assistant" (:label (second (machine/listed)))) "the page calls it by its name, never New bot with a time")
                    (is (str/starts-with? (fs/readFileSync (definition-file home loop) "utf8") "---\nname: Assistant\n"))
                    (is (not (str/includes? (fs/readFileSync (definition-file home loop) "utf8") "# The conversation")) "the file is the frontmatter alone")

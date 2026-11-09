@@ -58,6 +58,7 @@
             [rragent.skills :as skills]
             [rragent.status :as status]
             [rragent.loop :as loop]
+            [rragent.migration :as migration]
             [rragent.tasks :as tasks]
             [rragent.tools.bot :as bot-tool]
             [rragent.tools.topic :as topic-tool]
@@ -80,7 +81,7 @@
                   :history "latest"
                   :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil :advanced false :topics #js {}})}))
 
-(declare adopt! listed loop? refresh-spend! refresh-structure! dependents delete! transcript status-of write-status!)
+(declare adopt! listed loop? name-of used-at refresh-spend! refresh-structure! dependents delete! transcript status-of write-status!)
 
 (defn agent
   "The harness map of the machine."
@@ -362,8 +363,10 @@
 (defn ^:async structure
   "The session document as data, ids as strings: `{:hidden #{} :archived
    #{} :parents {child parent} :projects {child name} :topics {id
-   {:name :created :archived?}} :manager id :advanced? false}`,
-   `:manager` nil for a machine without one yet."
+   {:name :created :archived?}} :bot-topics {bot slug} :migrated
+   version :manager id :advanced? false}`, `:manager` nil for a
+   machine without one yet, `:migrated` nil before the adoption
+   (`rragent.migration`)."
   [harness]
   (let [doc (await (.snapshot harness Structure harness/context))
         ids (fn [xs] (set (map str (array-seq (or xs #js [])))))
@@ -378,6 +381,8 @@
      :parents (pairs (some-> doc .-parents))
      :projects (pairs (some-> doc .-projects))
      :topics (topics (some-> doc .-topics))
+     :bot-topics (pairs (some-> doc .-botTopics))
+     :migrated (some-> doc .-migrated)
      :manager (when (some? manager) (str manager))
      :advanced? (boolean (some-> doc .-advanced))}))
 
@@ -551,6 +556,9 @@
    machine without a manager, which the tests of the other parts open
    (every real machine has one). Answers the bots."
   [opts]
+  (when-not (false? (:loop? opts))
+    (when-let [to (migration/backup! (or (:home opts) (home/home)))]
+      (println (str "the home was copied to " to " before its adoption into the one conversation"))))
   (let [agent (await (harness/open (assoc opts :extensions [(topic-tool/extension {:topics #'topics
                                                                                    :create! (fn [name] (create-topic! (:harness (agent)) name))
                                                                                    :rename! (fn [id name] (rename-topic! (:harness (agent)) id name))
@@ -584,6 +592,22 @@
           ids (remove hidden (await (conversations (:harness agent))))]
       (doseq [id ids]
         (await (open-bot! id (when (and manager (= id manager)) {:preferences preferences :loop? true}))))
+      ;; the bots of before adopted into the loop, once (docs/one-loop.md §9)
+      (when manager
+        (let [{:keys [projects topics]} (current-structure)]
+          (when-let [plan (await (migration/adopt! {:harness (:harness agent)
+                                                    :home (:home agent)
+                                                    :structure-doc Structure
+                                                    :ids ids
+                                                    :loop-id manager
+                                                    :projects projects
+                                                    :topics topics
+                                                    :names (into {} (map (fn [id] [id (name-of id)])) ids)
+                                                    :used (set (filter used-at ids))
+                                                    :context harness/context}))]
+            (when (seq plan)
+              (println (str "adopted " (count plan) " bots of before as topics: " (str/join ", " (map :topic plan))))))
+          (await (refresh-structure! (:harness agent)))))
       (mapv bot ids))))
 
 (defn ^:async close-all!
