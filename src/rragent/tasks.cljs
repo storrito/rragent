@@ -172,7 +172,9 @@
                                    #js {:type "input"
                                         :content (.-text input)
                                         :requestId (str "task:" id)
-                                        :entry #js {:kind input-kind :data #js {:topic (or (.-topic input) js/undefined)}}}
+                                        :entry #js {:kind input-kind :data (let [data #js {}]
+                                                                             (when (seq (str (.-topic input))) (aset data "topic" (str (.-topic input))))
+                                                                             data)}}
                                    context))
         ^js settled (await (.wait submission context))
         done? (= "done" (.-status settled))
@@ -218,7 +220,9 @@
                              :whenBusy "followUp"
                              :requestId (str "task-done:" id)
                              :entry #js {:kind done-kind
-                                         :data #js {:task id :topic (or topic js/undefined) :state state :line (.-line done)}}}
+                                         :data (let [data #js {:task id :state state :line (.-line done)}]
+                                                 (when topic (aset data "topic" topic))
+                                                 data)}}
                         context))))))
 
 (defn- ^:async held!

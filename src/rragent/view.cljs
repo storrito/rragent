@@ -217,6 +217,7 @@
     "rragent.run-input" [(call-item id [:i18n :chat/run-started {:about (or (:line data) (str (:kind data) " " (:name data)))}] data model)]
     "rragent.task-done" [(call-item id [:i18n :chat/task-done {:line (or (:line data) "")}] data model)]
     "rragent.task-input" [(call-item id [:i18n :chat/task-started] data model)]
+    "rragent.compaction-notice" [(call-item id [:i18n :chat/compaction-notice] data model)]
     "pi.assistant" (let [message (first model)]
                      (cons (assistant-item id message)
                            (tool-items message results slots)))

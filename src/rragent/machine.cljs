@@ -57,6 +57,7 @@
             [rragent.runs :as runs]
             [rragent.skills :as skills]
             [rragent.status :as status]
+            [rragent.loop :as loop]
             [rragent.tasks :as tasks]
             [rragent.tools.bot :as bot-tool]
             [rragent.tools.topic :as topic-tool]
@@ -93,14 +94,15 @@
 (defn context-window
   "The context a conversation on the model `id` keeps, in tokens: the
    model's window from the models registry of the agent, at most the
-   budget past which rragent compacts (`rragent.harness/context-tokens`),
+   budget past which rragent compacts (`rragent.harness/budget-for`),
    so that the page's ring fills towards the compaction; nil for a model
    it does not know."
   [id]
   (let [{:keys [models provider]} (agent)]
     (when (and models (seq (str id)))
       (try
-        (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-contextWindow (min (harness/context-tokens)))
+        (when-let [window (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-contextWindow)]
+          (min window (harness/budget-for window)))
         (catch :default _
           nil)))))
 
@@ -575,6 +577,7 @@
                     (and manager (not (contains? hidden manager))) (do (bots/write-loop-definition! (:home agent) manager)
                                                                        manager)
                     :else (await (make-loop! agent)))
+          _ (reset! loop/id manager)
           _ (when manager
               (wiki/seed! (home/bot-dir (:home agent) manager) (js/Date.now)))
           preferences (when manager (wiki/preferences-file (home/bot-dir (:home agent) manager)))
@@ -589,6 +592,7 @@
     (await (close-bot! id)))
   (when-let [agent (agent)]
     (await (harness/close agent)))
+  (reset! loop/id nil)
   (swap! db/db dissoc :machine))
 
 (defn codemode
@@ -616,7 +620,7 @@
   []
   {:known? (fn [id] (some? (bot id)))
    :idle? (fn [id] (not (some-> (bot id) :view (as-> view (harness/busy? {:view view})))))
-   :compact! (fn [id] (harness/compact-unless-compacting! (:harness (agent)) id))})
+   :compact! (fn [id] (harness/compact-unless-compacting! (:harness (agent)) id "away"))})
 
 (defn name-of
   "The bot's name: its definition's as the reload last read it

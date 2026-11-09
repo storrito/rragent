@@ -50,6 +50,8 @@
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
             [rragent.runs :as runs]
+            [rragent.compaction :as compaction]
+            [rragent.loop :as loop]
             [rragent.tasks :as tasks]
             [rragent.schedule :as schedule]
             [rragent.secrets :as secrets]
@@ -89,7 +91,7 @@
                                                (project-tool/tool) render-tool/tool (media-tool/image codemode) (media-tool/voice codemode) (media-tool/music codemode) (music-pick-tool/tool codemode)
                                                (transcribe-tool/tool codemode) youtube-tool/tool report-tool/tool skill-tool/tool share-tool/tool task-tool/tool]
                                               (host-tool/tools codemode)))
-                        :tasks #js [schedule/Task runs/Task tasks/Task]}))
+                        :tasks #js [schedule/Task runs/Task tasks/Task compaction/Task]}))
 
 (def redacted-keys
   "The parts of a tool's result that reach the model, a program or the
@@ -204,12 +206,37 @@
    272,000) and the model reads its context worse."
   200000)
 
+(defn explicit-context-tokens
+  "The context budget `RRAGENT_CONTEXT_TOKENS` names, nil without one."
+  []
+  (some-> (aget (.-env js/process) "RRAGENT_CONTEXT_TOKENS") js/parseInt (as-> n (when (pos? n) n))))
+
 (defn context-tokens
   "The context budget, `RRAGENT_CONTEXT_TOKENS` or
    `default-context-tokens`."
   []
-  (or (some-> (aget (.-env js/process) "RRAGENT_CONTEXT_TOKENS") js/parseInt (as-> n (when (pos? n) n)))
+  (or (explicit-context-tokens) default-context-tokens))
+
+(def window-share
+  "How much of a model's window a conversation uses before it is
+   compacted, without `RRAGENT_CONTEXT_TOKENS` (docs/one-loop.md §4)."
+  0.7)
+
+(defn budget-for
+  "The context budget of a conversation on a model with `window`
+   tokens: `RRAGENT_CONTEXT_TOKENS` when set, else `window-share` of
+   the window, else `default-context-tokens` for a window unknown."
+  [window]
+  (or (explicit-context-tokens)
+      (when (and (number? window) (pos? window))
+        (js/Math.round (* window-share window)))
       default-context-tokens))
+
+(defn- loop-id-of
+  "`id` as the loop's conversation is keyed, a number when the text is one."
+  [id]
+  (let [text (str id)]
+    (if (re-matches #"\d+" text) (js/Number text) id)))
 
 (defn context-read
   "The tokens of context the model read for an answer, by its `usage`:
@@ -256,49 +283,55 @@
 
 (def compaction-focus
   "What a compaction rragent starts asks its summary for besides
-   pi-durable's format: the files of the pictures the agent looked at,
-   which the model gets whole until the compaction
-   (`rragent.observations`) and not after it, so that the agent can
-   read them again."
-  (str "Under Critical Context, list the files of the pictures looked at in the summarized part "
-       "(read and tool results) that the work may still need, each by its exact path with a few words "
-       "on what it shows, so they can be read again; leave out pictures no longer relevant."))
+   pi-durable's format (`rragent.compaction/pictures-focus`)."
+  compaction/pictures-focus)
 
 (defn ^:async compact-unless-compacting!
   "A manual compaction of the conversation `id` of `harness` admitted,
    unless one runs for it already (`pi.live` of it lists it), its
-   summary asked for the pictures' files (`compaction-focus`)."
-  [harness id]
-  (let [live (await (.snapshot harness LiveDoc id context))]
-    (when (empty? (some-> live .-compactions array-seq))
-      (when-let [conversation (await (.conversation harness id context))]
-        (await (.compact conversation compaction-focus context))))))
+   summary asked for the pictures' files (`compaction-focus`). For
+   the loop, the compaction task instead (`rragent.compaction/start!`),
+   which has the loop write its wiki first; `reason` names what asks."
+  [harness id & [reason]]
+  (if (loop/loop? id)
+    (await (compaction/start! harness (loop-id-of id) (or reason "asked") context))
+    (let [live (await (.snapshot harness LiveDoc id context))]
+      (when (empty? (some-> live .-compactions array-seq))
+        (when-let [conversation (await (.conversation harness id context))]
+          (await (.compact conversation compaction-focus context)))))))
 
 (defn context-budget
-  "The extension that keeps every conversation within `budget` tokens of
-   context, whatever its model's window: an answer that read more
-   (`context-read`) admits a compaction of the conversation of
+  "The extension that keeps every conversation within its budget of
+   context (`budget-for`: `RRAGENT_CONTEXT_TOKENS`, else a share of
+   the window of the answer's model in `models`): an answer that read
+   more (`context-read`) admits a compaction of the conversation of
    `@harness`, which summarizes while the conversation goes on and
-   places its summary at the next boundary. pi-durable compacts by the
+   places its summary at the next boundary; for the loop the
+   compaction task, which writes the wiki first (`rragent.compaction`). pi-durable compacts by the
    model's window only (blocking at 16K below it), and its settings are
    one for every model; the window stays the model's, so pi-ai's room
    for the answer and a summary of a conversation past the budget stay
    right. One compaction at a time per conversation, `pending` covering
    the moment before `pi.live` lists it. Every answer is noted for the
    compaction while the person is away (`rragent.away/note!`)."
-  [harness budget]
-  (let [pending (atom #{})]
+  [harness models]
+  (let [pending (atom #{})
+        window-of (fn [^js message]
+                    (try
+                      (some-> (.getModel ^js models (str (.-provider message)) (str (.-model message))) .-contextWindow)
+                      (catch :default _ nil)))]
     (defineExtension #js {:name "rragent-context-budget"
                           :hooks #js [(hook GenerationTask #js {:afterResponse (fn [message ^js api _context]
                                                                                   (let [id (.-conversationId api)
-                                                                                        read (context-read (.-usage message))]
+                                                                                        read (context-read (.-usage message))
+                                                                                        budget (budget-for (window-of message))]
                                                                                     (when (pos? read)
                                                                                       (away/note! id read (js/Date.now)))
                                                                                     (when (and @harness
                                                                                                (< budget read)
                                                                                                (not (contains? @pending id)))
                                                                                       (swap! pending conj id)
-                                                                                      (-> (compact-unless-compacting! @harness id)
+                                                                                      (-> (compact-unless-compacting! @harness id "budget")
                                                                                           (.catch (fn [error] (js/console.error "[context]" error)))
                                                                                           (.finally (fn [] (swap! pending disj id))))))
                                                                                   js/undefined)})]})))
@@ -410,7 +443,7 @@
         opened (atom nil)
         harness (await (.open Harness storage
                               #js {:models models
-                                   :registry (registry codemode home (cons (context-budget opened (context-tokens)) extensions))
+                                   :registry (registry codemode home (cons (context-budget opened models) extensions))
                                    ;; the conversation's own cwd, the bot's work/ once it is
                                    ;; configured; the folder of its id before
                                    :env (fn [target] (NodeExecutionEnv. #js {:cwd (or (.-cwd target) (work-of home (.-conversationId target)))}))
@@ -421,6 +454,7 @@
                               context))
         _ (reset! opened harness)
         _ (reset! tasks/harness harness)
+        _ (reset! compaction/harness harness)
         root (await (.root harness context))
         view (await (.viewState root context))
         agent {:harness harness :home home :models models :codemode codemode :provider (or provider "openrouter")}

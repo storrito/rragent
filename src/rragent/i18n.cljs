@@ -89,6 +89,7 @@
    :chat/run-started [:fn/str "Started by {{:about}}"]
    :chat/task-done [:fn/str "A task is done · {{:line}}"]
    :chat/task-started "Started as a task"
+   :chat/compaction-notice "The wiki is written before the memory shrinks"
    :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/ready "Ready"
@@ -448,6 +449,7 @@
    :chat/run-started [:fn/str "Gestartet durch {{:about}}"]
    :chat/task-done [:fn/str "Eine Aufgabe ist fertig · {{:line}}"]
    :chat/task-started "Als Aufgabe gestartet"
+   :chat/compaction-notice "Das Wiki wird geschrieben, bevor das Gedächtnis schrumpft"
    :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
