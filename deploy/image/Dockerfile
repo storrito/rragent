@@ -35,7 +35,7 @@
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
 # the image's version: bump it with every change in deploy/image/
-LABEL org.opencontainers.image.version="1.0.0"
+LABEL org.opencontainers.image.version="1.0.1"
 LABEL org.opencontainers.image.source="https://github.com/storrito/rragent"
 
 ARG HYPERFRAMES_VERSION=0.8.221
