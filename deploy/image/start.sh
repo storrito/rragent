@@ -71,6 +71,11 @@ bootstrap() {
      && [ -f "$tmp/dist/rragent.js" ] \
      && mv "$tmp/dist" "$install/dist"; then
     rm -rf "$tmp"
+    # the marker rragent.update reads: a pinned release is in place
+    case "${RRAGENT_UPDATE:-auto}" in
+      auto|off) ;;
+      *) echo "$RRAGENT_UPDATE" > "$install/release" ;;
+    esac
   else
     echo "the bundle could not be taken from $url (download, checksum or unpack), not starting" >&2
     rm -rf "$tmp"

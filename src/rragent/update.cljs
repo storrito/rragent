@@ -14,6 +14,18 @@
    opens profits too. Nothing is applied while a run goes.
    `RRAGENT_UPDATE=off` switches the lookup off.
 
+   Pinned: `RRAGENT_UPDATE=<tag>`, a release's tag (`v0.1.55`, or
+   `trial-<branch>-<sha>` for a pre-release of a branch, the Trial
+   workflow's), looks that release up instead of the newest
+   (`releases/tags/<tag>`) and takes it once, by itself when the agent
+   is idle, whatever its version: a rollback, or a branch on a forked
+   sprite. What is in place is known by the marker file `release`
+   beside `dist/`, the tag of the release that made it (written here
+   after a swap, by start.sh after its download), the running version
+   as `v<version>` without one; the pinned tag equal to it is nothing
+   to take, so a pinned machine stays where it is until the line in
+   `.env` changes. A trial's bundle says `0.0.0-trial.<sha>`.
+
    Applying: `rragent.tar.gz` and its `.sha256` are downloaded from
    the release into a temp folder of the install folder (the same
    file system, so the moves below are renames), the checksum is
@@ -51,8 +63,36 @@
    start.sh starts it again on this code and ends on any other."
   75)
 
+(def releases-api
+  "https://api.github.com/repos/storrito/rragent/releases")
+
 (def latest-url
-  "https://api.github.com/repos/storrito/rragent/releases/latest")
+  (str releases-api "/latest"))
+
+(def marker-name
+  "The file beside `dist/` that names the release in place, by its tag."
+  "release")
+
+(defn pin-of
+  "The release tag `RRAGENT_UPDATE` pins, or nil: `auto`, `off` and
+   nothing pin none."
+  [value]
+  (let [value (str/trim (str value))]
+    (when-not (or (str/blank? value) (contains? #{"auto" "off"} value))
+      value)))
+
+(defn pin
+  "The release tag `RRAGENT_UPDATE` pins, or nil."
+  []
+  (pin-of (aget (.-env js/process) "RRAGENT_UPDATE")))
+
+(defn lookup-url
+  "Where the release to take is looked up: the pinned tag's, else the
+   newest's."
+  [pin]
+  (if pin
+    (str releases-api "/tags/" pin)
+    latest-url))
 
 (def check-every-ms
   "How often the newest release is looked up: once an hour."
@@ -101,9 +141,9 @@
 
 (defn release-of
   "The release as the page needs it, from GitHub's JSON of it:
-   `{:version :tarball-url :sha256-url :notes}`; nil when it has no
-   tag or lacks the tarball or its checksum (a release still being
-   built)."
+   `{:tag :version :tarball-url :sha256-url :notes}`, the version the
+   tag without its `v`; nil when it has no tag or lacks the tarball or
+   its checksum (a release still being built)."
   [{:keys [tag_name body assets]}]
   (let [url-of (fn [name]
                  (some #(when (= name (:name %)) (not-empty (:browser_download_url %))) assets))
@@ -111,10 +151,33 @@
         tarball (url-of tarball-name)
         sha256 (url-of checksum-name)]
     (when (and (seq version) tarball sha256)
-      {:version version
+      {:tag tag_name
+       :version version
        :tarball-url tarball
        :sha256-url sha256
        :notes (first-line body)})))
+
+(defn installed-tag
+  "The tag of the release in place: the marker file's, else the
+   running version as `v<version>`."
+  [install-dir current]
+  (let [file (path/join install-dir marker-name)]
+    (or (when (fs/existsSync file)
+          (not-empty (str/trim (fs/readFileSync file "utf8"))))
+        (str "v" current))))
+
+(defn- mark!
+  "The marker file written: `tag` is in place."
+  [install-dir tag]
+  (fs/writeFileSync (path/join install-dir marker-name) (str tag "\n")))
+
+(defn to-take?
+  "Whether `release` is one to take: newer than the running version;
+   pinned, any release but the one in place."
+  [{:keys [pin current install-dir]} release]
+  (if pin
+    (not= (:tag release) (installed-tag install-dir current))
+    (newer? (:version release) current)))
 
 (defn install-dir
   "The folder the running bundle's `dist/` is in: the parent of the
@@ -128,10 +191,12 @@
   (= "off" (aget (.-env js/process) "RRAGENT_UPDATE")))
 
 (defn auto?
-  "`RRAGENT_UPDATE=auto`: a known update goes in by itself once the
-   agent is idle, since something starts the process again."
+  "`RRAGENT_UPDATE=auto`, or a pinned tag: a known update goes in by
+   itself once the agent is idle, since something starts the process
+   again."
   []
-  (= "auto" (aget (.-env js/process) "RRAGENT_UPDATE")))
+  (or (= "auto" (aget (.-env js/process) "RRAGENT_UPDATE"))
+      (some? (pin))))
 
 (defn- say
   [& words]
@@ -152,8 +217,9 @@
       (throw (js/Error. (str "HTTP " (.-status response) " from " url))))))
 
 (defn ^:async lookup
-  "The newest release at `latest-url`: `{:release …}`, `:release` nil
-   when it is none we can take, or `{:error \"…\"}`."
+  "The release at `latest-url`, the newest's or the pinned tag's:
+   `{:release …}`, `:release` nil when it is none we can take, or
+   `{:error \"…\"}`."
   [latest-url]
   (try
     (let [response (await (fetch-response latest-url 10000))]
@@ -170,24 +236,23 @@
          (fn [{:keys [state] :as known}]
            (cond
              (= :applying state) known
-             release (-> (select-keys known [:current :auto?])
+             release (-> (select-keys known [:current :auto? :pin])
                          (merge release)
                          (assoc :state :known))
-             :else (select-keys known [:current :auto?])))))
+             :else (select-keys known [:current :auto? :pin])))))
 
 (defn ^:async check!
-  "The newest release looked up and noted in the db: `:found` when it
-   is newer than the running version, `:newest` when it is not,
-   `:failed` when the lookup failed, said in one line; the db keeps
-   what it had then."
-  [{:keys [db latest-url current]}]
+  "The release looked up and noted in the db: `:found` when it is one
+   to take (`to-take?`), `:newest` when it is not, `:failed` when the
+   lookup failed, said in one line; the db keeps what it had then."
+  [{:keys [db latest-url] :as handle}]
   (let [{:keys [release error]} (await (lookup latest-url))]
     (cond
       error (do (say "no lookup of the newest release:" error)
                 (swap! db update :update dissoc :checked)
                 :failed)
-      (and release (newer? (:version release) current)) (do (note! db release)
-                                                             :found)
+      (and release (to-take? handle release)) (do (note! db release)
+                                                  :found)
       :else (do (note! db nil)
                 :newest))))
 
@@ -274,7 +339,7 @@
    into a temp folder of the install folder, the checksum, the unpack
    into `dist.new`, the swap, the exit. A step that fails undoes what
    was made and notes the error."
-  [{:keys [db install-dir exit!]} {:keys [version tarball-url sha256-url]}]
+  [{:keys [db install-dir exit!]} {:keys [tag version tarball-url sha256-url]}]
   (let [new (path/join install-dir "dist.new")
         tmp (atom nil)]
     (try
@@ -285,6 +350,7 @@
       (remove! new)
       (unpack! (path/join @tmp tarball-name) new)
       (swap-in! install-dir)
+      (mark! install-dir (or tag (str "v" version)))
       (remove! @tmp)
       (say "rragent" version "is in place, the process ends with" exit-code "to be started again")
       (exit! exit-code)
@@ -316,24 +382,32 @@
           (await (install! handle known))))))
 
 (defn handle
-  "`{:db the db, :current the running version, :latest-url,
-   :install-dir, :auto? whether a known update goes in by itself once
-   the agent is idle, :exit! what ends the process, :apply! what the
-   Update button runs}`; everything but `:db` has a default: the
-   version of `rragent.version`, GitHub's API, the folder of this
-   bundle, `RRAGENT_UPDATE=auto`, `process.exit`, `apply!`. The
-   running version is on the page from the first frame on."
+  "`{:db the db, :current the running version, :pin the release tag
+   RRAGENT_UPDATE pins or nil, :latest-url where the release to take
+   is looked up, :install-dir, :auto? whether a known update goes in
+   by itself once the agent is idle, :exit! what ends the process,
+   :apply! what the Update button runs}`; everything but `:db` has a
+   default: the version of `rragent.version`, `RRAGENT_UPDATE`,
+   GitHub's API (the pinned tag's release, else the newest), the
+   folder of this bundle, `RRAGENT_UPDATE=auto` or pinned,
+   `process.exit`, `apply!`. The running version and the pin are on
+   the page from the first frame on."
   [opts]
-  (let [handle (merge {:current version/version
-                       :latest-url latest-url
+  (let [pin (if (contains? opts :pin) (:pin opts) (pin))
+        handle (merge {:current version/version
+                       :pin pin
+                       :latest-url (lookup-url pin)
                        :install-dir (install-dir)
                        :auto? (auto?)
                        :exit! (fn [code] (.exit js/process code))
                        :apply! apply!}
                       opts)]
-    (swap! (:db handle) update :update assoc
-           :current (:current handle)
-           :auto? (boolean (:auto? handle)))
+    (swap! (:db handle) update :update
+           (fn [known]
+             (cond-> (assoc known
+                            :current (:current handle)
+                            :auto? (boolean (:auto? handle)))
+               (:pin handle) (assoc :pin (:pin handle)))))
     handle))
 
 (defn watch!
@@ -367,9 +441,10 @@
 (defn report
   "One line for the start: the running version and what happens with
    a newer release."
-  [{:keys [current auto?]}]
+  [{:keys [current auto? pin]}]
   (cond
     (off?) (str "rragent " current ", no lookup of newer releases (RRAGENT_UPDATE=off)")
+    pin (str "rragent " current ", pinned to the release " pin " (RRAGENT_UPDATE): taken once the agent is idle, no other release is")
     auto? (str "rragent " current ", a newer release is looked up hourly and taken once the agent is idle")
     :else (str "rragent " current ", a newer release is looked up hourly and offered on the page")))
 

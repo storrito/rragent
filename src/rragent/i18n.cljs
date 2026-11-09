@@ -263,6 +263,7 @@
    :settings/version-title "Look for a newer rragent in the settings"
    :updates/title "Updates"
    :updates/current [:fn/str "You run rragent {{:version}}."]
+   :updates/pinned [:fn/str "This machine is pinned to the release {{:pin}} (RRAGENT_UPDATE in .env); no other release is taken."]
    :updates/explain "A newer release is looked up at start and once an hour; this looks right now."
    :updates/check "Check for updates"
    :updates/checking "Checking …"
@@ -615,6 +616,7 @@
    :settings/version-title "In den Einstellungen nach einer neueren rragent-Version sehen"
    :updates/title "Updates"
    :updates/current [:fn/str "Du nutzt rragent {{:version}}."]
+   :updates/pinned [:fn/str "Diese Maschine ist auf die Version {{:pin}} festgelegt (RRAGENT_UPDATE in .env); keine andere wird genommen."]
    :updates/explain "Beim Start und einmal pro Stunde wird nach einer neueren Version gesehen; das hier sieht sofort nach."
    :updates/check "Nach Updates suchen"
    :updates/checking "Suche …"
