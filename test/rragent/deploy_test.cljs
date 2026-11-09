@@ -165,17 +165,18 @@
       (finally
         (fs/rmSync dir #js {:recursive true :force true})))))
 
-(deftest the-image-is-named-by-the-dockerfile-test
-  (testing "the Dockerfile carries the bump line and no bundle"
+(deftest the-image-has-a-version-of-its-own-test
+  (testing "the Dockerfile carries the version label and no bundle"
     (let [dockerfile (text "deploy/image/Dockerfile")]
-      (is (re-find #"\n#   image: \d+\n" dockerfile) "the line bumped when start.sh changes, so that the SHA changes")
+      (is (re-find #"\nLABEL org\.opencontainers\.image\.version=\"\d+\.\d+\.\d+\"\n" dockerfile) "the version the image is tagged with, bumped with every change in deploy/image/")
       (is (not (re-find #"COPY[^\n]*dist" dockerfile)) "no bundle in the image: start.sh downloads the release")
       (is (str/includes? dockerfile "COPY --chown=sprite:sprite --chmod=700 start.sh /home/sprite/rragent/start.sh") "start.sh from the build context deploy/image")))
-  (testing "the Image workflow tags with the Dockerfile's blob SHA and skips a tag that exists"
+  (testing "the Image workflow tags with the label's version, refuses one that exists on main, a trial version on a branch"
     (let [workflow (text ".github/workflows/image.yml")]
-      (is (str/includes? workflow "git rev-parse HEAD:deploy/image/Dockerfile"))
-      (is (str/includes? workflow "when-there: skip"))
-      (is (str/includes? workflow "- deploy/image/**") "a push to main that touches the folder")))
+      (is (str/includes? workflow "org.opencontainers.image.version=") "the version read from the Dockerfile")
+      (is (str/includes? workflow "- deploy/image/**") "a push to main that touches the folder")
+      (is (str/includes? workflow "-trial.") "a branch's build is a pre-release version")
+      (is (str/includes? workflow "when-there: ${{ steps.tag.outputs.when-there }}") "refuse on main, skip for a trial")))
   (testing "the action builds from deploy/image and refuses an existing tag unless told to skip"
     (let [action (text ".github/actions/sprite-image/action.yml")]
       (is (str/includes? action "-f deploy/image/Dockerfile"))

@@ -1,21 +1,20 @@
 name: Image
 
-# The Sprite image, ghcr.io/storrito/rragent-sprite:<sha>, where <sha>
-# is the git blob SHA of deploy/image/Dockerfile. That is the
-# convention a provisioner makes a machine by: Storrito asks GitHub for
-# the SHA of main's Dockerfile (the contents API, one request) and
-# makes a new agent's machine from that tag, so a change of the
-# Dockerfile is a new image and nothing else is; a changed start.sh
-# alone changes no SHA, so the Dockerfile's "image: N" line is bumped
-# with it. A push to main that touches deploy/image/ builds the image,
-# unless the tag exists already (.github/actions/sprite-image with
-# when-there: skip): Sprites imports a tag once per organization and
-# never pulls it again, so a tag is never pushed over. By hand on a
-# branch ("Run workflow"): the branch's Dockerfile SHA is the tag, for
-# a sprite to try the branch's image on; a branch whose Dockerfile is
-# main's needs none, its bundle reaches a sprite as a release does.
-# The image holds no bundle: start.sh downloads the release at a
-# machine's first start.
+# The Sprite image, ghcr.io/storrito/rragent-sprite:<version>, where
+# <version> is the Dockerfile's own label
+# org.opencontainers.image.version. That is the convention a
+# provisioner makes a machine by: Storrito lists the package's tags and
+# takes the highest version, so a bumped version is a new image for new
+# machines and nothing else is. A push to main that touches
+# deploy/image/ builds the version; a version that exists already is
+# refused (.github/actions/sprite-image), so a change without a bump
+# fails loudly instead of shipping nothing: Sprites imports a tag once
+# per organization and never pulls it again, so a tag is never pushed
+# over. By hand on a branch ("Run workflow"): the build is tagged
+# <version>-trial.<sha>, a pre-release version the provisioner passes
+# over, for a sprite to try the branch's image on; a rerun on the same
+# commit finds it there and skips. The image holds no bundle: start.sh
+# downloads the release at a machine's first start.
 on:
   push:
     branches: [main]
@@ -35,10 +34,19 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-      - name: The tag, the Dockerfile's blob SHA
+      - name: The tag, the Dockerfile's version
         id: tag
-        run: echo "sha=$(git rev-parse HEAD:deploy/image/Dockerfile)" >> "$GITHUB_OUTPUT"
+        run: |
+          version=$(sed -n 's/^LABEL org.opencontainers.image.version="\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)"$/\1/p' deploy/image/Dockerfile)
+          [ -n "$version" ] || { echo "::error::deploy/image/Dockerfile names no version: LABEL org.opencontainers.image.version=\"<x.y.z>\""; exit 1; }
+          if [ "$GITHUB_REF_NAME" = main ]; then
+            echo "tag=$version" >> "$GITHUB_OUTPUT"
+            echo "when-there=refuse" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$version-trial.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "when-there=skip" >> "$GITHUB_OUTPUT"
+          fi
       - uses: ./.github/actions/sprite-image
         with:
-          tag: ${{ steps.tag.outputs.sha }}
-          when-there: skip
+          tag: ${{ steps.tag.outputs.tag }}
+          when-there: ${{ steps.tag.outputs.when-there }}
