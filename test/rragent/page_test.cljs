@@ -895,6 +895,7 @@
                          (testing "the definition the run works from, folded; the bot's unchanged so far"
                            (is (mentions? frame "The definition this run works from"))
                            (is (mentions? frame "You watch a page."))
+                           (is (not (mentions? frame "# Every bot of this machine")) "without the prompt every bot works by")
                            (is (not (mentions? frame "has changed since")))))
                        (testing "the bot's definition changed since the run: the page says so"
                          (fs/writeFileSync (path/join (home/bot-dir home (js/Number id)) "AGENT.md") (str/replace test-home/definition-text "You watch a page." "You watch two pages."))
@@ -1061,3 +1062,11 @@
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest run-definition-text-test
+  (let [shared "# Every bot\n\nThe rules.\n"
+        text "---\nname: watcher\n---\n# Every bot\n\nThe rules.\n\n## Your job\n\nYou watch a page.\n"]
+    (is (= "---\nname: watcher\n---\n## Your job\n\nYou watch a page.\n" (page/run-definition-text text shared))
+        "the frontmatter, then the bot's own job")
+    (is (= text (page/run-definition-text text "# Other rules")) "a run from before the release keeps its text")
+    (is (= text (page/run-definition-text text "")) "no shared prompt")))

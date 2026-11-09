@@ -221,6 +221,18 @@
       (auth/link base token)
       base)))
 
+(defn run-definition-text
+  "The definition a run works from, `text` as the reload assembled it,
+   without `shared`, the prompt every bot works by, which a release
+   brings and the person has no use for on a run's page: the
+   frontmatter, the bot's own job, then its role. A text that does not
+   hold `shared` (a run from before the release) stays as it is."
+  [text shared]
+  (let [shared (str/trim (str shared))]
+    (if-let [i (when (seq shared) (str/index-of text shared))]
+      (str (subs text 0 i) (str/triml (subs text (+ i (count shared)))))
+      text)))
+
 (defn page-view
   "The page in the language of the connection, with the bot of the
    tab. The bot's name and model are its definition's as last read
@@ -234,7 +246,7 @@
         run (when-let [run (run-of bot run-id)]
               (let [text (get-in bot [:runs/definitions run-id])]
                 (cond-> run
-                  text (assoc :definition {:text text
+                  text (assoc :definition {:text (run-definition-text text (bots/system-prompt))
                                            :changed? (not= text (get-in bot [:reload :text]))}))))
         locale (i18n/locale (:ring/request w))]
     (-> (view/page {:bots (machine/listed)
