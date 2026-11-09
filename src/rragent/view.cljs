@@ -35,7 +35,8 @@
             [rragent.recordings :as recordings]
             [rragent.runs :as runs]
             [rragent.uploads :as uploads]
-            [rragent.version :as version]))
+            [rragent.version :as version]
+            [rragent.webapp :as webapp]))
 
 (defn cut
   "At most `n` characters of `text`."
@@ -825,8 +826,27 @@
                                            :command/data {:advanced (not advanced?)}}]]}}]
     [:span [:i18n :advanced/show-all]]]])
 
+(defn mobile-section
+  "The On the phone section of the settings: the page's secret link as
+   a QR code (`rragent.webapp/qr`), which a phone's camera opens
+   signed in, how the page becomes an app on the home screen from
+   there, and the browser's own install when it offers one
+   (`:ui/install`, `rragent.client/install-alias`). `link` is the
+   page's address with its token (`rragent.page/page-view`), nil for
+   a page without one."
+  [link]
+  [:section.mobile
+   [:h2 [:i18n :mobile/title]]
+   [:p [:i18n :mobile/explain]]
+   (when link
+     [:div.code (webapp/qr link)])
+   [:p [:i18n :mobile/add]]
+   [:ui/install {:ui/explain [:i18n :mobile/install-explain]
+                 :ui/install [:i18n :mobile/install]
+                 :ui/installed [:i18n :mobile/installed]}]])
+
 (def settings-sections
-  [:updates :input :recording :mcp :advanced])
+  [:updates :mobile :input :recording :mcp :advanced])
 
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
@@ -834,10 +854,11 @@
    version in the header): a bar with the title and the way back
    (`:settings/close`), the tabs of the sections (`:settings/section`,
    per tab), and the section the tab picked: the updates
-   (`updates-section`), the keys of the composer (`input-section`),
-   the MCP servers (`mcp-section`, `mcp` its data) or the advanced
-   switch (`advanced-section`, `advanced?` its state)."
-  [update section mcp advanced?]
+   (`updates-section`), the page on the phone (`mobile-section`,
+   `link` the page's secret link), the keys of the composer
+   (`input-section`), the MCP servers (`mcp-section`, `mcp` its data)
+   or the advanced switch (`advanced-section`, `advanced?` its state)."
+  [update section mcp advanced? link]
   (let [section (if (some #{section} settings-sections) section :updates)]
     (list
      [:header.bar
@@ -857,6 +878,7 @@
                                                     :command/data {:tab :ui/tabid :section k}}]]}}
           [:i18n (keyword "settings" (name k))]])]
       (case section
+        :mobile (mobile-section link)
         :mcp (mcp-section mcp)
         :input (input-section)
         :recording (recording-section)
@@ -1900,9 +1922,10 @@
    when it did not; `:phone`, the phone paired as a camera while its
    hello is fresh (`rragent.phone/status`), or nil; `:settings?`,
    whether this tab shows the settings in place of the bot's chat and
-   pane (`settings`), `:settings-section` which of their sections, and
-   `:mcp` what the MCP section shows (`mcp-section`)."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? person] pane :artifacts}]
+   pane (`settings`), `:settings-section` which of their sections,
+   `:mcp` what the MCP section shows (`mcp-section`) and `:link` the
+   page's address with its token, for the phone (`mobile-section`)."
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -1922,7 +1945,7 @@
      (if settings?
        ;; keyed apart from the chat: the two share no element
        [:div.main.settings-open {:replicant/key "settings"}
-        (settings update settings-section mcp advanced?)]
+        (settings update settings-section mcp advanced? link)]
        ;; keyed by the bot, and by the run when one is shown: a switch
        ;; builds the chat anew, two transcripts share no element
        [:div.main {:replicant/key (if run (str "bot-" id "-run-" (:id run)) (str "bot-" id))}
