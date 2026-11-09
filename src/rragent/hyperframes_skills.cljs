@@ -2,7 +2,7 @@
   "The HyperFrames skills that a bot reads before it writes a
    composition (`templates/hyperframes/TEMPLATE.md`:
    `~/.agents/skills/hyperframes/`). The image installs them
-   (`deploy/Dockerfile.full`: `hyperframes skills`), but a machine made
+   (`deploy/image/Dockerfile`: `hyperframes skills`), but a machine made
    from an earlier image has none, and a release does not change the
    image: a bot then looked for them all over the disk (a `find /` that
    ran into the 30-second timeout) and installed them itself, its
