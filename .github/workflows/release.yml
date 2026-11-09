@@ -4,18 +4,20 @@ name: Release
 # the tag's: set into package.json for this build alone (npm version
 # --no-git-tag-version, nothing committed, main keeps 0.0.0), so that
 # the bundle says it (scripts/version.mjs writes src/rragent/version.cljs
-# from package.json before the build). Then the bundle is built, the
-# same dist/ goes into the Sprite image,
-# ghcr.io/storrito/rragent-sprite:<version> and latest
-# (deploy/Dockerfile.full, see .github/actions/sprite-image and the
-# README's Deploy section), and last a GitHub release is published with
-# rragent.tar.gz (dist/: rragent.js, public/ and templates/) and its
-# checksum, so that a machine image downloads a release instead of
-# building the app: releases/download/v<version>/rragent.tar.gz, or the
-# newest from releases/latest/download/rragent.tar.gz, which a running
-# agent takes by itself (rragent.update). The release comes last so
-# that whoever sees a release can count on its image: Storrito picks
-# the newest release's image for a new agent.
+# from package.json before the build). Then the bundle is built and a
+# GitHub release is published with rragent.tar.gz (dist/: rragent.js,
+# public/ and templates/) and its checksum, so that a machine downloads
+# a release instead of building the app:
+# releases/download/v<version>/rragent.tar.gz, or the newest from
+# releases/latest/download/rragent.tar.gz, which deploy/image/start.sh
+# takes at a machine's first start and a running agent takes by itself
+# (rragent.update). The Sprite image is the Image workflow's
+# (image.yml: ghcr.io/storrito/rragent-sprite:<sha> of
+# deploy/image/Dockerfile, built when that file changes, no bundle in
+# it). Until Storrito provisions by the Dockerfile's SHA, the release
+# builds the same image under its version too, <version> and latest,
+# before it publishes the release, so that a release that exists has
+# its image; that step goes then.
 on:
   push:
     tags: ["v*"]
@@ -70,6 +72,8 @@ jobs:
       - run: npm test
       - run: npm run release
       # The image before the release: a release that exists has its image.
+      # For a provisioner that pins the version; goes once Storrito
+      # provisions by the Dockerfile's SHA (image.yml).
       - name: The Sprite image
         uses: ./.github/actions/sprite-image
         with:

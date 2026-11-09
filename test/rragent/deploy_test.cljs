@@ -1,6 +1,6 @@
 (ns rragent.deploy-test
   "What the Sprite image is built with: the skills repository as a
-   build argument of both Dockerfiles, passed through by the composite
+   build argument of the Dockerfile, passed through by the composite
    action, what the shared prompt tells every bot, start.sh's pull of
    the clone, run against a bare
    repository in a temporary folder, and start.sh's loop that starts
@@ -23,7 +23,7 @@
     {:status (.-status result) :out (str (.-stdout result)) :err (str (.-stderr result))}))
 
 (deftest the-skills-repository-is-a-build-argument-test
-  (doseq [file ["deploy/Dockerfile" "deploy/Dockerfile.full"]]
+  (doseq [file ["deploy/image/Dockerfile"]]
     (testing file
       (let [dockerfile (text file)]
         (is (str/includes? dockerfile "ARG SKILLS_REPO=storrito/agentitos\n"))
@@ -38,7 +38,7 @@
       (is (re-find #"skills-branch:\n(.*\n){1,3}?\s+default: main\n" action))
       (is (str/includes? action "SKILLS_REPO: ${{ inputs.skills-repo }}"))
       (is (str/includes? action "SKILLS_BRANCH: ${{ inputs.skills-branch }}"))
-      (is (= 1 (count (re-seq #"--build-arg \"SKILLS_REPO=\$SKILLS_REPO\" --build-arg \"SKILLS_BRANCH=\$SKILLS_BRANCH\"" action))) "the one image, deploy/Dockerfile.full")
+      (is (= 1 (count (re-seq #"--build-arg \"SKILLS_REPO=\$SKILLS_REPO\" --build-arg \"SKILLS_BRANCH=\$SKILLS_BRANCH\"" action))) "the one image, deploy/image/Dockerfile")
       (is (not (str/includes? action "-plain")) "no plain image is published"))))
 
 (deftest the-shared-prompt-tells-the-bot-to-name-itself-test
@@ -83,13 +83,13 @@
 (defn- pull-skills
   "start.sh's `pull_skills` function, as it stands in the file."
   []
-  (let [[_ function] (re-find #"(?s)(pull_skills\(\) \{.*?\n\})" (text "deploy/start.sh"))]
+  (let [[_ function] (re-find #"(?s)(pull_skills\(\) \{.*?\n\})" (text "deploy/image/start.sh"))]
     function))
 
 (defn- run-until-updated
   "start.sh's `run_until_updated` function, as it stands in the file."
   []
-  (let [[_ function] (re-find #"(?s)(run_until_updated\(\) \{.*?\n\})" (text "deploy/start.sh"))]
+  (let [[_ function] (re-find #"(?s)(run_until_updated\(\) \{.*?\n\})" (text "deploy/image/start.sh"))]
     function))
 
 (defn- fake-program!
@@ -130,7 +130,7 @@
           (is (= 1 (runs dir)))
           (is (= "" err))))
       (testing "the script runs the serve in the loop, after the one pull, the idle update told"
-        (let [script (text "deploy/start.sh")]
+        (let [script (text "deploy/image/start.sh")]
           (is (str/ends-with? (str/trim script) "run_until_updated node dist/rragent.js serve"))
           (is (< (str/index-of script "pull_skills /home/sprite/skills") (str/index-of script "run_until_updated node")))
           (is (= 1 (count (re-seq #"pull_skills /home/sprite/skills" script))) "the pull once, not again after an update")
@@ -162,5 +162,94 @@
           (is (= 1 (count (str/split-lines (str/trim err)))) err)
           (is (str/includes? err "the skills in machine were not pulled"))
           (is (str/includes? err "the clone from the image stands"))))
+      (finally
+        (fs/rmSync dir #js {:recursive true :force true})))))
+
+(deftest the-image-is-named-by-the-dockerfile-test
+  (testing "the Dockerfile carries the bump line and no bundle"
+    (let [dockerfile (text "deploy/image/Dockerfile")]
+      (is (re-find #"\n#   image: \d+\n" dockerfile) "the line bumped when start.sh changes, so that the SHA changes")
+      (is (not (re-find #"COPY[^\n]*dist" dockerfile)) "no bundle in the image: start.sh downloads the release")
+      (is (str/includes? dockerfile "COPY --chown=sprite:sprite --chmod=700 start.sh /home/sprite/rragent/start.sh") "start.sh from the build context deploy/image")))
+  (testing "the Image workflow tags with the Dockerfile's blob SHA and skips a tag that exists"
+    (let [workflow (text ".github/workflows/image.yml")]
+      (is (str/includes? workflow "git rev-parse HEAD:deploy/image/Dockerfile"))
+      (is (str/includes? workflow "when-there: skip"))
+      (is (str/includes? workflow "- deploy/image/**") "a push to main that touches the folder")))
+  (testing "the action builds from deploy/image and refuses an existing tag unless told to skip"
+    (let [action (text ".github/actions/sprite-image/action.yml")]
+      (is (str/includes? action "-f deploy/image/Dockerfile"))
+      (is (str/ends-with? (str/trim (re-find #"docker build[^\n]*" action)) "deploy/image") "the build context")
+      (is (str/includes? action "default: refuse"))
+      (is (not (str/includes? action "dist/rragent.js")) "no bundle needed for the build"))))
+
+(defn- function-of
+  "A function of start.sh, as it stands in the file."
+  [name]
+  (let [[_ function] (re-find (re-pattern (str "(?s)(" name "\\(\\) \\{.*?\\n\\})")) (text "deploy/image/start.sh"))]
+    function))
+
+(defn- release!
+  "A release's files under `dir`: rragent.tar.gz holding `files` (name
+   to text) and its checksum, as `npm run release` packs them; the
+   checksum spoiled with `:broken? true`."
+  [dir files & {:keys [broken?]}]
+  (fs/mkdirSync (path/join dir "dist") #js {:recursive true})
+  (doseq [[name content] files]
+    (fs/writeFileSync (path/join dir "dist" name) content))
+  (let [{:keys [status err]} (sh dir (str "tar -czf rragent.tar.gz -C dist . && rm -r dist && sha256sum rragent.tar.gz > rragent.tar.gz.sha256"
+                                          (when broken? " && sed -i 's/^./x/' rragent.tar.gz.sha256")))]
+    (when-not (= 0 status)
+      (throw (ex-info "no release made" {:err err})))))
+
+(deftest start-sh-takes-the-bundle-from-the-release-test
+  (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-bootstrap-"))
+        releases (path/join dir "releases")
+        install (path/join dir "install")
+        functions (str (function-of "release_url") "\n" (function-of "bootstrap"))
+        run (fn [env]
+              (sh dir (str "export " env "\n" functions "\nbootstrap " install " && echo in place")))]
+    (fs/mkdirSync install)
+    (try
+      (is (string? (function-of "release_url")) "the function is in start.sh")
+      (is (string? (function-of "bootstrap")) "the function is in start.sh")
+      (testing "the newest release's tarball, verified and unpacked into dist/"
+        (release! (path/join releases "latest/download") {"rragent.js" "console.log('newest')" "system-prompt.md" "rules"})
+        (let [{:keys [status out err]} (run (str "RRAGENT_RELEASES=file://" releases " RRAGENT_UPDATE=auto"))]
+          (is (= 0 status) err)
+          (is (= "in place" (str/trim out)))
+          (is (= "console.log('newest')" (text (path/join install "dist/rragent.js"))))
+          (is (= "rules" (text (path/join install "dist/system-prompt.md"))))
+          (is (str/includes? err "taking the bundle from file://") "said on stderr")
+          (is (= ["dist"] (vec (fs/readdirSync install))) "no temp folder left")))
+      (testing "a dist/ that is there is left alone, nothing downloaded"
+        (fs/rmSync releases #js {:recursive true :force true})
+        (let [{:keys [status out err]} (run (str "RRAGENT_RELEASES=file://" releases))]
+          (is (= 0 status))
+          (is (= "in place" (str/trim out)))
+          (is (= "" err))
+          (is (= "console.log('newest')" (text (path/join install "dist/rragent.js"))))))
+      (testing "RRAGENT_UPDATE names a release: its tarball, not the newest"
+        (fs/rmSync (path/join install "dist") #js {:recursive true :force true})
+        (release! (path/join releases "download/trial-loop-1a2b3c4") {"rragent.js" "console.log('trial')"})
+        (let [{:keys [status err]} (run (str "RRAGENT_RELEASES=file://" releases " RRAGENT_UPDATE=trial-loop-1a2b3c4"))]
+          (is (= 0 status) err)
+          (is (= "console.log('trial')" (text (path/join install "dist/rragent.js"))))))
+      (testing "a checksum that does not match: nothing in place, said, 1"
+        (fs/rmSync (path/join install "dist") #js {:recursive true :force true})
+        (fs/rmSync releases #js {:recursive true :force true})
+        (release! (path/join releases "latest/download") {"rragent.js" "console.log('tampered')"} :broken? true)
+        (let [{:keys [status out err]} (run (str "RRAGENT_RELEASES=file://" releases " RRAGENT_UPDATE=auto"))]
+          (is (= 1 status))
+          (is (= "" (str/trim out)))
+          (is (str/includes? err "could not be taken") err)
+          (is (not (fs/existsSync (path/join install "dist"))))
+          (is (= [] (vec (fs/readdirSync install))) "no temp folder left")))
+      (testing "no release there: nothing in place, 1"
+        (fs/rmSync releases #js {:recursive true :force true})
+        (let [{:keys [status err]} (run (str "RRAGENT_RELEASES=file://" releases " RRAGENT_UPDATE=auto"))]
+          (is (= 1 status))
+          (is (str/includes? err "could not be taken") err)
+          (is (not (fs/existsSync (path/join install "dist"))))))
       (finally
         (fs/rmSync dir #js {:recursive true :force true})))))

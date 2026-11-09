@@ -10,7 +10,7 @@
    The click applies the release; so does the idle watch, when the
    agent is idle the way `rragent.sleep` sees it (no run, no render,
    no page connected) and the process is started again after an exit
-   (`RRAGENT_UPDATE=auto`, which deploy/start.sh sets): an agent nobody
+   (`RRAGENT_UPDATE=auto`, which deploy/image/start.sh sets): an agent nobody
    opens profits too. Nothing is applied while a run goes.
    `RRAGENT_UPDATE=off` switches the lookup off.
 

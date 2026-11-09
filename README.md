@@ -1052,12 +1052,14 @@ sets it into `package.json` for that build alone (`npm version
 --no-git-tag-version`, nothing committed: `main` keeps `0.0.0`), so that
 the bundle says the tag's version (`scripts/version.mjs` writes
 `src/rragent/version.cljs` from `package.json` before a build); it
-builds the bundle, publishes a GitHub release with `rragent.tar.gz` (the
-`dist/` folder: `rragent.js`, `public/` and `templates/`) and its
-checksum, and builds the Sprite image from that same `dist/` (below). A
-machine image built elsewhere downloads
-`releases/latest/download/rragent.tar.gz` instead of building the app,
-and a running agent takes the release by itself (Updates, below).
+builds the bundle and publishes a GitHub release with `rragent.tar.gz`
+(the `dist/` folder: `rragent.js`, `public/` and `templates/`) and its
+checksum. A machine downloads `releases/latest/download/rragent.tar.gz`
+at its first start instead of building the app (Deploy, below), and a
+running agent takes the release by itself (Updates, below). The Sprite
+image is not the release's: it changes only with its Dockerfile
+(Deploy, below); until Storrito provisions by that, the release tags
+the image with its version too.
 
 ## Updates
 
@@ -1071,7 +1073,7 @@ also say that there is nothing newer, or that the lookup failed. The click
 downloads `rragent.tar.gz` and its `.sha256` from the release into a
 temp folder next to `dist/`, verifies the checksum, unpacks into
 `dist.new`, swaps it for `dist/` and ends the process with exit code
-75; `deploy/start.sh` starts it again on that code, from the new
+75; `deploy/image/start.sh` starts it again on that code, from the new
 `dist/`, and the page reconnects as it does after any restart; every
 frame names the server's version beside the bot's path, and a tab whose
 bundle is older reloads itself once (`rragent.client/url-alias`), so
@@ -1094,24 +1096,38 @@ applied.
 ## Deploy
 
 An agent runs on a [Sprite](https://sprites.dev) made from an image of
-rragent. `deploy/` has what the Sprite needs around the bundle, and the
-release builds the image of it (`.github/actions/sprite-image`, run by
-the release workflow after the tarball is published) into the private
-package `ghcr.io/storrito/rragent-sprite`: `rragent-sprite:<x.y.z>`
-from `deploy/Dockerfile.full`, the bundle on the Sprites base image
-(`s2-default`, which brings Node through mise) with what the templates
-need, ffmpeg with the fonts, Google Chrome, the HyperFrames CLI and
-its skills (`hyperframes skills` installs the published set under
-`/home/sprite/.agents/skills`, which the template's notes have the
-agent read first).
-`latest` is the newest release of it, for a try by hand; a provisioner
-pins the version (below). `deploy/Dockerfile` is the same without the
-templates' programs, 1.3 GB smaller, for a build on a laptop (a render
-answers why there is no video there); no release publishes it.
+rragent, `ghcr.io/storrito/rragent-sprite:<sha>` in the private
+package, where `<sha>` is the git blob SHA of
+`deploy/image/Dockerfile`: the image is what the machine needs around
+the bundle, and only a change of that file is a new image. The Image
+workflow (`.github/workflows/image.yml`) builds it on a push to `main`
+that touches `deploy/image/`, unless the tag exists already
+(`.github/actions/sprite-image`); a changed `start.sh` alone changes no
+SHA, so the Dockerfile's `image: N` line is bumped with it. A
+provisioner asks GitHub for the SHA of `main`'s Dockerfile (`GET
+/repos/storrito/rragent/contents/deploy/image/Dockerfile?ref=main`, its
+`sha`) and makes the machine from that tag; Storrito's does
+(`app.agent.rragent-release`). Until then the release tags the same
+image with its version too (`rragent-sprite:<x.y.z>`, `latest` the
+newest), for a provisioner that pins the version; that step goes once
+none does.
 
-The image has the bundle in `/home/sprite/rragent/dist/`, with the
-shared prompt (`system-prompt.md`, `deploy/agent/SYSTEM-PROMPT.md`) and
-the manager's text beside it, and `start.sh`; `agent/` is empty, the
+The image is the Sprites base image (`s2-default`, which brings Node
+through mise) with what the templates need, ffmpeg with the fonts,
+Google Chrome, the HyperFrames CLI and its skills (`hyperframes skills`
+installs the published set under `/home/sprite/.agents/skills`, which
+the template's notes have the agent read first), nbb, the skills clone
+and `start.sh`; no bundle and no version. At the first start of a
+machine, when `/home/sprite/rragent/dist/rragent.js` is missing,
+`start.sh` downloads the newest release's `rragent.tar.gz` and its
+checksum (`releases/latest/download/…`, through GitHub's redirect, no
+API), or the release that `RRAGENT_UPDATE` in `.env` names (`v<x.y.z>`,
+or `trial-<name>` for a pre-release of a branch), verifies and unpacks
+it into `dist/`, and rragent swaps in newer releases from there
+(Updates, above). A download that fails ends the start with nothing in
+place; the service's restart tries again. The shared prompt
+(`system-prompt.md`, `deploy/agent/SYSTEM-PROMPT.md`) and the manager's
+text come with the bundle; `agent/` is empty, the
 first start makes the first bot in it (see [Bots](#bots)): every new
 machine starts as a new bot that offers the skills of
 `/home/sprite/skills` and takes the one the person picks, by naming it
@@ -1120,7 +1136,7 @@ skill fits; every further bot starts the same way. The skills folder is a
 clone of a GitHub repository in the Agent Skills format, one folder per
 skill with a `SKILL.md`, made when the image is built: the build
 arguments `SKILLS_REPO` (`storrito/agentitos`) and `SKILLS_BRANCH`
-(`main`) of both Dockerfiles, the inputs `skills-repo` and
+(`main`) of the Dockerfile, the inputs `skills-repo` and
 `skills-branch` of the action. `start.sh` pulls the clone before it
 starts rragent (20 seconds at most, a failure said on stderr and the
 clone from the image stands), so a machine that wakes offers the
@@ -1158,7 +1174,7 @@ writes into it is the contract between the two:
   (`rragent.youtube`); without it yt-dlp goes out directly, which
   YouTube refuses from a datacenter's address.
 
-The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<x.y.z>
+The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<sha>
 --image-auth <auth> --service http:8080
 --service-command http=/home/sprite/rragent/start.sh --service-restart
 http=always` with the label `token:<hex>` among its labels, the `.env`
@@ -1181,16 +1197,15 @@ workflow has it from the start).
 Sprites imports an image tag once per organization (two minutes, which
 the first sprite of it waits for) and never pulls it again: a sprite
 made later from the same tag gets the bytes of that first import,
-whatever the registry holds by then. So every build gets a tag of its
-own, which the version guarantees, and the workflows refuse a tag that
-exists instead of pushing over it. A branch gets to a sprite without a
-release through the Image workflow: "Run workflow" on the branch with a
-tag that names it and the commit, `codemode-96b18a8`, pushes
-`rragent-sprite:<tag>` from that checkout. Locally, `npm run build &&
-docker build -f deploy/Dockerfile.full -t rragent-sprite:dev .` builds
-the image, `-f deploy/Dockerfile` the one without the templates'
-programs, `--build-arg SKILLS_REPO=<owner/name>` with another skills
-repository.
+whatever the registry holds by then. So a tag is never pushed over: the
+Dockerfile's SHA names the content, and the workflows skip or refuse a
+tag that exists. A branch that changes the Dockerfile gets its image
+through the Image workflow, "Run workflow" on the branch, tagged with
+the branch's Dockerfile SHA; a branch that does not needs none, its
+bundle reaches a sprite as a release does, or pinned by
+`RRAGENT_UPDATE`. Locally, `docker build -f deploy/image/Dockerfile -t
+rragent-sprite:dev deploy/image` builds the image, `--build-arg
+SKILLS_REPO=<owner/name>` with another skills repository.
 
 ## License
 
