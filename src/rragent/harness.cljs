@@ -48,6 +48,7 @@
             [rragent.model-requests :as model-requests]
             [rragent.observations :as observations]
             [rragent.openrouter :as openrouter]
+            [rragent.parse-check :as parse-check]
             [rragent.reload :as reload]
             [rragent.runs :as runs]
             [rragent.compaction :as compaction]
@@ -341,7 +342,9 @@
    REPL `codemode`, the subagent tool in an extension of its own,
    which a subagent's agent leaves out, the redaction of the secrets
    of `home`, a binary file decoded as text left out of a result
-   (`rragent.binary`), the earlier tool results masked in every request
+   (`rragent.binary`), a Clojure file a write or an edit leaves read as
+   nbb reads it, a form that does not close said in the result
+   (`rragent.parse-check`), the earlier tool results masked in every request
    (`rragent.observations`), the summary of a compaction rragent starts
    read from the provider's cache (`rragent.warm-summary`), and
    `extensions` the caller brings."
@@ -353,6 +356,7 @@
                    (.install (redaction home))
                    (.install (costs/extension))
                    (.install binary/extension)
+                   (.install (parse-check/extension home))
                    (.install observations/extension)
                    (.install warm-summary/extension))]
     (doseq [e extensions]

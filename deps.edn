@@ -6,6 +6,9 @@
         nrepl/nrepl {:mvn/version "1.8.0"}
         ;; the interpreter behind the eval tool: Clojure in the live process
         org.babashka/sci {:mvn/version "0.15.59"}
+        ;; nbb's parser, SCI's too (the version SCI brings): a Clojure file a
+        ;; bot writes is read with it at once (rragent.parse-check)
+        borkdude/edamame {:mvn/version "1.6.44"}
         ;; the wire of the page in both directions: the frames the server
         ;; pushes and the commands the browser posts (rragent.rframes.transit)
         com.cognitect/transit-cljs {:mvn/version "0.8.280"}
