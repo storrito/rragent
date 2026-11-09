@@ -65,6 +65,7 @@
             [rragent.auth :as auth]
             [rragent.away :as away]
             [rragent.bots :as bots]
+            [rragent.cap :as cap]
             [rragent.codemode :as codemode]
             [rragent.composio-events :as composio-events]
             [rragent.composio-setup :as composio-setup]
@@ -227,7 +228,7 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes tab-views expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes tab-views expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names cap]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         advanced? (:advanced? (machine/current-structure))
@@ -260,6 +261,7 @@
                                  (not advanced?) (dissoc :runs))
                     :view (get tab-views (:tabid w) {:kind :all})
                     :topics (machine/topics)
+                    :cap cap
                     :phone (phone/status (:phone bot))
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
@@ -372,6 +374,10 @@
       (and (str/blank? text) (empty? attachments))
       (command/rejected w :empty-message)
 
+      ;; the month's budget is spent: nothing runs until the cap is raised
+      (and (not run) (cap/reached?))
+      (command/rejected w :cap-reached)
+
       :else
       (let [{text :text pasted :attachment} (uploads/keep-long-text! uploads text)
             attachments (cond-> attachments pasted (conj pasted))
@@ -446,6 +452,18 @@
       (await (machine/open-run! bot run)) (do (swap! db/db #(-> % (assoc-in [:tabs tab] (str bot)) (assoc-in [:tab-runs tab] run) (chat-in tab)))
                                               (command/accepted w))
       :else (command/rejected w :no-such-run))))
+
+(defn- ^:async cap-set-command
+  "The Budget section's field: the cap in dollars a month, `monthly`,
+   into the cap document (`rragent.cap/set-monthly!`); a number that
+   is none, or zero, takes the cap away."
+  [w]
+  (let [{:keys [monthly]} (command/command-data w)
+        n (js/parseFloat (str monthly))]
+    (if-let [harness (:harness (machine/agent))]
+      (do (await (cap/set-monthly! harness (when (and (not (js/isNaN n)) (pos? n)) n) harness/context))
+          (command/accepted w))
+      (command/rejected w :no-machine))))
 
 (defn- view-show-command
   "The tab `tab` shows the view `kind` of the loop's conversation,
@@ -1440,6 +1458,8 @@
       :command/fn #'send-command}
      {:command/kind :view/show
       :command/fn #'view-show-command}
+     {:command/kind :cap/set
+      :command/fn #'cap-set-command}
      {:command/kind :chat/stop
       :command/fn #'stop-command}
      {:command/kind :chat/compact

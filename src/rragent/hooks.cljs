@@ -13,6 +13,7 @@
             ["@earendil-works/pi-durable" :refer [defineDoc]]
             [clojure.string :as str]
             [rragent.reload :as reload]
+            [rragent.cap :as cap]
             [rragent.loop :as loop]
             [rragent.runs :as runs]))
 
@@ -155,7 +156,16 @@
   (let [conversation (or conversation root)
         hooks (await (.snapshot harness Hooks (.-id conversation) context))
         hook (some-> hooks (aget name))]
-    (if (and hook (= secret (.-secret hook)))
+    (cond
+      (not (and hook (= secret (.-secret hook))))
+      {:ok false}
+
+      ;; the month's budget is spent: the call is dropped, said
+      (cap/reached?)
+      (do (js/console.error "[cap]" (str "the hook " name " was called and dropped: the month's budget is spent"))
+          {:ok true :dropped true})
+
+      :else
       (let [kept (into {} (keep (fn [h] (when-let [v (get headers h)] [h v]))) kept-headers)
             topic (not-empty (str (.-topic hook)))
             content (cond-> (message name (.-purpose hook) kept body)
@@ -175,5 +185,4 @@
                 trigger (cond-> {:kind "hook" :name name}
                           line (assoc :line line))
                 run (await (runs/start! conversation {:trigger trigger :content content} context))]
-            {:ok true :run run})))
-      {:ok false})))
+            {:ok true :run run}))))))

@@ -23,6 +23,7 @@
             [rragent.home :as home]
             [rragent.hooks :as hooks]
             [rragent.reload :as reload]
+            [rragent.cap :as cap]
             [rragent.loop :as loop]
             [rragent.runs :as runs]))
 
@@ -196,7 +197,16 @@
                 bot (or (when trigger (owner (events-of bots) trigger))
                         (default-id))
                 conversation (:conversation (get bots bot))]
-            (if conversation
+            (cond
+              (nil? conversation)
+              {:status 200 :body (cond-> {:ok true} bot (assoc :bot bot))}
+
+              ;; the month's budget is spent: the event is dropped, said
+              (cap/reached?)
+              (do (js/console.error "[cap]" (str "the Composio event " id " was dropped: the month's budget is spent"))
+                  {:status 200 :body {:ok true :bot bot :dropped true}})
+
+              :else
               (do (await (reload/reload! conversation context))
                   (if (loop/loop? bot)
                     ;; the loop gets the event as an input (docs/one-loop.md §6)
@@ -214,5 +224,4 @@
                                                   {:trigger (trigger-of event body)
                                                    :content (message event body)}
                                                   context))]
-                      {:status 200 :body {:ok true :bot bot :run run}})))
-              {:status 200 :body (cond-> {:ok true} bot (assoc :bot bot))})))))))
+                      {:status 200 :body {:ok true :bot bot :run run}}))))))))))

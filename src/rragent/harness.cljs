@@ -50,6 +50,7 @@
             [rragent.openrouter :as openrouter]
             [rragent.reload :as reload]
             [rragent.runs :as runs]
+            [rragent.cap :as cap]
             [rragent.compaction :as compaction]
             [rragent.loop :as loop]
             [rragent.tasks :as tasks]
@@ -352,6 +353,7 @@
                    (.install subagent-tool/extension)
                    (.install (redaction home))
                    (.install (costs/extension))
+                   (.install (cap/extension))
                    (.install binary/extension)
                    (.install observations/extension)
                    (.install warm-summary/extension))]
@@ -455,6 +457,9 @@
         _ (reset! opened harness)
         _ (reset! tasks/harness harness)
         _ (reset! compaction/harness harness)
+        _ (reset! cap/harness harness)
+        _ (reset! cap/home home)
+        _ (await (cap/refresh! harness context))
         root (await (.root harness context))
         view (await (.viewState root context))
         agent {:harness harness :home home :models models :codemode codemode :provider (or provider "openrouter")}

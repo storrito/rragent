@@ -14,6 +14,7 @@
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [clojure.string :as str]
+            [rragent.cap :as cap]
             [rragent.runs :as runs]
             [rragent.tasks :as tasks]
             [rragent.tools.work :as work]))
@@ -85,6 +86,8 @@
         loop-id (await (work/bot-id api call-context))]
     (when (str/blank? text)
       (throw (js/Error. "task needs the text: everything the task must know")))
+    (when (cap/reached?)
+      (throw (js/Error. "The month's budget is spent: no task starts until the owner raises the cap in Settings → Budget. Tell the person.")))
     (let [id (or (await (made-by-call api loop-id call-context))
                  (await (.commit api
                                  (fn [tx]

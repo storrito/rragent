@@ -24,6 +24,7 @@
             [rragent.db :as db]
             [rragent.reload :as reload]
             [rragent.runs :as runs]
+            [rragent.cap :as cap]
             [rragent.loop :as loop]
             [rragent.wake :as wake]))
 
@@ -139,8 +140,14 @@
                                      #js {:status "running" :checkpoint #js {:phase "wait" :at next}}
                                      (terminal #js {:status "completed" :result nil})))]
                        (await (reload/reload-in-task! runtime (.-conversationId runtime) context))
-                       ;; the loop gets every fire as an input (docs/one-loop.md §6)
-                       (if (or (= "message" (.-mode entry)) (loop/loop? (.-conversationId runtime)))
+                       (cond
+                         ;; the month's budget is spent: the fire is dropped, said
+                         (cap/reached?)
+                         (do (js/console.error "[cap]" (str "the schedule " name " did not fire: the month's budget is spent"))
+                             (await (.commit runtime (fn [] (moved)) context)))
+
+                         ;; the loop gets every fire as an input (docs/one-loop.md §6)
+                         (or (= "message" (.-mode entry)) (loop/loop? (.-conversationId runtime)))
                          (let [conversation (await (.conversation runtime (.-conversationId runtime) context))
                                topic (not-empty (str (.-topic entry)))]
                            (await (.submit conversation
@@ -153,8 +160,10 @@
                                                                                              data)}}
                                            context))
                            (await (.commit runtime (fn [] (moved)) context)))
+
                          ;; the run's task and the schedule's next step in one commit:
                          ;; a crash in between makes neither twice
+                         :else
                          (await (.commit runtime
                                          (^:async fn [tx]
                                            (await (runs/create-in tx (.-conversationId runtime)

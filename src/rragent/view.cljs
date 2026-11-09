@@ -218,6 +218,7 @@
     "rragent.task-done" [(call-item id [:i18n :chat/task-done {:line (or (:line data) "")}] data model)]
     "rragent.task-input" [(call-item id [:i18n :chat/task-started] data model)]
     "rragent.compaction-notice" [(call-item id [:i18n :chat/compaction-notice] data model)]
+    "rragent.cap-notice" [(call-item id [:i18n :chat/cap-notice] data model)]
     "pi.assistant" (let [message (first model)]
                      (cons (assistant-item id message)
                            (tool-items message results slots)))
@@ -924,8 +925,31 @@
                  :ui/install [:i18n :mobile/install]
                  :ui/installed [:i18n :mobile/installed]}]])
 
+(defn budget-section
+  "The Budget section of the settings (docs/one-loop.md §8): what the
+   machine spent this month, the cap, and the field that sets it
+   (`:cap/set`); a word when the cap is reached."
+  [{:keys [spent monthly reached?]}]
+  [:section.budget
+   [:h2 [:i18n :budget/title]]
+   [:p [:i18n :budget/explain]]
+   [:p.spent [:i18n :budget/spent {:spent (.toFixed (or spent 0) 2)}]]
+   [:p.cap (if monthly
+             [:i18n :budget/cap {:monthly (.toFixed monthly 2)}]
+             [:i18n :budget/none])]
+   (when reached?
+     [:p.result.failed [:i18n :budget/reached]])
+   [:label.field
+    [:span [:i18n :budget/field]]
+    [:input.cap {:type "number"
+                 :min 0
+                 :step 1
+                 :value (str (or monthly 0))
+                 :on {:change [[:data/command {:command/kind :cap/set
+                                               :command/data {:monthly :event/target.value}}]]}}]]])
+
 (def settings-sections
-  [:updates :mobile :input :recording :mcp :advanced])
+  [:updates :budget :mobile :input :recording :mcp :advanced])
 
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
@@ -937,7 +961,7 @@
    `link` the page's secret link), the keys of the composer
    (`input-section`), the MCP servers (`mcp-section`, `mcp` its data)
    or the advanced switch (`advanced-section`, `advanced?` its state)."
-  [update section mcp advanced? link]
+  [update section mcp advanced? link & [cap]]
   (let [section (if (some #{section} settings-sections) section :updates)]
     (list
      [:header.bar
@@ -957,6 +981,7 @@
                                                     :command/data {:tab :ui/tabid :section k}}]]}}
           [:i18n (keyword "settings" (name k))]])]
       (case section
+        :budget (budget-section cap)
         :mobile (mobile-section link)
         :mcp (mcp-section mcp)
         :input (input-section)
@@ -1984,7 +2009,7 @@
    rows the tab shows; `:artifacts` the pane; `:update`, `:locale`,
    `:onboarding`, `:note`, `:failed`, `:phone`, `:settings?`,
    `:settings-section`, `:mcp`, `:link`, `:person` as before."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics] pane :artifacts}]
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics cap] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         loop? (boolean (some #(and (= id (:id %)) (:loop? %)) bots))
@@ -2021,7 +2046,7 @@
      (if settings?
        ;; keyed apart from the chat: the two share no element
        [:div.main.settings-open {:replicant/key "settings"}
-        (settings update settings-section mcp advanced? link)]
+        (settings update settings-section mcp advanced? link cap)]
        ;; keyed by the bot, the view and the run when one is shown: a
        ;; switch builds the chat anew, two transcripts share no element
        [:div.main {:replicant/key (cond
@@ -2047,6 +2072,8 @@
             [:div.banner.note note])
           (when failed
             [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
+          (when (and loop? (:reached? cap))
+            [:div.banner.failed.cap [:i18n :budget/reached]])
           (when run
             (run-head id (:name bot) run))
           (feed shown-items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (cond run [:i18n :run/empty] (not= :all (:kind view)) [:i18n :views/empty])})
