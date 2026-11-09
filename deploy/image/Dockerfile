@@ -1,14 +1,15 @@
 # rragent on a Sprite (sprites.dev, 2.0): what the machine needs around
-# the bundle, without the bundle. The image is tagged with this file's
-# git blob SHA, ghcr.io/storrito/rragent-sprite:<sha>
-# (.github/workflows/image.yml), and that is the convention a
-# provisioner makes a machine by: Storrito asks GitHub for the SHA of
-# main's Dockerfile and makes the machine from that tag. So a change of
-# this file is a new image, and nothing else is: a changed start.sh
-# (copied below), or a fresh skills clone wanted on new machines, needs
-# this line bumped with it:
-#
-#   image: 1
+# the bundle, without the bundle. The image has a version of its own,
+# the label org.opencontainers.image.version below, and is pushed as
+# ghcr.io/storrito/rragent-sprite:<version> (.github/workflows/image.yml,
+# on a push to main that touches deploy/image/). That is the convention
+# a provisioner makes a machine by: Storrito lists the package's tags and
+# takes the highest version. So every change in deploy/image/, this
+# file's or start.sh's, bumps the version with it; the workflow refuses
+# to build a version that exists, so a forgotten bump fails loudly
+# instead of shipping nothing. A branch's build (the Trial workflow, or
+# the Image workflow run by hand) is <version>-trial.<sha>, a pre-release
+# version the provisioner passes over.
 #
 # The bundle (dist/: rragent.js, public/ and templates/) is not in the
 # image: start.sh downloads the newest release's rragent.tar.gz at the
@@ -32,6 +33,10 @@
 #   docker build -f deploy/image/Dockerfile -t rragent-sprite:dev deploy/image
 # with --build-arg SKILLS_REPO=<owner/name> for another skills repository.
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
+
+# the image's version: bump it with every change in deploy/image/
+LABEL org.opencontainers.image.version="1.0.0"
+LABEL org.opencontainers.image.source="https://github.com/storrito/rragent"
 
 ARG HYPERFRAMES_VERSION=0.8.221
 ARG NBB_VERSION=1.6.214

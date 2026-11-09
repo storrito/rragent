@@ -12,9 +12,9 @@ name: Release
 # releases/latest/download/rragent.tar.gz, which deploy/image/start.sh
 # takes at a machine's first start and a running agent takes by itself
 # (rragent.update). The Sprite image is the Image workflow's
-# (image.yml: ghcr.io/storrito/rragent-sprite:<sha> of
-# deploy/image/Dockerfile, built when that file changes, no bundle in
-# it). Until Storrito provisions by the Dockerfile's SHA, the release
+# (image.yml: ghcr.io/storrito/rragent-sprite:<version>, the version
+# the Dockerfile's label names, built when it is bumped, no bundle in
+# it). Until Storrito provisions by that version, the release
 # builds the same image under its version too, <version> and latest,
 # before it publishes the release, so that a release that exists has
 # its image; that step goes then.
@@ -72,8 +72,8 @@ jobs:
       - run: npm test
       - run: npm run release
       # The image before the release: a release that exists has its image.
-      # For a provisioner that pins the version; goes once Storrito
-      # provisions by the Dockerfile's SHA (image.yml).
+      # For a provisioner that pins the release's version; goes once
+      # Storrito takes the image's own version (image.yml).
       - name: The Sprite image
         uses: ./.github/actions/sprite-image
         with:

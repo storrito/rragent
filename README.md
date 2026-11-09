@@ -1057,9 +1057,9 @@ builds the bundle and publishes a GitHub release with `rragent.tar.gz`
 checksum. A machine downloads `releases/latest/download/rragent.tar.gz`
 at its first start instead of building the app (Deploy, below), and a
 running agent takes the release by itself (Updates, below). The Sprite
-image is not the release's: it changes only with its Dockerfile
-(Deploy, below); until Storrito provisions by that, the release tags
-the image with its version too.
+image is not the release's: it has a version of its own, bumped with
+its Dockerfile (Deploy, below); until Storrito provisions by that, the
+release tags the image with the release's version too.
 
 ## Updates
 
@@ -1096,21 +1096,22 @@ applied.
 ## Deploy
 
 An agent runs on a [Sprite](https://sprites.dev) made from an image of
-rragent, `ghcr.io/storrito/rragent-sprite:<sha>` in the private
-package, where `<sha>` is the git blob SHA of
-`deploy/image/Dockerfile`: the image is what the machine needs around
-the bundle, and only a change of that file is a new image. The Image
-workflow (`.github/workflows/image.yml`) builds it on a push to `main`
-that touches `deploy/image/`, unless the tag exists already
-(`.github/actions/sprite-image`); a changed `start.sh` alone changes no
-SHA, so the Dockerfile's `image: N` line is bumped with it. A
-provisioner asks GitHub for the SHA of `main`'s Dockerfile (`GET
-/repos/storrito/rragent/contents/deploy/image/Dockerfile?ref=main`, its
-`sha`) and makes the machine from that tag; Storrito's does
-(`app.agent.rragent-release`). Until then the release tags the same
-image with its version too (`rragent-sprite:<x.y.z>`, `latest` the
-newest), for a provisioner that pins the version; that step goes once
-none does.
+rragent, `ghcr.io/storrito/rragent-sprite:<version>`, a public
+package, where `<version>` is the image's own version, the
+Dockerfile's label `org.opencontainers.image.version`: the image is
+what the machine needs around the bundle, and it changes only when
+that version is bumped, which every change in `deploy/image/` does.
+The Image workflow (`.github/workflows/image.yml`) builds it on a push
+to `main` that touches `deploy/image/` and refuses a version that
+exists already (`.github/actions/sprite-image`), so a change without a
+bump fails loudly. A provisioner lists the package's tags
+(`ghcr.io/v2/storrito/rragent-sprite/tags/list`, with the anonymous
+pull token of a public package) and makes the machine from the highest
+`x.y.z`; Storrito's does (`app.agent.rragent-release`). The releases'
+own tags (`rragent-sprite:0.1.x`, `latest`), which the release
+workflow still pushes until nothing provisions by them, sort below
+the image's `1.x` versions, and a trial's `<version>-trial.<sha>` is
+no `x.y.z`: both are passed over.
 
 The image is the Sprites base image (`s2-default`, which brings Node
 through mise) with what the templates need, ffmpeg with the fonts,
@@ -1174,20 +1175,15 @@ writes into it is the contract between the two:
   (`rragent.youtube`); without it yt-dlp goes out directly, which
   YouTube refuses from a datacenter's address.
 
-The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<sha>
---image-auth <auth> --service http:8080
+The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<version>
+--service http:8080
 --service-command http=/home/sprite/rragent/start.sh --service-restart
 http=always` with the label `token:<hex>` among its labels, the `.env`
 written by an exec, then `sprite update <name> --public`; the page's
 link is `<url>?token=<hex>`.
 
-The package is private, so a pull needs `<auth>`, which Sprites takes
-as `image_auth` at the create only and never stores: the base64 of
-`user:token`, the token a classic personal access token with
-`read:packages` of a user who reads the organization's packages
-(`printf '%s:%s' "$USER" "$TOKEN" | base64 -w0`). Storrito's
-provisioner holds the two as `AGENT_IMAGE_PULL_USER` and
-`AGENT_IMAGE_PULL_TOKEN` and makes the value the same way.
+The package is public: a sprite pulls it without credentials, and a
+provisioner lists its tags with the registry's anonymous pull token.
 
 The workflows push with the job's `GITHUB_TOKEN`, which reaches a
 package only when the package's settings grant the repository's actions
@@ -1197,15 +1193,16 @@ workflow has it from the start).
 Sprites imports an image tag once per organization (two minutes, which
 the first sprite of it waits for) and never pulls it again: a sprite
 made later from the same tag gets the bytes of that first import,
-whatever the registry holds by then. So a tag is never pushed over: the
-Dockerfile's SHA names the content, and the workflows skip or refuse a
-tag that exists. A branch that changes the Dockerfile gets its image
-through the Image workflow, "Run workflow" on the branch, tagged with
-the branch's Dockerfile SHA; a branch that does not needs none, its
-bundle reaches a sprite as a release does, or pinned by
-`RRAGENT_UPDATE`. Locally, `docker build -f deploy/image/Dockerfile -t
-rragent-sprite:dev deploy/image` builds the image, `--build-arg
-SKILLS_REPO=<owner/name>` with another skills repository.
+whatever the registry holds by then. So a tag is never pushed over: a
+version is bumped, never rebuilt, and the workflows refuse or skip a
+tag that exists. A branch that changes `deploy/image/` gets its image
+through the Image workflow, "Run workflow" on the branch, tagged
+`<version>-trial.<sha>`, which no provisioner takes; a branch that does
+not needs none, its bundle reaches a sprite as a release does, or
+pinned by `RRAGENT_UPDATE`. Locally, `docker build -f
+deploy/image/Dockerfile -t rragent-sprite:dev deploy/image` builds the
+image, `--build-arg SKILLS_REPO=<owner/name>` with another skills
+repository.
 
 ## License
 

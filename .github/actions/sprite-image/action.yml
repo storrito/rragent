@@ -4,13 +4,14 @@ description: >-
   the templates need, start.sh, and a clone of the skills repository the
   generic agent offers, the SKILLS_REPO and SKILLS_BRANCH build
   arguments) and pushes it to the private package
-  ghcr.io/storrito/rragent-sprite as <tag>. The image holds no bundle:
-  start.sh downloads the release at a machine's first start. Sprites
-  imports an image tag once per organization and never pulls it again,
-  so a tag that exists is never pushed over: refused (the release's
-  version tag), or skipped with when-there: skip (the Image workflow's
-  tag, the Dockerfile's blob SHA, which exists whenever the file did not
-  change).
+  ghcr.io/storrito/rragent-sprite as <tag>: the Dockerfile's own version
+  (its label org.opencontainers.image.version) on main, <version>-trial.<sha>
+  for a branch. The image holds no bundle: start.sh downloads the release
+  at a machine's first start. Sprites imports an image tag once per
+  organization and never pulls it again, so a tag that exists is never
+  pushed over: refused (a version on main that was not bumped, the
+  release's version tag), or skipped with when-there: skip (a trial
+  built again on the same commit).
 
 inputs:
   tag:
