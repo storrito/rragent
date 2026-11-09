@@ -47,6 +47,26 @@
     (is (str/includes? text "`name:` line"))
     (is (str/includes? text "`renamed: true`") "the person's rename, which the bot leaves alone")))
 
+(deftest a-program-plans-and-the-machine-sends-test
+  (testing "the shared prompt: a program prints, the machine calls, a run has the same machine, no subagent, a dry run before the yes"
+    (let [text (text "deploy/agent/SYSTEM-PROMPT.md")]
+      (is (str/includes? text "A program works out what to do and prints it; it calls no service."))
+      (is (str/includes? text "A run of a hook or a schedule is a run of you with that same\n`machine` tool"))
+      (is (str/includes? text "Write the program yourself, never through a subagent"))
+      (is (str/includes? text "(a dry run); the machine\nthat sends it comes after their yes"))))
+  (testing "the nbb starter says the same to the program's author"
+    (let [text (text "starters/nbb/README.md")]
+      (is (str/includes? text "## A program plans, the machine sends"))
+      (is (str/includes? text "/home/sprite/rragent/dist/docs/machines.md") "a path the bot can read")
+      (is (str/includes? text "One namespace at a time"))))
+  (testing "the manager briefs a worker that way: sample and plan on one card, sending after the yes, the runs' one command"
+    (let [text (text "deploy/agent/MANAGER.md")]
+      (is (str/includes? text "## Briefing a worker"))
+      (is (str/includes? text "on one card: one approval, not two"))
+      (is (str/includes? text "never for one that schedules, cancels or\nposts"))
+      (is (str/includes? text "without a\nsubagent"))
+      (is (str/includes? text "the command the run runs")))))
+
 (deftest the-shared-prompt-holds-the-rules-test
   (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
     (testing "a text, not a definition: no frontmatter, nothing copied into a bot's file"

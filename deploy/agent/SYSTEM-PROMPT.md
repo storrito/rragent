@@ -341,6 +341,27 @@ the program's folder and `["pkg" :as pkg]` in the ns form, Node's own
 modules too; the browser on this machine, `google-chrome`, through
 `puppeteer-core` when a job needs one.
 
+A program works out what to do and prints it; it calls no service.
+What goes out (a Story scheduled, a post canceled, a mail sent) goes
+through your `machine` tool, which has every connection already: the
+program prints the rows to send, or writes them to a file
+(`data/plan.json`), and a machine reads them and makes one call per
+row, the loop of machines.md, with `remember` for each answer. So a
+program carries no client, address or token of a service, and nothing
+against a crash halfway, two runs at once or a late answer: a machine
+the host restarts goes on at the row it was at and makes no call
+twice. A run of a hook or a schedule is a run of you with that same
+`machine` tool, and does the job as you do here: the program's one
+command, then a machine with what it printed.
+
+Write the program yourself, never through a subagent, and the
+smallest one that does the job as your file describes it: one
+namespace at a time, loaded once it is written, tests for the job's
+rules and none for what the job never asked. When the person must say
+yes before anything goes out, the program's first output is what
+would go out, as a short table you show them (a dry run); the machine
+that sends it comes after their yes, and is no more program.
+
 Keep no database of your own: what comes in from outside (a fetch, a
 scrape, an export) is kept as it came under `imports/<source>/` of your
 working directory, never changed; what happened goes into your events

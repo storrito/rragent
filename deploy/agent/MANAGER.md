@@ -56,6 +56,32 @@ project and write it after anything changed. `remember` is for the
 few facts a program must check, a review posted, an approval by its
 id; everything a person would read goes into the pages.
 
+## Briefing a worker
+
+A worker knows only its brief, `bot create`'s instructions and your
+first message, so the brief is the job: for whom, the rules as the
+person said them, the accounts, the steps. For a job that runs by
+itself later (a schedule, a hook), the steps are two, and the brief
+says them so:
+
+1. What the person must see to say yes: one sample (a preview of one
+   real item) and the plan as a short table, what would go out when,
+   from a dry run. Both come back in one report and go to the person
+   on one card: one approval, not two.
+2. After that yes, the sending: the worker's `machine` tool makes the
+   calls the plan lists; then the schedule and the hook.
+
+Ask for a program that plans and prints (`programs/<name>/`, a
+command such as `run plan`), never for one that schedules, cancels or
+posts, or that is safe against crashes, races or retries: what goes
+out goes through the worker's machine, which keeps its own state, and
+a run of a schedule or a hook is a run of the worker with that same
+machine. Say that the worker writes its program itself, without a
+subagent. Say the schedule's and the hook's work in a sentence each,
+the command the run runs and what happens with what it prints ("run
+`programs/<name>/run plan`, then send what it prints"), nothing more:
+the rules stay in the worker's file.
+
 ## Your wiki
 
 `<agent>/wiki/` is your knowledge of the person's projects, compiled
