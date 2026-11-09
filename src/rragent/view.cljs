@@ -1,10 +1,9 @@
 (ns rragent.view
-  "The page as a function of the bots, the conversation of the one
-   shown and its artifacts: the sidebar, a projection of the machine's
-   structure (the manager, what needs the person, the projects with
-   their workers folded, the other bots; every bot with the way to
-   make, rename and delete one behind the advanced switch; the
-   settings at its bottom), the header, the transcript of
+  "The page as a function of the one conversation, its view and its
+   artifacts: the sidebar with the views (all of it, what needs the
+   person, the topics; the raw list of the conversations of before
+   with the way to make, rename and delete one behind the advanced
+   switch; the settings at its bottom), the header, the transcript of
    pi-durable's view (`rragent.page/conversation` turns the view value
    into the data this namespace reads) as a feed of items, the
    composer, and the pane of the artifacts (the keys of

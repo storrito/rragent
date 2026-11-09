@@ -1,9 +1,10 @@
 # rragent
 
-Durable agents, called bots, on one machine. A sidebar with the bots, a
-Replicant chat of the one picked, the live artifacts on the right,
-pi-durable underneath, written in ClojureScript and compiled by
-Clojurific for Node.js. "rr" is Replicant and REPL.
+One durable conversation per machine, with tasks that work for it and
+topics that show it in slices. A sidebar with the views, a Replicant
+chat, the live artifacts on the right, pi-durable underneath, written
+in ClojureScript and compiled by Clojurific for Node.js. "rr" is
+Replicant and REPL. The design: [docs/one-loop.md](docs/one-loop.md).
 
 ## The idea
 
@@ -39,11 +40,12 @@ and ends with one line for the bot's activity (`rragent.runs`, see
 it made goes behind a public link when the person wants to show it to
 someone (`rragent.shares`, see [docs/shares.md](docs/shares.md)). What
 the answers cost is what OpenRouter charged for them, read off every
-answer's stream (`rragent.costs`, see [docs/costs.md](docs/costs.md)). A long job
-it can hand to a subagent (`rragent.tools.subagent`): a conversation owned
-by the tool call, with the agent's model, tools and instructions, whose
-answer alone enters the transcript. It ends with the call, so it is a
-helper of the agent, not a second one.
+answer's stream (`rragent.costs`, see [docs/costs.md](docs/costs.md)),
+and a cap a month holds it (`rragent.cap`). The work that produces
+much it hands to a task (`rragent.tasks`, the `task` tool): a
+conversation of its own with a task's text and tools, whose result
+alone comes back, as the tool's answer when the loop waited for it,
+else as a message into the loop when it is done.
 
 ## Status
 
@@ -54,6 +56,37 @@ is the REPL with the connectors of the Sprite's gateway as functions
 [Connectors and the REPL](#connectors-and-the-repl)). The artifacts pane
 shows what the agent makes, runs the projects of the templates (a
 HyperFrames composition) and renders their videos.
+
+## The one conversation
+
+The person talks to one conversation per machine, the loop
+([docs/one-loop.md](docs/one-loop.md)): the former manager's
+conversation, configured at every read from the bundle's
+`deploy/agent/LOOP.md` after the shared prompt and before the wiki's
+`preferences.md`, on the strongest model, with the tools of talk and
+judgment (`rragent.roles`: the files, `machine`, schedules, hooks,
+skills, shares, `task`, `topic`, and `bot` to read the chats of
+before). It hands the work to tasks (`rragent.tasks`): a `task` call
+makes a background task of the loop's conversation that runs a
+conversation of its own with `deploy/agent/TASK.md`, a task's tools
+and the loop's `work/`, and delivers the result into the loop as an
+input (`rragent.task-done`) that wakes it; with `wait: true` the call
+takes the result itself, up to a minute, the `rragent.tasks` document
+making sure nothing arrives twice. Topics (`rragent.tools.topic`) are
+the person's matters, in the structure document; every turn carries
+the topics of its input (a message from a topic's view, a trigger's
+job, a task) and the ones the `topic` tool names in it, and the page
+shows the conversation through views (below). A schedule's fire, a
+hook's call and a Composio event of the loop are inputs into it, never
+runs (`rragent.loop` tells the namespaces the machine requires which
+conversation is the loop). Before the loop's context is compacted it
+writes its wiki (`rragent.compaction`, below). A machine of before,
+with a manager and workers, is adopted once at the first open of this
+version (`rragent.migration`): every worker somebody talked to becomes
+a topic and is archived, its artifacts move under the loop's
+`artifacts/<topic>/`, its schedules and hooks become the loop's, the
+home is copied to `<home>.bak-<version>` first, and a handover turn has
+the loop write the topics' pages.
 
 ## Bots
 
@@ -91,14 +124,9 @@ is armed for the earliest due schedule across all bots
 (`rragent.schedule/rearm!`), and a wake starts the runs of whichever
 bot's schedules are due, one run at a time on the machine; a hook or
 a schedule of the mode `message` reaches the bot's own chat instead.
-A bot messages another through its `bot` tool (`message`): a
-background task of the sender's conversation (`rragent.messages`,
-kind `rragent.message`) puts the text into the other bot's chat as an
-input it answers, an entry that names the sender, waits for the answer
-and brings it back into the sender's chat the same way, as a message
-from the other bot; both submissions carry the task's id as their
-request id, so a restart sends nothing twice. The page shows such a
-message with the bot's name in place of "You".
+No bot messages another any more: the loop hands work to tasks (The
+one conversation, above); a message of before (`rragent.messages`)
+still settles when the storage holds one.
 The schedules and hooks are documents of each
 conversation, the events a file of its folder, `bots/<id>/events.edn`,
 one EDN map per line (`rragent.events`). A hook's address is the
@@ -106,11 +134,17 @@ machine's, `POST /hook/<name>/<secret>`: the call is tried on every
 bot, the secret says whose it is. Nothing of this reaches Storrito:
 the machine's page, token and environment stay what they were.
 
-A conversation keeps at most `RRAGENT_CONTEXT_TOKENS` (200,000) tokens
-of context, whatever its model's window: once an answer read more,
-cached or not, the conversation is compacted while it goes on, its
-summary placed at the next boundary (`rragent.harness/context-budget`,
-a hook after every model answer, one compaction at a time).
+A conversation keeps at most its budget of context: 70 percent of its
+model's window, or `RRAGENT_CONTEXT_TOKENS` when set
+(`rragent.harness/budget-for`). Once an answer read more, cached or
+not, the conversation is compacted while it goes on, its summary
+placed at the next boundary (`rragent.harness/context-budget`, a hook
+after every model answer, one compaction at a time). The loop writes
+first: its compaction is a task (`rragent.compaction`) that submits
+one input, "compaction coming, write what must survive into the wiki,
+then say ready", waits for the turn and then compacts, the summary
+asked to point at the wiki's pages; the same for the compaction while
+the person is away and the button in the context ring.
 pi-durable's own threshold compacts only near the model's window, 16K
 below it, the same settings for every model; the window itself stays
 the model's, so the room pi-ai leaves for an answer, and for the
@@ -179,8 +213,10 @@ file is and how to get at it with the commands of the machine's PATH
 (`pdftotext`, `ffprobe`, `unzip`), or that a tool is missing
 (`rragent.binary`).
 
-A bot is made by one click on "New bot" in the sidebar, which asks
-for nothing: the bot starts with a file of the frontmatter alone
+The bots of before are reached behind the settings' advanced switch:
+the raw list of every conversation of the machine, with "New bot" and
+the row menus, for the people behind this machine. A bot made there
+starts with a file of the frontmatter alone
 (`rragent.bots/definition-text`: the generic name, the default model,
 no job), its page opens, and the shared prompt, which it reads like
 every bot (`deploy/agent/SYSTEM-PROMPT.md`, bundled as
@@ -200,16 +236,11 @@ composer sets `metadata.model` and `metadata.thinking` the same way
 thinking levels are `rragent.models`, a file that names no level
 means `high` (`rragent.definition/default-thinking`), and the menu
 says what a model costs beside the default, from the catalog's
-prices. A bot makes a bot
-through its `bot` tool, which knows both: `create` with a name, the
-instructions, and the name of a skill from the clone when the job is
-one of them (the instructions are the file's `## Your job`, the skill
-its `skill:` line; the tool makes the conversation in its own commit),
-and `list`. The first bot of a new machine is a new bot too. A
-deleted bot is hidden, not removed: its conversation stays in the
-storage, its folder goes to `trash/<id>/`, the sidebar leaves it out;
-the last visible bot stays. There is no message between bots in this
-version: the person talks to each on its page.
+prices. The loop's `bot` tool lists the bots of before, reads one's
+chat (`transcript`), archives and deletes; it makes none. A deleted
+bot is hidden, not removed: its conversation stays in the storage,
+its folder goes to `trash/<id>/`, the list leaves it out; the last
+visible bot and the loop stay.
 
 A machine from before the bots ran one agent at the top of the home,
 `AGENT.md` (or a skill's `SKILL.md`) and `work/` beside
@@ -227,24 +258,29 @@ the reason (`rragent.bots/migrate!`).
 
 ## The page
 
-`rragent serve` opens the bots of `RRAGENT_HOME` (`./agent`) and serves
-their page on `PORT` (8080). The sidebar on the left lists the bots with
-their name (or "New bot" and the time it was made, while a bot has
-none of its own yet) and state (running, idle, asleep until a scheduled
-run, failed to open), "New bot", one click, and behind the three dots
-of a row a rename (a field in the row) and a delete, which asks once
-in the row before the bot's folder goes to the trash; the last bot of a
-machine stays.
-The bot is in the URL, `/bot/<id>`, the id of its conversation, the way
-pchat does it with its chats: a click in the sidebar changes the URL
-without a reload and tells the server which bot this tab shows, the
-root `/` redirects to the bot last used, and a tab whose bot is gone
-shows another with a note. The header shows the
-bot's name and model. Settings, at the bottom of the sidebar, opens in
-place of the chat for this tab: one section, Updates, where a newer
-rragent is looked for right away (Updates, below); the version in the
-header opens it too, and a bot picked in the sidebar brings the chat
-back. The rest of the page is the bot's: its
+`rragent serve` opens the conversations of `RRAGENT_HOME` (`./agent`)
+and serves their page on `PORT` (8080). The sidebar on the left shows
+the views of the loop's conversation: All, Needs you (the open cards,
+answers of the loop that ask the person something and got no answer
+yet, their count the badge), and the topics, each a view of the turns
+tagged with it, with the count of its open cards, in the order of
+their last activity, the archived ones folded; a click shows the view
+in this tab (`:view/show`, the tab's, not the URL's), the composer
+says which topic it is in and sends it with the message, and a card's
+button sends it too. Behind the settings' advanced switch the raw list
+of every conversation, with "New bot" and, behind the three dots of a
+row, a rename and a delete, which asks once in the row; the activity
+of the pane, the runs of before and the loop's tasks, with a task's
+transcript on its own page, is the switch's too.
+The conversation is in the URL, `/bot/<id>`, the id of its
+conversation, the way pchat does it with its chats; the root `/`
+redirects to the loop, and a tab whose conversation is gone shows
+another with a note. The header shows the name and the model.
+Settings, at the bottom of the sidebar, opens in place of the chat
+for this tab, its sections Updates, Budget, On the phone, Input,
+Recording, MCP servers and Advanced (Updates and Deploy, below); the
+version in the header opens it too, and a view picked in the sidebar
+brings the chat back. The rest of the page is the bot's: its
 conversation as a chat, user messages, the
 agent's answers rendered from their markdown (`rragent.markdown`:
 markdown-it's tokens walked into hiccup, so a tag the model writes is
@@ -1146,9 +1182,10 @@ or `trial-<name>` for a pre-release of a branch), verifies and unpacks
 it into `dist/`, and rragent swaps in newer releases from there
 (Updates, above). A download that fails ends the start with nothing in
 place; the service's restart tries again. The shared prompt
-(`system-prompt.md`, `deploy/agent/SYSTEM-PROMPT.md`) and the manager's
-text come with the bundle; `agent/` is empty, the
-first start makes the first bot in it (see [Bots](#bots)): every new
+(`system-prompt.md`, `deploy/agent/SYSTEM-PROMPT.md`), the loop's
+text (`loop.md`) and a task's (`task.md`) come with the bundle;
+`agent/` is empty, the first start makes the first bot and the loop in
+it (see [The one conversation](#the-one-conversation)): every new
 machine starts as a new bot that offers the skills of
 `/home/sprite/skills` and takes the one the person picks, by naming it
 in its `AGENT.md`, or works from the job the person describes when no
