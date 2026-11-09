@@ -31,7 +31,8 @@
               :body "## What's Changed\n* Subagents by @max in https://github.com/storrito/rragent/pull/34\n* Dictation\n"
               :assets [{:name "rragent.tar.gz" :browser_download_url "https://github.com/storrito/rragent/releases/download/v0.1.3/rragent.tar.gz"}
                        {:name "rragent.tar.gz.sha256" :browser_download_url "https://github.com/storrito/rragent/releases/download/v0.1.3/rragent.tar.gz.sha256"}]}]
-    (is (= {:version "0.1.3"
+    (is (= {:tag "v0.1.3"
+            :version "0.1.3"
             :tarball-url "https://github.com/storrito/rragent/releases/download/v0.1.3/rragent.tar.gz"
             :sha256-url "https://github.com/storrito/rragent/releases/download/v0.1.3/rragent.tar.gz.sha256"
             :notes "Subagents by @max in https://github.com/storrito/rragent/pull/34"}
@@ -168,6 +169,7 @@
                    (is (= :found (await (update/check! handle))))
                    (is (= {:current "0.1.2"
                            :auto? false
+                           :tag "v0.1.3"
                            :version "0.1.3"
                            :notes "rragent 0.1.3 by @max"
                            :tarball-url (str base "/download/rragent.tar.gz")
@@ -247,7 +249,7 @@
                  (is (= "// rragent 0.1.3\n" (bundle-of install)) "the new bundle is dist/")
                  (is (= "new" (fs/readFileSync (path/join install "dist" "templates" "hyperframes" "TEMPLATE.md") "utf8")))
                  (is (not (fs/existsSync (path/join install "dist" "public" "app.css"))) "nothing of the old dist/ remains")
-                 (is (= ["dist"] (vec (fs/readdirSync install))) "no dist.old, no dist.new, no temp folder")
+                 (is (= ["dist" "release"] (vec (fs/readdirSync install))) "no dist.old, no dist.new, no temp folder; the marker names the release in place")
                  (is (= :applying (get-in @db [:update :state])))
                  (is (= [[:get "/download/rragent.tar.gz" false] [:get "/download/rragent.tar.gz.sha256" false]]
                         (rest @requests))))

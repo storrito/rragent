@@ -645,12 +645,14 @@
    and what the lookup found: the newer release with the Update
    button, what the update is doing or why it did not work, the newest
    already, or that the lookup failed."
-  [{:keys [current version notes state error auto? checked checking?]}]
+  [{:keys [current version notes state error auto? pin checked checking?]}]
   [:section.updates
    [:h2 [:i18n :updates/title]]
    (when current
      [:p.explain [:i18n :updates/current {:version current}]])
-   [:p [:i18n :updates/explain]]
+   (if pin
+     [:p.explain.pinned [:i18n :updates/pinned {:pin pin}]]
+     [:p [:i18n :updates/explain]])
    [:p
     [:button.link.check {:on {:click [[:data/command {:command/kind :update/check}]]}
                          :disabled (boolean checking?)}

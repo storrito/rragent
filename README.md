@@ -1061,6 +1061,17 @@ image is not the release's: it has a version of its own, bumped with
 its Dockerfile (Deploy, below); until Storrito provisions by that, the
 release tags the image with the release's version too.
 
+A branch gets to a sprite without a release through the Trial workflow
+(`.github/workflows/trial.yml`): "Run workflow" on the branch builds
+its bundle (which says `0.0.0-trial.<sha>`) and publishes a GitHub
+pre-release `trial-<branch>-<sha>` with `rragent.tar.gz` and its
+checksum, and the branch's image as `<version>-trial.<sha>` unless it is there
+(Deploy, below). A pre-release is invisible to `releases/latest`,
+so no machine takes it by itself; a sprite takes it with
+`RRAGENT_UPDATE=trial-<branch>-<sha>` in its `.env` (Updates, below), a
+forked sprite with a restart, a new one at its first start. The trial
+tags accrue in the repository and are deleted by hand.
+
 ## Updates
 
 A running rragent looks the newest release up at start, every hour and
@@ -1084,6 +1095,14 @@ and the banner says why. Nothing is applied while a run goes. With
 itself once the agent is idle the way the sleep watch sees it (no run,
 no render, no page connected), so an agent nobody opens profits too;
 the banner says so. `RRAGENT_UPDATE=off` switches the lookup off.
+`RRAGENT_UPDATE=<tag>`, a release's tag (`v0.1.55`, or
+`trial-<branch>-<sha>`, Releases above), pins the machine to that
+release: it is looked up instead of the newest (`releases/tags/<tag>`)
+and taken once the agent is idle, whatever its version, a rollback or a
+branch's trial; then nothing else is taken until the line in `.env`
+changes, and the settings say so. What is in place is known by the
+marker file `release` beside `dist/`, the tag of the release that made
+it, written after a swap and by `start.sh` after its download.
 
 The `dist/` replaced is the one the running bundle lies in, the parent
 of its own folder (`/home/sprite/rragent/dist`), never the working

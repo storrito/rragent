@@ -233,9 +233,11 @@
         (release! (path/join releases "download/trial-loop-1a2b3c4") {"rragent.js" "console.log('trial')"})
         (let [{:keys [status err]} (run (str "RRAGENT_RELEASES=file://" releases " RRAGENT_UPDATE=trial-loop-1a2b3c4"))]
           (is (= 0 status) err)
-          (is (= "console.log('trial')" (text (path/join install "dist/rragent.js"))))))
+          (is (= "console.log('trial')" (text (path/join install "dist/rragent.js"))))
+          (is (= "trial-loop-1a2b3c4\n" (text (path/join install "release"))) "the marker names the release in place, for rragent.update")))
       (testing "a checksum that does not match: nothing in place, said, 1"
         (fs/rmSync (path/join install "dist") #js {:recursive true :force true})
+        (fs/rmSync (path/join install "release") #js {:force true})
         (fs/rmSync releases #js {:recursive true :force true})
         (release! (path/join releases "latest/download") {"rragent.js" "console.log('tampered')"} :broken? true)
         (let [{:keys [status out err]} (run (str "RRAGENT_RELEASES=file://" releases " RRAGENT_UPDATE=auto"))]
@@ -253,6 +255,15 @@
       (finally
         (fs/rmSync dir #js {:recursive true :force true})))))
 
+(deftest the-trial-workflow-publishes-a-pre-release-test
+  (let [workflow (text ".github/workflows/trial.yml")]
+    (is (str/includes? workflow "workflow_dispatch:") "by hand on a branch")
+    (is (str/includes? workflow "tag=trial-$branch-$sha") "the tag names the branch and the commit")
+    (is (str/includes? workflow "0.0.0-trial.$SHA") "the bundle says it is a trial")
+    (is (str/includes? workflow "--prerelease") "invisible to releases/latest")
+    (is (str/includes? workflow "when-there: skip") "the branch's image only when it is not there yet")
+    (is (str/includes? workflow "image=$version-trial.$sha") "a pre-release version of the Dockerfile's label, which no provisioner takes")
+    (is (not (str/includes? workflow "npm test")) "no tests here, the PR's workflow runs them")))
 
 (deftest start-sh-clones-the-skills-at-the-first-start-test
   (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "rragent-clone-"))
