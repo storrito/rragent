@@ -1117,8 +1117,8 @@ The image is the Sprites base image (`s2-default`, which brings Node
 through mise) with what the templates need, ffmpeg with the fonts,
 Google Chrome, the HyperFrames CLI and its skills (`hyperframes skills`
 installs the published set under `/home/sprite/.agents/skills`, which
-the template's notes have the agent read first), nbb, the skills clone
-and `start.sh`; no bundle and no version. At the first start of a
+the template's notes have the agent read first), nbb and `start.sh`;
+no bundle, no skills, no version. At the first start of a
 machine, when `/home/sprite/rragent/dist/rragent.js` is missing,
 `start.sh` downloads the newest release's `rragent.tar.gz` and its
 checksum (`releases/latest/download/…`, through GitHub's redirect, no
@@ -1135,14 +1135,15 @@ machine starts as a new bot that offers the skills of
 in its `AGENT.md`, or works from the job the person describes when no
 skill fits; every further bot starts the same way. The skills folder is a
 clone of a GitHub repository in the Agent Skills format, one folder per
-skill with a `SKILL.md`, made when the image is built: the build
-arguments `SKILLS_REPO` (`storrito/agentitos`) and `SKILLS_BRANCH`
-(`main`) of the Dockerfile, the inputs `skills-repo` and
-`skills-branch` of the action. `start.sh` pulls the clone before it
-starts rragent (20 seconds at most, a failure said on stderr and the
-clone from the image stands), so a machine that wakes offers the
-current skills, and starts rragent again when it ended with 75 after
-taking a release (Updates, above), without the pull. The person's own
+skill with a `SKILL.md`, made by `start.sh` at the first start of a
+machine, one commit deep, from `SKILLS_REPO` at `SKILLS_BRANCH` in
+`.env` (`storrito/agentitos` at `main` without them); a clone that
+fails is said on stderr and the machine starts without skills until
+its next start. Every later start pulls the clone before rragent (20
+seconds at most, a failure said on stderr and the clone that stands
+stays), so a machine that wakes offers the current skills, and starts
+rragent again when it ended with 75 after taking a release (Updates,
+above), without the pull. The person's own
 skills live beside ours, in `agent/skills/<name>/` of the machine: a bot
 writes one with its `skill` tool when the person wants to keep what it
 does as a how-to for their other bots (`rragent.skills`, see
@@ -1174,6 +1175,12 @@ writes into it is the contract between the two:
   mobile proxy the `youtube` tool's requests leave through
   (`rragent.youtube`); without it yt-dlp goes out directly, which
   YouTube refuses from a datacenter's address.
+- `SKILLS_REPO` and `SKILLS_BRANCH`, optional: the GitHub repository
+  (`owner/name`) and branch of the skills `start.sh` clones at the
+  first start, `storrito/agentitos` at `main` without them.
+- `RRAGENT_UPDATE`, optional: `auto` (what `start.sh` sets without
+  it), `off`, or a release's tag to pin the machine to (Updates,
+  above).
 
 The sprite itself: `sprite create <name> ghcr.io/storrito/rragent-sprite:<version>
 --service http:8080
@@ -1201,8 +1208,7 @@ through the Image workflow, "Run workflow" on the branch, tagged
 not needs none, its bundle reaches a sprite as a release does, or
 pinned by `RRAGENT_UPDATE`. Locally, `docker build -f
 deploy/image/Dockerfile -t rragent-sprite:dev deploy/image` builds the
-image, `--build-arg SKILLS_REPO=<owner/name>` with another skills
-repository.
+image.
 
 ## License
 

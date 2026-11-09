@@ -19,19 +19,19 @@
 # on the machine: ffmpeg (with the fonts), Google Chrome and the
 # HyperFrames CLI for the hyperframes template, with the HyperFrames
 # skills the template's notes have the agent read before it writes a
-# composition; nbb, which runs the programs a bot writes (the README's
-# Starters section); and the skills clone /home/sprite/skills, the
-# GitHub repository SKILLS_REPO at SKILLS_BRANCH (the Agent Skills
-# format, one folder per skill with a SKILL.md), which a new bot
-# offers and start.sh pulls when the machine starts. A template added
-# later brings its needs to this list. The agent's folder
+# composition; and nbb, which runs the programs a bot writes (the
+# README's Starters section). A template added later brings its needs
+# to this list. The skills clone /home/sprite/skills (the GitHub
+# repository SKILLS_REPO at SKILLS_BRANCH, the Agent Skills format,
+# one folder per skill with a SKILL.md, which a new bot offers) is not
+# in the image either: start.sh clones it at the first start of a
+# machine and pulls it at every start. The agent's folder
 # /home/sprite/rragent/agent is empty in the image: the first start
 # makes the first bot in it. `.env` next to the bundle holds the
 # sprite's settings (the README's Deploy section) and is written when
 # the machine is set up, never into the image. Build from the
 # repository's root:
 #   docker build -f deploy/image/Dockerfile -t rragent-sprite:dev deploy/image
-# with --build-arg SKILLS_REPO=<owner/name> for another skills repository.
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
 # the image's version: bump it with every change in deploy/image/
@@ -40,8 +40,6 @@ LABEL org.opencontainers.image.source="https://github.com/storrito/rragent"
 
 ARG HYPERFRAMES_VERSION=0.8.221
 ARG NBB_VERSION=1.6.214
-ARG SKILLS_REPO=storrito/agentitos
-ARG SKILLS_BRANCH=main
 
 USER root
 RUN apt-get update -qq \
@@ -62,5 +60,4 @@ RUN PUPPETEER_SKIP_DOWNLOAD=1 npm install -g --prefix ~/.local --ignore-scripts 
 # ~/.agents/skills and ~/.claude/skills, where templates/hyperframes/TEMPLATE.md
 # sends the agent; check fails the build when the set is incomplete
 RUN hyperframes skills && hyperframes skills check
-RUN git clone --depth 1 --branch "${SKILLS_BRANCH}" "https://github.com/${SKILLS_REPO}.git" /home/sprite/skills
 COPY --chown=sprite:sprite --chmod=700 start.sh /home/sprite/rragent/start.sh

@@ -1,13 +1,11 @@
 name: Sprite image
 description: >-
   Builds the Sprite image from deploy/image/ (its Dockerfile with what
-  the templates need, start.sh, and a clone of the skills repository the
-  generic agent offers, the SKILLS_REPO and SKILLS_BRANCH build
-  arguments) and pushes it to the private package
+  the templates need, and start.sh) and pushes it to the public package
   ghcr.io/storrito/rragent-sprite as <tag>: the Dockerfile's own version
   (its label org.opencontainers.image.version) on main, <version>-trial.<sha>
   for a branch. The image holds no bundle: start.sh downloads the release
-  at a machine's first start. Sprites imports an image tag once per
+  at a machine's first start, and clones the skills. Sprites imports an image tag once per
   organization and never pulls it again, so a tag that exists is never
   pushed over: refused (a version on main that was not bumped, the
   release's version tag), or skipped with when-there: skip (a trial
@@ -25,14 +23,6 @@ inputs:
     description: What to do when the tag exists already, "refuse" (the default) or "skip".
     required: false
     default: refuse
-  skills-repo:
-    description: The GitHub repository of the skills, owner/name, cloned into the image.
-    required: false
-    default: storrito/agentitos
-  skills-branch:
-    description: The branch of the skills repository to clone.
-    required: false
-    default: main
 
 runs:
   using: composite
@@ -77,10 +67,8 @@ runs:
       shell: bash
       env:
         IMAGE: ghcr.io/storrito/rragent-sprite:${{ inputs.tag }}
-        SKILLS_REPO: ${{ inputs.skills-repo }}
-        SKILLS_BRANCH: ${{ inputs.skills-branch }}
       run: |
-        docker build -f deploy/image/Dockerfile --build-arg "SKILLS_REPO=$SKILLS_REPO" --build-arg "SKILLS_BRANCH=$SKILLS_BRANCH" -t "$IMAGE" deploy/image
+        docker build -f deploy/image/Dockerfile -t "$IMAGE" deploy/image
 
     - name: Push the image
       if: steps.there.outputs.there != 'true'

@@ -6,11 +6,15 @@
 # integrations come through the sprite's gateway, see the README), the
 # port the sprite's URL routes to, the agent's folder, Node through
 # mise's shims. Without a readable .env the sprite is not set up: not
-# started then, the service's restart tries again. The skills clone of
-# the image (/home/sprite/skills, see the Dockerfile beside this file)
-# is pulled first, so a machine that wakes offers the current skills; a
-# pull that fails or takes longer than 20 seconds is said on stderr and
-# the clone from the image stands.
+# started then, the service's restart tries again. The skills clone
+# /home/sprite/skills (the GitHub repository SKILLS_REPO at
+# SKILLS_BRANCH from .env, storrito/agentitos at main without; the
+# Agent Skills format, one folder per skill with a SKILL.md, which a new
+# bot offers) is not in the image: the first start of a machine clones
+# it, every later start pulls it, so a machine that wakes offers the
+# current skills; a clone or pull that fails, or a pull longer than 20
+# seconds, is said on stderr and the start goes on, with the clone that
+# stands or without skills until the next start.
 # The image holds no bundle. At the first start of a machine, when
 # dist/rragent.js is missing, the release's rragent.tar.gz is
 # downloaded: the newest release's (releases/latest/download, through
@@ -33,7 +37,24 @@ export PATH=/home/sprite/.local/bin:/usr/local/share/mise/shims:/.sprite/bin:/us
 pull_skills() {
   local said
   said=$(timeout 20 git -C "$1" pull --ff-only --quiet 2>&1) \
-    || echo "the skills in $1 were not pulled, the clone from the image stands ($(echo "$said" | tail -1))" >&2
+    || echo "the skills in $1 were not pulled, the clone that stands stays ($(echo "$said" | tail -1))" >&2
+}
+clone_skills() {
+  # the skills clone made at the first start of a machine, one commit
+  # deep, from SKILLS_REPO at SKILLS_BRANCH (SKILLS_URL stands in for
+  # GitHub in a test); a clone that fails is said and the start goes
+  # on without skills, the next start tries again
+  local url="${SKILLS_URL:-https://github.com/${SKILLS_REPO:-storrito/agentitos}.git}" said
+  said=$(timeout 60 git clone --depth 1 --branch "${SKILLS_BRANCH:-main}" --quiet "$url" "$1" 2>&1) \
+    || echo "the skills were not cloned into $1 from $url at ${SKILLS_BRANCH:-main}, the machine starts without them ($(echo "$said" | tail -1))" >&2
+}
+skills() {
+  # the clone pulled when it is there, made when it is not
+  if [ -d "$1/.git" ]; then
+    pull_skills "$1"
+  else
+    clone_skills "$1"
+  fi
 }
 run_until_updated() {
   local status
@@ -77,7 +98,7 @@ bootstrap() {
     return 1
   fi
 }
-pull_skills /home/sprite/skills
+skills /home/sprite/skills
 export PORT=8080
 export RRAGENT_HOME=/home/sprite/rragent/agent
 export RRAGENT_UPDATE="${RRAGENT_UPDATE:-auto}"
