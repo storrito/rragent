@@ -1065,8 +1065,8 @@ A branch gets to a sprite without a release through the Trial workflow
 (`.github/workflows/trial.yml`): "Run workflow" on the branch builds
 its bundle (which says `0.0.0-trial.<sha>`) and publishes a GitHub
 pre-release `trial-<branch>-<sha>` with `rragent.tar.gz` and its
-checksum, and the branch's image when its Dockerfile's SHA has none
-yet (Deploy, below). A pre-release is invisible to `releases/latest`,
+checksum, and the branch's image as `<version>-trial.<sha>` unless it is there
+(Deploy, below). A pre-release is invisible to `releases/latest`,
 so no machine takes it by itself; a sprite takes it with
 `RRAGENT_UPDATE=trial-<branch>-<sha>` in its `.env` (Updates, below), a
 forked sprite with a restart, a new one at its first start. The trial

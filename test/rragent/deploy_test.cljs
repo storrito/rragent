@@ -263,5 +263,6 @@
     (is (str/includes? workflow "tag=trial-$branch-$sha") "the tag names the branch and the commit")
     (is (str/includes? workflow "0.0.0-trial.$SHA") "the bundle says it is a trial")
     (is (str/includes? workflow "--prerelease") "invisible to releases/latest")
-    (is (str/includes? workflow "when-there: skip") "the branch's image only when its Dockerfile has none")
+    (is (str/includes? workflow "when-there: skip") "the branch's image only when it is not there yet")
+    (is (str/includes? workflow "image=$version-trial.$sha") "a pre-release version of the Dockerfile's label, which no provisioner takes")
     (is (not (str/includes? workflow "npm test")) "no tests here, the PR's workflow runs them")))

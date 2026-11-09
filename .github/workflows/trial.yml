@@ -3,8 +3,9 @@ name: Trial
 # A branch on a sprite without a release. "Run workflow" on the branch
 # builds its bundle, which says 0.0.0-trial.<sha>, and publishes a
 # GitHub pre-release trial-<branch>-<sha> with rragent.tar.gz and its
-# checksum; the branch's image is built too when its Dockerfile's SHA
-# has no image yet (.github/actions/sprite-image, when-there: skip). A
+# checksum; the branch's image is built too, <version>-trial.<sha> of
+# the Dockerfile's version label, unless it is there
+# (.github/actions/sprite-image, when-there: skip). A
 # pre-release is invisible to releases/latest, so no machine takes a
 # trial by itself: a sprite takes it with
 # RRAGENT_UPDATE=trial-<branch>-<sha> in its .env, deploy/image/start.sh
@@ -44,14 +45,16 @@ jobs:
           sha="${GITHUB_SHA::7}"
           echo "tag=trial-$branch-$sha" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "image=$(git rev-parse HEAD:deploy/image/Dockerfile)" >> "$GITHUB_OUTPUT"
+          version=$(sed -n 's/^LABEL org.opencontainers.image.version="\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)"$/\1/p' deploy/image/Dockerfile)
+          [ -n "$version" ] || { echo "::error::deploy/image/Dockerfile names no version: LABEL org.opencontainers.image.version=\"<x.y.z>\""; exit 1; }
+          echo "image=$version-trial.$sha" >> "$GITHUB_OUTPUT"
       - run: npm ci
       - name: The bundle says it is a trial
         env:
           SHA: ${{ steps.trial.outputs.sha }}
         run: npm version --no-git-tag-version --allow-same-version "0.0.0-trial.$SHA"
       - run: npm run release
-      - name: The branch's image, when its Dockerfile has none yet
+      - name: The branch's image, unless it is there
         uses: ./.github/actions/sprite-image
         with:
           tag: ${{ steps.trial.outputs.image }}
