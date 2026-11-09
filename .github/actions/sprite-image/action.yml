@@ -7,18 +7,14 @@ description: >-
   for a branch. The image holds no bundle: start.sh downloads the release
   at a machine's first start, and clones the skills. Sprites imports an image tag once per
   organization and never pulls it again, so a tag that exists is never
-  pushed over: refused (a version on main that was not bumped, the
-  release's version tag), or skipped with when-there: skip (a trial
-  built again on the same commit).
+  pushed over: refused (a version on main that was not bumped), or
+  skipped with when-there: skip (a trial built again on the same
+  commit).
 
 inputs:
   tag:
     description: The image's tag.
     required: true
-  latest:
-    description: Tag the image as latest too ("true" for a release).
-    required: false
-    default: "false"
   when-there:
     description: What to do when the tag exists already, "refuse" (the default) or "skip".
     required: false
@@ -75,10 +71,4 @@ runs:
       shell: bash
       env:
         IMAGE: ghcr.io/storrito/rragent-sprite:${{ inputs.tag }}
-        LATEST: ${{ inputs.latest }}
-      run: |
-        docker push "$IMAGE"
-        if [ "$LATEST" = "true" ]; then
-          docker tag "$IMAGE" ghcr.io/storrito/rragent-sprite:latest
-          docker push ghcr.io/storrito/rragent-sprite:latest
-        fi
+      run: docker push "$IMAGE"
