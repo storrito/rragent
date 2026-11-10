@@ -200,15 +200,14 @@
       (is (some? (find-tag (page {:advanced? true}) :section.all))))))
 
 (deftest view-filters-test
-  (testing "no view of everything: a tab that picked none, or the view of all of a page of before, shows the first topic of the sidebar"
-    (doseq [view [nil {:kind :all}]]
-      (let [p (page {:view view})
-            s (feed-strings p)]
-        (is (not (some #{"Let us do a Pinterest short."} s)) "Pinterest's turn is not content-week's")
-        (is (some #{"How are the covers?"} s))
-        (is (= "in Content week" (second (find-tag p :span.topic))))
-        (is (= ["Content week"] (keep #(when (= "current" (:class (second %))) (second (find-tag % :span.name)))
-                                      (find-tags p :li)))))))
+  (testing "no view of everything: a tab that picked none shows the first topic of the sidebar"
+    (let [p (page {:view nil})
+          s (feed-strings p)]
+      (is (not (some #{"Let us do a Pinterest short."} s)) "Pinterest's turn is not content-week's")
+      (is (some #{"How are the covers?"} s))
+      (is (= "in Content week" (second (find-tag p :span.topic))))
+      (is (= ["Content week"] (keep #(when (= "current" (:class (second %))) (second (find-tag % :span.name)))
+                                    (find-tags p :li))))))
   (testing "a topic: its turns alone"
     (let [s (feed-strings (page {:view {:kind :topic :topic "pinterest"}}))]
       (is (some #{"Let us do a Pinterest short."} s))
@@ -355,12 +354,11 @@
     (testing "a machine without a topic, or with archived ones alone: the New topic view"
       (is (= {:kind :new} (view/default-view items {})))
       (is (= {:kind :new} (view/default-view items (select-keys topics ["old"])))))
-    (testing "the view a tab shows: its pick, the default without one, never all"
+    (testing "the view a tab shows: its pick, the default without one"
       (is (= {:kind :topic :topic "pinterest"} (view/shown-view {:kind :topic :topic "pinterest"} items topics)))
       (is (= {:kind :new} (view/shown-view {:kind :new} items topics)))
       (is (= {:kind :loose} (view/shown-view {:kind :loose} items topics)))
-      (is (= {:kind :topic :topic "content-week"} (view/shown-view nil items topics)))
-      (is (= {:kind :topic :topic "content-week"} (view/shown-view {:kind :all} items topics))))
+      (is (= {:kind :topic :topic "content-week"} (view/shown-view nil items topics))))
     (testing "the turns of no topic"
       (is (empty? (view/visible items {:kind :loose})) "every turn of the conversation got a topic")
       (let [loose (view/items (update conversation :entries conj (person 12 "Lydia" nil "Anything else?")) topics)]
@@ -372,9 +370,10 @@
       (is (vector? made))
       (is (identical? made (view/items conversation topics)))
       (is (identical? made (view/items conversation (into {} topics))) "topics that are equal")
-      (is (not (identical? made (view/items conversation {}))) "other topics, other tags")
-      (is (not (identical? made (view/items (assoc conversation :live {}) topics))) "another map, made anew")
-      (is (= made (view/items (assoc conversation :live {}) topics)))))
+      ;; an equal map of another identity: assoc of the same value answers the map itself
+      (is (not (identical? made (view/items (into {} conversation) topics))) "another map, made anew")
+      (is (= made (view/items (into {} conversation) topics)))
+      (is (not (identical? made (view/items conversation {}))) "other topics, other tags")))
   (testing "no conversation: no items"
     (is (empty? (view/items nil topics)))))
 

@@ -17,7 +17,7 @@
 (def description
   (str "The topics of this conversation: one per matter of the person's, with a name, each a view in the sidebar. "
        "`create` with `name` makes one and puts this turn under it. "
-       "`tag` with `topic` (its name or id) puts this turn under a topic too, when the message came from another view or from the view of all. "
+       "`tag` with `topic` (its name or id) puts this turn under a topic too, when the message came from another view or from no view. "
        "`rename` with `id` and `name` renames one, `archive` with `id` folds one away whose work is over; `list` names them."))
 
 (defn slug

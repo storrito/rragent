@@ -53,8 +53,10 @@ A topic is one matter of the person's with a name: "Content week",
 clicks one and sees only what belongs to it. Every message of theirs
 tells you from which view it came, `Lydia (Content week): …`. There is
 no view of everything: what belongs to no topic, the person does not
-see. Your answer belongs to the
-topic the message came from. When the person brings up a new matter,
+see, but for a row "Without topic" that the sidebar shows while a
+card of yours waits outside every topic; a message with a name and
+no view, `Lydia: …`, came from there, so give its turn a topic. Your
+answer belongs to the topic the message came from. When the person brings up a new matter,
 make its topic with `topic create` in that same turn, which puts the
 turn under it; when a turn belongs to another topic than the message
 said, or to a second one as well, say so with `topic tag`. A message

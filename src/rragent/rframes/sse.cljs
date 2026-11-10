@@ -75,7 +75,8 @@
                         :else (conj (or p []) which))))
      (when (nil? before)
        (js/setTimeout refresh-pending!
-                      (max 0 (- refresh-gap (- (js/Date.now) @last-refresh))))))))
+                      ;; never longer than the gap: the clock may step back
+                      (min refresh-gap (max 0 (- refresh-gap (- (js/Date.now) @last-refresh)))))))))
 
 (defn watch!
   "Refreshes the connections after a change of the atom `db`: every
@@ -141,10 +142,13 @@
   "A handler `w -> w` that holds an SSE view connection. `:render/fn` is
    `w -> view`, called per refresh with the world of the connection, which
    is captured at connect and kept with the connection for `refresh-where!`.
-   `encode` turns a view into a frame string, nil skips the frame. The
+   `encode` turns a view into a frame string, nil skips the frame.
+   `:open/fn`, when given, is `w -> any`, called once per connection
+   when it opens, before its first frame, with the same world: what
+   the page settles for a tab the moment it comes (its view). The
    response carries `:on-open` and `:on-close` for the adapter
    (`rragent.rframes.http/respond!`)."
-  [{render-fn :render/fn} encode]
+  [{render-fn :render/fn open-fn :open/fn} encode]
   (fn [w]
     (let [request (:ring/request w)
           conn-id (swap! next-conn-id inc)
@@ -175,6 +179,7 @@
                                                                   (send! frame)))))
                                                      (.catch (fn [error]
                                                                (js/console.error "[sse]" (str error))))))))]
+                           (when open-fn (open-fn w))
                            (swap! conns assoc conn-id {:render render :w w})
                            (render)))
               :on-close (fn []

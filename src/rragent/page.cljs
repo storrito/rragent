@@ -365,12 +365,6 @@
             (or (contains? tabs (:tabid w))
                 (contains? ids (:id (shown-bot after (:tabs new) (:tabid w) (url-bot w)))))))))))
 
-(def ^:private stream
-  "The view stream of a bot's page, POST /bot/<id>: the bot id of the
-   path is in the route params of the connection."
-  (:ring/handler (replicant/expand-entry {:replicant/render "/bot/*"
-                                          :render/fn #'page-view})))
-
 (defn- bot-of-command
   "The running bot a command names, or nil."
   [w]
@@ -400,11 +394,24 @@
   "The view the tab `tab` shows written down as its own while it
    picked none (`:tab-views`): the default is the first topic of the
    sidebar's order, which the next activity changes, and a tab does
-   not change its view under the person."
+   not change its view under the person. Done when the tab's stream
+   opens (`stream`, before its first frame; again after a restart,
+   the atom is in memory), and when a tab comes to the loop
+   (`:bot/show`) or sends (`send-command`)."
   [tab]
   (when-let [bot (some-> (machine/loop-id) machine/bot)]
     (when-not (get-in @db/db [:tab-views tab])
       (swap! db/db assoc-in [:tab-views tab] (tab-view bot tab)))))
+
+(def ^:private stream
+  "The view stream of a bot's page, POST /bot/<id>: the bot id of the
+   path is in the route params of the connection. The tab's view of
+   the loop's conversation is settled at the open (`pin-view!`); the
+   frame that follows the write is the same page, the browser finds
+   nothing to change in it."
+  (:ring/handler (replicant/expand-entry {:replicant/render "/bot/*"
+                                          :render/fn #'page-view
+                                          :open/fn (fn [w] (pin-view! (:tabid w)))})))
 
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as
@@ -424,6 +431,7 @@
         text (str/trim (str text))
         {:keys [uploads] :as bot} (bot-of-command w)
         ;; the views are the loop's; another conversation has none
+        picked (when tab (get-in @db/db [:tab-views tab]))
         view (when (and tab (machine/loop? bot-id)) (tab-view bot tab))
         ;; the topic of the message: the command's, else the tab's view's
         topic-id (or (not-empty (str topic))
@@ -450,9 +458,14 @@
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
             draft (person/draft content (person/name-of (:ring/request w)) (when-not run topic))
-            view (if fresh {:kind :new :fresh fresh} view)]
-        ;; the tab's view as the message found it: the "New topic" view with
-        ;; its token, or the topic it became
+            ;; the tab's view as the message found it: the "New topic" view
+            ;; with its token, or, while the tab picked none, the topic the
+            ;; message went to (the composer's, of the page as the person saw
+            ;; it; the default may have moved since)
+            view (cond
+                   fresh {:kind :new :fresh fresh}
+                   (and view (nil? picked) topic-id) {:kind :topic :topic topic-id}
+                   :else view)]
         (when (and tab view (not= view (get-in @db/db [:tab-views tab])))
           (swap! db/db assoc-in [:tab-views tab] view))
         ;; a run keeps the instructions it started with; the bot reads its file again
@@ -1173,9 +1186,8 @@
 
 (defn- show-command
   "The tab `tab` shows the bot `id` from now on, nil whatever its URL
-   names; its settings close. A page tells this when it opens, so the
-   tab's view of the loop's conversation is settled here
-   (`pin-view!`)."
+   names; its settings close. A tab that comes to the loop by this
+   gets its view settled (`pin-view!`)."
   [w]
   (let [{:keys [id tab]} (command/command-data w)]
     (cond

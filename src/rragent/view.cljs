@@ -458,13 +458,14 @@
 (defn shown-view
   "The view a tab shows over `items`: the one it picked (`view`), a
    \"New topic\" view whose topic was made as that topic's
-   (`settled`); the default (`default-view`) while it picked none.
-   There is no view of everything at once, the topics intertwined: a
-   pick of it, from a page of before, counts as none."
+   (`settled`); the default (`default-view`) while it picked none."
   [view items topics]
-  (settled (or (when-not (= :all (:kind view)) view) (default-view items topics)) items topics))
+  (settled (or view (default-view items topics)) items topics))
 
 (defn- conversation-items
+  "The items of a conversation as `items` makes them, without its
+   cache: the entries folded into turns, the live turn, the queued
+   inputs, each tagged with its topics."
   [{:keys [entries live inbox]} topics]
   (let [results (into {}
                       (for [{:keys [kind model]} entries

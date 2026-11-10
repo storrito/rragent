@@ -1201,7 +1201,15 @@
                  (let [person (last (await (people)))]
                    (is (= {:name "Max" :topic "autumn-sale"} (:data person)))
                    (is (= "Max (Autumn sale): It starts on Monday." (get-in person [:model 0 :content])))))
-               (testing "a tab that opens without a pick gets the default view written down: the first topic, which the next activity must not change under the person"
+               (testing "a tab whose stream opens without a pick gets the default view written down before its first frame: the first topic, which the next activity must not change under the person"
+                 (is (nil? (get-in @db/db [:tab-views "t6"])))
+                 (let [opened (js/AbortController.)
+                       {:keys [reader decoder]} (await (stream (str base "/bot/" loop-id) cookie opened "t6"))
+                       {:keys [view]} (await (within 15000 (next-frame reader decoder "" (constantly true))))]
+                   (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t6"])))
+                   (is (mentions? view "in Autumn sale") "the first frame shows it")
+                   (.abort opened)))
+               (testing "a tab that comes to the loop from another page (:bot/show) without a pick gets the default view written down too"
                  (is (nil? (get-in @db/db [:tab-views "t3"])))
                  (is (= {:success? true} (await (command! base cookie :bot/show {:tab "t3" :id nil}))))
                  (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t3"])))
