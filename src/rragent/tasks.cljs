@@ -33,6 +33,7 @@
             [clojure.string :as str]
             [rragent.bots :as bots]
             [rragent.definition :as definition]
+            [rragent.models :as models]
             [rragent.roles :as roles]
             [rragent.runs :as runs]
             [rragent.tools.subagent :as subagent-tool]))
@@ -155,7 +156,15 @@
         ^js input (.-input task)
         ^js agent (await (.agent runtime context))
         provider (or (some-> agent .-model .-provider) "openrouter")
-        model (or (not-empty (str (.-model input))) definition/default-model)
+        own (some-> agent .-model .-modelId)
+        asked (not-empty (str (.-model input)))
+        ;; the tool refuses an id the page does not offer; a record of before
+        ;; that carries one runs on the loop's own model, the stronger one
+        model (cond
+                (nil? asked) definition/default-model
+                (models/task-model? asked own) asked
+                :else (do (js/console.warn "[tasks]" (str "the task " id " asked for the model " asked ", which this machine does not offer; it runs on " (or own definition/default-model)))
+                          (or own definition/default-model)))
         thinking (not-empty (str (.-thinking input)))
         continued (not-empty (str (.-continue input)))]
     (await (.commit runtime

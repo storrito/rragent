@@ -208,8 +208,14 @@ shared window; a card may be addressed to a name. Not identity.
 ## 8. Models
 
 The loop: `anthropic/claude-opus-5.5`, thinking high (LOOP.md, the
-pill in the page). Tasks: the default model, or the `model` of the
-call. Prompt caching holds for the loop: pi-ai sets Anthropic's
+pill in the page). Tasks: the default model, or, when the work needs
+a stronger one, the other model of the page's choices
+(`rragent.models/choices`, `models/task-model?`): the `task` tool
+refuses any other id and names the two, and a task record that
+carries one anyway runs on the loop's own model. The loop (Opus 5.5)
+had handed tasks to `anthropic/claude-opus-4.1`, an id it knows from
+its training that the page never offered, at some three times the
+price (Tobias, 2026-11-10). Prompt caching holds for the loop: pi-ai sets Anthropic's
 `cache_control` for `anthropic/*` models through OpenRouter, and
 rragent speaks to them through the Anthropic-style base.
 

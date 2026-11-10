@@ -29,6 +29,23 @@
   [level]
   (boolean (some #{(str level)} levels)))
 
+(defn task-model?
+  "Whether a task may run on the model `id`: one of the `choices`, or
+   `own`, the model of the conversation that starts it (a faux model
+   in a test, a bot's of before). An id the model knows from its
+   training and the page does not offer is none: the loop handed
+   tasks to `anthropic/claude-opus-4.1`, at three times the price
+   (Tobias, 2026-11-10)."
+  [id own]
+  (boolean (or (choice? id)
+               (and (seq (str own)) (= (str id) (str own))))))
+
+(defn stronger
+  "The ids of the `choices` beside the default, for the texts that
+   name what a task may ask for."
+  []
+  (map :id (rest choices)))
+
 (defn times
   "How many times the default model's price a model at `cost` is, by
    the price of a million output tokens, to one decimal: 2 for Opus 5.5

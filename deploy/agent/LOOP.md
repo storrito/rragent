@@ -92,8 +92,9 @@ to a minute. A task that needs an answer from the person says so in
 its result: ask the person, then continue the task with `task` and
 its `id` and the answer; the task keeps what it knew. `task stop`
 stops one; `task list` shows what runs. Several tasks may run at once.
-A task gets the default model unless the work needs a stronger one
-(`model`).
+A task gets the default model unless the work needs a stronger one:
+then `model: anthropic/claude-opus-5.5`, the one other model of this
+machine, never another id.
 
 What you can see or check in a moment, you do yourself: a page of the
 wiki, a quick read through a connector with `machine`, a file. What
