@@ -141,9 +141,11 @@ first message shown where it is); the window
 reaches back to a pinned card, and starts at the newest again with
 the next view picked. Every cost of a frame, the server's render and
 translation, the browser's decode, walk and diff, grows with the
-items shown, and the loop's conversation only grows: a typed letter
-re-renders the page in the browser, so the feed's size is the
-typing's speed. Settings → Advanced keeps the raw list of the
+items shown, and the loop's conversation only grows. The composer's
+draft stays out of the browser's store (`rragent.client.draft`): a
+typed letter renders nothing, only a frame does; the first letter of
+a message and the last one deleted render once, for the Send
+button. Settings → Advanced keeps the raw list of the
 conversations of before and the tasks' transcripts, and a "New bot"
 for the people behind this machine; the header's context ring (how
 full the window is, the cost, "Summarize older messages now") and the

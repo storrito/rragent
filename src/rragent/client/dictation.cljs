@@ -32,12 +32,14 @@
    `:words` and whether one is `:unsure?` once back), the `:seconds`
    recorded, the `:status`, and the `:correction` (`:running`, `:done`)
    with its text (`:corrected`). Every change writes
-   the draft; while a dictation runs the draft is the dictation's. What
+   the draft (`rragent.client.draft`, into the text of the composer);
+   while a dictation runs the draft is the dictation's. What
    is no data (the stream, the recorder, the level meter and its node)
    is in `session*`; the level goes to the node directly, twenty times
    a second, not through the store and a render of the page."
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
+            [rragent.client.draft :as draft]
             [rragent.client.icons :as icons]))
 
 (def silence-ms
@@ -126,13 +128,12 @@
   (some :pending? (:segments dictation)))
 
 (defn- update!
-  "Applies `f` to the dictation and writes the draft from it."
+  "Applies `f` to the dictation and writes the draft from it, before
+   the store's change renders the page."
   [{:keys [store store-key]} f & args]
-  (swap! store (fn [state]
-                 (let [dictation (apply f (:ui/dictation state) args)]
-                   (assoc state
-                          :ui/dictation dictation
-                          store-key (draft dictation))))))
+  (let [dictation (apply f (:ui/dictation @store) args)]
+    (draft/write! store-key (draft dictation))
+    (swap! store assoc :ui/dictation dictation)))
 
 (defn- read-answer
   [text]
@@ -347,7 +348,7 @@
    The browser asks for the microphone the first time."
   [store store-key url ^js textarea & [range]]
   (let [ctx {:store store :store-key store-key :url url}
-        text (str (get @store store-key ""))
+        text (draft/text store-key)
         [from to] (or range (selection textarea text))]
     (reset! textarea* textarea)
     (swap! store assoc :ui/dictation {:status :starting
@@ -430,7 +431,7 @@
       (let [^js textarea (.-target event)
             [text at] (without-typed-space (.-value textarea) (.-selectionStart textarea))]
         (.preventDefault event)
-        (swap! store assoc store-key text)
+        (draft/write! store-key text)
         (reset! press* {:by :space})
         (start! store store-key url textarea [at at])))))
 
