@@ -116,10 +116,40 @@
   (let [text (str/trim (str value))]
     (if (re-matches #"\d+" text) (js/Number text) text)))
 
-(defn- ^:async made!
+(defn- continued-conversation
+  "The conversation of the task `record` a new one continues: the one
+   its outcome names, else its checkpoint's; nil before it has one."
+  [^js record]
+  (or (some-> record .-state .-outcome .-result .-conversation)
+      (some-> record .-state .-checkpoint .-conversation)))
+
+(defn- reason-of
+  [error]
+  (or (not-empty (str (some-> error .-message))) (str error)))
+
+(defn- ^:async fail!
+  "A phase that threw: the task moves to `deliver` with a failed
+   result, so that the loop hears of it (docs/one-loop.md §2) instead
+   of a task that ends in silence; an abort under way is left to the
+   abort handler."
+  [runtime ^js checkpoint error context]
+  (when (.-abortRequested runtime)
+    (throw error))
+  (js/console.error "[task]" (str "the task " (.-taskId runtime) " failed: " (reason-of error)))
+  (await (.commit runtime
+                  (fn [] #js {:status "running"
+                              :checkpoint (doto (or checkpoint #js {:started (.now runtime)})
+                                            (aset "phase" "deliver")
+                                            (aset "done" #js {:state "failed"
+                                                              :line (str "did not run: " (reason-of error))
+                                                              :reason (reason-of error)}))})
+                  context)))
+
+(defn- ^:async make!
   "The task's conversation: the one it owns when a rerun finds it, the
-   earlier task's when the input continues one, else a new one
-   configured as a task's; and the checkpoint that names it."
+   earlier task's when the input continues one (by the task's id, the
+   conversation its record names), else a new one configured as a
+   task's; and the checkpoint that names it."
   [task runtime context]
   (let [id (.-taskId runtime)
         ^js input (.-input task)
@@ -133,7 +163,9 @@
                       (let [existing (aget (.-items (await (.scanConversations tx #js {:ownerTaskId id} 1))) 0)
                             conversation (cond
                                            existing (.-id existing)
-                                           continued (conversation-id continued)
+                                           continued (let [^js earlier (await (.task tx (conversation-id continued)))]
+                                                       (or (some-> earlier continued-conversation)
+                                                           (throw (js/Error. (str "No task " continued " with a conversation to continue.")))))
                                            :else (let [created (.-id (await (.createConversation tx #js {:ownership #js {:kind "task" :taskId id}})))]
                                                    (await (configure tx created #js {:model #js {:provider provider :modelId model}
                                                                                      :thinkingLevel (or thinking js/undefined)
@@ -143,8 +175,16 @@
                                                    created))]
                         #js {:status "running"
                              :checkpoint #js {:phase "run" :conversation conversation :started (.now runtime)}}))
-                    context))
-    (runs/changed! (.-conversationId runtime))))
+                    context))))
+
+(defn- ^:async made!
+  "`make!`, a failure of it delivered (`fail!`)."
+  [task runtime context]
+  (try
+    (await (make! task runtime context))
+    (catch :default error
+      (await (fail! runtime nil error context))))
+  (runs/changed! (.-conversationId runtime)))
 
 (defn- ^:async answer-of
   "The text of the answer entry `id`, read through a commit of the task
@@ -159,13 +199,12 @@
     (when @found
       (subagent-tool/answer-text @found))))
 
-(defn- ^:async run!
+(defn- ^:async answered!
   "The task's text submitted to its conversation (deduplicated by the
    task's id, so a rerun waits on the same submission), the answer
    kept in the checkpoint as the result."
-  [task runtime context]
+  [task runtime ^js checkpoint context]
   (let [id (.-taskId runtime)
-        ^js checkpoint (.. task -state -checkpoint)
         ^js input (.-input task)
         conversation (await (.conversation runtime (.-conversation checkpoint) context))
         submission (await (.submit conversation
@@ -191,6 +230,16 @@
                                                                 :result (or answer js/undefined)
                                                                 :reason (if done? js/undefined (.-reason settled))}))})
                     context))))
+
+(defn- ^:async run!
+  "`answered!`, a failure of it delivered (`fail!`): a conversation
+   that cannot be submitted to, a model that keeps failing."
+  [task runtime context]
+  (let [^js checkpoint (.. task -state -checkpoint)]
+    (try
+      (await (answered! task runtime checkpoint context))
+      (catch :default error
+        (await (fail! runtime checkpoint error context))))))
 
 (defn- ^:async deliver!
   "The result into the loop, unless the loop's call took it: the claim

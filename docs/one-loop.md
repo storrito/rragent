@@ -76,7 +76,7 @@ A topic is what the person would call a project: "Content week",
 artifact-project tool of the templates. Topics are data in the
 structure doc, `topics {id {name created archived}}`; the loop
 manages them with the `topic` tool (`create`, `rename`, `archive`,
-`tag`), the person with a "New topic" button or by saying so.
+`tag`), the person by telling the loop.
 
 Every turn carries topics: the person's message carries the topic of
 the view it was sent from (`rragent.person {name topic}`, and the

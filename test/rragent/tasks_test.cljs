@@ -120,3 +120,83 @@
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest a-task-continued-failed-and-stopped-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (try
+               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
+               (let [loop (machine/loop-id)
+                     _ (bots/set-metadata! home loop "model" "faux-1")
+                     conversation (:conversation (machine/bot loop))
+                     harness (:harness (machine/agent))
+                     done-entries (fn [] (-> (entries conversation)
+                                             (.then (fn [es] (filterv #(= tasks/done-kind (:kind %)) es)))))
+                     newest (fn [] (-> (tasks/listed harness loop 10 harness/context) (.then first)))]
+                 (testing "a task that needs an answer ends with the question as its result"
+                   (.setResponses faux #js [(tools-test/tool-call "task" {:text "Pick the cover colour." :model "faux-1"} "c1")
+                                            (tools-test/answer "Started.")
+                                            (tools-test/answer "Need an answer: blue or red?")
+                                            (tools-test/answer "Blue or red, Max?")])
+                   (is (= "Started." (await (harness/ask-in conversation "Pick the colour."))))
+                   (await (until (fn [] (-> (done-entries) (.then (fn [es] (= 1 (count es))))))))
+                   (await (.waitForIdle conversation harness/context)))
+                 (let [first-task (await (newest))]
+                   (is (= :done (:state first-task)))
+                   (testing "continued by its id: the answer goes into the same conversation, which keeps what it knew"
+                     (.setResponses faux #js [(tools-test/tool-call "task" {:id (str (:id first-task)) :text "Blue." :model "faux-1"} "c2")
+                                              (tools-test/answer "Continued.")
+                                              (tools-test/answer "Blue it is.")
+                                              (tools-test/answer "Done: blue.")])
+                     (is (= "Continued." (await (harness/ask-in conversation "Blue."))))
+                     (is (str/starts-with? (get (await (results conversation)) "c2") "Started the task ") (get (await (results conversation)) "c2"))
+                     (await (until (fn [] (-> (done-entries) (.then (fn [es] (= 2 (count es))))))))
+                     (await (.waitForIdle conversation harness/context))
+                     (let [second-task (await (newest))
+                           child (await (.conversation harness (:conversation first-task) harness/context))
+                           child-entries (await (entries child))]
+                       (is (not= (:id first-task) (:id second-task)))
+                       (is (= (:conversation first-task) (:conversation second-task)) "the earlier task's conversation")
+                       (is (= :done (:state second-task)))
+                       (is (= "Blue it is." (:line second-task)))
+                       (is (= 2 (count (filter #(= tasks/input-kind (:kind %)) child-entries))) "both texts went in")
+                       (is (= "Blue it is." (:text (first child-entries))))
+                       (is (= "Done: blue." (:text (first (await (entries conversation))))) "the loop answered the result")))
+                   (testing "a task of another conversation, or one that does not exist, cannot be continued"
+                     (.setResponses faux #js [(tools-test/tool-call "task" {:id "999999" :text "Go on." :model "faux-1"} "c3")
+                                              (tools-test/answer "No such task.")])
+                     (is (= "No such task." (await (harness/ask-in conversation "Continue 999999."))))
+                     (is (str/includes? (get (await (results conversation)) "c3") "No task 999999 of this conversation")))
+                   (testing "a task whose phase fails still reaches the loop, as a failed result"
+                     (.setResponses faux #js [(tools-test/answer "That did not run.")])
+                     (await (.commit conversation
+                                     (fn [tx]
+                                       (.createTask tx tasks/Task
+                                                    #js {:text "Go on." :continue "999999" :wait false}
+                                                    #js {:ownership #js {:kind "conversation"} :conversationId (.-id conversation) :background true}))
+                                     harness/context))
+                     (await (until (fn [] (-> (done-entries) (.then (fn [es] (= 3 (count es))))))))
+                     (await (.waitForIdle conversation harness/context))
+                     (let [failed (await (newest))
+                           [entry] (await (done-entries))]
+                       (is (= :failed (:state failed)))
+                       (is (str/starts-with? (:line failed) "did not run: No task 999999") (:line failed))
+                       (is (= "failed" (:state (:data entry))))
+                       (is (= (:id failed) (:task (:data entry))))
+                       (is (= "That did not run." (:text (first (await (entries conversation))))) "the loop was told")))
+                   (testing "stop: a task that ended, a task that is not this conversation's"
+                     (.setResponses faux #js [(tools-test/tool-call "task" {:action "stop" :id (str (:id first-task))} "c4")
+                                              (tools-test/answer "Ended already.")
+                                              (tools-test/tool-call "task" {:action "stop" :id "999999"} "c5")
+                                              (tools-test/answer "No such task.")])
+                     (is (= "Ended already." (await (harness/ask-in conversation "Stop the first one."))))
+                     (is (str/includes? (get (await (results conversation)) "c4") "had ended already: done"))
+                     (is (= "No such task." (await (harness/ask-in conversation "Stop 999999."))))
+                     (is (str/includes? (get (await (results conversation)) "c5") "No task 999999 of this conversation")))))
+               (finally
+                 (await (machine/close-all!))
+                 (test-home/remove! home))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))

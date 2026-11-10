@@ -1235,7 +1235,7 @@
   (let [[id rest] (split-bot (get-in w [:ring/route-params :*]))
         bot (machine/bot id)
         ;; a link of before to an archived bot's artifact: the loop's folder of its topic
-        moved (when (and (str/starts-with? (str rest) "artifacts/") (not (fs/existsSync (str (:dir bot) "/work/" rest))))
+        moved (when (and (str/starts-with? (str rest) "artifacts/") (not (fs/existsSync (str (:work bot) "/" rest))))
                 (when-let [slug (get (:bot-topics (machine/current-structure)) (str id))]
                   (when-let [loop (machine/loop-id)]
                     (str (bots/url loop) "/artifacts/" slug "/" (subs (str rest) (count "artifacts/"))))))]

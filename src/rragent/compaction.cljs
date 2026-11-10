@@ -108,26 +108,37 @@
                              context))]
     (boolean (some #(nil? (some-> (.-state %) .-outcome)) (array-seq (.-items page))))))
 
+(defonce starting
+  (atom #{}))
+
 (defn ^:async start!
   "The compaction of the loop `loop-id` begun for `reason` (`budget`,
    `away`, `asked`, `migration`): the task made in a commit of the
-   loop's conversation, unless one runs or a compaction is under way;
-   with an `:instruction` the notice says that instead of the usual
-   (the migration's handover, `rragent.migration`). Answers the
-   task's id, nil when nothing was started."
+   loop's conversation, unless one runs or a compaction is under way,
+   or a start of one is (`starting`: the check and the commit are two
+   steps, and two callers in one tick, the away watch and the page's
+   button, would make two tasks); with an `:instruction` the notice
+   says that instead of the usual (the migration's handover,
+   `rragent.migration`). Answers the task's id, nil when nothing was
+   started."
   [harness loop-id reason context & [{:keys [instruction]}]]
-  (let [live (await (.snapshot harness LiveDoc loop-id context))]
-    (when (and (empty? (some-> live .-compactions array-seq))
-               (not (await (running? harness loop-id context))))
-      (when-let [conversation (await (.conversation harness loop-id context))]
-        (await (.commit conversation
-                        (fn [tx]
-                          (.createTask tx Task
-                                       (let [input #js {:reason (str reason)}]
-                                         (when (seq (str instruction))
-                                           (aset input "instruction" (str instruction)))
-                                         input)
-                                       #js {:ownership #js {:kind "conversation"}
-                                            :conversationId loop-id
-                                            :background true}))
-                        context))))))
+  (when-not (contains? @starting loop-id)
+    (swap! starting conj loop-id)
+    (try
+      (let [live (await (.snapshot harness LiveDoc loop-id context))]
+        (when (and (empty? (some-> live .-compactions array-seq))
+                   (not (await (running? harness loop-id context))))
+          (when-let [conversation (await (.conversation harness loop-id context))]
+            (await (.commit conversation
+                            (fn [tx]
+                              (.createTask tx Task
+                                           (let [input #js {:reason (str reason)}]
+                                             (when (seq (str instruction))
+                                               (aset input "instruction" (str instruction)))
+                                             input)
+                                           #js {:ownership #js {:kind "conversation"}
+                                                :conversationId loop-id
+                                                :background true}))
+                            context)))))
+      (finally
+        (swap! starting disj loop-id)))))

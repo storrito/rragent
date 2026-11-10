@@ -25,7 +25,7 @@
 
 (def task-tools
   "The tools of a task."
-  (into coding-tools ["fetch" "machine" "project" "render" "image" "voice" "music" "transcribe" "youtube" "share"]))
+  (into coding-tools ["fetch" "machine" "project" "render" "image" "voice" "music" "transcribe" "youtube"]))
 
 (defn- named
   "The tools as pi-durable's `modelTools` takes them: a list of

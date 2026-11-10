@@ -107,6 +107,18 @@
     (is (= #{"Nowhere"} (:topics (get by-id 4))) "a topic nothing matches stays as given")
     (is (= {"content-week" 3 "Nowhere" 5} (view/topic-activity items)))))
 
+(deftest queued-topic-test
+  (let [conversation {:entries [(person 1 "Lydia" "content-week" "Covers?")
+                                (assistant 2 [{:type "text" :text "Eight."}])]
+                      :live {}
+                      :inbox {:items [{:id "q1" :mode "followUp" :content "And the captions?"
+                                       :entry {:kind "rragent.person" :data {:name "Lydia" :topic "content-week"}}}]}}
+        items (view/items conversation topics)
+        queued (some #(when (= "q1" (:id %)) %) items)]
+    (is (:pending? queued))
+    (is (= #{"content-week"} (:topics queued)) "a waiting message keeps the topic of the view it was sent from")
+    (is (= 3 (count (view/visible items {:kind :topic :topic "content-week"}))))))
+
 (deftest resolve-or-keep-test
   (reset! topic-tool/topics-fn (fn [] topics))
   (try

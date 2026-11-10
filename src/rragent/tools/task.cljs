@@ -89,6 +89,12 @@
       (throw (js/Error. "task needs the text: everything the task must know")))
     (when (cap/reached?)
       (throw (js/Error. "The month's budget is spent: no task starts until the owner raises the cap in Settings → Budget. Tell the person.")))
+    (when continued
+      (let [found (when @tasks/harness (await (tasks/task @tasks/harness (js/Number continued) call-context)))]
+        (when-not (and found (= (str loop-id) (str (:loop found))))
+          (throw (js/Error. (str "No task " continued " of this conversation; `list` names them."))))
+        (when-not (#{:done :failed :aborted} (:state found))
+          (throw (js/Error. (str "The task " continued " still runs: wait for its result, or stop it first."))))))
     (let [id (or (await (made-by-call api loop-id call-context))
                  (await (.commit api
                                  (fn [tx]
@@ -132,14 +138,15 @@
 (defn- ^:async stop!
   [^js args api call-context]
   (let [id (str/trim (str (.-id args)))
-        harness @tasks/harness]
+        harness @tasks/harness
+        loop-id (await (work/bot-id api call-context))]
     (when (str/blank? id)
       (throw (js/Error. "stop needs the id of the task")))
     (when-not harness
       (throw (js/Error. "The machine cannot stop tasks yet.")))
     (let [found (await (tasks/task harness (js/Number id) call-context))]
-      (when-not found
-        (throw (js/Error. (str "No task " id "."))))
+      (when-not (and found (= (str loop-id) (str (:loop found))))
+        (throw (js/Error. (str "No task " id " of this conversation."))))
       (if (#{:done :failed :aborted} (:state found))
         (work/text (str "The task " id " had ended already: " (name (:state found)) "."))
         (do (await (.abortTask harness (js/Number id) call-context))

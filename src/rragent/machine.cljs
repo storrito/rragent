@@ -545,6 +545,18 @@
          (sort-by js/Number)
          (vec))))
 
+(defn- loop-id-before-resume
+  "What `harness/open` runs before the harness resumes the tasks of
+   before: the loop's id from the structure, so that a schedule of
+   the loop's overdue at the open fires into its chat and not as a run
+   (docs/one-loop.md §6), and a charge counts as the loop's."
+  [opts]
+  (fn [harness _context]
+    (-> (refresh-structure! harness)
+        (.then (fn [{:keys [hidden manager]}]
+                 (when (and (not (false? (:loop? opts))) manager (not (contains? hidden manager)))
+                   (reset! loop/id manager)))))))
+
 (defn ^:async open!
   "The machine of the home opened: the harness over its one storage
    (`rragent.harness/open`, which moves a home from before the bots
@@ -560,7 +572,9 @@
     (when-let [to (migration/backup! (or (:home opts) (home/home)))]
       (println (str "the home was copied to " to " before its adoption into the one conversation"))))
   (reset! topic-tool/topics-fn topics)
-  (let [agent (await (harness/open (assoc opts :extensions [(topic-tool/extension {:topics #'topics
+  (let [agent (await (harness/open (assoc opts
+                                          :before-resume (loop-id-before-resume opts)
+                                          :extensions [(topic-tool/extension {:topics #'topics
                                                                                    :create! (fn [name] (create-topic! (:harness (agent)) name))
                                                                                    :rename! (fn [id name] (rename-topic! (:harness (agent)) id name))
                                                                                    :archive! (fn [id] (archive-topic! (:harness (agent)) id))})

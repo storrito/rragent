@@ -73,3 +73,36 @@
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest overdue-schedule-at-open-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (binding [sprite/*sprite-env* "no-such-command-anywhere"]
+               (try
+                 (await (machine/open! {:home home :models models :provider "faux"}))
+                 (let [loop (machine/loop-id)]
+                   (bots/set-metadata! home loop "model" "faux-1")
+                   (.setResponses faux (clj->js (concat [(tools-test/tool-call "schedule" {:action "set" :name "tick" :cron "* * * * * *" :text "Tick: check the covers."} "s1")
+                                                         (tools-test/answer "Set.")]
+                                                        (repeat 20 (tools-test/answer "Tock.")))))
+                   (is (= "Set." (await (harness/ask-in (:conversation (machine/bot loop)) "Every second, check the covers."))))
+                   (await (machine/close-all!))
+                   (await (sleep 1500))
+                   (testing "a fire overdue when the machine opens again lands in the loop's chat, not as a run (the loop's id is known before the tasks of before go on)"
+                     (.setResponses faux (clj->js (repeat 20 (tools-test/answer "Tock."))))
+                     (await (machine/open! {:home home :models models :provider "faux"}))
+                     (let [loop (machine/loop-id)
+                           conversation (:conversation (machine/bot loop))
+                           harness (:harness (machine/agent))]
+                       (bots/set-metadata! home loop "model" "faux-1")
+                       (await (sleep 1500))
+                       (let [es (await (entries conversation))]
+                         (is (<= 1 (count (filter #(= "rragent.schedule" (:kind %)) es))) (pr-str (map :kind es))))
+                       (is (empty? (await (runs/listed harness (js/Number loop) 10 harness/context))) "no run of the loop's"))))
+                 (finally
+                   (await (machine/close-all!))
+                   (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))

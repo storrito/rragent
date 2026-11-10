@@ -63,7 +63,7 @@
 (deftest roles-test
   (is (= ["read" "write" "edit" "bash"] roles/coding-tools))
   (is (= #{"task" "topic" "bot" "schedule" "hook" "skill" "share" "machine" "fetch"} (set (remove (set roles/coding-tools) roles/loop-tools))) "the loop: talk, judgment, the wiki, tasks and topics")
-  (is (= #{"project" "render" "image" "voice" "music" "transcribe" "youtube" "machine" "fetch" "share"} (set (remove (set roles/coding-tools) roles/task-tools))) "a task: the work")
+  (is (= #{"project" "render" "image" "voice" "music" "transcribe" "youtube" "machine" "fetch"} (set (remove (set roles/coding-tools) roles/task-tools))) "a task: the work")
   (is (not-any? #{"remember" "recall" "report" "subagent" "music_pick"} (concat roles/loop-tools roles/task-tools)) "neither remembers, reports or nests")
   (is (nil? (roles/model-tools nil)) "a bot of before sees every tool")
   (is (= roles/task-tools (mapv #(.-name %) (array-seq (roles/model-tools :task)))) "as pi-durable takes them, objects with a name"))

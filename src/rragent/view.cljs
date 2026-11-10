@@ -263,7 +263,9 @@
       (with-media (cond-> {:kind :user
                            :id id
                            :pending? true}
-                    (= "steer" mode) (assoc :steer? true))
+                    (= "steer" mode) (assoc :steer? true)
+                    ;; the topic of the view it was sent from, as the entry will carry it
+                    (seq (str (:topic (:data entry)))) (assoc :topic (:topic (:data entry))))
                   content))))
 
 (defn- person-answer?

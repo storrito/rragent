@@ -427,8 +427,10 @@
    models and the media tools (`rragent.openrouter`), which asks the
    gateway again at a call when nothing was found. The other bots'
    conversations are opened by `rragent.machine` with
-   `register-conversation!`."
-  [{:keys [home models storage provider now gateway retry extensions]}]
+   `register-conversation!`. `before-resume`, a function of the
+   harness and the context, runs before the harness resumes the
+   durable tasks of before, for what they must find in place."
+  [{:keys [home models storage provider now gateway retry extensions before-resume]}]
   (let [home (or home (home/home))
         _ (fs/mkdirSync home #js {:recursive true})
         ;; every chat completion request measured, a refusal as too
@@ -464,6 +466,10 @@
         view (await (.viewState root context))
         agent {:harness harness :home home :models models :codemode codemode :provider (or provider "openrouter")}
         definition (await (register-conversation! agent root))]
+    ;; what the caller needs in place before the tasks of before go on:
+    ;; the loop's id (`rragent.machine`), read by a schedule's fire
+    (when before-resume
+      (await (before-resume harness context)))
     (.resume harness)
     (assoc agent
            :root root
