@@ -295,7 +295,12 @@
    (`rragent.genui/asks?`) and has no answer of theirs yet: a worker's
    report or the bot's reply to one pushes it up the feed, so the page
    pins it (`waiting`) until the person answers. Nil when the last item
-   is that answer itself, which is on screen, or when nothing is open."
+   is that answer itself, which is on screen, or when nothing is open.
+   `items` are those the view shows (`visible`): a card is pinned in
+   its topic's view and in the view of all, never in another topic's
+   or in the \"New topic\" view, where it would ask about something
+   the person does not see there; the sidebar's \"Needs you\" says
+   where it waits."
   [items]
   (let [items (vec items)
         card (last (filter #(and (= :assistant (:kind %)) (not (:answered? %)) (not (:streaming? %)) (genui/asks? (:text %))) items))]
@@ -303,13 +308,15 @@
       card)))
 
 (defn- card-line
-  "The first line of the card's text that is not a fence, cut short."
+  "The first line of the card's text that is not a fence, cut short,
+   without the marks of Markdown's emphasis and code, which a line of
+   plain text would show as they are."
   [text]
   (let [line (some #(let [l (str/trim %)]
                       (when (and (seq l) (not (str/starts-with? l "```")) (not (str/starts-with? l "[")))
                         l))
                    (str/split-lines (str text)))]
-    (cut 90 (or line ""))))
+    (cut 90 (str/replace (or line "") #"\*\*|__|`" ""))))
 
 (defn waiting
   "The strip above the composer while a card of the bot's waits for the
@@ -2123,7 +2130,7 @@
           (when run
             (run-head id (:name bot) run))
           (feed shown-items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (cond run [:i18n :run/empty] new? [:i18n :views/new-empty] (not= :all (:kind view)) [:i18n :views/empty])})
-          (when-let [card (when-not run (open-card all))]
+          (when-let [card (when-not run (open-card shown-items))]
             (waiting card))
           ;; the form in place of the composer while the page asked for the
           ;; browser's person and got no name yet (`rragent.person`)

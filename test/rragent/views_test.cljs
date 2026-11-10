@@ -193,8 +193,15 @@
       (is (some #{"How are the covers?"} s))))
   (testing "a topic without anything says so"
     (is (some #{"Nothing here yet."} (feed-strings (page {:view {:kind :topic :topic "old"}})))))
-  (testing "the waiting card is pinned whatever the view"
-    (is (some? (find-tag (page {:view {:kind :topic :topic "pinterest"}}) :div.waiting))))
+  (testing "the waiting card is pinned where it is shown: in its topic's view and in the view of all, not in another topic's or in the New topic view"
+    (is (some? (find-tag (page {:view {:kind :topic :topic "content-week"}}) :div.waiting)))
+    (is (some? (find-tag (page {:view {:kind :all}}) :div.waiting)))
+    (is (nil? (find-tag (page {:view {:kind :topic :topic "pinterest"}}) :div.waiting)))
+    (is (nil? (find-tag (page {:view {:kind :topic :topic "old"}}) :div.waiting)))
+    (is (nil? (find-tag (page {:view {:kind :new}}) :div.waiting))))
+  (testing "the pinned line is plain text: no marks of emphasis"
+    (let [strip (find-tag (i18n/translate (view/waiting {:id 7 :text "It went from **1:35** to `1:20`."}) :en) :span.preview)]
+      (is (= "It went from 1:35 to 1:20." (last strip)))))
   (testing "another conversation than the loop shows whole"
     (let [s (feed-strings (page {:bot {:id "1" :name "watcher"} :view {:kind :topic :topic "pinterest"}}))]
       (is (some #{"How are the covers?"} s)))))

@@ -104,7 +104,10 @@ end. There is no view of the open cards alone (there was, "Needs
 you": the same card as in its topic with less around it, which
 confused): a card is read in its topic, and an open card of no topic
 marks All. A card is open when the loop asked (a ```hiccup block with
-a `:send` button) and no person answered since. Settings → Advanced keeps the raw list of the
+a `:send` button) and no person answered since. When later turns pushed
+an open card up the feed, the page pins it above the composer, in the
+views that show it alone: its topic's and all, never another topic's
+or the "New topic" view. Settings → Advanced keeps the raw list of the
 conversations of before and the tasks' transcripts, and a "New bot"
 for the people behind this machine; the header's context ring (how
 full the window is, the cost, "Summarize older messages now") and the
