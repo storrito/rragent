@@ -467,7 +467,10 @@
         agent {:harness harness :home home :models models :codemode codemode :provider (or provider "openrouter")}
         definition (await (register-conversation! agent root))]
     ;; what the caller needs in place before the tasks of before go on:
-    ;; the loop's id (`rragent.machine`), read by a schedule's fire
+    ;; the loop's id (`rragent.machine`), read by a schedule's fire.
+    ;; Nothing above may submit, compact, abort or wait on a
+    ;; conversation: pi-durable resumes its scheduler on any of those,
+    ;; and the tasks would go on before this ran
     (when before-resume
       (await (before-resume harness context)))
     (.resume harness)

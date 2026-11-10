@@ -130,10 +130,10 @@
 (defn- ^:async fail!
   "A phase that threw: the task moves to `deliver` with a failed
    result, so that the loop hears of it (docs/one-loop.md §2) instead
-   of a task that ends in silence; an abort under way is left to the
-   abort handler."
+   of a task that ends in silence; an abort under way (the runtime's
+   signal) is left to the abort handler."
   [runtime ^js checkpoint error context]
-  (when (.-abortRequested runtime)
+  (when (some-> (.-signal runtime) .-aborted)
     (throw error))
   (js/console.error "[task]" (str "the task " (.-taskId runtime) " failed: " (reason-of error)))
   (await (.commit runtime

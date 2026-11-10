@@ -94,7 +94,9 @@
         (when-not (and found (= (str loop-id) (str (:loop found))))
           (throw (js/Error. (str "No task " continued " of this conversation; `list` names them."))))
         (when-not (#{:done :failed :aborted} (:state found))
-          (throw (js/Error. (str "The task " continued " still runs: wait for its result, or stop it first."))))))
+          (throw (js/Error. (str "The task " continued " still runs: wait for its result, or stop it first."))))
+        (when-not (:conversation found)
+          (throw (js/Error. (str "The task " continued " ended before it had a conversation; nothing to continue. Start a new task."))))))
     (let [id (or (await (made-by-call api loop-id call-context))
                  (await (.commit api
                                  (fn [tx]

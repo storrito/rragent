@@ -185,7 +185,12 @@
                        (is (str/starts-with? (:line failed) "did not run: No task 999999") (:line failed))
                        (is (= "failed" (:state (:data entry))))
                        (is (= (:id failed) (:task (:data entry))))
-                       (is (= "That did not run." (:text (first (await (entries conversation))))) "the loop was told")))
+                       (is (= "That did not run." (:text (first (await (entries conversation))))) "the loop was told")
+                       (testing "a task that ended without a conversation cannot be continued"
+                         (.setResponses faux #js [(tools-test/tool-call "task" {:id (str (:id failed)) :text "Again." :model "faux-1"} "c3b")
+                                                  (tools-test/answer "Nothing to continue.")])
+                         (is (= "Nothing to continue." (await (harness/ask-in conversation "Continue it."))))
+                         (is (str/includes? (get (await (results conversation)) "c3b") "ended before it had a conversation")))))
                    (testing "stop: a task that ended, a task that is not this conversation's"
                      (.setResponses faux #js [(tools-test/tool-call "task" {:action "stop" :id (str (:id first-task))} "c4")
                                               (tools-test/answer "Ended already.")
