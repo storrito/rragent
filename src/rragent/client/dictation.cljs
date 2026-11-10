@@ -128,12 +128,16 @@
   (some :pending? (:segments dictation)))
 
 (defn- update!
-  "Applies `f` to the dictation and writes the draft from it, before
-   the store's change renders the page."
+  "Applies `f` to the dictation and writes the draft from it: the text
+   into the atom and the composer, then the dictation and the draft's
+   flag into the store in one change, one render."
   [{:keys [store store-key]} f & args]
-  (let [dictation (apply f (:ui/dictation @store) args)]
-    (draft/write! store-key (draft dictation))
-    (swap! store assoc :ui/dictation dictation)))
+  (let [dictation (apply f (:ui/dictation @store) args)
+        text (draft dictation)]
+    (draft/put! store-key text)
+    (swap! store #(-> %
+                      (assoc :ui/dictation dictation)
+                      (draft/flagged store-key text)))))
 
 (defn- read-answer
   [text]

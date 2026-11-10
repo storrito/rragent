@@ -40,6 +40,17 @@
     (draft/clear! [:draft "7"])
     (is (not (contains? @state/store [:draft "7"])))))
 
+(deftest flagged-test
+  (testing "a text sets the key, a blank one removes it"
+    (is (= {[:draft "7"] true} (draft/flagged {} [:draft "7"] "Hello")))
+    (is (= {} (draft/flagged {[:draft "7"] true} [:draft "7"] "")))
+    (is (= {} (draft/flagged {[:draft "7"] true} [:draft "7"] "   "))))
+  (testing "a state that says so already is the same state"
+    (let [state {[:draft "7"] true :other 1}]
+      (is (identical? state (draft/flagged state [:draft "7"] "Hello"))))
+    (let [state {:other 1}]
+      (is (identical? state (draft/flagged state [:draft "7"] ""))))))
+
 (defn- fake-node
   "A node with a `value` that counts how often it is set."
   []
@@ -55,7 +66,7 @@
   (fresh!)
   (testing "the node takes the draft of its key on the mount"
     (draft/write! [:draft "7"] "Typed before")
-    (let [{:keys [node]} (fake-node)]
+    (let [{:keys [node sets]} (fake-node)]
       (draft/mount! [:draft "7"] node)
       (is (= "Typed before" (.-value node)))
       (testing "a write to its key goes to the node, one to another key does not"
@@ -63,10 +74,11 @@
         (draft/write! [:draft "7/topic"] "Elsewhere")
         (is (= "More" (.-value node))))
       (testing "a node that has the text already is left alone, the caret with it"
-        (let [{:keys [sets]} (fake-node)]
-          (reset! sets 0)
-          (draft/write! [:draft "7"] "More")
-          (is (= 0 @sets))))
+        (reset! sets 0)
+        (draft/write! [:draft "7"] "More")
+        (is (= 0 @sets))
+        (draft/write! [:draft "7"] "More!")
+        (is (= 1 @sets)))
       (testing "cleared, the node is empty"
         (draft/clear! [:draft "7"])
         (is (= "" (.-value node))))

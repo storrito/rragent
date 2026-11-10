@@ -238,6 +238,7 @@
                        (is (= "1" id) "the root conversation")
                        (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "Capital of France?"}))))
                        (is (= {:success? false :result {:error :no-such-bot}} (await (command! base cookie :chat/send {:bot "99" :text "x"}))))
+                       (is (= {:success? false :result {:error :bad-text}} (await (command! base cookie :chat/send {:bot id :text [:composer/draft [:draft "7"]]}))) "a placeholder the browser did not fill is no text")
                        (let [answer (await (frame! #(mentions? % "Paris.")))]
                          (is (some? answer))
                          (is (number? (:used (first (machine/listed)))) "the bot counts as used by its newest entry")

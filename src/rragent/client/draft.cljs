@@ -9,7 +9,7 @@
    change of the store renders the whole page again, the feed of up
    to two hundred items with it, and a letter typed is no change of
    the page. The store learns only whether there is a draft (`key` to
-   true, `write!`), for the Send button, which renders from it: once
+   true, `flagged`), for the Send button, which renders from it: once
    at the first letter of a message and once at the last one deleted,
    not at every letter. So the text of the composer carries no value
    of the frame's: it takes the draft when it mounts (`mount!`), and
@@ -46,11 +46,11 @@
   [^js node]
   (swap! mounted* #(when-not (identical? node (:node %)) %)))
 
-(defn write!
-  "`text` as the draft under `key`: in the atom, in the text of the
+(defn put!
+  "`text` as the draft under `key`: in the atom, and in the text of the
    composer when it shows this key (left alone when it has the text
-   already: setting a value moves the caret to the end), and the
-   store told whether there is a draft, when that changed."
+   already: setting a value moves the caret to the end). The store is
+   not told, see `write!`."
   [key text]
   (let [text (str text)]
     (if (= "" text)
@@ -58,10 +58,29 @@
       (swap! drafts* assoc key text))
     (let [{mounted-key :key :keys [node]} @mounted*]
       (when (and node (= key mounted-key) (not= text (.-value node)))
-        (set! (.-value node) text)))
-    (let [some? (not (str/blank? text))]
-      (when (not= some? (boolean (get @state/store key)))
-        (swap! state/store #(if some? (assoc % key true) (dissoc % key)))))))
+        (set! (.-value node) text)))))
+
+(defn flagged
+  "`state` told whether there is a draft under `key`: the key to true
+   with a `text`, gone with a blank one; the state itself when it says
+   so already, so that a caller can see nothing changed."
+  [state key text]
+  (let [present? (not (str/blank? (str text)))]
+    (cond
+      (= present? (boolean (get state key))) state
+      present? (assoc state key true)
+      :else (dissoc state key))))
+
+(defn write!
+  "`put!`, and the store told whether there is a draft (`flagged`)
+   when that changed: a render then, once at the first letter of a
+   message and once at the last one deleted. A writer that changes the
+   store anyway, the dictation, puts and flags in its own one change."
+  [key text]
+  (put! key text)
+  (let [state @state/store]
+    (when-not (identical? state (flagged state key text))
+      (swap! state/store flagged key text))))
 
 (defn clear!
   "The draft under `key` is gone, sent."
