@@ -311,7 +311,23 @@
   (let [page (fn [update & [locale]]
                (let [locale (or locale :en)]
                  (i18n/translate (view/page {:agent {} :conversation nil :locale locale :settings? true :update update}) locale)))]
-    (testing "in place of the chat: the title, the way back, the one section with the version and the button"
+    (testing "the sidebar's rows are the way back: no view is marked as the current one while the settings show, each is a click to its chat"
+      (let [opts {:bots [{:id "7" :name "Assistant" :label "Assistant" :state :idle :loop? true}]
+                  :bot {:id "7" :name "Assistant"}
+                  :conversation nil :locale :en
+                  :view {:kind :topic :topic "week"}
+                  :topics {"week" {:name "Content week" :created 1}}}
+            current (fn [page] (filter #(and (vector? %) (= :li (first %)) (= "current" (:class (second %)))) (nodes page)))
+            chat (i18n/translate (view/page opts) :en)
+            settings (i18n/translate (view/page (assoc opts :settings? true)) :en)]
+        (is (= ["Content week"] (map #(last (find-tag % :span.name)) (current chat))) "the chat marks its view")
+        (is (empty? (current settings)) "the settings mark none")
+        (is (= "current" (:class (second (find-tag settings :button.settings)))))
+        (is (some #(and (vector? %) (= :button.row (first %))
+                        (= [[:data/command {:command/kind :view/show :command/data {:tab :ui/tabid :kind :topic :topic "week"}}]] (get-in (second %) [:on :click])))
+                  (nodes settings))
+            "the topic's row shows its view")))
+    (testing "in place of the chat: the title, the one section with the version and the button"
       (let [page (page {:current "0.1.2" :auto? false})
             text (set (strings page))]
         (is (contains? text "Settings"))
@@ -322,7 +338,8 @@
         (is (nil? (find-tag page :section.feed)))
         (is (= [[:data/command {:command/kind :update/check}]] (get-in (second (find-tag page :button.link.check)) [:on :click])))
         (is (false? (:disabled (second (find-tag page :button.link.check)))))
-        (is (= [[:data/command {:command/kind :settings/close :command/data {:tab :ui/tabid}}]] (get-in (second (find-tag page :button.link.close)) [:on :click])))
+        (is (nil? (find-tag page :button.link.close)) "no button back: the sidebar's rows are the way")
+        (is (not (contains? text "Back to the chat")))
         (is (= "current" (:class (second (find-tag page :button.settings)))) "marked in the sidebar")
         (is (nil? (find-tag page :div.banner.update)))
         (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
@@ -390,7 +407,7 @@
         (is (contains? text "Einstellungen"))
         (is (contains? text "Du nutzt rragent 0.1.2."))
         (is (contains? text "Nach Updates suchen"))
-        (is (contains? text "Zurück zum Chat"))))))
+        (is (not (contains? text "Zurück zum Chat")))))))
 
 (deftest screen-test
   (let [c {:entries [(user 2 [{:type "text" :text "Make it pink\non screen beside the chat: artifacts/stories/a.html"}])]}

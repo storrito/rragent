@@ -10,8 +10,16 @@
        :update   the running version and a newer release, the banner
                  and the Updates section of the settings
        :tabs     {tabid bot-id}, the bot each tab picked in the sidebar
+       :tab-runs {tabid run-id}, the run a tab shows in place of the chat
+       :tab-panes {tabid pane}, which list of the pane a tab sees
+       :tab-views {tabid view}, the view of the loop's conversation a
+                 tab shows, a topic's, the \"New topic\" one
+                 (`rragent.view/shown-view`)
+       :tab-limits {tabid n}, how many items a tab's feed shows once
+                 the person asked for earlier ones (`rragent.view/feed`)
        :settings-open  #{tabid}, the tabs showing the settings in place
                  of the chat
+       :settings-section {tabid section}, the settings' section of a tab
        :expanded {tabid #{item-id}}, the folded rows of the chat (tool
                  calls, hook calls, schedule runs) each tab has open; a
                  frame carries their body only for those
@@ -33,8 +41,9 @@
    (`rragent.schedule`), `:dir`, `:work`, `:uploads`,
    `:projects-handle`, `:render-handle` and `:stop!`. The watch of
    `rragent.page` pushes a frame to the tabs showing a bot whose value
-   keys changed, to every tab for the page's own keys, and nothing for
-   a handle (`rragent.page/bot-value-keys`).
+   keys changed, to the tab alone whose own entry changed (the keys
+   by tab id above), to every tab for the page's other keys, and
+   nothing for a handle (`rragent.page/affected`).
 
    The namespaces of the pane write under a bot's path, `[:bots id]`,
    with `at` and `update-at`: `update-in` with an empty path would

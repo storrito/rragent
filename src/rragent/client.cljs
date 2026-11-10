@@ -1335,6 +1335,34 @@
                                      (catch :default _
                                        nil)))}}])
 
+(defn- first-item
+  "The first message the feed shows, the row that brings earlier ones
+   aside."
+  [^js feed]
+  (.querySelector feed ":scope > :not(.earlier)"))
+
+(defn- keep-place!
+  "The reader's place in the feed across \"Show earlier messages\": the
+   first message shown stays where it is on the screen when the earlier
+   ones come in above it. The browser's own scroll anchoring does not do
+   it, it is off at the very top of a scroller, where that row sits. The
+   place is taken from that message and not from the feed's end, so a
+   message arriving below meanwhile does not move it."
+  [_]
+  (when-let [^js feed (js/document.querySelector "section.feed")]
+    (when-let [^js anchor (first-item feed)]
+      (let [top (.-top (.getBoundingClientRect anchor))
+            observer (js/MutationObserver.
+                      (fn [_ ^js observer]
+                        (when-not (identical? anchor (first-item feed))
+                          (.disconnect observer)
+                          (when (.-isConnected anchor)
+                            (set! (.-scrollTop feed)
+                                  (+ (.-scrollTop feed)
+                                     (- (.-top (.getBoundingClientRect anchor)) top)))))))]
+        (.observe observer feed #js {:childList true})
+        (js/setTimeout #(.disconnect observer) 10000)))))
+
 (def register
   "The aliases of the page, the URL of the bot, `:ui/tabid` in a
    command, the id of this tab, and `:ui/screen`, what its pane shows
@@ -1371,6 +1399,8 @@
     :ui.alias/fn pane-history}
    {:ui.action/kind :ui/pane-shown
     :ui.action/handler (fn [_] (swap! pane* dissoc :stale))}
+   {:ui.action/kind :ui/keep-place
+    :ui.action/handler keep-place!}
    {:ui.action-enricher/kind :ui/tabid
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/tabid x)

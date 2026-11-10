@@ -2,10 +2,13 @@
   "The views of the one conversation (docs/one-loop.md §3): every
    turn tagged with its topics, the topic the person's message came
    from and the topics the `topic` tool calls name; the sidebar's
-   rows, all and the topics, those that need the person marked and
-   first, then by their last activity, the archived ones folded; a view that filters the feed; the composer that names
-   the view's topic and sends it."
-  (:require [clojure.test :refer [deftest is testing]]
+   rows, the topics, those that need the person marked and first,
+   then by their last activity, the archived ones folded, no view of
+   everything at once; a view that filters the feed, the default one,
+   the feed's window; the composer that names the view's topic and
+   sends it."
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [rragent.i18n :as i18n]
             [rragent.tools.topic :as topic-tool]
             [rragent.view :as view]))
@@ -31,7 +34,7 @@
 
 (def conversation
   {:entries [{:id 1 :kind "pi.system" :model [{:role "system" :content ""}]}
-             ;; a turn from the view of all: no topic until the model makes one
+             ;; a turn of no topic until the model makes one
              (person 2 "Lydia" nil "Let us do a Pinterest short.")
              (assistant 3 [{:type "toolCall" :id "c1" :name "topic" :arguments {:action "create" :name "Pinterest"}}])
              (tool-result 4 "c1" "Made the topic Pinterest (pinterest); this turn is under it.")
@@ -136,9 +139,10 @@
     (testing "not under the class of the phone's tabs, `.views`, which the stylesheet hides on a wide screen"
       (is (nil? (find-tag p :section.views)))
       (is (nil? (find-tag p :ul.views))))
-    (testing "all alone over the topics: no row of the open cards, no mark while every open card has a topic"
-      (is (= ["All"] (map #(second (find-tag % :span.name)) (find-tags views :li))))
-      (is (empty? (find-tags views :span.badge))))
+    (testing "nothing over the topics: no view of everything, no row of the open cards while every open card has a topic"
+      (is (nil? views))
+      (is (not-any? #{"All"} (strings p)))
+      (is (= ["+ New topic" "Content week" "Pinterest" "Old job"] (map #(second (find-tag % :span.name)) (find-tags topics-section :li)))))
     (testing "the topic that needs the person first and marked, then by last activity; the archived one folded, the current marked"
       (let [rows (find-tags (find-tag topics-section :ul.topics) :li)]
         (is (= ["Content week" "Pinterest"] (map #(second (find-tag % :span.name)) rows)) "both touched by the last turn and Pinterest made later, but the card of content-week waits")
@@ -166,10 +170,28 @@
             section (find-tag (page {:conversation more}) :section.topics)]
         (is (= [[:span.badge.waits "Needs you" " · 2"]] (find-tags (find-tag section :ul.topics) :span.badge.waits)))
         (is (true? (:open (second (find-tag section :details.archived)))))))
-    (testing "an open card of no topic marks all"
-      (let [loose (update conversation :entries into [(person 12 "Lydia" nil "Anything else?")
-                                                      (assistant 13 [{:type "text" :text card}])])]
-        (is (= [[:span.badge.waits "Needs you" nil]] (find-tags (find-tag (page {:conversation loose}) :section.loop-views) :span.badge.waits)))))
+    (testing "an open card of no topic gets a row of its own, marked, which shows the turns of no topic"
+      (let [loose (update conversation :entries into [{:id 12 :kind "rragent.schedule" :data {:name "tick" :at 12} :model [{:role "user" :content "Tick."}]}
+                                                      (assistant 13 [{:type "text" :text card}])
+                                                      {:id 14 :kind "rragent.task-done" :data {:task 10 :topic "pinterest" :state "done" :line "Pins."} :model [{:role "user" :content "The task 10 is done."}]}
+                                                      (assistant 15 [{:type "text" :text "Pins are in."}])
+                                                      {:id 16 :kind "rragent.schedule" :data {:name "tick" :at 16} :model [{:role "user" :content "Tick."}]}
+                                                      (assistant 17 [{:type "text" :text "Ticked again."}])])
+            row (find-tag (page {:conversation loose :view {:kind :topic :topic "pinterest"}}) :section.loop-views)
+            [_ attrs] (find-tag row :button.row)]
+        (is (= ["Without topic"] (map #(second (find-tag % :span.name)) (find-tags row :li))))
+        (is (= [[:span.badge.waits "Needs you" nil]] (find-tags row :span.badge.waits)))
+        (is (= {:tab :ui/tabid :kind :loose} (get-in attrs [:on :click 0 1 :command/data])))
+        (let [p (page {:conversation loose :view {:kind :loose}})
+              s (feed-strings p)]
+          (is (= "current" (:class (second (find-tag (find-tag p :section.loop-views) :li)))))
+          (is (not (some #{"How are the covers?"} s)) "no turn of a topic")
+          (is (not (some #{"Pins are in."} s)))
+          (is (some #{"Ticked again."} s))
+          (is (some? (find-tag p :div.waiting)) "the card pushed up by the next turn of no topic is pinned in its view")
+          (is (nil? (find-tag (page {:conversation loose :view {:kind :topic :topic "pinterest"}}) :div.waiting))))))
+    (testing "the row of no topic stays while the tab shows that view, the card answered"
+      (is (some? (find-tag (page {:view {:kind :loose}}) :section.loop-views))))
     (testing "a row sends the view for the tab"
       (let [[_ attrs] (find-tag (second (find-tags (find-tag topics-section :ul.topics) :li)) :button.row)]
         (is (= {:tab :ui/tabid :kind :topic :topic "pinterest"} (get-in attrs [:on :click 0 1 :command/data])))))
@@ -178,11 +200,14 @@
       (is (some? (find-tag (page {:advanced? true}) :section.all))))))
 
 (deftest view-filters-test
-  (testing "all: every turn"
-    (let [s (feed-strings (page {:view {:kind :all}}))]
-      (is (some #{"Let us do a Pinterest short."} s))
+  (testing "no view of everything: a tab that picked none shows the first topic of the sidebar"
+    (let [p (page {:view nil})
+          s (feed-strings p)]
+      (is (not (some #{"Let us do a Pinterest short."} s)) "Pinterest's turn is not content-week's")
       (is (some #{"How are the covers?"} s))
-      (is (some #{"Eight covers, and one fits Pinterest."} s))))
+      (is (= "in Content week" (second (find-tag p :span.topic))))
+      (is (= ["Content week"] (keep #(when (= "current" (:class (second %))) (second (find-tag % :span.name)))
+                                    (find-tags p :li))))))
   (testing "a topic: its turns alone"
     (let [s (feed-strings (page {:view {:kind :topic :topic "pinterest"}}))]
       (is (some #{"Let us do a Pinterest short."} s))
@@ -193,8 +218,14 @@
       (is (some #{"How are the covers?"} s))))
   (testing "a topic without anything says so"
     (is (some #{"Nothing here yet."} (feed-strings (page {:view {:kind :topic :topic "old"}})))))
-  (testing "the waiting card is pinned whatever the view"
-    (is (some? (find-tag (page {:view {:kind :topic :topic "pinterest"}}) :div.waiting))))
+  (testing "the waiting card is pinned where it is shown: in its topic's view, not in another topic's or in the New topic view"
+    (is (some? (find-tag (page {:view {:kind :topic :topic "content-week"}}) :div.waiting)))
+    (is (nil? (find-tag (page {:view {:kind :topic :topic "pinterest"}}) :div.waiting)))
+    (is (nil? (find-tag (page {:view {:kind :topic :topic "old"}}) :div.waiting)))
+    (is (nil? (find-tag (page {:view {:kind :new}}) :div.waiting))))
+  (testing "the pinned line is plain text: no marks of emphasis"
+    (let [strip (find-tag (i18n/translate (view/waiting {:id 7 :text "It went from **1:35** to `1:20`."}) :en) :span.preview)]
+      (is (= "It went from 1:35 to 1:20." (last strip)))))
   (testing "another conversation than the loop shows whole"
     (let [s (feed-strings (page {:bot {:id "1" :name "watcher"} :view {:kind :topic :topic "pinterest"}}))]
       (is (some #{"How are the covers?"} s)))))
@@ -257,14 +288,17 @@
 
 (deftest new-topic-page-test
   (testing "the row is there without any topic, over the topics, and sends the view"
-    (let [p (page {:topics {} :view {:kind :all}})
+    (let [p (page {:view {:kind :topic :topic "pinterest"}})
           section (find-tag p :section.topics)
           row (find-tag section :ul.topics.new)
           [_ attrs] (find-tag row :button.row)]
-      (is (some? section) "the Topics section stands without a topic")
       (is (= "+ New topic" (second (find-tag row :span.name))))
       (is (= {:tab :ui/tabid :kind :new} (get-in attrs [:on :click 0 1 :command/data])))
-      (is (nil? (:class (second (find-tag row :li)))))))
+      (is (nil? (:class (second (find-tag row :li))))))
+    (let [p (page {:topics {}})
+          row (find-tag (find-tag p :section.topics) :ul.topics.new)]
+      (is (some? row) "the Topics section stands without a topic")
+      (is (= "current" (:class (second (find-tag row :li)))) "and its view is the one a machine without a topic shows")))
   (testing "the empty view: the row marked, a line that says how it starts, the composer asking for the topic"
     (let [p (page {:view {:kind :new} :bot {:id "7" :name "Assistant" :model "faux-1" :models [{:id "faux-1" :name "Faux"}]}})
           composer (find-tag p :ui/composer)
@@ -303,9 +337,89 @@
       (is (= "in Content week" (second (find-tag p :span.topic))))
       (is (= "content-week" (get-in send [0 1 :command/data :topic])))
       (is (= [:draft "7/content-week"] (:ui/store-key (second composer))) "a draft per view")))
-  (testing "in the view of all neither"
-    (let [p (page {:view {:kind :all}})
+  (testing "in the view of the turns of no topic neither"
+    (let [p (page {:view {:kind :loose}})
           composer (find-tag p :ui/composer)]
       (is (nil? (find-tag p :span.topic)))
       (is (nil? (get-in (:ui/send (second composer)) [0 1 :command/data :topic])))
       (is (= [:draft "7"] (:ui/store-key (second composer)))))))
+
+(deftest default-view-test
+  (let [items (view/items conversation topics)]
+    (testing "the first topic of the sidebar's order: the one a card waits in, else the last touched, never an archived one"
+      (is (= {:kind :topic :topic "content-week"} (view/default-view items topics)))
+      (let [quiet (view/items (update conversation :entries #(vec (remove (comp #{6 7} :id) %))) topics)]
+        (is (= {:kind :topic :topic "pinterest"} (view/default-view quiet topics)) "both touched by the last turn, Pinterest made later"))
+      (is (= {:kind :topic :topic "pinterest"} (view/default-view [] topics)) "nothing said yet: the newest made"))
+    (testing "a machine without a topic, or with archived ones alone: the New topic view"
+      (is (= {:kind :new} (view/default-view items {})))
+      (is (= {:kind :new} (view/default-view items (select-keys topics ["old"])))))
+    (testing "the view a tab shows: its pick, the default without one"
+      (is (= {:kind :topic :topic "pinterest"} (view/shown-view {:kind :topic :topic "pinterest"} items topics)))
+      (is (= {:kind :new} (view/shown-view {:kind :new} items topics)))
+      (is (= {:kind :loose} (view/shown-view {:kind :loose} items topics)))
+      (is (= {:kind :topic :topic "content-week"} (view/shown-view nil items topics))))
+    (testing "the turns of no topic"
+      (is (empty? (view/visible items {:kind :loose})) "every turn of the conversation got a topic")
+      (let [loose (view/items (update conversation :entries conj (person 12 "Lydia" nil "Anything else?")) topics)]
+        (is (= [12] (map :id (view/visible loose {:kind :loose}))))))))
+
+(deftest items-kept-test
+  (testing "the items of a conversation are made once per conversation and topics"
+    (let [made (view/items conversation topics)]
+      (is (vector? made))
+      (is (identical? made (view/items conversation topics)))
+      (is (identical? made (view/items conversation (into {} topics))) "topics that are equal")
+      ;; an equal map of another identity: assoc of the same value answers the map itself
+      (is (not (identical? made (view/items (into {} conversation) topics))) "another map, made anew")
+      (is (= made (view/items (into {} conversation) topics)))
+      (is (not (identical? made (view/items conversation {}))) "other topics, other tags")))
+  (testing "no conversation: no items"
+    (is (empty? (view/items nil topics)))))
+
+(deftest feed-window-test
+  (let [turns (fn [n] {:entries (vec (mapcat (fn [i] [(person (* 2 i) "Lydia" "content-week" (str "Question " i))
+                                                      (assistant (inc (* 2 i)) [{:type "text" :text (str "Answer " i)}])])
+                                             (range 1 (inc n))))
+                       :live {}
+                       :inbox {:items []}})
+        texts (fn [p] (filter #(re-find #"^(Question|Answer) \d+$" %) (feed-strings p)))
+        view {:kind :topic :topic "content-week"}]
+    (testing "a short feed: every item, no row above"
+      (let [p (page {:conversation (turns 3) :view view})]
+        (is (= 6 (count (texts p))))
+        (is (nil? (find-tag p :div.item.earlier)))))
+    (testing "a long feed: the newest items of the window, the row that brings the earlier ones"
+      (let [p (page {:conversation (turns 150) :view view})
+            row (find-tag p :div.item.earlier)]
+        (is (= view/feed-window (count (texts p))))
+        (is (= "Question 51" (first (texts p))))
+        (is (= "Answer 150" (last (texts p))))
+        (is (= "Show earlier messages" (last (find-tag row :button))))
+        (is (= [[:ui/keep-place]
+                [:data/command {:command/kind :view/earlier :command/data {:tab :ui/tabid}}]]
+               (get-in (second (find-tag row :button)) [:on :click]))
+            "the reader's place is taken before the command goes")
+        (is (= :section.feed (first (find-tag p :section.feed))))
+        (is (= row (first (filter vector? (nodes (rest (rest (find-tag p :section.feed))))))) "the row is the first of the feed")))
+    (testing "the tab's limit: more of them, then all and no row"
+      (let [p (page {:conversation (turns 150) :view view :limit 250})]
+        (is (= 250 (count (texts p))))
+        (is (= "Question 26" (first (texts p))))
+        (is (some? (find-tag p :div.item.earlier))))
+      (let [p (page {:conversation (turns 150) :view view :limit 700})]
+        (is (= 300 (count (texts p))))
+        (is (nil? (find-tag p :div.item.earlier)))))
+    (testing "the window reaches back to the card the page pins"
+      (let [done (fn [id] {:id id :kind "rragent.task-done" :data {:task id :topic "content-week" :state "done" :line (str "Result " id)}
+                           :model [{:role "user" :content (str "The task " id " is done.")}]})
+            conversation {:entries (into [(person 1 "Lydia" "content-week" "Covers?")
+                                          (assistant 2 [{:type "text" :text card}])]
+                                         (map done (range 1000 1300)))
+                          :live {}
+                          :inbox {:items []}}
+            p (page {:conversation conversation :view view})]
+        (is (some? (find-tag p :div.waiting)))
+        (is (some #(str/includes? % "Covers v2 are in.") (feed-strings p)) "the card itself is in the feed, so the pin's link finds it")
+        (is (not (some #{"Covers?"} (feed-strings p))) "what came before the card is behind the row")
+        (is (some? (find-tag p :div.item.earlier)))))))

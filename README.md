@@ -261,14 +261,18 @@ the reason (`rragent.bots/migrate!`).
 
 `rragent serve` opens the conversations of `RRAGENT_HOME` (`./agent`)
 and serves their page on `PORT` (8080). The sidebar on the left shows
-the views of the loop's conversation: All, Needs you (the open cards,
-answers of the loop that ask the person something and got no answer
-yet, their count the badge), and the topics, each a view of the turns
-tagged with it, with the count of its open cards, in the order of
-their last activity, the archived ones folded; a click shows the view
-in this tab (`:view/show`, the tab's, not the URL's), the composer
-says which topic it is in and sends it with the message, and a card's
-button sends it too. Behind the settings' advanced switch the raw list
+the views of the loop's conversation: "New topic" (the empty view
+whose first message makes a topic) and the topics, each a view of the
+turns tagged with it, with a "Needs you" badge while a card of it (an
+answer of the loop that asks the person something and got no answer
+yet) is open, the topics that need the person first, then in the
+order of their last activity, the archived ones folded, and, while a
+card of no topic waits, a row "Without topic"; there is no view of
+everything. A click shows the view in this tab (`:view/show`, the
+tab's, not the URL's), a tab that picked none shows the first topic;
+a view shows its newest 200 messages and "Show earlier messages" above
+them. The composer says which topic it is in and sends it with the
+message, and a card's button sends it too. Behind the settings' advanced switch the raw list
 of every conversation, with "New bot" and, behind the three dots of a
 row, a rename and a delete, which asks once in the row; the activity
 of the pane, the runs of before and the loop's tasks, with a task's

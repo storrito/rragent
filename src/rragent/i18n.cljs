@@ -94,6 +94,7 @@
    :chat/working "Working"
    :chat/ready "Ready"
    :chat/empty "Nothing here yet. Write the first message."
+   :chat/earlier "Show earlier messages"
    :chat/queued "Waits for the current run to end"
    :chat/steers "Reaches the bot after its current step"
    :chat/on-screen [:fn/str "Open: {{:path}}"]
@@ -262,7 +263,6 @@
 
    :settings/button "Settings"
    :settings/title "Settings"
-   :settings/close "Back to the chat"
    :settings/version-title "Look for a newer rragent in the settings"
    :updates/title "Updates"
    :updates/current [:fn/str "You run rragent {{:version}}."]
@@ -301,7 +301,7 @@
    :mobile/installed "This is the installed app."
    :settings/advanced "Advanced"
    :advanced/title "Advanced"
-   :advanced/explain "The sidebar shows the views of this one conversation: all of it and the topics, marked while one needs you. This adds the raw list of the conversations of before and the tasks' transcripts in the activity, with New bot and the menus to rename and delete one. It also shows how full the model's context is, with what the conversation cost and the button that summarizes older messages, and the model and its effort under the message field. The choice holds for this machine; every tab sees it."
+   :advanced/explain "The sidebar shows the views of this one conversation: the topics, marked while one needs you, and a row for a card without a topic. This adds the raw list of the conversations of before and the tasks' transcripts in the activity, with New bot and the menus to rename and delete one. It also shows how full the model's context is, with what the conversation cost and the button that summarizes older messages, and the model and its effort under the message field. The choice holds for this machine; every tab sees it."
    :advanced/show-all "Show every bot, the raw list and the technical details"
    :mcp/title "MCP servers"
    :mcp/explain "Services your bots use over MCP. Every bot of this machine has their tools."
@@ -341,7 +341,7 @@
    :bots/projects "Projects"
    :bots/other "Other"
    :bots/all "All bots"
-   :views/all "All"
+   :views/loose "Without topic"
    :views/topics "Topics"
    :views/archived "Archived"
    :views/in-topic [:fn/str "in {{:topic}}"]
@@ -458,6 +458,7 @@
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
    :chat/empty "Noch nichts hier. Schreib die erste Nachricht."
+   :chat/earlier "Frühere Nachrichten zeigen"
    :chat/queued "Wartet, bis der laufende Durchgang endet"
    :chat/steers "Erreicht den Bot nach seinem aktuellen Schritt"
    :chat/on-screen [:fn/str "Geöffnet: {{:path}}"]
@@ -627,7 +628,6 @@
 
    :settings/button "Einstellungen"
    :settings/title "Einstellungen"
-   :settings/close "Zurück zum Chat"
    :settings/version-title "In den Einstellungen nach einer neueren rragent-Version sehen"
    :updates/title "Updates"
    :updates/current [:fn/str "Du nutzt rragent {{:version}}."]
@@ -666,7 +666,7 @@
    :mobile/installed "Das hier ist die installierte App."
    :settings/advanced "Erweitert"
    :advanced/title "Erweitert"
-   :advanced/explain "Die Seitenleiste zeigt die Ansichten dieses einen Gesprächs: alles und die Themen, markiert, solange eines dich braucht. Das hier hängt die rohe Liste der Gespräche von früher und die Protokolle der Aufgaben in der Aktivität an, mit Neuer Bot und den Menüs zum Umbenennen und Löschen. Es zeigt außerdem, wie voll der Kontext des Modells ist, mit den Kosten des Gesprächs und dem Knopf, der ältere Nachrichten zusammenfasst, und unter dem Nachrichtenfeld das Modell und seinen Aufwand. Die Wahl gilt für diese Maschine; jeder Tab sieht sie."
+   :advanced/explain "Die Seitenleiste zeigt die Ansichten dieses einen Gesprächs: die Themen, markiert, solange eines dich braucht, und eine Zeile für eine Karte ohne Thema. Das hier hängt die rohe Liste der Gespräche von früher und die Protokolle der Aufgaben in der Aktivität an, mit Neuer Bot und den Menüs zum Umbenennen und Löschen. Es zeigt außerdem, wie voll der Kontext des Modells ist, mit den Kosten des Gesprächs und dem Knopf, der ältere Nachrichten zusammenfasst, und unter dem Nachrichtenfeld das Modell und seinen Aufwand. Die Wahl gilt für diese Maschine; jeder Tab sieht sie."
    :advanced/show-all "Jeden Bot, die rohe Liste und die technischen Details zeigen"
    :mcp/title "MCP-Server"
    :mcp/explain "Dienste, die deine Bots über MCP nutzen. Jeder Bot dieser Maschine hat ihre Werkzeuge."
@@ -706,7 +706,7 @@
    :bots/projects "Projekte"
    :bots/other "Andere"
    :bots/all "Alle Bots"
-   :views/all "Alles"
+   :views/loose "Ohne Thema"
    :views/topics "Themen"
    :views/archived "Archiviert"
    :views/in-topic [:fn/str "in {{:topic}}"]

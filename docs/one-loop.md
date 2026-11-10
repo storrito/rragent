@@ -93,18 +93,45 @@ of a turn inherit the turn's topic, and a `topic tag` or `topic
 create` call inside the turn adds its topic to the turn. No tag is
 stored on assistant entries: the page groups entries into turns and
 reads the tags from the input entry and the topic calls. A turn may
-carry several topics; it shows in each view and in All.
+carry several topics; it shows in each of their views.
 
-The sidebar is All / Topics / Settings. All is the whole
-conversation, what the model sees. A topic's row shows the turns
+The sidebar is New topic / Topics / Settings. There is no view of the
+whole conversation (there was, "All": every topic intertwined, what
+the model sees, which is the load on a person's mind the topics are
+there to take away, and it was the slowest page to show). A tab that
+picked no view shows the first topic of the sidebar's order, the
+"New topic" view on a machine without a topic
+(`rragent.view/default-view`); the page writes that pick down when
+the tab opens, so the view does not change under the person when
+another topic becomes the newest. A topic's row shows the turns
 tagged with it, with a "Needs you" badge while a card of it is open
 (its count from the second on); the topics that need the person come
 first, then rows order by last activity, archived topics fold at the
 end. There is no view of the open cards alone (there was, "Needs
 you": the same card as in its topic with less around it, which
-confused): a card is read in its topic, and an open card of no topic
-marks All. A card is open when the loop asked (a ```hiccup block with
-a `:send` button) and no person answered since. Settings → Advanced keeps the raw list of the
+confused): a card is read in its topic. A turn of no topic, a
+schedule's or a task's without one, the compaction's, is in no view;
+the loop is told to tag what the person should read (LOOP.md). The
+net under that: while an open card belongs to no topic, the sidebar
+has a row "Without topic" with the badge, the view of the turns of no
+topic (`{kind loose}`); the row goes with the card. A card is open
+when the loop asked (a ```hiccup block with
+a `:send` button) and no person answered since. When later turns pushed
+an open card up the feed, the page pins it above the composer, in the
+view that shows it: its topic's, never another topic's
+or the "New topic" view.
+
+A view shows the newest 200 of its items (`rragent.view/feed-window`)
+and a row "Show earlier messages" above them, which brings 500 more
+per click (`:view/earlier`, the tab's `:tab-limits`) while the
+reader keeps their place (`:ui/keep-place`, the client holds the
+first message shown where it is); the window
+reaches back to a pinned card, and starts at the newest again with
+the next view picked. Every cost of a frame, the server's render and
+translation, the browser's decode, walk and diff, grows with the
+items shown, and the loop's conversation only grows: a typed letter
+re-renders the page in the browser, so the feed's size is the
+typing's speed. Settings → Advanced keeps the raw list of the
 conversations of before and the tasks' transcripts, and a "New bot"
 for the people behind this machine; the header's context ring (how
 full the window is, the cost, "Summarize older messages now") and the
