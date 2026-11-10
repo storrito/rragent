@@ -3823,23 +3823,6 @@ form.person button.send {
   white-space: nowrap;
 }
 
-/* The Budget section of the settings (rragent.view/budget-section). */
-.settings .budget .field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 320px;
-}
-
-.settings .budget input.cap {
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  color: inherit;
-  font: inherit;
-}
-
 .banner.cap {
   font-weight: 600;
 }

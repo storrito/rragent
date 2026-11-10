@@ -277,8 +277,8 @@ conversation, the way pchat does it with its chats; the root `/`
 redirects to the loop, and a tab whose conversation is gone shows
 another with a note. The header shows the name and the model.
 Settings, at the bottom of the sidebar, opens in place of the chat
-for this tab, its sections Updates, Budget, On the phone, Input,
-Recording, MCP servers and Advanced (Updates and Deploy, below); the
+for this tab, its sections Updates, On the phone, Input, Recording,
+MCP servers and Advanced (Updates and Deploy, below); the
 version in the header opens it too, and a view picked in the sidebar
 brings the chat back. The rest of the page is the bot's: its
 conversation as a chat, user messages, the

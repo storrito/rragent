@@ -475,18 +475,6 @@
                                               (command/accepted w))
       :else (command/rejected w :no-such-run))))
 
-(defn- ^:async cap-set-command
-  "The Budget section's field: the cap in dollars a month, `monthly`,
-   into the cap document (`rragent.cap/set-monthly!`); a number that
-   is none, or zero, takes the cap away."
-  [w]
-  (let [{:keys [monthly]} (command/command-data w)
-        n (js/parseFloat (str monthly))]
-    (if-let [harness (:harness (machine/agent))]
-      (do (await (cap/set-monthly! harness (when (and (not (js/isNaN n)) (pos? n)) n) harness/context))
-          (command/accepted w))
-      (command/rejected w :no-machine))))
-
 (defn- view-show-command
   "The tab `tab` shows the view `kind` of the loop's conversation,
    `all`, `topic` with its `topic` id, or `new`, the empty
@@ -1511,8 +1499,6 @@
       :command/fn #'send-command}
      {:command/kind :view/show
       :command/fn #'view-show-command}
-     {:command/kind :cap/set
-      :command/fn #'cap-set-command}
      {:command/kind :chat/stop
       :command/fn #'stop-command}
      {:command/kind :chat/compact

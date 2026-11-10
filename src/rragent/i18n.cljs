@@ -282,13 +282,6 @@
    :update/lookup-failed "The newest release could not be looked up."
    :settings/tabs "Sections of the settings"
    :settings/updates "Updates"
-   :settings/budget "Budget"
-   :budget/title "Budget"
-   :budget/explain "What this machine spends at OpenRouter a month, this conversation and its tasks alike, and the cap the owner allows. At 80 percent the assistant says so once; at the cap nothing starts, no message, no task, no schedule, until the cap is raised here."
-   :budget/spent [:fn/str "Spent this month: ${{:spent}}"]
-   :budget/cap [:fn/str "Cap: ${{:monthly}} a month"]
-   :budget/none "No cap set."
-   :budget/field "The cap in dollars a month, 0 for none"
    :budget/reached "The month's budget is spent: nothing starts until the cap is raised in Settings → Budget."
    :settings/mcp "MCP servers"
    :settings/input "Input"
@@ -656,13 +649,6 @@
    :update/lookup-failed "Die neueste Version ließ sich nicht nachsehen."
    :settings/tabs "Bereiche der Einstellungen"
    :settings/updates "Updates"
-   :settings/budget "Budget"
-   :budget/title "Budget"
-   :budget/explain "Was diese Maschine im Monat bei OpenRouter ausgibt, dieses Gespräch und seine Aufgaben zusammen, und die Grenze, die der Besitzer erlaubt. Bei 80 Prozent sagt es der Assistent einmal; an der Grenze startet nichts mehr, keine Nachricht, keine Aufgabe, kein Zeitplan, bis die Grenze hier angehoben wird."
-   :budget/spent [:fn/str "Diesen Monat ausgegeben: ${{:spent}}"]
-   :budget/cap [:fn/str "Grenze: ${{:monthly}} im Monat"]
-   :budget/none "Keine Grenze gesetzt."
-   :budget/field "Die Grenze in Dollar im Monat, 0 für keine"
    :budget/reached "Das Budget des Monats ist aufgebraucht: Nichts startet, bis die Grenze unter Einstellungen → Budget angehoben wird."
    :settings/mcp "MCP-Server"
    :settings/input "Eingabe"
