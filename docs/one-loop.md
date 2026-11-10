@@ -103,7 +103,10 @@ cards of every topic, the badge their count; a card is open when the
 loop asked (a ```hiccup block with a `:send` button) and no person
 answered since. Settings → Advanced keeps the raw list of the
 conversations of before and the tasks' transcripts, and a "New bot"
-for the people behind this machine. The composer says which topic it
+for the people behind this machine; the header's context ring (how
+full the window is, the cost, "Summarize older messages now") and the
+composer's model and effort switch show with it only, technical
+details a person need not meet. The composer says which topic it
 is in; a card's button sends from the tab's view too. A view is the
 tab's, not the URL's.
 

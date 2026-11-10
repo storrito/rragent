@@ -2049,7 +2049,8 @@
    behind the advanced switch, each `{:id :name :label :state
    :deleting? :renaming? :loop? :archived?}` (`rragent.machine/listed`);
    `:advanced?`, whether the sidebar shows that list and the pane the
-   activity; `:bot`, the one shown, its `:id`, `:name` (what the header
+   activity, the header the context ring and the composer the model
+   switch; `:bot`, the one shown, its `:id`, `:name` (what the header
    shows), `:model`, `:thinking`, `:models` (`model-switch`),
    `:context-window` and `:spend`; `:run`, a run or a task shown in
    place of the chat, behind Advanced; `:conversation`, `{:entries
@@ -2111,8 +2112,11 @@
           (list
            [:input#view-chat.toggle {:type "radio" :name "view"}]
            [:input#view-made.toggle {:type "radio" :name "view"}]))
-        (header bot status (cond-> (context-usage conversation)
-                             (and (:spend bot) (not run)) (assoc :cost (costs/priced (:spend bot))))
+        ;; how full the context is, the model and the button that summarizes
+        ;; are the advanced switch's: nothing a person has to know of
+        (header bot status (when advanced?
+                             (cond-> (context-usage conversation)
+                               (and (:spend bot) (not run)) (assoc :cost (costs/priced (:spend bot)))))
                 (when-not run
                   {:bot id :running? (compacting? (:live conversation))}))
         (when artifacts?
@@ -2136,7 +2140,8 @@
           (if (and person (nil? (:name person)))
             (person-form (or (:back person) base))
             (composer id base status (when fresh? (:placeholder onboarding)) phone (:id run)
-                      (when (and (:model bot) (not run))
+                      ;; the model and the thinking level: the advanced switch's too
+                      (when (and advanced? (:model bot) (not run))
                         (model-switch id (:model bot) (:thinking bot) (:models bot)))
                       topic-id
                       topic-name

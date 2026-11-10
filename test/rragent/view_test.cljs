@@ -150,8 +150,8 @@
 (deftest switch-test
   (let [models [{:id "openai/gpt-6.1-sol" :name "GPT-6.1 Sol" :cost {:input 2 :output 10}}
                 {:id "anthropic/claude-opus-5.5" :name "Claude Opus 5.5" :cost {:input 4 :output 20}}]
-        page (fn [bot]
-               (i18n/translate (view/page {:bot bot :conversation conversation :locale :en}) :en))
+        page (fn [bot & [plain?]]
+               (i18n/translate (view/page {:bot bot :conversation conversation :locale :en :advanced? (not plain?)}) :en))
         switch (fn [page] (find-tag page :details.actions.switch))
         buttons (fn [switch] (filter #(and (vector? %) (= :button.item (first %))) (nodes switch)))
         command (fn [button] (get-in (second button) [:on :click 0 1]))]
@@ -181,7 +181,12 @@
                      (buttons s))))))
     (testing "the pill says high while the bot has no level of its own; a page without a bot has no switch"
       (is (contains? (set (strings (switch (page {:id "cc33dd44" :name "Counter" :model "openai/gpt-6.1-sol" :models models})))) "High"))
-      (is (nil? (switch (page {})))))))
+      (is (nil? (switch (page {})))))
+    (testing "the switch is the advanced switch's: without it the composer names no model"
+      (let [plain (page {:id "cc33dd44" :name "Counter" :model "anthropic/claude-opus-5.5" :thinking "high" :models models} true)]
+        (is (nil? (switch plain)))
+        (is (some? (find-tag plain :ui/composer)))
+        (is (not (contains? (set (strings plain)) "Claude Opus 5.5")))))))
 
 (deftest artifact-card-test
   (let [made (fn [name arguments result]
@@ -241,21 +246,28 @@
     (testing "the header carries the ring with the window of the model"
       (let [page (view/page {:bot {:id "b1" :name "Bot" :model "m" :context-window 1000000}
                              :conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0})]}
-                             :locale :en})
+                             :locale :en
+                             :advanced? true})
             ring (second (find-tag page :ui/context))]
         (is (= 1200 (:ui/used ring)))
         (is (= 1000000 (:ui/window ring)))
         (is (= "Context" (:title (:ui/labels (second (find-tag (i18n/translate page :en) :ui/context)))))))
-      (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en}) :ui/context)) "no ring before the first answer"))
+      (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en :advanced? true}) :ui/context)) "no ring before the first answer"))
+    (testing "the ring, its cost and the button that summarizes are the advanced switch's: without it the header has none"
+      (let [page (view/page {:bot {:id "b1" :name "Bot" :model "m" :context-window 1000000 :spend 33.8}
+                             :conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cost {:total 0.5}})]}
+                             :locale :en})]
+        (is (nil? (find-tag page :ui/context)))
+        (is (not (contains? (set (strings (i18n/translate page :en))) "Summarize older messages now")))))
     (testing "the cost is the bot's, its subagents included, when known, times the factor (1.3 by default): a compaction shortens the transcript, not what it cost"
       (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cost {:total 0.5}})]}
-            shown (fn [bot] (:ui/cost (second (find-tag (view/page {:bot bot :conversation conversation :locale :en}) :ui/context))))]
+            shown (fn [bot] (:ui/cost (second (find-tag (view/page {:bot bot :conversation conversation :locale :en :advanced? true}) :ui/context))))]
         (is (< (js/Math.abs (- 43.94 (shown {:id "b1" :context-window 200000 :spend 33.8}))) 1e-9))
         (is (= 0.65 (shown {:id "b1" :context-window 200000})) "before it is read, the transcript's")))
     (testing "the card's button names the bot it summarizes, and says so while a compaction runs; a run's page has no button"
       (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200})]}
             card (fn [opts]
-                   (second (find-tag (i18n/translate (view/page (merge {:bot {:id "b1" :context-window 200000} :conversation conversation :locale :en} opts)) :en)
+                   (second (find-tag (i18n/translate (view/page (merge {:bot {:id "b1" :context-window 200000} :conversation conversation :locale :en :advanced? true} opts)) :en)
                                      :ui/context)))]
         (is (= "b1" (:ui/bot (card {}))))
         (is (false? (:ui/compacting? (card {}))))
@@ -331,7 +343,7 @@
             box (fn [page] (second (find-tag (find-tag page :label.check) :input)))
             off (settings false :en)
             on (settings true :en)]
-        (is (some #{"Show every bot and the raw list"} (strings off)))
+        (is (some #{"Show every bot, the raw list and the technical details"} (strings off)))
         (is (= "checkbox" (:type (box off))))
         (is (false? (:checked (box off))))
         (is (= [[:data/command {:command/kind :settings/advanced :command/data {:advanced true}}]] (get-in (box off) [:on :change])))
@@ -339,7 +351,7 @@
         (is (= [[:data/command {:command/kind :settings/advanced :command/data {:advanced false}}]] (get-in (box on) [:on :change])))
         (is (nil? (find-tag off :button.new)) "the sidebar beside it follows the switch")
         (is (some? (find-tag on :button.new)))
-        (is (some #{"Jeden Bot und die rohe Liste zeigen"} (strings (settings false :de))))))
+        (is (some #{"Jeden Bot, die rohe Liste und die technischen Details zeigen"} (strings (settings false :de))))))
     (testing "the composer's title for either key"
       (let [composer (second (find-tag (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en) :ui/composer))]
         (is (str/starts-with? (:title composer) "Ctrl+Enter sends"))

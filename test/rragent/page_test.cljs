@@ -343,7 +343,7 @@
                            (is (= #{"t1"} (:settings-open @db/db))))
                          (testing "the advanced switch: the raw list with New bot and the row menus into the sidebar, the choice in the structure"
                            (is (= {:success? true} (await (command! base cookie :settings/section {:tab "t1" :section :advanced}))))
-                           (await (frame! #(mentions? % "Show every bot and the raw list")))
+                           (await (frame! #(mentions? % "Show every bot, the raw list and the technical details")))
                            (is (= {:success? true} (await (command! base cookie :settings/advanced {:advanced true}))))
                            (let [frame (await (frame! #(mentions? % "New bot")))]
                              (is (true? (:advanced? (machine/current-structure))))
@@ -640,6 +640,8 @@
                    conversation (:conversation (machine/bot id))
                    note "From here on the model reads a summary of the messages above."]
                (try
+                 ;; the card with the button is the advanced switch's
+                 (await (machine/set-advanced! (:harness (machine/agent)) true))
                  (is (= "Noted." (await (harness/ask-in conversation (long-text "red")))))
                  (is (= "Noted again." (await (harness/ask-in conversation (long-text "blue")))))
                  (let [{:keys [reader decoder]} (await (stream bot-url cookie controller "t9"))
