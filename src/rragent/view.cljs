@@ -1969,8 +1969,8 @@
      [:div.brand "rragent"
       (when version
         [:span.version {:title "rragent version"} version])]
-     [:section.views
-      [:ul.views
+     [:section.loop-views
+      [:ul.loop-views
        (view-row {:kind :all} [:i18n :views/all] nil current)
        (view-row {:kind :needs} [:i18n :bots/needs-you] needs current)]]
      (when (seq topics)

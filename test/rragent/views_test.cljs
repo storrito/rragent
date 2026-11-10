@@ -132,8 +132,11 @@
 
 (deftest sidebar-views-test
   (let [p (page {:view {:kind :topic :topic "content-week"}})
-        views (find-tag p :section.views)
+        views (find-tag p :section.loop-views)
         topics-section (find-tag p :section.topics)]
+    (testing "not under the class of the phone's tabs, `.views`, which the stylesheet hides on a wide screen"
+      (is (nil? (find-tag p :section.views)))
+      (is (nil? (find-tag p :ul.views))))
     (testing "all and needs you, the badge the open cards"
       (is (= ["All" "Needs you"] (map #(second (find-tag % :span.name)) (find-tags views :li))))
       (is (= ["1"] (map second (find-tags views :span.badge)))))

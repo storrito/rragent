@@ -3692,7 +3692,7 @@ form.person button.send {
    you and the topics as rows that are buttons, the current one marked,
    a badge with the open cards; the archived topics folded like a
    project of before. */
-.sidebar ul.views,
+.sidebar ul.loop-views,
 .sidebar ul.topics {
   display: flex;
   flex-direction: column;
@@ -3702,14 +3702,14 @@ form.person button.send {
   list-style: none;
 }
 
-.sidebar ul.views li,
+.sidebar ul.loop-views li,
 .sidebar ul.topics li {
   display: flex;
   align-items: center;
   border-radius: 8px;
 }
 
-.sidebar ul.views li button.row,
+.sidebar ul.loop-views li button.row,
 .sidebar ul.topics li button.row {
   display: flex;
   flex: 1 1 auto;
@@ -3730,24 +3730,24 @@ form.person button.send {
   cursor: pointer;
 }
 
-.sidebar ul.views li button.row .name,
+.sidebar ul.loop-views li button.row .name,
 .sidebar ul.topics li button.row .name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.sidebar ul.views li:hover,
+.sidebar ul.loop-views li:hover,
 .sidebar ul.topics li:hover {
   background: color-mix(in srgb, var(--panel) 70%, var(--line));
 }
 
-.sidebar ul.views li.current,
+.sidebar ul.loop-views li.current,
 .sidebar ul.topics li.current {
   background: color-mix(in srgb, var(--accent) 14%, var(--panel));
 }
 
-.sidebar ul.views .badge,
+.sidebar ul.loop-views .badge,
 .sidebar ul.topics .badge {
   min-width: 20px;
   padding: 1px 7px;
