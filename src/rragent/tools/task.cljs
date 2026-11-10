@@ -88,7 +88,7 @@
     (when (str/blank? text)
       (throw (js/Error. "task needs the text: everything the task must know")))
     (when (cap/reached?)
-      (throw (js/Error. "The month's budget is spent: no task starts until the owner raises the cap in Settings → Budget. Tell the person.")))
+      (throw (js/Error. "The month's budget is spent: no task starts until the cap is raised. Tell the person.")))
     (when continued
       (let [found (when @tasks/harness (await (tasks/task @tasks/harness (js/Number continued) call-context)))]
         (when-not (and found (= (str loop-id) (str (:loop found))))

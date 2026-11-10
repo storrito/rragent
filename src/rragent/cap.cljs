@@ -1,7 +1,8 @@
 (ns rragent.cap
   "The cap on what the machine spends a month (docs/one-loop.md §8):
    a session document `rragent.cap` with `monthly`, the dollars the
-   owner allows (Settings → Budget), and `noticed`, the month the loop
+   owner allows (`set-monthly!`; no control of the page sets it since
+   the settings lost their Budget section), and `noticed`, the month the loop
    was warned in; and a ledger of the month's charges in
    `<home>/costs/<year-month>.edn`, one line per charge, which the
    extension appends from every answer's usage (after
@@ -12,7 +13,7 @@
    loop gets one notice a month (`rragent.cap-notice`) and warns the
    person; at the cap the page refuses a message, the `task` tool
    refuses, a schedule's fire, a hook's call and a Composio event are
-   dropped with a line in the log, until the owner raises the cap.
+   dropped with a line in the log, until the cap is raised.
    The state the page and the checks read is kept in the atom of the
    page (`:cap` of `rragent.db`, `refresh!`): `{:monthly :spent
    :reached? :share}`."
@@ -130,7 +131,7 @@
   [spent monthly]
   (str "The machine has spent $" (.toFixed spent 2) " of its $" (.toFixed monthly 2) " for this month, "
        (js/Math.round (* 100 (/ spent monthly))) " percent. Tell the person once, with one card: what is running now, "
-       "and that once the cap is reached nothing starts, no task, no schedule, no message, until the owner raises it in Settings → Budget. "
+       "and that once the cap is reached nothing starts, no task, no schedule, no message, until the cap is raised. "
        "Ask nothing else."))
 
 (defn ^:async warn!

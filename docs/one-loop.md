@@ -171,13 +171,15 @@ call. Prompt caching holds for the loop: pi-ai sets Anthropic's
 rragent speaks to them through the Anthropic-style base.
 
 One cap per sprite per month, in the ledger's currency (OpenRouter's
-`usage.cost` times the factor): a session doc `rragent.cap`, set in
-Settings → Budget; the costs hook appends every generation's cost to
+`usage.cost` times the factor): a session doc `rragent.cap`
+(`rragent.cap/set-monthly!`; the settings had a Budget section that
+set it, removed 2026-11-10, so nothing sets a cap for now and where
+it comes from is open); the costs hook appends every generation's cost to
 `costs/<year-month>.edn` of the home, loop and tasks alike. At 80
 percent the loop gets one notice entry and warns the person with a
 card; at 100 percent the page refuses a message with a notice, the
 `task` tool refuses, triggers are dropped with a line in the log,
-until the owner raises the cap. Nothing is exempt.
+until the cap is raised. Nothing is exempt.
 
 ## 9. Migration
 
