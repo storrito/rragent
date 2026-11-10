@@ -506,6 +506,53 @@
   [live]
   (if (:run live) :working :ready))
 
+(defn- live-item
+  "The last item of the turn the run that goes is producing: the last
+   of `all` that is not a queued input. Nil in an empty conversation."
+  [all]
+  (last (remove :pending? all)))
+
+(defn- task-topic
+  "The topic of a task by id: the id or the name it was given
+   (`rragent.tools.topic/resolve-or-keep` resolves at the start, a
+   task of before may carry a name)."
+  [{:keys [topic]} topics]
+  (when (seq (str topic))
+    (or (topic-tool/resolve-id topics topic) topic)))
+
+(defn working-topics
+  "What is worked on right now, for the sidebar's marks: the ids of
+   the topics of the turn the run that goes is producing (the last
+   turn of `all`, while `status` is `:working`) and of the `tasks`
+   that go; `:loose` among them when that turn or such a task has no
+   topic. A set."
+  [all status tasks topics]
+  (into (if (= :working status)
+          (let [tags (:topics (live-item all))]
+            (if (seq tags) (set tags) #{:loose}))
+          #{})
+        (map #(or (task-topic % topics) :loose))
+        tasks))
+
+(defn working-here?
+  "Whether the run that goes works in the view that shows `shown` of
+   `all`: its turn is the last of the conversation, so the view has
+   it when its last item is the view's last. True in an empty
+   conversation, the first turn is everyone's."
+  [all shown status]
+  (and (= :working status)
+       (let [item (live-item all)]
+         (or (nil? item) (identical? item (live-item shown))))))
+
+(defn tasks-in
+  "The `tasks` that go in a `view`: a topic's by their topic, those
+   without one in the view of no topic (`:loose`), none elsewhere."
+  [tasks {:keys [kind topic]} topics]
+  (case kind
+    :topic (filter #(= topic (task-topic % topics)) tasks)
+    :loose (remove #(task-topic % topics) tasks)
+    ()))
+
 (defn compacting?
   "Whether a compaction of the conversation runs: `pi.live` lists it
    (`rragent.harness/compacting?` reads the same of the view value)."
@@ -761,9 +808,13 @@
    (`earlier`); with none shown yet, the skill's welcome, or the plain
    empty chat for a bot without one. `opts` has the `:base` and `:bot`
    of the files and commands in the items, `:expanded`, the ids of
-   the folded rows whose body the tab shows (`fold-body`), and
-   `:pinned`, the id of an item the window reaches back to."
-  [items status onboarding opts]
+   the folded rows whose body the tab shows (`fold-body`),
+   `:pinned`, the id of an item the window reaches back to,
+   `:working?`, whether the run that goes works in this view
+   (`working-here?`): then the row with the pulsing dot at the end,
+   and `:tasks`, the tasks that go in this view (`tasks-in`), a row
+   each with the task's line."
+  [items onboarding opts]
   [:section.feed {:data-stick-to-end "true"}
    (let [shown (filterv shown? items)
          start (window-start shown (or (:limit opts) feed-window) (:pinned opts))]
@@ -772,10 +823,14 @@
                          (map #(item-view % opts) (subvec shown start)))
        onboarding (welcome onboarding)
        :else [:p.hint.empty (or (:empty opts) [:i18n :chat/empty])]))
-   (when (= :working status)
+   (when (:working? opts)
      [:div.item.working {:replicant/key "working"}
       [:span.dot]
-      [:span [:i18n :chat/working]]])])
+      [:span [:i18n :chat/working]]])
+   (for [{:keys [id line]} (:tasks opts)]
+     [:div.item.working.task {:replicant/key (str "task " id)}
+      [:span.dot]
+      [:span [:i18n :chat/task-working {:line (or line "")}]]])])
 
 (defn header
   "The bot's name, how full the model's context is (`:ui/context`, a
@@ -2046,25 +2101,30 @@
 
 (defn- view-row
   "A row of the sidebar that shows a view of the one conversation
-   (`:view/show`, per tab): its label, the current view marked, and
-   \"Needs you\" while open cards wait in it (`waits`, their count,
-   said from the second on)."
-  [{:keys [kind topic] :as row} label waits current]
+   (`:view/show`, per tab): its label, the current view marked, a
+   pulsing dot while it is worked on (`working?`, the sidebar's
+   `working`), and \"Needs you\" while open cards wait in it
+   (`waits`, their count, said from the second on)."
+  [{:keys [kind topic] :as row} label waits current working?]
   [:li {:replicant/key (str (name kind) (when topic (str ":" topic)))
-        :class (when (= row current) "current")}
+        :class (not-empty (str/join " " (remove nil? [(when (= row current) "current")
+                                                      (when working? "working")])))}
    [:button.row {:on {:click [[:data/command {:command/kind :view/show
                                               :command/data (cond-> {:tab :ui/tabid :kind kind}
                                                               topic (assoc :topic topic))}]]}}
     [:span.name label]
+    (when working?
+      [:span.dot])
     (when (and waits (pos? waits))
       [:span.badge.waits [:i18n :bots/needs-you] (when (< 1 waits) (str " · " waits))])]])
 
 (defn- topic-rows
-  "The rows of the topics `ids`, in their order."
-  [ids topics counts current]
+  "The rows of the topics `ids`, in their order, those in `working`
+   marked."
+  [ids topics counts current working]
   [:ul.topics {:replicant/key (str/join " " ids)}
    (for [id ids]
-     (view-row {:kind :topic :topic id} (:name (get topics id)) (get counts id) current))])
+     (view-row {:kind :topic :topic id} (:name (get topics id)) (get counts id) current (contains? working id)))])
 
 (defn sidebar
   "The views of the one conversation (docs/one-loop.md §3), the
@@ -2088,8 +2148,10 @@
    `view` is the tab's (`shown-view`), `topics` the machine's,
    `counts` and `activity` by topic id (`topic-counts`,
    `topic-activity`), `needs` the count of the open cards of no
-   topic (`loose-cards`)."
-  [{:keys [bots shown version settings? advanced? person view topics counts activity needs]}]
+   topic (`loose-cards`), `working` the ids of the topics worked on
+   right now, `:loose` among them for a turn or a task of no topic
+   (`working-topics`): their rows carry a pulsing dot."
+  [{:keys [bots shown version settings? advanced? person view topics counts activity needs working]}]
   (let [current (when-not settings? view)
         shown (when-not settings? shown)
         waits? (fn [id] (pos? (get counts id 0)))
@@ -2103,18 +2165,18 @@
      (when (or (pos? (or needs 0)) (= :loose (:kind current)))
        [:section.loop-views
         [:ul.loop-views
-         (view-row {:kind :loose} [:i18n :views/loose] needs current)]])
+         (view-row {:kind :loose} [:i18n :views/loose] needs current (contains? working :loose))]])
      [:section.topics
       [:h2 [:i18n :views/topics]]
       [:ul.topics.new {:replicant/key "new"}
-       (view-row {:kind :new} [:i18n :views/new] nil (when (= :new (:kind current)) {:kind :new}))]
+       (view-row {:kind :new} [:i18n :views/new] nil (when (= :new (:kind current)) {:kind :new}) false)]
       (when (seq active)
-        (topic-rows active topics counts current))
+        (topic-rows active topics counts current working))
       (when (seq archived)
         [:details.archived (cond-> {}
                              (some #(or (waits? %) (= {:kind :topic :topic %} view)) archived) (assoc :open true))
          [:summary [:span.name [:i18n :views/archived]] [:span.count (str (count archived))]]
-         (topic-rows archived topics counts current)])]
+         (topic-rows archived topics counts current working)])]
      (when advanced?
        (all-bots bots shown))
      [:div.bottom
@@ -2144,12 +2206,15 @@
    `visible`; nil for the default, `shown-view`), `:topics`
    the machine's (`rragent.machine/topics`); `:expanded` the folded
    rows the tab shows; `:limit`, how many items of the view the tab
-   shows (`feed`'s window, nil for `feed-window`); `:artifacts` the pane; `:update`, `:locale`,
+   shows (`feed`'s window, nil for `feed-window`); `:tasks`, the
+   tasks that go (`rragent.page/working-tasks`, `{:id :topic :line}`
+   each), for the marks of what is worked on (`working-topics`);
+   `:artifacts` the pane; `:update`, `:locale`,
    `:onboarding`, `:note`, `:failed`, `:phone`, `:settings?`,
    `:settings-section`, `:mcp`, `:link`, `:person` as before;
    `:bots-before?`, whether the settings have their Advanced section
    (`settings`)."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics bots-before? limit] pane :artifacts}]
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics bots-before? limit tasks] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         loop? (boolean (some #(and (= id (:id %)) (:loop? %)) bots))
@@ -2160,6 +2225,7 @@
         new? (= :new (:kind view))
         shown-items (visible all view)
         status (status (:live conversation))
+        working (working-topics all status tasks topics)
         fresh? (not-any? shown? all)
         artifacts? (or (seq (:artifacts/list pane)) (seq (:runs pane)))
         ;; the skill's welcome: in a chat with nothing in it, which on a
@@ -2185,7 +2251,8 @@
                :topics topics
                :counts (topic-counts all)
                :activity (topic-activity all)
-               :needs (loose-cards all)})
+               :needs (loose-cards all)
+               :working working})
      [:label.backdrop {:for "nav"}]
      (if settings?
        ;; keyed apart from the chat: the two share no element
@@ -2221,7 +2288,9 @@
             [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
           (when run
             (run-head id (:name bot) run))
-          (feed shown-items status onboarding {:base base :bot id :expanded (or expanded #{}) :limit limit :pinned (:id card)
+          (feed shown-items onboarding {:base base :bot id :expanded (or expanded #{}) :limit limit :pinned (:id card)
+                                        :working? (working-here? all shown-items status)
+                                        :tasks (tasks-in tasks view topics)
                                                :empty (cond run [:i18n :run/empty] new? [:i18n :views/new-empty] (not= :all (:kind view)) [:i18n :views/empty])})
           (when card
             (waiting card))

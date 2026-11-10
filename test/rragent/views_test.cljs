@@ -423,3 +423,58 @@
         (is (some #(str/includes? % "Covers v2 are in.") (feed-strings p)) "the card itself is in the feed, so the pin's link finds it")
         (is (not (some #{"Covers?"} (feed-strings p))) "what came before the card is behind the row")
         (is (some? (find-tag p :div.item.earlier)))))))
+
+(deftest working-test
+  (let [working (-> conversation
+                    (update :entries conj (person 12 "Lydia" "pinterest" "Make the pin."))
+                    (assoc :live {:run {:id "r1"}}))
+        rows (fn [p] (find-tags (find-tag (find-tag p :section.topics) :ul.topics) :li))
+        row (fn [p name] (some #(when (= name (second (find-tag % :span.name))) %) (rows p)))
+        task-lines (fn [p] (map #(second (find-tag % :span)) (find-tags p :div.item.working.task)))]
+    (testing "the run's turn marks its topic in the sidebar, no other; the feed of its view ends in the working row, another topic's does not; the header is the whole conversation's"
+      (let [p (page {:conversation working :view {:kind :topic :topic "pinterest"}})]
+        (is (= #{"pinterest"} (view/working-topics (view/items working topics) :working [] topics)))
+        (is (= "current working" (:class (second (row p "Pinterest")))))
+        (is (some? (find-tag (row p "Pinterest") :span.dot)))
+        (is (nil? (:class (second (row p "Content week")))))
+        (is (nil? (find-tag (row p "Content week") :span.dot)))
+        (is (some? (find-tag p :div.item.working)))
+        (is (= "Working" (last (find-tag p :span.status)))))
+      (let [p (page {:conversation working :view {:kind :topic :topic "content-week"}})]
+        (is (nil? (find-tag p :div.item.working)) "another topic's feed: no working row")
+        (is (= "working" (:class (second (row p "Pinterest")))))
+        (is (= "Working" (last (find-tag p :span.status))) "the header says the loop works")))
+    (testing "a turn of no topic marks the row of no topic, where it is, and the feed of that view"
+      (let [loose (-> conversation
+                      (update :entries conj {:id 12 :kind "rragent.schedule" :data {:name "tick" :at 12} :model [{:role "user" :content "Tick."}]})
+                      (assoc :live {:run {:id "r1"}}))
+            p (page {:conversation loose :view {:kind :loose}})]
+        (is (= #{:loose} (view/working-topics (view/items loose topics) :working [] topics)))
+        (is (= "current working" (:class (second (find-tag (find-tag p :section.loop-views) :li)))))
+        (is (some? (find-tag p :div.item.working)))
+        (is (empty? (find-tags (find-tag p :section.topics) :span.dot)))
+        (is (nil? (find-tag (page {:conversation loose :view {:kind :topic :topic "pinterest"}}) :div.item.working)))))
+    (testing "the first turn of an empty conversation is every view's"
+      (is (some? (find-tag (page {:conversation {:entries [] :live {:run {:id "r1"}} :inbox {:items []}} :view {:kind :new}}) :div.item.working))))
+    (testing "nothing while the loop is ready and no task goes"
+      (let [p (page {:view {:kind :topic :topic "pinterest"}})]
+        (is (empty? (find-tags p :span.dot)))
+        (is (nil? (find-tag p :div.item.working)))
+        (is (empty? (task-lines p)))
+        (is (= "Ready" (last (find-tag p :span.status))))))
+    (testing "a task that goes marks its topic, by id or by the name it was given, and the topic's feed names the task; the loop is ready meanwhile"
+      (let [tasks [{:id 5 :topic "content-week" :line "Cut the covers."}
+                   {:id 6 :topic "Pinterest" :line "Make the pin."}
+                   {:id 7 :topic nil :line "Tidy up."}]
+            p (page {:tasks tasks :view {:kind :topic :topic "content-week"}})]
+        (is (= #{"content-week" "pinterest" :loose} (view/working-topics (view/items conversation topics) :ready tasks topics)))
+        (is (= "current working" (:class (second (row p "Content week")))))
+        (is (= "working" (:class (second (row p "Pinterest")))))
+        (is (= ["A task works on it · Cut the covers."] (task-lines p)))
+        (is (nil? (find-tag p :div.item.working)) "no working row of the loop's own")
+        (is (= "Ready" (last (find-tag p :span.status))))
+        (is (= ["A task works on it · Make the pin."] (task-lines (page {:tasks tasks :view {:kind :topic :topic "pinterest"}}))))
+        (let [p (page {:tasks tasks :view {:kind :loose}})]
+          (is (= ["A task works on it · Tidy up."] (task-lines p)))
+          (is (= "current working" (:class (second (find-tag (find-tag p :section.loop-views) :li))))))
+        (is (empty? (task-lines (page {:tasks tasks :view {:kind :new}}))) "the New topic view: no task's")))))
