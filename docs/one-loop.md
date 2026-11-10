@@ -121,6 +121,18 @@ an open card up the feed, the page pins it above the composer, in the
 view that shows it: its topic's, never another topic's
 or the "New topic" view.
 
+While the loop works, the header says so for the whole conversation;
+where it works is marked where the person looks: the sidebar's row of
+the topic the running turn belongs to carries a pulsing dot
+(`rragent.view/working-topics`, the turn's topics, `:loose` for a turn
+of none), and the feed of that view ends in the "Working" row, no
+other view's does (`working-here?`). A task that goes marks its
+topic's row the same way, and the topic's feed ends in a row with the
+task's line, "A task works on it · …" (`rragent.page/working-tasks`,
+`tasks-in`): the loop is ready while its tasks work, and the person
+sees that their matter is worked on all the same (Tobias, 2026-11-10:
+nothing showed that the model works on a topic).
+
 A view shows the newest 200 of its items (`rragent.view/feed-window`)
 and a row "Show earlier messages" above them, which brings 500 more
 per click (`:view/earlier`, the tab's `:tab-limits`) while the

@@ -730,7 +730,7 @@
       (is (= {:kind :user :id "s1" :author {:name "Watcher" :url "/bot/1"} :markdown {:base "/bot/1" :bot "1"} :text "How many?" :pending? true :topics #{}} queued) "one waiting in the inbox too")
       (is (nil? (:author person))))
     (testing "the feed shows the bot's name, a link to its page, in place of You"
-      (let [feed (i18n/translate (view/feed items :ready nil {:base "/bot/1/artifacts" :bot "1"}) :en)
+      (let [feed (i18n/translate (view/feed items nil {:base "/bot/1/artifacts" :bot "1"}) :en)
             text (set (strings feed))
             link (find-tag feed :a)]
         (is (contains? text "From the bot Counter"))

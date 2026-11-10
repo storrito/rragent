@@ -3746,6 +3746,19 @@ form.person button.send {
   text-overflow: ellipsis;
 }
 
+/* The dot of a view worked on right now (rragent.view/working-topics):
+   the turn that runs is its, or a task of it goes; the header's dot,
+   beside the row's name. */
+.sidebar ul.loop-views li button.row .dot,
+.sidebar ul.topics li button.row .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
 .sidebar ul.loop-views li:hover,
 .sidebar ul.topics li:hover {
   background: color-mix(in srgb, var(--panel) 70%, var(--line));

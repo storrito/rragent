@@ -1241,3 +1241,11 @@
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest working-tasks-test
+  (is (= [{:id 2 :topic "pinterest" :line "Make the pin."} {:id 3 :topic nil :line "Tidy up."}]
+         (page/working-tasks [{:id 1 :state :done :topic "pinterest" :trigger {:kind "task" :name "pinterest" :line "Old."}}
+                              {:id 2 :state :running :topic "pinterest" :trigger {:kind "task" :name "pinterest" :line "Make the pin."}}
+                              {:id 3 :state :queued :topic nil :trigger {:kind "task" :name "task" :line "Tidy up."}}
+                              {:id 4 :state :running :trigger {:kind "schedule" :name "tick" :line "Tick."}}]))
+      "the tasks that go, queued or running; not a task that ended, not a run of a hook or a schedule"))

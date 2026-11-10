@@ -271,8 +271,10 @@ card of no topic waits, a row "Without topic"; there is no view of
 everything. A click shows the view in this tab (`:view/show`, the
 tab's, not the URL's), a tab that picked none shows the first topic;
 a view shows its newest 200 messages and "Show earlier messages" above
-them. The composer says which topic it is in and sends it with the
-message, and a card's button sends it too. Behind the settings' advanced switch the raw list
+them; a topic worked on right now, by the turn that runs or by a task
+of it, carries a pulsing dot in the sidebar and its feed ends in a row
+that says so. The composer says which topic it is in and sends it with
+the message, and a card's button sends it too. Behind the settings' advanced switch the raw list
 of every conversation, with "New bot" and, behind the three dots of a
 row, a rename and a delete, which asks once in the row; the activity
 of the pane, the runs of before and the loop's tasks, with a task's

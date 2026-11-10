@@ -92,6 +92,7 @@
    :chat/compaction-notice "The wiki is written before the memory shrinks"
    :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
+   :chat/task-working [:fn/str "A task works on it · {{:line}}"]
    :chat/ready "Ready"
    :chat/empty "Nothing here yet. Write the first message."
    :chat/earlier "Show earlier messages"
@@ -456,6 +457,7 @@
    :chat/compaction-notice "Das Wiki wird geschrieben, bevor das Gedächtnis schrumpft"
    :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
+   :chat/task-working [:fn/str "Eine Aufgabe arbeitet daran · {{:line}}"]
    :chat/ready "Bereit"
    :chat/empty "Noch nichts hier. Schreib die erste Nachricht."
    :chat/earlier "Frühere Nachrichten zeigen"

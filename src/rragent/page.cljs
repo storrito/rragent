@@ -216,6 +216,19 @@
     (cond-> pane
       current (assoc :artifacts/text (artifacts/text-of dir current)))))
 
+(defn working-tasks
+  "The tasks of the bot that go, queued or running, among its listed
+   runs (`rragent.tasks/as-run` rows): `{:id :topic :line}` each, the
+   line the task's text as the activity names it. The page marks what
+   they work on (`rragent.view/working-topics`), with or without the
+   advanced switch."
+  [runs]
+  (into []
+        (keep (fn [{:keys [id state topic trigger]}]
+                (when (and (= "task" (:kind trigger)) (contains? #{:queued :running} state))
+                  {:id id :topic topic :line (:line trigger)})))
+        runs))
+
 (defn- run-of
   "The run `run-id` among the bot's listed runs, nil for none."
   [bot run-id]
@@ -278,6 +291,7 @@
                                  (not advanced?) (dissoc :runs))
                     :view (get tab-views (:tabid w))
                     :limit (get tab-limits (:tabid w))
+                    :tasks (working-tasks (:runs bot))
                     :topics (machine/topics)
                     :phone (phone/status (:phone bot))
                     :locale locale

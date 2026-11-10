@@ -366,10 +366,13 @@
   "A task as the activity of the pane lists a run
    (`rragent.runs/run-of`): `{:id :bot :trigger :state :line :started
    :ended :conversation}`, the trigger a task's with the text's first
-   sentence as its line and the topic as its name."
+   sentence as its line and the topic as its name; `:topic` as well,
+   the id or name the task was given, for the page's marks of what is
+   worked on (`rragent.page/working-tasks`)."
   [{:keys [id loop text topic state line started ended conversation]}]
   {:id id
    :bot loop
+   :topic topic
    :trigger {:kind "task" :name (or topic "task") :line (runs/short-line text)}
    :state state
    :line line
