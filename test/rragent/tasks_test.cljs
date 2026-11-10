@@ -12,6 +12,7 @@
             [rragent.harness :as harness]
             [rragent.home :as home]
             [rragent.machine :as machine]
+            [rragent.models :as models]
             [rragent.roles :as roles]
             [rragent.tasks :as tasks]
             [rragent.test-home :as test-home]
@@ -115,6 +116,51 @@
                      (is (= 2 (count lines)) text)
                      (is (str/includes? (first lines) "done · Say quick. → Quick: yes."))
                      (is (str/includes? (second lines) "done · Content week · Count the covers in artifacts/content-week. → Eight covers.")))))
+               (finally
+                 (await (machine/close-all!))
+                 (test-home/remove! home))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest task-model-test
+  (testing "a task may run on a model of the page's choices or on the loop's own, no other: an id the loop knows from its training is none"
+    (is (true? (models/task-model? "anthropic/claude-opus-5.5" "openai/gpt-6.1-sol")))
+    (is (true? (models/task-model? "openai/gpt-6.1-sol" "anthropic/claude-opus-5.5")))
+    (is (true? (models/task-model? "faux-1" "faux-1")) "the loop's own, a faux model in a test")
+    (is (false? (models/task-model? "anthropic/claude-opus-4.1" "anthropic/claude-opus-5.5")))
+    (is (false? (models/task-model? "faux-1" nil)))
+    (is (= ["anthropic/claude-opus-5.5"] (models/stronger)))))
+
+(deftest a-task-on-no-such-model-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)]
+             (try
+               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
+               (let [loop (machine/loop-id)
+                     _ (bots/set-metadata! home loop "model" "faux-1")
+                     conversation (:conversation (machine/bot loop))
+                     harness (:harness (machine/agent))]
+                 (testing "the task tool refuses a model the page does not offer and names the ones it does; no task is made"
+                   (.setResponses faux #js [(tools-test/tool-call "task" {:text "Count the covers." :model "anthropic/claude-opus-4.1"} "m1")
+                                            (tools-test/answer "Without it, then.")])
+                   (is (= "Without it, then." (await (harness/ask-in conversation "How many covers?"))))
+                   (let [text (get (await (results conversation)) "m1")]
+                     (is (str/includes? (str text) "No model anthropic/claude-opus-4.1") text)
+                     (is (str/includes? (str text) "anthropic/claude-opus-5.5") text)
+                     (is (str/includes? (str text) "openai/gpt-6.1-sol") text))
+                   (await (.waitForIdle conversation harness/context))
+                   (is (empty? (await (tasks/listed harness loop 10 harness/context)))))
+                 (testing "a thinking level that is none is refused the same way"
+                   (.setResponses faux #js [(tools-test/tool-call "task" {:text "Count the covers." :thinking "ultra"} "m2")
+                                            (tools-test/answer "Fine.")])
+                   (is (= "Fine." (await (harness/ask-in conversation "Again?"))))
+                   (let [text (get (await (results conversation)) "m2")]
+                     (is (str/includes? (str text) "No thinking level ultra") text)
+                     (is (str/includes? (str text) "low, medium, high, xhigh, max") text))
+                   (await (.waitForIdle conversation harness/context))
+                   (is (empty? (await (tasks/listed harness loop 10 harness/context))))))
                (finally
                  (await (machine/close-all!))
                  (test-home/remove! home))))))

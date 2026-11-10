@@ -14,6 +14,8 @@
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [clojure.string :as str]
+            [rragent.definition :as definition]
+            [rragent.models :as models]
             [rragent.runs :as runs]
             [rragent.tasks :as tasks]
             [rragent.tools.topic :as topic-tool]
@@ -22,7 +24,7 @@
 (def description
   (str "A task: a conversation of its own that does one piece of work for you with the working tools and answers with a result. "
        "It knows nothing of this conversation, so `text` says everything it needs: the goal, the files under artifacts/, the rules, what the result must hold. "
-       "`topic` names the topic the work belongs to. `model` picks a stronger model when the work needs one (the default without), `thinking` its level. "
+       "`topic` names the topic the work belongs to. `model` picks a stronger model when the work needs one, " (str/join " or " (map #(str "`" % "`") (models/stronger))) ", the default (`" definition/default-model "`) without and no other id; `thinking` its level. "
        "Without `wait` the call answers the task's id at once and the result arrives here later as a message from the task; "
        "with `wait: true` the call waits up to a minute and answers the result, for a short check you need in this very answer. "
        "`id` with `text` continues an earlier task in its own conversation, which keeps what it knew: its answer to a question the person answered. "
@@ -94,14 +96,24 @@
           (throw (js/Error. (str "The task " continued " still runs: wait for its result, or stop it first."))))
         (when-not (:conversation found)
           (throw (js/Error. (str "The task " continued " ended before it had a conversation; nothing to continue. Start a new task."))))))
-    (let [id (or (await (made-by-call api loop-id call-context))
+    (let [model (not-empty (str/trim (str (.-model args))))
+          thinking (not-empty (str/trim (str (.-thinking args))))
+          ;; the model must be one the page offers, or this conversation's own:
+          ;; an id from the model's training ran tasks at a price
+          own (when model (some-> (await (.agent api call-context)) .-model .-modelId))
+          _ (when (and model (not (models/task-model? model own)))
+              (throw (js/Error. (str "No model " model " on this machine: a task runs on the default, " definition/default-model
+                                     ", or on " (str/join " or " (models/stronger)) " when the work needs a stronger one. Call again with one of them, or without `model`."))))
+          _ (when (and thinking (not (models/level? thinking)))
+              (throw (js/Error. (str "No thinking level " thinking ": " (str/join ", " models/levels) ". Call again with one of them, or without `thinking`."))))
+          id (or (await (made-by-call api loop-id call-context))
                  (await (.commit api
                                  (fn [tx]
                                    (.createTask tx tasks/Task
                                                 #js {:text text
                                                      :topic (or topic js/undefined)
-                                                     :model (or (not-empty (str/trim (str (.-model args)))) js/undefined)
-                                                     :thinking (or (not-empty (str/trim (str (.-thinking args)))) js/undefined)
+                                                     :model (or model js/undefined)
+                                                     :thinking (or thinking js/undefined)
                                                      :continue (or continued js/undefined)
                                                      :wait wait?
                                                      :call (.-callId api)}
@@ -172,8 +184,8 @@
         :parameters (.Object Type #js {:action (.Optional Type (.Union Type #js [(.Literal Type "run") (.Literal Type "stop") (.Literal Type "list")]))
                                        :text (.Optional Type (.String Type #js {:description "run: the task, complete; the task knows nothing of this conversation"}))
                                        :topic (.Optional Type (.String Type #js {:description "run: the topic the work belongs to, by name or id"}))
-                                       :model (.Optional Type (.String Type #js {:description "run: the model the task runs on, an OpenRouter id; the default without"}))
-                                       :thinking (.Optional Type (.String Type #js {:description "run: the thinking level, low, medium, high, xhigh or max; the default without"}))
+                                       :model (.Optional Type (.String Type #js {:description (str "run: the model the task runs on when the work needs a stronger one: " (str/join " or " (models/stronger)) "; the default without, no other id")}))
+                                       :thinking (.Optional Type (.String Type #js {:description (str "run: the thinking level, " (str/join ", " models/levels) "; the default without")}))
                                        :wait (.Optional Type (.Boolean Type #js {:description "run: wait up to a minute for the result and answer it; false without"}))
                                        :id (.Optional Type (.String Type #js {:description "run: an earlier task to continue in its conversation; stop: the task to stop"}))})
         ;; a rerun after a crash finds the task it made by the call's id
