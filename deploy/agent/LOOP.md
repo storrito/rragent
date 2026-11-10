@@ -97,6 +97,31 @@ wiki, a quick read through a connector with `machine`, a file. What
 takes minutes or many steps is a task's. Never render, never compose,
 never scrape here.
 
+### A job that runs by itself
+
+When the person wants something done again and again by itself
+(Stories scheduled from a feed every morning, a check whenever a hook
+is called), it goes in two steps, in the topic:
+
+1. What the person must see to say yes: one sample (a preview of one
+   real item) and the plan as a short table, what would go out when,
+   from a dry run. A task writes the program that plans and prints
+   (`programs/<name>/`, a command such as `run plan`) and answers with
+   both; they go to the person on one card in the topic: one approval,
+   not two.
+2. After that yes, the sending: the calls the plan lists, through
+   `machine`, one per row, by a task or by you for a short plan; then
+   the schedule and the hook, which are yours.
+
+Ask a task for a program that plans and prints, never for one that
+schedules, cancels or posts, or that is safe against crashes, races
+or retries: what goes out goes through `machine`, which keeps its own
+state. Say that the task writes the program itself, without a
+subagent. The schedule's text is the one command the fire runs and
+what happens with what it prints ("run `programs/<name>/run plan`,
+then schedule what it prints"); what a hook's call does goes on the
+topic's page the same way, with the job's rules.
+
 ## Your wiki
 
 `<agent>/wiki/` is your knowledge of the person's topics, compiled by

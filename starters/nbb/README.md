@@ -46,6 +46,31 @@ No database of your own. Three things, and nothing else is kept:
   `node:sqlite` is in Node when a job truly needs one, and it is not
   the first choice.
 
+## A program plans, the machine sends
+
+A program reads what came in and works out what to do; it calls no
+service. What goes out (a post scheduled, a Story canceled, a mail
+sent) goes through the bot's `machine` tool, which has every
+connection of the machine: the program prints the rows to send, or
+writes them to a file (`data/plan.json`), and a machine reads them
+(`slurp`) and makes one call per row, as the loop of
+`/home/sprite/rragent/dist/docs/machines.md` does, with a `remember`
+for each answer, so that
+the next replay counts it. The example works this way: `./run new`
+prints what is not posted yet, the bot posts it, and the posting is
+noted (`./run posted …`, or `remember "posted"` in the machine).
+
+So a program needs no client of a service, no token and no address of
+its own, and nothing against a crash halfway, two runs at once or an
+answer that comes late: the machine keeps its state after every answer
+and makes no call twice. A run of a schedule or a hook is a run of the
+bot with the same `machine` tool: its text names the program's one
+command and what to do with what it prints.
+
+When the person must approve first, the program's output is what they
+approve: what would go out, as a short table (a dry run). Sending is
+no command of the program, before their yes or after it.
+
 ## The pieces
 
 - `main.cljs`: the entry. `main` gets the command line's words and does
@@ -89,6 +114,11 @@ No database of your own. Three things, and nothing else is kept:
 - Namespaces: a file `thing.cljs` in the folder is the namespace
   `thing`, required as `[thing]`; a folder `a/b.cljs` is `a.b`. Small
   functions, a docstring on each, a test for what can go wrong.
+- One namespace at a time: write it, load it (`nbb --classpath
+  programs/<name> -e "(require 'thing)"`), then the next. A `write` or
+  an `edit` of a `.cljs` file says at once when a form does not close,
+  with nbb's message and the line; fix that form with an edit before
+  anything else.
 - Traps: a missing field of a JS object is `undefined`, which `nil?`
   takes as nil; `deftype` does not exist in nbb, a map or a `defrecord`
   does the same; nbb finds a program's namespaces only on its classpath

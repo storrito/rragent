@@ -39,6 +39,25 @@
       (is (not (str/includes? action "--build-arg")))
       (is (not (str/includes? action "-plain")) "no plain image is published"))))
 
+(deftest a-program-plans-and-the-machine-sends-test
+  (testing "the shared prompt: a program prints, the machine calls, fires done the same way, no subagent, a dry run before the yes"
+    (let [text (text "deploy/agent/SYSTEM-PROMPT.md")]
+      (is (str/includes? text "A program works out what to do and prints it; it calls no service."))
+      (is (str/includes? text "A schedule's fire and a hook's call are done\nthe same way"))
+      (is (str/includes? text "Write the program yourself, never through a subagent"))
+      (is (str/includes? text "(a dry run); the machine that sends it\ncomes after their yes"))))
+  (testing "the nbb starter says the same to the program's author"
+    (let [text (text "starters/nbb/README.md")]
+      (is (str/includes? text "## A program plans, the machine sends"))
+      (is (str/includes? text "/home/sprite/rragent/dist/docs/machines.md") "a path the program's author can read")
+      (is (str/includes? text "One namespace at a time"))))
+  (testing "the loop hands a recurring job to tasks that way: sample and plan on one card, sending after the yes, the fire's one command"
+    (let [text (text "deploy/agent/LOOP.md")]
+      (is (str/includes? text "### A job that runs by itself"))
+      (is (str/includes? text "on one card in the topic: one approval"))
+      (is (str/includes? text "never for one that\nschedules, cancels or posts"))
+      (is (str/includes? text "the one command the fire runs")))))
+
 (deftest the-shared-prompt-is-for-every-conversation-test
   (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
     (testing "a text, not a definition: no frontmatter, for the loop and the tasks alike"

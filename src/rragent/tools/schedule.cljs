@@ -35,7 +35,9 @@
                                        :name (.Optional Type (.String Type #js {:description "The schedule's name"}))
                                        :cron (.Optional Type (.String Type #js {:description "The cron line"}))
                                        :tz (.Optional Type (.String Type #js {:description "The time zone of the cron line, an IANA name such as Europe/Berlin"}))
-                                       :text (.Optional Type (.String Type #js {:description "The text the run gets when it fires: what to do then; its first sentence names the run in the activity, so start with the words a person reads"}))
+                                       :text (.Optional Type (.String Type #js {:description (str "The text the fire brings: what to do then, in a sentence or two, the one command it runs "
+                                                                                                  "(`programs/<name>/run check`) and what to do with what that prints, since the job's rules are written down already; "
+                                                                                                  "its first sentence names the run in the activity, so start with the words a person reads")}))
                                        :mode (.Optional Type (.Union Type #js [(.Literal Type "run") (.Literal Type "message")]))
                                        :topic (.Optional Type (.String Type #js {:description "The topic the job belongs to, by name or id: the fire's message carries it"}))})
         :execute (^:async fn [args api call-context]
