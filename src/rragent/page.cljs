@@ -440,9 +440,13 @@
    steers it (pi-durable's `whenBusy`): the model reads it after its
    current tool call, not once the run ends, so a change of mind does
    not wait for work it makes moot. A hook's call, a schedule's run and
-   a bot's message stay follow-ups, each a run of its own."
+   a bot's message stay follow-ups, each a run of its own. A `:text`
+   that is no string, a placeholder the browser did not fill
+   (`[:composer/draft …]`, `rragent.client`), is refused as
+   `:bad-text`: printed, it would reach the model as the message."
   [w]
   (let [{:keys [text attachments screen run topic tab] bot-id :bot} (command/command-data w)
+        text? (or (nil? text) (string? text))
         text (str/trim (str text))
         {:keys [uploads] :as bot} (bot-of-command w)
         ;; the views are the loop's; another conversation has none
@@ -462,6 +466,9 @@
     (cond
       (nil? conversation)
       (command/rejected w (if run :no-such-run :no-such-bot))
+
+      (not text?)
+      (command/rejected w :bad-text)
 
       (and (str/blank? text) (empty? attachments))
       (command/rejected w :empty-message)

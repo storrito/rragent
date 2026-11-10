@@ -141,9 +141,11 @@ first message shown where it is); the window
 reaches back to a pinned card, and starts at the newest again with
 the next view picked. Every cost of a frame, the server's render and
 translation, the browser's decode, walk and diff, grows with the
-items shown, and the loop's conversation only grows: a typed letter
-re-renders the page in the browser, so the feed's size is the
-typing's speed. A frame equal to the one a tab last got is not sent
+items shown, and the loop's conversation only grows. The composer's
+draft stays out of the browser's store (`rragent.client.draft`): a
+typed letter renders nothing, only a frame does; the first letter of
+a message and the last one deleted render once, for the Send
+button. A frame equal to the one a tab last got is not sent
 (`rragent.rframes.sse/stream-handler` keeps the last encoded frame
 per connection, one string compare): while the loop streams a turn,
 every token changes the bot's value and refreshes every tab showing

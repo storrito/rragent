@@ -65,6 +65,7 @@
   (:require [clojure.string :as str]
             [cognitect.transit :as t]
             ["qrcode" :as qrcode]
+            [rragent.client.draft :as draft]
             [rragent.client.effects :as effects]
             [rragent.client.icons :as icons]
             [rragent.client.usb-screen :as usb]))
@@ -1127,8 +1128,8 @@
                       (when-let [error (:failed made)]
                         (str/replace (or (:effects-apply-failed labels) "The webcam's effects could not be applied ({error}): the webcam was not saved. ")
                                      "{error}" error)))]
-        (swap! store update store-key (fn [draft]
-                                        (str (when (seq (str draft)) (str draft "\n\n")) line)))
+        (let [before (draft/text store-key)]
+          (draft/write! store-key (str (when (seq before) (str before "\n\n")) line)))
         (update! store assoc :status :ready :phone-waiting? false)
         (close! store)
         (some-> (js/document.querySelector ".composer textarea") .focus))

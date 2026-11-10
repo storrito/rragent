@@ -1186,8 +1186,8 @@
     :else id))
 
 (defn draft-key
-  "Where the browser keeps the draft for a bot; one per bot, so that a
-   switch of the bot keeps what was typed."
+  "The key of the draft in the browser (`rragent.client.draft`); one
+   per bot and view, so that a switch keeps what was typed."
   [id]
   [:draft id])
 
@@ -1198,20 +1198,23 @@
 (defn send-actions
   "Sends the draft and the attachments to the bot's conversation, with
    what the pane of the tab shows (`:ui/screen`, `rragent.client`),
-   then clears both. From the \"New topic\" view (`new?`) the command
-   names the tab, whose view says so (`rragent.page`)."
+   then clears both: the draft is the browser's, outside its store
+   (`[:composer/draft key]` and `:composer/clear-draft`,
+   `rragent.client.draft`), the attachments are in the store. From the \"New topic\" view
+   (`new?`) the command names the tab, whose view says so
+   (`rragent.page`)."
   [id & [run topic new?]]
   (let [key (store-id id run topic new?)]
     [[:data/command
       {:command/kind :chat/send
        :command/data (cond-> {:bot id
-                              :text [:store/deref (draft-key key)]
+                              :text [:composer/draft (draft-key key)]
                               :attachments [:store/deref (attachments-key key)]
                               :screen :ui/screen}
                        run (assoc :run run)
                        topic (assoc :topic topic)
                        new? (assoc :tab :ui/tabid))}
-      {:on-success [[:store/dissoc (draft-key key)]
+      {:on-success [[:composer/clear-draft (draft-key key)]
                     [:store/dissoc (attachments-key key)]]}]]))
 
 (defn- level-label

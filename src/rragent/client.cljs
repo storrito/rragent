@@ -13,8 +13,10 @@
    audio file, a document or a text or data file (`rragent.file-kinds`)
    in pieces of `piece-bytes` with its progress on its chip,
    and a message sent while files go up goes once the last is in
-   (`rragent.uploads` on the server). The attachments are client state
-   beside the draft, a frame from the server does not reset them. Files
+   (`rragent.uploads` on the server). The attachments are client state,
+   a frame from the server does not reset them; the draft itself stays
+   out of the store (`rragent.client.draft`), a letter typed renders
+   nothing. Files
    dragged over the page bring up a veil that takes them anywhere, as in
    ChatGPT, LibreChat or Open WebUI, and a file dropped beside it never
    opens in the tab instead of the page.
@@ -40,6 +42,7 @@
             [rframes.client.state :as state]
             [rframes.client.ui :as ui]
             [rragent.client.dictation :as dictation]
+            [rragent.client.draft :as draft]
             [rragent.client.editor :as editor]
             [rragent.client.effects :as effects]
             [rragent.client.icons :as icons]
@@ -440,7 +443,7 @@
             chips) :cancel
       (dictation/active? state) :wait
       (some :uploading? attachments) :wait
-      (or (not (str/blank? (get state store-key)))
+      (or (not (str/blank? (draft/text store-key)))
           (some #(not (:failed? %)) attachments)) :send
       :else :cancel)))
 
@@ -592,14 +595,18 @@
 
 (defn- break-line!
   "A line break at the caret of the textarea, as typing one would: an
-   input event, which puts the text in the store, and a step of undo."
+   input event, which writes the draft, and a step of undo."
   []
   (js/document.execCommand "insertText" false "\n"))
 
 (defn composer
-  "The textarea of the page with its attachments. The text lives in the
-   store under `:ui/store-key`, the attachments under
-   `:ui/attachments-key`, so that a frame from the server resets
+  "The textarea of the page with its attachments. The text is the draft
+   of `rragent.client.draft`, by `:ui/store-key`, outside the store: a
+   letter typed would render the page, the feed with it. So the text
+   carries no value of the frame's, it is keyed, one per view, and
+   takes the draft when it mounts; the store learns only whether
+   there is a draft, for the Send button. The attachments are in the
+   store under `:ui/attachments-key`; a frame from the server resets
    neither; files go to `:ui/upload-url`. Ctrl+Enter (Cmd+Enter on a
    Mac) and the Send button run `:ui/send`, the actions of the server,
    with a text, files or both; while files go up they run once the last
@@ -635,13 +642,15 @@
         attachments-key (or attachments-key :attachments)
         upload-url (or upload-url "/upload")
         dictation-url (or dictation-url "/dictation")
-        draft (str (get state store-key ""))
         attachments (get state attachments-key [])
         uploading? (some :uploading? attachments)
         pending? (some? (:ui/send-pending state))
         dictating (#{:recording :finishing} (get-in state [:ui/dictation :status]))
+        ;; the draft's text is read here, its presence is the store's
+        ;; (`draft/write!`): the render that follows a first letter sees
+        ;; the text, a later letter renders nothing
         ready? (and (not (dictation/active? state))
-                    (or (not (str/blank? draft))
+                    (or (not (str/blank? (draft/text store-key)))
                         (some #(not (:failed? %)) attachments))
                     (not pending?)
                     (not (ui/kind-issued? state :chat/send)))
@@ -686,9 +695,16 @@
                    :ui/send-after-dictation-label :ui/state :ui/stop :ui/stop-label
                    :ui/record-url :ui/recorder :ui/phone :ui/enter-title)
            (cond-> (and (= "enter" (send-key state)) (not (keyboardless?))) (assoc :title (:ui/enter-title attrs)))
-           (assoc :value draft
+           ;; no :value: the text is the draft's, taken on the mount, and
+           ;; a frame leaves it alone; a new view mounts a new text
+           (assoc :replicant/key store-key
+                  :replicant/on-mount (fn [{:keys [replicant/node]}]
+                                        (draft/mount! store-key node))
+                  :replicant/on-unmount (fn [{:keys [replicant/node]}]
+                                          (draft/unmount! node))
                   :readonly (dictation/active? state)
-                  :on {:input [[:store/assoc store-key :event/target.value]]
+                  :on {:input (fn [^js event]
+                                (draft/write! store-key (.. event -target -value)))
                        :paste (fn [^js event]
                                 (let [files (pasted-files event)]
                                   (when (seq files)
@@ -1365,8 +1381,13 @@
 
 (def register
   "The aliases of the page, the URL of the bot, `:ui/tabid` in a
-   command, the id of this tab, and `:ui/screen`, what its pane shows
-   (`screen`)."
+   command, the id of this tab, `:ui/screen`, what its pane shows
+   (`screen`), `[:composer/draft key]`, the draft of the composer
+   (`rragent.client.draft`), and `:composer/clear-draft`, which
+   empties it once the message is in. The two are no `:ui/…`: the
+   runtime takes every `[:ui/… …]` vector of a frame for an alias
+   node and puts the state into it (`rframes.client`), and the key
+   behind it would move."
   [{:ui.alias/kind :ui/composer
     :ui.alias/fn composer}
    {:ui.alias/kind :ui/splitter
@@ -1401,6 +1422,13 @@
     :ui.action/handler (fn [_] (swap! pane* dissoc :stale))}
    {:ui.action/kind :ui/keep-place
     :ui.action/handler keep-place!}
+   {:ui.action/kind :composer/clear-draft
+    :ui.action/handler (fn [{:keys [action]}]
+                         (draft/clear! (second action)))}
+   {:ui.action-enricher/kind :composer/draft
+    :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
+                             (when (and (vector? x) (= :composer/draft (first x)))
+                               (draft/text (second x))))}
    {:ui.action-enricher/kind :ui/tabid
     :ui.action-enricher/fn (fn [{:keys [ui.action/x]}]
                              (when (= :ui/tabid x)

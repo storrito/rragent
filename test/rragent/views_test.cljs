@@ -336,7 +336,9 @@
           send (:ui/send (second composer))]
       (is (= "in Content week" (second (find-tag p :span.topic))))
       (is (= "content-week" (get-in send [0 1 :command/data :topic])))
-      (is (= [:draft "7/content-week"] (:ui/store-key (second composer))) "a draft per view")))
+      (is (= [:draft "7/content-week"] (:ui/store-key (second composer))) "a draft per view")
+      (is (= [:composer/draft [:draft "7/content-week"]] (get-in send [0 1 :command/data :text])) "the text is the browser's draft, outside its store")
+      (is (= [:composer/clear-draft [:draft "7/content-week"]] (get-in send [0 2 :on-success 0])) "emptied once the message is in")))
   (testing "in the view of the turns of no topic neither"
     (let [p (page {:view {:kind :loose}})
           composer (find-tag p :ui/composer)]
