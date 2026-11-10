@@ -506,6 +506,27 @@
       (artifacts/picked value readme)
       value)))
 
+(defn- project-of
+  "The project the folder `folder` lies in, among the list of the bot's
+   map `value`: its path, nil for a folder outside one."
+  [value folder]
+  (let [top (first (str/split (str folder) #"/"))]
+    (some #(when (and (= :project (:kind %)) (= top (:path %))) (:path %))
+          (:artifacts/list value))))
+
+(defn- folder-shown
+  "The bot's map with `folder` opened from a card or a link, something
+   meant to be looked at: as `folder-opened`, and a folder of a project
+   without a README of its own, `story/composition` on a card, has
+   nothing to show, so the project's player takes the screen while the
+   list browses the folder."
+  [value folder]
+  (let [project (project-of value folder)]
+    (if (and project (not (artifacts/readme (:artifacts/list value) folder)))
+      (-> (artifacts/picked value project)
+          (artifacts/browsed folder))
+      (folder-opened value folder))))
+
 (defonce ^:private steps
   (atom 0))
 
@@ -542,7 +563,8 @@
 (defn- open-artifact-command
   "The person picked an artifact in the list or on a card, or went back
    to the list (a nil path); a path that is a folder's, a link in a
-   README, opens the folder. A step of the tab `tab` (`move-pane!`);
+   README, opens the folder, and a folder inside a project plays the
+   project (`folder-shown`). A step of the tab `tab` (`move-pane!`);
    the tab brought to the artifact's bot first when it shows another
    (`shown!`)."
   [w]
@@ -555,7 +577,7 @@
       (nil? bot) (command/rejected w :no-such-bot)
       (or (nil? path) (artifact-of bot path)) (do (move-pane! bot tab #(artifacts/picked % path))
                                                   (command/accepted w))
-      (artifacts/folder? (:artifacts/list bot) path) (do (move-pane! bot tab #(folder-opened % path))
+      (artifacts/folder? (:artifacts/list bot) path) (do (move-pane! bot tab #(folder-shown % path))
                                                          (command/accepted w))
       :else (command/rejected w :no-such-artifact))))
 

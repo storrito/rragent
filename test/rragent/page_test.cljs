@@ -302,6 +302,22 @@
                                    (is (= {:success? true} (await (command! base cookie :artifacts/show {:bot id :path nil :folder "stories" :step "1.1" :tab "t1"}))))
                                    (let [frame (await (frame! #(= "1.1" (pane-step %))))]
                                      (is (= {:ui/bot id :ui/folder "stories" :ui/current nil :ui/step "1.1"} (second (find-tag frame :ui/pane-history))))))))
+                             (testing "a card that opens a folder inside a project plays the project, the list in that folder; a folder with a README shows that"
+                               (fs/mkdirSync (path/join dir "short" "composition" "notes") #js {:recursive true})
+                               (fs/writeFileSync (path/join dir "short" "package.json") "{\"name\":\"short\"}")
+                               (fs/writeFileSync (path/join dir "short" "composition" "index.html") "<h1>short</h1>")
+                               (fs/writeFileSync (path/join dir "short" "composition" "notes" "README.md") "# Notes")
+                               (artifacts/refresh! db/db (db/bot-path id) dir)
+                               (try
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "short/composition" :tab "t1"}))))
+                                 (is (= {:current "short" :folder "short/composition"} (artifacts/place (get-in @db/db [:bots id]))))
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "short/composition/notes" :tab "t1"}))))
+                                 (is (= {:current "short/composition/notes/README.md" :folder "short/composition/notes"} (artifacts/place (get-in @db/db [:bots id]))))
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "stories" :tab "t1"}))) "a folder outside a project is browsed as before")
+                                 (is (= "stories" (:folder (artifacts/place (get-in @db/db [:bots id])))))
+                                 (finally
+                                   (fs/rmSync (path/join dir "short") #js {:recursive true :force true})
+                                   (artifacts/refresh! db/db (db/bot-path id) dir))))
                              (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "And this" :screen "gone.html"}))))
                              (await (frame! #(mentions? % "Which one?")))
                              (is (= "And this" (last-message)) "what the list no longer has names nothing")

@@ -13,7 +13,9 @@ for, complete, nothing else. No greeting, no account of your steps, no
 paths of files the bot did not ask for, no proof. What you made for
 the person goes under `artifacts/` as the shared rules say, and the
 result names it by its path under `artifacts/`, one line per file,
-when the job asked for files. When you cannot finish without an
+when the job asked for files; a design made with `project` by its
+project, `artifacts/<project>`, which is what plays beside the chat,
+not by a folder inside it. When you cannot finish without an
 answer from the person, say in your result what you did, what you
 need and why, in a sentence or two: the bot asks for you, and you are
 continued with the answer. When something did not work, say what did

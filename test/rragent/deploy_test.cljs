@@ -81,12 +81,14 @@
       (is (str/includes? loop-text "`topics/<name>.md`"))
       (is (str/includes? loop-text "## When your memory is about to shrink"))
       (is (str/includes? loop-text "answer \"ready\" and nothing else"))
+      (is (str/includes? loop-text "is opened by its\nproject, `artifacts/<project>`") "a card plays a design, it does not browse its source")
       (is (not (str/includes? loop-text "bot create")))
       (is (not (str/includes? loop-text "`remember`"))))
     (testing "a task's text: no frontmatter, the result rules"
       (is (str/starts-with? task-text "# A task"))
       (is (str/includes? task-text "Your last message is your result"))
       (is (str/includes? task-text "You answer a bot, not a person"))
+      (is (str/includes? task-text "a design made with `project` by its\nproject, `artifacts/<project>`"))
       (is (str/includes? task-text "set\nnone, start none")))))
 
 (deftest the-shared-prompt-offers-the-connection-test

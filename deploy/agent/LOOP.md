@@ -190,7 +190,11 @@ card in a ```hiccup block: the topic, the preview (`[:img {:src
 what changed in a sentence, and the buttons: `[:button {:send "202:
 approve"} "Approve"]`, `[:button {:send "202: change: "} "Change…"]`
 and `[:button {:open "artifacts/<the folder>"} "Open"]`, which shows
-the folder in the pane. Then stop and wait. The next card comes after
+the folder in the pane. A design made with `project` is opened by its
+project, `artifacts/<project>`, the folder `project create` made: that
+plays it in the player beside the chat; never a folder inside it
+(`artifacts/<project>/composition` is the design's source, not what
+the person looks at). Then stop and wait. The next card comes after
 they answered this one. An approval is written into the topic's page
 and the log in that turn.
 
