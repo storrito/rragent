@@ -339,11 +339,13 @@
 (defn with-topics
   "Every item with `:topics`, the topics of its turn (docs/one-loop.md
    §3): the topic the turn's input carries (a person's message from a
-   topic's view, a trigger's job, a task's) and the topics the `topic`
-   tool calls in the turn name. A turn without any has an empty set."
+   topic's view, a trigger's job, a task's; by id, or by name as the
+   model gave it to the tool, resolved here) and the topics the
+   `topic` tool calls in the turn name. A turn without any has an
+   empty set."
   [items topics]
   (let [flush (fn [out turn]
-                (let [tags (into (if-let [t (:topic (first turn))] #{t} #{})
+                (let [tags (into (if-let [t (:topic (first turn))] #{(or (topic-tool/resolve-id topics t) t)} #{})
                                  (mapcat #(topic-calls % topics) turn))]
                   (into out (map #(assoc % :topics tags) turn))))]
     (loop [items (seq items)

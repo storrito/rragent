@@ -559,6 +559,7 @@
   (when-not (false? (:loop? opts))
     (when-let [to (migration/backup! (or (:home opts) (home/home)))]
       (println (str "the home was copied to " to " before its adoption into the one conversation"))))
+  (reset! topic-tool/topics-fn topics)
   (let [agent (await (harness/open (assoc opts :extensions [(topic-tool/extension {:topics #'topics
                                                                                    :create! (fn [name] (create-topic! (:harness (agent)) name))
                                                                                    :rename! (fn [id name] (rename-topic! (:harness (agent)) id name))

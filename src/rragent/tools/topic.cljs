@@ -50,6 +50,20 @@
         (some (fn [[id {:keys [name]}]] (when (= lower (str/lower-case (str name))) id)) topics)
         (when (contains? topics (slug given)) (slug given)))))
 
+(defonce topics-fn
+  (atom (fn [] {})))
+
+(defn resolve-or-keep
+  "The id of the topic `given` names, for a tool that takes a topic
+   (`task`, `schedule`, `hook`): `resolve-id` over the machine's
+   topics as `topics-fn` reads them (set when the machine opens), and
+   `given` itself when no topic matches, so that the page, which
+   resolves the tag again when it reads it, finds a topic made after
+   the call; nil for none given."
+  [given]
+  (when-let [given (not-empty (str/trim (str given)))]
+    (or (resolve-id (@topics-fn) given) given)))
+
 (defn tool
   "The tool over the functions of the machine: `topics` (the topics,
    id to `{:name :created :archived?}`), `create!` (a name to a

@@ -17,6 +17,7 @@
             [rragent.cap :as cap]
             [rragent.runs :as runs]
             [rragent.tasks :as tasks]
+            [rragent.tools.topic :as topic-tool]
             [rragent.tools.work :as work]))
 
 (def description
@@ -80,7 +81,7 @@
 (defn- ^:async start!
   [^js args api call-context]
   (let [text (str/trim (str (.-text args)))
-        topic (not-empty (str/trim (str (.-topic args))))
+        topic (topic-tool/resolve-or-keep (.-topic args))
         continued (not-empty (str/trim (str (.-id args))))
         wait? (true? (.-wait args))
         loop-id (await (work/bot-id api call-context))]
@@ -164,7 +165,7 @@
         :description description
         :parameters (.Object Type #js {:action (.Optional Type (.Union Type #js [(.Literal Type "run") (.Literal Type "stop") (.Literal Type "list")]))
                                        :text (.Optional Type (.String Type #js {:description "run: the task, complete; the task knows nothing of this conversation"}))
-                                       :topic (.Optional Type (.String Type #js {:description "run: the topic the work belongs to"}))
+                                       :topic (.Optional Type (.String Type #js {:description "run: the topic the work belongs to, by name or id"}))
                                        :model (.Optional Type (.String Type #js {:description "run: the model the task runs on, an OpenRouter id; the default without"}))
                                        :thinking (.Optional Type (.String Type #js {:description "run: the thinking level, low, medium, high, xhigh or max; the default without"}))
                                        :wait (.Optional Type (.Boolean Type #js {:description "run: wait up to a minute for the result and answer it; false without"}))

@@ -7,6 +7,7 @@
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [rragent.docs :as docs]
             [rragent.hooks :as hooks]
+            [rragent.tools.topic :as topic-tool]
             [rragent.tools.work :as work]))
 
 (defn- text
@@ -32,7 +33,7 @@
                                        :name (.Optional Type (.String Type #js {:description "The hook's name: lowercase letters, digits, dashes"}))
                                        :purpose (.Optional Type (.String Type #js {:description "What calls it, in a few words a person reads: the activity names the run by it, such as \"A new review\""}))
                                        :mode (.Optional Type (.Union Type #js [(.Literal Type "run") (.Literal Type "message")]))
-                                       :topic (.Optional Type (.String Type #js {:description "The topic the job belongs to, its id: each call's message carries it"}))})
+                                       :topic (.Optional Type (.String Type #js {:description "The topic the job belongs to, by name or id: each call's message carries it"}))})
         :execute (^:async fn [args api call-context]
                    (let [name (.-name args)]
                      (await (work/bot-call! api call-context "Hooks"))
@@ -40,7 +41,7 @@
                        "create" (do (when (empty? name)
                                       (throw (js/Error. "create needs the name")))
                                     (let [mode (or (not-empty (.-mode args)) "run")
-                                          address (await (hooks/create! api name (or (.-purpose args) "") mode call-context (.-topic args)))]
+                                          address (await (hooks/create! api name (or (.-purpose args) "") mode call-context (topic-tool/resolve-or-keep (.-topic args))))]
                                       (text (str "Hook " name " at " address
                                                  (if (= "message" mode)
                                                    "; each call reaches you here as a message."

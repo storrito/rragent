@@ -8,6 +8,7 @@
    the view's topic and sends it."
   (:require [clojure.test :refer [deftest is testing]]
             [rragent.i18n :as i18n]
+            [rragent.tools.topic :as topic-tool]
             [rragent.view :as view]))
 
 (defn- person [id name topic text]
@@ -88,6 +89,34 @@
     (is (= 1 (count (view/open-cards items))) "one card waits")
     (is (= {"content-week" 1} (view/topic-counts items)))
     (is (= {"pinterest" 11 "content-week" 11} (view/topic-activity items)) "both topics were last touched by the last turn")))
+
+(deftest topic-by-name-test
+  (let [conversation {:entries [(person 1 "Lydia" nil "Go.")
+                                ;; the task was started with the topic's name, not its id
+                                {:id 2 :kind "rragent.task-done" :data {:task 3 :topic "Content week" :state "done" :line "Done."} :model [{:role "user" :content "The task 3 (Content week) is done."}]}
+                                (assistant 3 [{:type "text" :text "Done, Lydia."}])
+                                {:id 4 :kind "rragent.schedule" :data {:name "tick" :topic "Nowhere" :at 4} :model [{:role "user" :content "Tick."}]}
+                                (assistant 5 [{:type "text" :text "Ticked."}])]
+                      :live {}
+                      :inbox {:items []}}
+        items (view/items conversation topics)
+        by-id (into {} (map (juxt :id identity)) items)]
+    (is (= #{"content-week"} (:topics (get by-id 2))) "a task's topic given by its name tags the turn with the topic's id")
+    (is (= #{"content-week"} (:topics (get by-id 3))))
+    (is (= 2 (count (view/visible items {:kind :topic :topic "content-week"}))) "the topic's view shows the turn")
+    (is (= #{"Nowhere"} (:topics (get by-id 4))) "a topic nothing matches stays as given")
+    (is (= {"content-week" 3 "Nowhere" 5} (view/topic-activity items)))))
+
+(deftest resolve-or-keep-test
+  (reset! topic-tool/topics-fn (fn [] topics))
+  (try
+    (is (= "content-week" (topic-tool/resolve-or-keep "Content week")) "by name")
+    (is (= "content-week" (topic-tool/resolve-or-keep "content-week")) "by id")
+    (is (= "pinterest" (topic-tool/resolve-or-keep " Pinterest ")))
+    (is (= "Nowhere" (topic-tool/resolve-or-keep "Nowhere")) "kept when no topic matches")
+    (is (nil? (topic-tool/resolve-or-keep "  ")))
+    (is (nil? (topic-tool/resolve-or-keep nil)))
+    (finally (reset! topic-tool/topics-fn (fn [] {})))))
 
 (deftest sidebar-views-test
   (let [p (page {:view {:kind :topic :topic "content-week"}})
