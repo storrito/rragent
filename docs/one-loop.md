@@ -143,7 +143,14 @@ the next view picked. Every cost of a frame, the server's render and
 translation, the browser's decode, walk and diff, grows with the
 items shown, and the loop's conversation only grows: a typed letter
 re-renders the page in the browser, so the feed's size is the
-typing's speed. Settings → Advanced keeps the raw list of the
+typing's speed. A frame equal to the one a tab last got is not sent
+(`rragent.rframes.sse/stream-handler` keeps the last encoded frame
+per connection, one string compare): while the loop streams a turn,
+every token changes the bot's value and refreshes every tab showing
+the bot, and a tab whose view is another topic would get the same
+page up to ten times a second, decoded, walked and diffed for nothing
+while the person types in it.
+Settings → Advanced keeps the raw list of the
 conversations of before and the tasks' transcripts, and a "New bot"
 for the people behind this machine; the header's context ring (how
 full the window is, the cost, "Summarize older messages now") and the
