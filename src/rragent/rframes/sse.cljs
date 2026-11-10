@@ -39,11 +39,31 @@
   ;; gathered since the last one
   (atom nil))
 
+(def ^:private refresh-gap
+  "The least milliseconds between two refreshes."
+  100)
+
+(defonce ^:private last-refresh
+  ;; when the last scheduled refresh went, ms
+  (atom 0))
+
+(defn- refresh-pending!
+  []
+  (let [p @pending]
+    (reset! pending nil)
+    (reset! last-refresh (js/Date.now))
+    (if (= :all p)
+      (refresh-all!)
+      (refresh-where! (fn [w] (some #(% w) p))))))
+
 (defn schedule-refresh!
   "A refresh of every connection (`:all`, the default), or of the ones
    `which`, a predicate of a connection's world, picks; coalesced to
    at most 10 per second, the predicates gathered meanwhile all
-   applied."
+   applied. The first change after a quiet moment goes at once (the
+   end of the tick, so the changes of one command are one frame): a
+   click's frame does not wait; a stream of changes is paced by the
+   gap since the last refresh."
   ([]
    (schedule-refresh! :all))
   ([which]
@@ -54,13 +74,8 @@
                         (= :all which) :all
                         :else (conj (or p []) which))))
      (when (nil? before)
-       (js/setTimeout (fn []
-                        (let [p @pending]
-                          (reset! pending nil)
-                          (if (= :all p)
-                            (refresh-all!)
-                            (refresh-where! (fn [w] (some #(% w) p))))))
-                      100)))))
+       (js/setTimeout refresh-pending!
+                      (max 0 (- refresh-gap (- (js/Date.now) @last-refresh))))))))
 
 (defn watch!
   "Refreshes the connections after a change of the atom `db`: every

@@ -297,10 +297,9 @@
    pins it (`waiting`) until the person answers. Nil when the last item
    is that answer itself, which is on screen, or when nothing is open.
    `items` are those the view shows (`visible`): a card is pinned in
-   its topic's view and in the view of all, never in another topic's
-   or in the \"New topic\" view, where it would ask about something
-   the person does not see there; the sidebar's \"Needs you\" says
-   where it waits."
+   its topic's view, never in another topic's or in the \"New topic\"
+   view, where it would ask about something the person does not see
+   there; the sidebar's \"Needs you\" says where it waits."
   [items]
   (let [items (vec items)
         card (last (filter #(and (= :assistant (:kind %)) (not (:answered? %)) (not (:streaming? %)) (genui/asks? (:text %))) items))]
@@ -403,15 +402,19 @@
       view))
 
 (defn visible
-  "The items a `view` shows: all of them (`{:kind :all}`), the turns
-   of a topic (`{:kind :topic :topic id}`), or, in the \"New topic\"
-   view (`{:kind :new}`), nothing
+  "The items a `view` shows: the turns of a topic (`{:kind :topic
+   :topic id}`); in the \"New topic\" view (`{:kind :new}`), nothing
    until a message was sent from it, then the turns of its token
-   (`:fresh`) until the model made their topic (`settled`)."
+   (`:fresh`) until the model made their topic (`settled`); the turns
+   of no topic (`{:kind :loose}`, the row a card outside every topic
+   gets). All of them (`{:kind :all}`) is no view of the sidebar: a
+   run's transcript and a conversation of before read whole, the
+   loop's is read by topic."
   [items {:keys [kind topic fresh]}]
   (case kind
     :topic (filter #(contains? (:topics %) topic) items)
     :new (if fresh (filter #(= fresh (:fresh %)) items) ())
+    :loose (remove #(seq (:topics %)) items)
     items))
 
 (defn topic-counts
@@ -420,8 +423,9 @@
   (frequencies (mapcat :topics (open-cards items))))
 
 (defn loose-cards
-  "How many open cards belong to no topic: what the row of all is
-   marked for."
+  "How many open cards belong to no topic: what the sidebar's row
+   \"Without topic\" stands for, which is there only while one
+   waits."
   [items]
   (count (remove #(seq (:topics %)) (open-cards items))))
 
@@ -435,24 +439,66 @@
           {}
           items))
 
+(defn- topic-order
+  "The topics `ids` in the sidebar's order: those a card waits in
+   first (`counts`), then by their last activity (`activity`), then
+   the newest made."
+  [ids topics counts activity]
+  (sort-by (fn [id] [(if (pos? (get counts id 0)) 0 1) (- (get activity id 0)) (- (or (:created (get topics id)) 0))]) ids))
+
+(defn default-view
+  "The view a tab shows before the person picked one: the first topic
+   of the sidebar's order that is not archived, or the \"New topic\"
+   view on a machine without one."
+  [items topics]
+  (if-let [id (first (topic-order (keys (remove (fn [[_ t]] (:archived? t)) topics)) topics (topic-counts items) (topic-activity items)))]
+    {:kind :topic :topic id}
+    {:kind :new}))
+
+(defn shown-view
+  "The view a tab shows over `items`: the one it picked (`view`), a
+   \"New topic\" view whose topic was made as that topic's
+   (`settled`); the default (`default-view`) while it picked none.
+   There is no view of everything at once, the topics intertwined: a
+   pick of it, from a page of before, counts as none."
+  [view items topics]
+  (settled (or (when-not (= :all (:kind view)) view) (default-view items topics)) items topics))
+
+(defn- conversation-items
+  [{:keys [entries live inbox]} topics]
+  (let [results (into {}
+                      (for [{:keys [kind model]} entries
+                            :when (= "pi.tool-result" kind)
+                            :let [message (first model)]]
+                        [(:toolCallId message) message]))
+        slots (into {} (map (juxt :callId identity)) (:tools live))]
+    (vec (with-topics (answered (concat (mapcat #(entry-items % results slots) entries)
+                                        (partial-items live entries results slots)
+                                        (retry-items live)
+                                        (queued-items inbox)))
+                      topics))))
+
+(defonce ^:private items-of
+  ;; conversation -> #js [topics items], see `items`
+  (js/WeakMap.))
+
 (defn items
   "The feed of a conversation `{:entries :live :inbox}`, the answers the
    person has answered since marked (`answered`), every item with the
-   topics of its turn (`with-topics`, over the machine's `topics`)."
+   topics of its turn (`with-topics`, over the machine's `topics`); a
+   vector. The items of a conversation are made once and kept while
+   its map lives (`rragent.page/conversation` answers the same map
+   for the same view value): every frame of every tab reads them."
   ([conversation]
    (items conversation {}))
-  ([{:keys [entries live inbox]} topics]
-   (let [results (into {}
-                       (for [{:keys [kind model]} entries
-                             :when (= "pi.tool-result" kind)
-                             :let [message (first model)]]
-                         [(:toolCallId message) message]))
-         slots (into {} (map (juxt :callId identity)) (:tools live))]
-     (with-topics (answered (concat (mapcat #(entry-items % results slots) entries)
-                                    (partial-items live entries results slots)
-                                    (retry-items live)
-                                    (queued-items inbox)))
-                  topics))))
+  ([conversation topics]
+   (let [hit (when (map? conversation) (.get items-of conversation))]
+     (if (and hit (= topics (aget hit 0)))
+       (aget hit 1)
+       (let [made (conversation-items conversation topics)]
+         (when (map? conversation)
+           (.set items-of conversation #js [topics made]))
+         made)))))
 
 (defn status
   "`:working` while a run goes, else `:ready`."
@@ -675,17 +721,54 @@
      [:div.label title])
    (into [:div.markdown] (markdown/hiccup ask))])
 
+(def feed-window
+  "How many items of a view the page shows at first, the newest ones:
+   every frame carries the feed and the browser walks all of it at
+   every change, a key typed too, so a view that shows a transcript
+   of months is slow in all it does."
+  200)
+
+(def feed-step
+  "How many items more a click on \"Show earlier messages\" brings
+   (`:view/earlier`, `rragent.page`)."
+  500)
+
+(defn- earlier
+  "The row over the feed of a view longer than its window: it brings
+   the items before (`:view/earlier`, per tab), and the reader keeps
+   their place while they come in (`:ui/keep-place`, the client's)."
+  []
+  [:div.item.earlier {:replicant/key "earlier"}
+   [:button {:on {:click [[:ui/keep-place]
+                          [:data/command {:command/kind :view/earlier
+                                          :command/data {:tab :ui/tabid}}]]}}
+    [:i18n :chat/earlier]]])
+
+(defn- window-start
+  "The index of the first of `shown` the feed shows: the newest
+   `limit` items, and from the item `pinned` on when that one is
+   older, the card the strip over the composer links to (`waiting`)."
+  [shown limit pinned]
+  (let [start (max 0 (- (count shown) limit))]
+    (if (and pinned (pos? start))
+      (min start (or (first (keep-indexed (fn [i item] (when (= pinned (:id item)) i)) shown)) start))
+      start)))
+
 (defn feed
-  "The items of the conversation; with none shown yet, the skill's
-   welcome, or the plain empty chat for a bot without one. `opts` has
-   the `:base` and `:bot` of the files and commands in the items, and
-   `:expanded`, the ids of the folded rows whose body the tab shows
-   (`fold-body`)."
+  "The items of the conversation, the newest `:limit` of them
+   (`feed-window`) with the row that brings the ones before
+   (`earlier`); with none shown yet, the skill's welcome, or the plain
+   empty chat for a bot without one. `opts` has the `:base` and `:bot`
+   of the files and commands in the items, `:expanded`, the ids of
+   the folded rows whose body the tab shows (`fold-body`), and
+   `:pinned`, the id of an item the window reaches back to."
   [items status onboarding opts]
   [:section.feed {:data-stick-to-end "true"}
-   (let [shown (filter shown? items)]
+   (let [shown (filterv shown? items)
+         start (window-start shown (or (:limit opts) feed-window) (:pinned opts))]
      (cond
-       (seq shown) (map #(item-view % opts) shown)
+       (seq shown) (list (when (pos? start) (earlier))
+                         (map #(item-view % opts) (subvec shown start)))
        onboarding (welcome onboarding)
        :else [:p.hint.empty (or (:empty opts) [:i18n :chat/empty])]))
    (when (= :working status)
@@ -1983,39 +2066,43 @@
      (view-row {:kind :topic :topic id} (:name (get topics id)) (get counts id) current))])
 
 (defn sidebar
-  "The views of the one conversation (docs/one-loop.md §3), top to
-   bottom: all of it, then the topics: first the row that opens the
-   \"New topic\" view (`{:kind :new}`), whose first message makes the
-   topic, then each topic, a view marked \"Needs you\" while a card of
-   it waits for the person; the topics that need the person first,
-   then in the order of their last activity, the archived ones folded
-   at the end (open while one of them needs the person). There is no
-   view of the open cards alone: a card is read in its topic, with
-   what led to it. A click shows the view in the tab (`:view/show`). With the advanced switch on (`advanced?`), the raw
+  "The views of the one conversation (docs/one-loop.md §3), the
+   topics: first the row that opens the \"New topic\" view (`{:kind
+   :new}`), whose first message makes the topic, then each topic, a
+   view marked \"Needs you\" while a card of it waits for the person;
+   the topics that need the person first, then in the order of their
+   last activity, the archived ones folded at the end (open while one
+   of them needs the person). There is no view of everything at once
+   and none of the open cards alone: a card is read in its topic,
+   with what led to it. Only a card outside every topic gets a row of
+   its own over the topics, \"Without topic\" (`{:kind :loose}`),
+   there while such a card waits or the tab shows that view, so that
+   no question is lost. A click shows the view in the tab
+   (`:view/show`). With the advanced switch on (`advanced?`), the raw
    list of the conversations of before with the way to make, rename
    and delete one (`all-bots`). At the bottom who this browser is and
    the way to the settings, marked while this tab shows them
    (`settings?`): then no view and no bot is marked as the current
    one, so that each row reads as what it is, the way to its chat.
-   `view` is the tab's, `topics` the machine's,
+   `view` is the tab's (`shown-view`), `topics` the machine's,
    `counts` and `activity` by topic id (`topic-counts`,
    `topic-activity`), `needs` the count of the open cards of no
-   topic (`loose-cards`), which mark the row of all."
+   topic (`loose-cards`)."
   [{:keys [bots shown version settings? advanced? person view topics counts activity needs]}]
-  (let [view (or view {:kind :all})
-        current (when-not settings? view)
+  (let [current (when-not settings? view)
         shown (when-not settings? shown)
         waits? (fn [id] (pos? (get counts id 0)))
-        order (fn [ids] (sort-by (fn [id] [(if (waits? id) 0 1) (- (get activity id 0)) (- (or (:created (get topics id)) 0))]) ids))
+        order (fn [ids] (topic-order ids topics counts activity))
         active (order (keys (remove (fn [[_ t]] (:archived? t)) topics)))
         archived (order (keys (filter (fn [[_ t]] (:archived? t)) topics)))]
     [:aside.sidebar
      [:div.brand "rragent"
       (when version
         [:span.version {:title "rragent version"} version])]
-     [:section.loop-views
-      [:ul.loop-views
-       (view-row {:kind :all} [:i18n :views/all] needs current)]]
+     (when (or (pos? (or needs 0)) (= :loose (:kind current)))
+       [:section.loop-views
+        [:ul.loop-views
+         (view-row {:kind :loose} [:i18n :views/loose] needs current)]])
      [:section.topics
       [:h2 [:i18n :views/topics]]
       [:ul.topics.new {:replicant/key "new"}
@@ -2052,28 +2139,32 @@
    `:context-window` and `:spend`; `:run`, a run or a task shown in
    place of the chat, behind Advanced; `:conversation`, `{:entries
    :live :inbox}`; `:view`, the tab's view of the loop's conversation
-   (`{:kind :all | :topic | :new, :topic id, :fresh token}`,
-   `visible`, `settled`), `:topics`
+   (`{:kind :topic | :new | :loose, :topic id, :fresh token}`,
+   `visible`; nil for the default, `shown-view`), `:topics`
    the machine's (`rragent.machine/topics`); `:expanded` the folded
-   rows the tab shows; `:artifacts` the pane; `:update`, `:locale`,
+   rows the tab shows; `:limit`, how many items of the view the tab
+   shows (`feed`'s window, nil for `feed-window`); `:artifacts` the pane; `:update`, `:locale`,
    `:onboarding`, `:note`, `:failed`, `:phone`, `:settings?`,
    `:settings-section`, `:mcp`, `:link`, `:person` as before;
    `:bots-before?`, whether the settings have their Advanced section
    (`settings`)."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics bots-before?] pane :artifacts}]
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics bots-before? limit] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         loop? (boolean (some #(and (= id (:id %)) (:loop? %)) bots))
         topics (or topics {})
         all (items conversation topics)
         ;; the views are the loop's; another conversation shows whole
-        view (if (and loop? (not run)) (settled (or view {:kind :all}) all topics) {:kind :all})
+        view (if (and loop? (not run)) (shown-view view all topics) {:kind :all})
         new? (= :new (:kind view))
         shown-items (visible all view)
         status (status (:live conversation))
         fresh? (not-any? shown? all)
         artifacts? (or (seq (:artifacts/list pane)) (seq (:runs pane)))
-        onboarding (when-not (or run new?) onboarding)
+        ;; the skill's welcome: in a chat with nothing in it, which on a
+        ;; machine without a topic is the "New topic" view
+        onboarding (when-not (or run (and new? (not fresh?))) onboarding)
+        card (when-not run (open-card shown-items))
         topic-id (when (= :topic (:kind view)) (:topic view))
         topic-name (when topic-id (or (:name (get topics topic-id)) topic-id))]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
@@ -2129,8 +2220,9 @@
             [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
           (when run
             (run-head id (:name bot) run))
-          (feed shown-items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (cond run [:i18n :run/empty] new? [:i18n :views/new-empty] (not= :all (:kind view)) [:i18n :views/empty])})
-          (when-let [card (when-not run (open-card shown-items))]
+          (feed shown-items status onboarding {:base base :bot id :expanded (or expanded #{}) :limit limit :pinned (:id card)
+                                               :empty (cond run [:i18n :run/empty] new? [:i18n :views/new-empty] (not= :all (:kind view)) [:i18n :views/empty])})
+          (when card
             (waiting card))
           ;; the form in place of the composer while the page asked for the
           ;; browser's person and got no name yet (`rragent.person`)

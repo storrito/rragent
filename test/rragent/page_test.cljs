@@ -35,7 +35,8 @@
             [rragent.sync-fetch :as sync-fetch]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]
-            [rragent.uploads-test :as uploads-test]))
+            [rragent.uploads-test :as uploads-test]
+            [rragent.view :as view]))
 
 (defn- ^:async bots-before!
   "The machine as one whose bots of before were adopted into the loop
@@ -365,10 +366,23 @@
                              (is (true? (:checked (second (find-tag (find-tag frame :label.check) :input)))) "the switch as it stands"))
                            (is (= {:success? true} (await (command! base cookie :settings/section {:tab "t1" :section :updates})))))
                          (testing "a view picked in the sidebar brings the chat back: there is no command to close them"
-                           (is (= {:success? true} (await (command! base cookie :view/show {:tab "t1" :kind :all}))))
+                           (is (= {:success? false :result {:error :no-such-view}} (await (command! base cookie :view/show {:tab "t1" :kind :all})))
+                               "there is no view of everything at once")
+                           (is (= #{"t1"} (:settings-open @db/db)))
+                           (swap! db/db assoc-in [:tab-limits "t1"] 700)
+                           (is (= {:success? true} (await (command! base cookie :view/show {:tab "t1" :kind :new}))))
                            (await (frame! #(find-tag % :ui/composer)))
                            (is (= #{} (:settings-open @db/db)))
-                           (is (= {:kind :all} (get-in @db/db [:tab-views "t1"]))))
+                           (is (= {:kind :new} (get-in @db/db [:tab-views "t1"])))
+                           (is (nil? (get-in @db/db [:tab-limits "t1"])) "the feed at its newest items again"))
+                         (testing "earlier messages: the tab's feed reaches further back, a step per click, until the next view or bot"
+                           (is (= {:success? false :result {:error :no-tab}} (await (command! base cookie :view/earlier {}))))
+                           (is (= {:success? true} (await (command! base cookie :view/earlier {:tab "t1"}))))
+                           (is (= (+ view/feed-window view/feed-step) (get-in @db/db [:tab-limits "t1"])))
+                           (is (= {:success? true} (await (command! base cookie :view/earlier {:tab "t1"}))))
+                           (is (= (+ view/feed-window view/feed-step view/feed-step) (get-in @db/db [:tab-limits "t1"])))
+                           (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))))
+                           (is (nil? (get-in @db/db [:tab-limits "t1"]))))
                          (is (= {:success? true} (await (command! base cookie :settings/open {:tab "t1"}))))
                          (await (frame! #(mentions? % "Check for updates")))
                          (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))))
@@ -570,8 +584,32 @@
       (is (= :all (page/affected old (assoc-in old [:bots "7" :deleting?] true))))
       (is (= :all (page/affected old (update old :bots dissoc "7"))))
       (is (= :all (page/affected old (assoc-in old [:bots "9"] {:id "9"}))))
-      (is (= :all (page/affected old (assoc-in old [:tabs "t1"] "7"))))
-      (is (= :all (page/affected old (assoc old :update {:current "1"})))))))
+      (is (= :all (page/affected old (assoc old :update {:current "1"}))))
+      (is (= :all (page/affected old (assoc old :mcp {:servers []})))))
+    (testing "what one tab shows goes to that tab alone: the bot it picked, its view, how far back its feed reaches, its settings"
+      (doseq [new [(assoc-in old [:tabs "t1"] "7")
+                   (assoc-in old [:tab-views "t1"] {:kind :topic :topic "content-week"})
+                   (assoc-in old [:tab-limits "t1"] 700)
+                   (assoc-in old [:tab-runs "t1"] nil)
+                   (assoc-in old [:tab-panes "t1"] :activity)
+                   (assoc-in old [:settings-section "t1"] :updates)
+                   (assoc old :settings-open #{"t1"})]]
+        (let [pred (page/affected old new)]
+          (is (fn? pred))
+          (is (true? (pred shows-1)))
+          (is (false? (pred shows-7)))
+          (is (false? (pred (w "t9" "1"))) "another tab showing the same bot")))
+      (let [open (assoc old :settings-open #{"t1" "t2"})
+            pred (page/affected open (assoc open :settings-open #{"t2"}))]
+        (is (true? (pred shows-1)) "the settings closed")
+        (is (false? (pred shows-7))))
+      (let [pred (page/affected (assoc-in old [:tab-views "t1"] {:kind :new}) old)]
+        (is (true? (pred shows-1)) "an entry gone")
+        (is (false? (pred shows-7))))
+      (let [pred (page/affected old (-> old (assoc-in [:tab-views "t2"] {:kind :new}) (assoc-in [:bots "1" :artifacts/list] [{:path "x.html"}])))]
+        (is (true? (pred shows-1)) "the bot's tabs and the tab's own, one predicate")
+        (is (true? (pred shows-7)))
+        (is (false? (pred (w "t9" "7"))))))))
 
 (deftest stop-test
   (async done
@@ -1163,6 +1201,27 @@
                  (let [person (last (await (people)))]
                    (is (= {:name "Max" :topic "autumn-sale"} (:data person)))
                    (is (= "Max (Autumn sale): It starts on Monday." (get-in person [:model 0 :content])))))
+               (testing "a tab that opens without a pick gets the default view written down: the first topic, which the next activity must not change under the person"
+                 (is (nil? (get-in @db/db [:tab-views "t3"])))
+                 (is (= {:success? true} (await (command! base cookie :bot/show {:tab "t3" :id nil}))))
+                 (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t3"])))
+                 (swap! db/db assoc-in [:tab-views "t3"] {:kind :loose})
+                 (is (= {:success? true} (await (command! base cookie :bot/show {:tab "t3" :id nil}))))
+                 (is (= {:kind :loose} (get-in @db/db [:tab-views "t3"])) "a pick stays"))
+               (testing "a message from a tab without a pick is the default view's: what its page shows"
+                 (.setResponses faux #js [(tools-test/answer "Yes.")])
+                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "And the price?" :tab "t4"})) [:success?])))
+                 (await (.waitForIdle conversation harness/context))
+                 (is (= {:name "Max" :topic "autumn-sale"} (:data (last (await (people))))))
+                 (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t4"]))))
+               (testing "the view of the turns of no topic: a message from it carries none"
+                 (is (= {:success? true} (await (command! base cookie :view/show {:tab "t5" :kind :loose}))))
+                 (is (= {:kind :loose} (get-in @db/db [:tab-views "t5"])))
+                 (.setResponses faux #js [(tools-test/answer "Fine.")])
+                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "Ok." :tab "t5"})) [:success?])))
+                 (await (.waitForIdle conversation harness/context))
+                 (is (= {:name "Max"} (:data (last (await (people))))))
+                 (is (= {:kind :loose} (get-in @db/db [:tab-views "t5"]))))
                (testing "another conversation than the loop takes no token"
                  (swap! db/db assoc-in [:tab-views "t2"] {:kind :new})
                  (.setResponses faux #js [(tools-test/answer "Hello.")])

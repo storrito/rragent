@@ -1453,6 +1453,31 @@ button.primary {
   opacity: 0.6;
 }
 
+/* The row above the feed's window (rragent.view/earlier): the items
+   before it come at a click. Never the scroll anchor: the reader's
+   place is the message below it, which the client holds where it is
+   when the earlier ones arrive (`keep-place!`, rragent.client; the
+   browser's anchoring is off at the very top of a scroller). */
+.item.earlier {
+  display: flex;
+  justify-content: center;
+  overflow-anchor: none;
+}
+
+.item.earlier button {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.item.earlier button:hover {
+  color: var(--text);
+}
+
 .item.note {
   color: var(--muted);
 }
@@ -3672,8 +3697,8 @@ form.person button.send {
   color: var(--muted);
 }
 
-/* The views of the one conversation (rragent.view/sidebar): All and
-   the topics as rows that are buttons, the current one marked, a
+/* The views of the one conversation (rragent.view/sidebar): the
+   topics as rows that are buttons, the current one marked, a
    "Needs you" badge while a card waits in one; the archived topics
    folded like a project of before. */
 .sidebar ul.loop-views,

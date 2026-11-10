@@ -94,6 +94,7 @@
    :chat/working "Working"
    :chat/ready "Ready"
    :chat/empty "Nothing here yet. Write the first message."
+   :chat/earlier "Show earlier messages"
    :chat/queued "Waits for the current run to end"
    :chat/steers "Reaches the bot after its current step"
    :chat/on-screen [:fn/str "Open: {{:path}}"]
@@ -340,7 +341,7 @@
    :bots/projects "Projects"
    :bots/other "Other"
    :bots/all "All bots"
-   :views/all "All"
+   :views/loose "Without topic"
    :views/topics "Topics"
    :views/archived "Archived"
    :views/in-topic [:fn/str "in {{:topic}}"]
@@ -457,6 +458,7 @@
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
    :chat/empty "Noch nichts hier. Schreib die erste Nachricht."
+   :chat/earlier "Frühere Nachrichten zeigen"
    :chat/queued "Wartet, bis der laufende Durchgang endet"
    :chat/steers "Erreicht den Bot nach seinem aktuellen Schritt"
    :chat/on-screen [:fn/str "Geöffnet: {{:path}}"]
@@ -704,7 +706,7 @@
    :bots/projects "Projekte"
    :bots/other "Andere"
    :bots/all "Alle Bots"
-   :views/all "Alles"
+   :views/loose "Ohne Thema"
    :views/topics "Themen"
    :views/archived "Archiviert"
    :views/in-topic [:fn/str "in {{:topic}}"]
