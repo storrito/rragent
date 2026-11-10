@@ -66,7 +66,6 @@
             [rragent.auth :as auth]
             [rragent.away :as away]
             [rragent.bots :as bots]
-            [rragent.cap :as cap]
             [rragent.codemode :as codemode]
             [rragent.composio-events :as composio-events]
             [rragent.composio-setup :as composio-setup]
@@ -229,7 +228,7 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes tab-views expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names cap]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes tab-views expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         advanced? (:advanced? (machine/current-structure))
@@ -262,7 +261,6 @@
                                  (not advanced?) (dissoc :runs))
                     :view (get tab-views (:tabid w) {:kind :all})
                     :topics (machine/topics)
-                    :cap cap
                     :phone (phone/status (:phone bot))
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
@@ -390,10 +388,6 @@
 
       (and (str/blank? text) (empty? attachments))
       (command/rejected w :empty-message)
-
-      ;; the month's budget is spent: nothing runs until the cap is raised
-      (and (not run) (cap/reached?))
-      (command/rejected w :cap-reached)
 
       :else
       (let [{text :text pasted :attachment} (uploads/keep-long-text! uploads text)

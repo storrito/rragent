@@ -13,7 +13,6 @@
             ["@earendil-works/pi-durable" :refer [defineDoc]]
             [clojure.string :as str]
             [rragent.reload :as reload]
-            [rragent.cap :as cap]
             [rragent.loop :as loop]
             [rragent.runs :as runs]))
 
@@ -159,11 +158,6 @@
     (cond
       (not (and hook (= secret (.-secret hook))))
       {:ok false}
-
-      ;; the month's budget is spent: the call is dropped, said
-      (cap/reached?)
-      (do (js/console.error "[cap]" (str "the hook " name " was called and dropped: the month's budget is spent"))
-          {:ok true :dropped true})
 
       :else
       (let [kept (into {} (keep (fn [h] (when-let [v (get headers h)] [h v]))) kept-headers)

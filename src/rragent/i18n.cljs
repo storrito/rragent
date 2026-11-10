@@ -90,7 +90,6 @@
    :chat/task-done [:fn/str "A task is done · {{:line}}"]
    :chat/task-started "Started as a task"
    :chat/compaction-notice "The wiki is written before the memory shrinks"
-   :chat/cap-notice "The budget nears its cap"
    :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/ready "Ready"
@@ -282,7 +281,6 @@
    :update/lookup-failed "The newest release could not be looked up."
    :settings/tabs "Sections of the settings"
    :settings/updates "Updates"
-   :budget/reached "The month's budget is spent: nothing starts until the cap is raised."
    :settings/mcp "MCP servers"
    :settings/input "Input"
    :input/title "Sending a message"
@@ -456,7 +454,6 @@
    :chat/task-done [:fn/str "Eine Aufgabe ist fertig · {{:line}}"]
    :chat/task-started "Als Aufgabe gestartet"
    :chat/compaction-notice "Das Wiki wird geschrieben, bevor das Gedächtnis schrumpft"
-   :chat/cap-notice "Das Budget nähert sich der Grenze"
    :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
@@ -649,7 +646,6 @@
    :update/lookup-failed "Die neueste Version ließ sich nicht nachsehen."
    :settings/tabs "Bereiche der Einstellungen"
    :settings/updates "Updates"
-   :budget/reached "Das Budget des Monats ist aufgebraucht: Nichts startet, bis die Grenze angehoben wird."
    :settings/mcp "MCP-Server"
    :settings/input "Eingabe"
    :input/title "Nachricht senden"

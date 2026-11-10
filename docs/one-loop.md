@@ -34,7 +34,7 @@ call through a connector), `fetch`, `schedule`, `hook`, `skill`,
 No worker bots are made any more. `bot create`, `bot message`,
 `report`, the status reader and `rragent.messages` go; the bots of
 before stay as archived conversations, readable under Settings →
-Advanced (§8).
+Advanced (§3).
 
 ## 2. Tasks
 
@@ -162,7 +162,7 @@ Unchanged: the first name per browser, "Lydia (Content week): …" in
 front of a message, `people.md` and the preferences per person. One
 shared window; a card may be addressed to a name. Not identity.
 
-## 8. Models and the cap
+## 8. Models
 
 The loop: `anthropic/claude-opus-5.5`, thinking high (LOOP.md, the
 pill in the page). Tasks: the default model, or the `model` of the
@@ -170,16 +170,11 @@ call. Prompt caching holds for the loop: pi-ai sets Anthropic's
 `cache_control` for `anthropic/*` models through OpenRouter, and
 rragent speaks to them through the Anthropic-style base.
 
-One cap per sprite per month, in the ledger's currency (OpenRouter's
-`usage.cost` times the factor): a session doc `rragent.cap`
-(`rragent.cap/set-monthly!`; the settings had a Budget section that
-set it, removed 2026-11-10, so nothing sets a cap for now and where
-it comes from is open); the costs hook appends every generation's cost to
-`costs/<year-month>.edn` of the home, loop and tasks alike. At 80
-percent the loop gets one notice entry and warns the person with a
-card; at 100 percent the page refuses a message with a notice, the
-`task` tool refuses, triggers are dropped with a line in the log,
-until the cap is raised. Nothing is exempt.
+No cap on the month's spend: the cap of the first build (a session
+doc, a ledger of the month, a notice at 80 percent, refusals at 100)
+was removed on 2026-11-10 with the settings' Budget section. What
+the answers cost is still shown per conversation (`rragent.costs`,
+with Advanced).
 
 ## 9. Migration
 

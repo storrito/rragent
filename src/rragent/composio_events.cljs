@@ -23,7 +23,6 @@
             [rragent.home :as home]
             [rragent.hooks :as hooks]
             [rragent.reload :as reload]
-            [rragent.cap :as cap]
             [rragent.loop :as loop]
             [rragent.runs :as runs]))
 
@@ -200,11 +199,6 @@
             (cond
               (nil? conversation)
               {:status 200 :body (cond-> {:ok true} bot (assoc :bot bot))}
-
-              ;; the month's budget is spent: the event is dropped, said
-              (cap/reached?)
-              (do (js/console.error "[cap]" (str "the Composio event " id " was dropped: the month's budget is spent"))
-                  {:status 200 :body {:ok true :bot bot :dropped true}})
 
               :else
               (do (await (reload/reload! conversation context))

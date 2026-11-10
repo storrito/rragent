@@ -219,7 +219,6 @@
     "rragent.task-done" [(call-item id [:i18n :chat/task-done {:line (or (:line data) "")}] data model)]
     "rragent.task-input" [(call-item id [:i18n :chat/task-started] data model)]
     "rragent.compaction-notice" [(call-item id [:i18n :chat/compaction-notice] data model)]
-    "rragent.cap-notice" [(call-item id [:i18n :chat/cap-notice] data model)]
     "pi.assistant" (let [message (first model)]
                      (cons (assistant-item id message)
                            (tool-items message results slots)))
@@ -2046,7 +2045,7 @@
    rows the tab shows; `:artifacts` the pane; `:update`, `:locale`,
    `:onboarding`, `:note`, `:failed`, `:phone`, `:settings?`,
    `:settings-section`, `:mcp`, `:link`, `:person` as before."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics cap] pane :artifacts}]
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         loop? (boolean (some #(and (= id (:id %)) (:loop? %)) bots))
@@ -2113,8 +2112,6 @@
             [:div.banner.note note])
           (when failed
             [:div.banner.failed [:i18n :bot/not-open {:error (str failed)}]])
-          (when (and loop? (:reached? cap))
-            [:div.banner.failed.cap [:i18n :budget/reached]])
           (when run
             (run-head id (:name bot) run))
           (feed shown-items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (cond run [:i18n :run/empty] new? [:i18n :views/new-empty] (not= :all (:kind view)) [:i18n :views/empty])})

@@ -40,8 +40,8 @@ and ends with one line for the bot's activity (`rragent.runs`, see
 it made goes behind a public link when the person wants to show it to
 someone (`rragent.shares`, see [docs/shares.md](docs/shares.md)). What
 the answers cost is what OpenRouter charged for them, read off every
-answer's stream (`rragent.costs`, see [docs/costs.md](docs/costs.md)),
-and a cap a month holds it (`rragent.cap`). The work that produces
+answer's stream (`rragent.costs`, see [docs/costs.md](docs/costs.md)).
+The work that produces
 much it hands to a task (`rragent.tasks`, the `task` tool): a
 conversation of its own with a task's text and tools, whose result
 alone comes back, as the tool's answer when the loop waited for it,

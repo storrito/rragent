@@ -14,7 +14,6 @@
   (:require ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [clojure.string :as str]
-            [rragent.cap :as cap]
             [rragent.runs :as runs]
             [rragent.tasks :as tasks]
             [rragent.tools.topic :as topic-tool]
@@ -87,8 +86,6 @@
         loop-id (await (work/bot-id api call-context))]
     (when (str/blank? text)
       (throw (js/Error. "task needs the text: everything the task must know")))
-    (when (cap/reached?)
-      (throw (js/Error. "The month's budget is spent: no task starts until the cap is raised. Tell the person.")))
     (when continued
       (let [found (when @tasks/harness (await (tasks/task @tasks/harness (js/Number continued) call-context)))]
         (when-not (and found (= (str loop-id) (str (:loop found))))

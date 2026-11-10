@@ -24,7 +24,6 @@
             [rragent.db :as db]
             [rragent.reload :as reload]
             [rragent.runs :as runs]
-            [rragent.cap :as cap]
             [rragent.loop :as loop]
             [rragent.wake :as wake]))
 
@@ -141,11 +140,6 @@
                                      (terminal #js {:status "completed" :result nil})))]
                        (await (reload/reload-in-task! runtime (.-conversationId runtime) context))
                        (cond
-                         ;; the month's budget is spent: the fire is dropped, said
-                         (cap/reached?)
-                         (do (js/console.error "[cap]" (str "the schedule " name " did not fire: the month's budget is spent"))
-                             (await (.commit runtime (fn [] (moved)) context)))
-
                          ;; the loop gets every fire as an input (docs/one-loop.md §6)
                          (or (= "message" (.-mode entry)) (loop/loop? (.-conversationId runtime)))
                          (let [conversation (await (.conversation runtime (.-conversationId runtime) context))
