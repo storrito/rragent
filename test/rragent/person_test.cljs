@@ -40,4 +40,12 @@
   (testing "without: as before"
     (let [draft (person/draft "Hi" nil)]
       (is (= "Hi" (.-content draft)))
-      (is (nil? (.-entry draft))))))
+      (is (nil? (.-entry draft)))))
+  (testing "from the \"New topic\" view: the label says so, the entry carries the view's token and no topic"
+    (let [draft (person/draft "A sale." "Harry" {:fresh "t-1"})]
+      (is (= "Harry (new topic): A sale." (.-content draft)))
+      (is (= "t-1" (.. draft -entry -data -fresh)))
+      (is (= ["name" "fresh"] (js->clj (js/Object.keys (.. draft -entry -data)))) "no key without a value: the entry's data is strict JSON"))
+    (let [draft (person/draft "A sale." nil {:fresh "t-1"})]
+      (is (= "(new topic): A sale." (.-content draft)))
+      (is (= ["fresh"] (js->clj (js/Object.keys (.. draft -entry -data))))))))

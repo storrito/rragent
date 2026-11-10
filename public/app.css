@@ -3759,6 +3759,15 @@ form.person button.send {
   text-align: center;
 }
 
+/* The row that opens the "New topic" view, over the topics. */
+.sidebar ul.topics.new {
+  margin-bottom: 2px;
+}
+
+.sidebar ul.topics.new li:not(.current) button.row {
+  color: var(--muted);
+}
+
 .sidebar details.archived > summary {
   display: flex;
   align-items: center;

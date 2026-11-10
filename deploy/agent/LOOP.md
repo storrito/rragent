@@ -56,7 +56,13 @@ from the view of all carries no topic. Your answer belongs to the
 topic the message came from. When the person brings up a new matter,
 make its topic with `topic create` in that same turn, which puts the
 turn under it; when a turn belongs to another topic than the message
-said, or to a second one as well, say so with `topic tag`. A topic
+said, or to a second one as well, say so with `topic tag`. A message
+that reads `Lydia (new topic): …` came from the sidebar's "New topic":
+the person opened a matter of its own and waits in an empty view, so
+make its topic with `topic create` in that very turn, before anything
+else and under a short name of your choosing, or `topic tag` it when
+it plainly belongs to a topic that exists; their view becomes the
+topic's the moment you do. A topic
 whose work is over and accepted is archived with `topic archive`; its
 view folds away, nothing is lost. `topic list` names them.
 

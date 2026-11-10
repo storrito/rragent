@@ -355,6 +355,10 @@
    :views/archived "Archived"
    :views/in-topic [:fn/str "in {{:topic}}"]
    :views/empty "Nothing here yet."
+   :views/new "+ New topic"
+   :views/new-placeholder "What is the new topic about?"
+   :views/new-empty "A new topic starts with your first message here: say what it is about."
+   :views/in-new "in a new topic"
    :context/title "Context"
    :context/model "Model: {model}"
    :context/used "{percent} % used"
@@ -725,6 +729,10 @@
    :views/archived "Archiviert"
    :views/in-topic [:fn/str "in {{:topic}}"]
    :views/empty "Hier ist noch nichts."
+   :views/new "+ Neues Thema"
+   :views/new-placeholder "Worum geht es im neuen Thema?"
+   :views/new-empty "Ein neues Thema beginnt mit deiner ersten Nachricht hier: sag, worum es geht."
+   :views/in-new "in einem neuen Thema"
    :context/title "Kontext"
    :context/model "Modell: {model}"
    :context/used "{percent} % belegt"

@@ -1079,3 +1079,77 @@
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest new-topic-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)
+                 {:keys [base stop!]} (await (start! home models {:loop? true}))
+                 cookie (await (login base "s3cret"))
+                 loop-id (machine/loop-id)
+                 _ (bots/set-metadata! home loop-id "model" "faux-1")
+                 conversation (:conversation (machine/bot loop-id))
+                 people (^:async fn []
+                          (let [page (await (.entries conversation #js {} 50 js/undefined harness/context))]
+                            (->> (array-seq (.-items page))
+                                 (map #(js->clj % :keywordize-keys true))
+                                 (filter #(= "rragent.person" (:kind %)))
+                                 (sort-by :id))))
+                 ;; the page's value of the loop, once it holds `n` tool results
+                 results! (^:async fn [n]
+                            (let [started (js/Date.now)]
+                              (loop []
+                                (cond
+                                  (<= n (count (filter #(= "pi.tool-result" (:kind %))
+                                                       (:entries (page/conversation (:value (machine/bot loop-id)))))))
+                                  true
+                                  (< 15000 (- (js/Date.now) started)) (throw (js/Error. "no tool result after 15 s"))
+                                  :else (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                                            (recur))))))]
+             (try
+               (testing "the sidebar's row shows the empty view in the tab, on the loop"
+                 (is (= {:success? true} (await (command! base cookie :view/show {:tab "t1" :kind :new}))))
+                 (is (= {:kind :new} (get-in @db/db [:tab-views "t1"])))
+                 (is (= loop-id (get-in @db/db [:tabs "t1"]))))
+               (testing "an empty message leaves the view without a token"
+                 (is (= {:success? false :result {:error :empty-message}} (await (command! base cookie :chat/send {:bot loop-id :text " " :tab "t1"}))))
+                 (is (= {:kind :new} (get-in @db/db [:tab-views "t1"]))))
+               (testing "the first message: the view gets its token, the entry carries it, the model reads that the topic is new"
+                 (.setResponses faux #js [(tools-test/answer "What is it about?")])
+                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "Something for autumn." :tab "t1"})) [:success?])))
+                 (await (.waitForIdle conversation harness/context))
+                 (let [token (get-in @db/db [:tab-views "t1" :fresh])
+                       [person] (await (people))]
+                   (is (string? token))
+                   (is (= :new (get-in @db/db [:tab-views "t1" :kind])))
+                   (is (= {:name "Max" :fresh token} (:data person)))
+                   (is (= "Max (new topic): Something for autumn." (get-in person [:model 0 :content])))
+                   (testing "no topic made yet: the next message goes under the same token, and the model makes the topic"
+                     (.setResponses faux #js [(tools-test/tool-call "topic" {:action "create" :name "Autumn sale"} "c1")
+                                              (tools-test/answer "Autumn sale it is.")])
+                     (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "A sale campaign." :tab "t1"})) [:success?])))
+                     (await (.waitForIdle conversation harness/context))
+                     (is (= {:kind :new :fresh token} (get-in @db/db [:tab-views "t1"])))
+                     (is (= {:name "Max" :fresh token} (:data (second (await (people))))))
+                     (is (contains? (machine/topics) "autumn-sale")))))
+               (testing "the topic made: the tab's next message is the topic's, and the tab's view too"
+                 (await (results! 1))
+                 (.setResponses faux #js [(tools-test/answer "Noted.")])
+                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "It starts on Monday." :tab "t1"})) [:success?])))
+                 (await (.waitForIdle conversation harness/context))
+                 (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t1"])))
+                 (let [person (last (await (people)))]
+                   (is (= {:name "Max" :topic "autumn-sale"} (:data person)))
+                   (is (= "Max (Autumn sale): It starts on Monday." (get-in person [:model 0 :content])))))
+               (testing "another conversation than the loop takes no token"
+                 (swap! db/db assoc-in [:tab-views "t2"] {:kind :new})
+                 (.setResponses faux #js [(tools-test/answer "Hello.")])
+                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot "1" :text "Hi." :tab "t2"})) [:success?])))
+                 (is (= {:kind :new} (get-in @db/db [:tab-views "t2"]))))
+               (finally
+                 (swap! db/db dissoc :tab-views)
+                 (await (stop!))
+                 (test-home/remove! home))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))

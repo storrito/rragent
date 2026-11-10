@@ -152,10 +152,12 @@
    view it came from (`rragent.person/kind`): the user item, the name
    over it, the topic on it (`with-topics`), the text without the
    label the model got in front."
-  [id {:keys [name topic]} model]
+  [id {:keys [name topic fresh]} model]
   (let [item (user-item id model)]
     (cond-> (assoc item :person (str name) :topic topic)
-      (or (seq (str name)) (seq (str topic))) (update :text person/strip-prefix))))
+      ;; from the "New topic" view: the token the page finds its topic by
+      (seq (str fresh)) (assoc :fresh (str fresh))
+      (or (seq (str name)) (seq (str topic)) (seq (str fresh))) (update :text person/strip-prefix))))
 
 (defn- message-item
   "A message from another bot of the machine, or its answer to one of
@@ -265,7 +267,8 @@
                            :pending? true}
                     (= "steer" mode) (assoc :steer? true)
                     ;; the topic of the view it was sent from, as the entry will carry it
-                    (seq (str (:topic (:data entry)))) (assoc :topic (:topic (:data entry))))
+                    (seq (str (:topic (:data entry)))) (assoc :topic (:topic (:data entry)))
+                    (seq (str (:fresh (:data entry)))) (assoc :fresh (str (:fresh (:data entry)))))
                   content))))
 
 (defn- person-answer?
@@ -344,19 +347,32 @@
    topic's view, a trigger's job, a task's; by id, or by name as the
    model gave it to the tool, resolved here) and the topics the
    `topic` tool calls in the turn name. A turn without any has an
-   empty set."
+   empty set. A turn whose input came from the \"New topic\" view
+   carries that view's token on every item (`:fresh`), and the topics
+   any turn of the token got are those of all its turns: what was said
+   in the view before the model made the topic belongs to it too."
   [items topics]
   (let [flush (fn [out turn]
                 (let [tags (into (if-let [t (:topic (first turn))] #{(or (topic-tool/resolve-id topics t) t)} #{})
-                                 (mapcat #(topic-calls % topics) turn))]
-                  (into out (map #(assoc % :topics tags) turn))))]
-    (loop [items (seq items)
-           turn []
-           out []]
-      (cond
-        (nil? items) (flush out turn)
-        (and (input-item? (first items)) (seq turn)) (recur items [] (flush out turn))
-        :else (recur (next items) (conj turn (first items)) out)))))
+                                 (mapcat #(topic-calls % topics) turn))
+                      fresh (:fresh (first turn))]
+                  (into out (map #(cond-> (assoc % :topics tags) fresh (assoc :fresh fresh)) turn))))
+        tagged (loop [items (seq items)
+                      turn []
+                      out []]
+                 (cond
+                   (nil? items) (flush out turn)
+                   (and (input-item? (first items)) (seq turn)) (recur items [] (flush out turn))
+                   :else (recur (next items) (conj turn (first items)) out)))
+        by-fresh (reduce (fn [m {:keys [fresh topics]}]
+                           (cond-> m fresh (update fresh (fnil into #{}) topics)))
+                         {}
+                         tagged)]
+    (if (seq by-fresh)
+      (mapv (fn [{:keys [fresh] :as item}]
+              (cond-> item fresh (assoc :topics (get by-fresh fresh))))
+            tagged)
+      tagged)))
 
 (defn open-cards
   "The bot's answers that ask the person something (`rragent.genui/
@@ -365,14 +381,32 @@
   [items]
   (filter #(and (= :assistant (:kind %)) (not (:answered? %)) (not (:streaming? %)) (genui/asks? (:text %))) items))
 
+(defn settled
+  "The `view` a tab shows over `items` (`with-topics`): the \"New
+   topic\" view whose message got a topic (`{:kind :new :fresh
+   token}`; a turn of the token in which a `topic create` or `topic
+   tag` call ran, a call still streaming or failed does not count) is
+   that topic's view from then on; every other view as it is.
+   `topics` are the machine's, by which a tag's name resolves."
+  [view items topics]
+  (or (when (and (= :new (:kind view)) (:fresh view))
+        (when-let [topic (some #(when (and (= (:fresh view) (:fresh %)) (:done? %) (not (:error? %)))
+                                  (first (topic-calls % topics)))
+                               items)]
+          {:kind :topic :topic topic}))
+      view))
+
 (defn visible
   "The items a `view` shows: all of them (`{:kind :all}`), the turns
-   of a topic (`{:kind :topic :topic id}`), or the open cards
-   (`{:kind :needs}`)."
-  [items {:keys [kind topic]}]
+   of a topic (`{:kind :topic :topic id}`), the open cards (`{:kind
+   :needs}`), or, in the \"New topic\" view (`{:kind :new}`), nothing
+   until a message was sent from it, then the turns of its token
+   (`:fresh`) until the model made their topic (`settled`)."
+  [items {:keys [kind topic fresh]}]
   (case kind
     :topic (filter #(contains? (:topics %) topic) items)
     :needs (open-cards items)
+    :new (if fresh (filter #(= fresh (:fresh %)) items) ())
     items))
 
 (defn topic-counts
@@ -1015,10 +1049,12 @@
    bot's id, with the topic of the view for a topic's view, or the
    run's page for a run's composer; so that a switch of the view keeps
    what was typed in each."
-  [id run & [topic]]
+  [id run & [topic new?]]
   (cond
     run (str id "/run/" run)
     topic (str id "/" topic)
+    ;; no topic's id has a space: the "New topic" view's own draft
+    new? (str id "/new topic")
     :else id))
 
 (defn draft-key
@@ -1034,9 +1070,10 @@
 (defn send-actions
   "Sends the draft and the attachments to the bot's conversation, with
    what the pane of the tab shows (`:ui/screen`, `rragent.client`),
-   then clears both."
-  [id & [run topic]]
-  (let [key (store-id id run topic)]
+   then clears both. From the \"New topic\" view (`new?`) the command
+   names the tab, whose view says so (`rragent.page`)."
+  [id & [run topic new?]]
+  (let [key (store-id id run topic new?)]
     [[:data/command
       {:command/kind :chat/send
        :command/data (cond-> {:bot id
@@ -1044,7 +1081,8 @@
                               :attachments [:store/deref (attachments-key key)]
                               :screen :ui/screen}
                        run (assoc :run run)
-                       topic (assoc :topic topic))}
+                       topic (assoc :topic topic)
+                       new? (assoc :tab :ui/tabid))}
       {:on-success [[:store/dissoc (draft-key key)]
                     [:store/dissoc (attachments-key key)]]}]]))
 
@@ -1136,19 +1174,22 @@
    (`rragent.recordings`, the words of its panel in `:ui/recorder`).
    `placeholder` is the skill's while the chat is empty, the page's own
    otherwise. `switch`, when there is one, is the pill under the card
-   that names the model and the thinking level (`model-switch`)."
-  [id base status placeholder phone & [run switch topic topic-name]]
+   that names the model and the thinking level (`model-switch`). In a
+   topic's view (`topic`, `topic-name`) the composer names it and sends
+   it; in the \"New topic\" view (`new?`) it asks what the topic is
+   about and says where the message goes."
+  [id base status placeholder phone & [run switch topic topic-name new?]]
   [:div.composer
-   [:ui/composer {:ui/store-key (draft-key (store-id id run topic))
+   [:ui/composer {:ui/store-key (draft-key (store-id id run topic new?))
                   :ui/phone phone
                   :ui/stop (when (= :working status)
                              [[:data/command {:command/kind :chat/stop
                                               :command/data (cond-> {:bot id} run (assoc :run run))}]])
                   :ui/stop-label (when (= :working status)
                                    [:i18n :composer/stop])
-                  :ui/attachments-key (attachments-key (store-id id run topic))
+                  :ui/attachments-key (attachments-key (store-id id run topic new?))
                   :ui/upload-url (str base uploads/upload-path)
-                  :ui/send (send-actions id run topic)
+                  :ui/send (send-actions id run topic new?)
                   :ui/send-label [:i18n :composer/send]
                   :ui/send-pending-label [:i18n :composer/send-pending]
                   :ui/send-cancel-title [:i18n :composer/send-cancel]
@@ -1251,12 +1292,16 @@
                   :rows 3
                   :title [:i18n :composer/keys]
                   :ui/enter-title [:i18n :composer/keys-enter]
-                  :placeholder (or placeholder [:i18n :composer/placeholder])}]
-   (when (or switch topic-name)
+                  :placeholder (cond
+                                 new? [:i18n :views/new-placeholder]
+                                 placeholder placeholder
+                                 :else [:i18n :composer/placeholder])}]
+   (when (or switch topic-name new?)
      [:div.tools
       switch
-      (when topic-name
-        [:span.topic [:i18n :views/in-topic {:topic topic-name}]])])])
+      (cond
+        topic-name [:span.topic [:i18n :views/in-topic {:topic topic-name}]]
+        new? [:span.topic [:i18n :views/in-new]])])])
 
 (defn- rendering
   "The word under a render on its way: its progress, or that it waits
@@ -1950,10 +1995,11 @@
 (defn sidebar
   "The views of the one conversation (docs/one-loop.md §3), top to
    bottom: all of it, what needs the person (the open cards, their
-   count the badge), then the topics, each a view with the count of
-   its open cards, in the order of their last activity, the archived
-   ones folded at the end; a click shows the view in the tab
-   (`:view/show`). With the advanced switch on (`advanced?`), the raw
+   count the badge), then the topics: first the row that opens the
+   \"New topic\" view (`{:kind :new}`), whose first message makes the
+   topic, then each topic, a view with the count of its open cards, in
+   the order of their last activity, the archived ones folded at the
+   end; a click shows the view in the tab (`:view/show`). With the advanced switch on (`advanced?`), the raw
    list of the conversations of before with the way to make, rename
    and delete one (`all-bots`). At the bottom who this browser is and
    the way to the settings, marked while this tab shows them
@@ -1973,16 +2019,17 @@
       [:ul.loop-views
        (view-row {:kind :all} [:i18n :views/all] nil current)
        (view-row {:kind :needs} [:i18n :bots/needs-you] needs current)]]
-     (when (seq topics)
-       [:section.topics
-        [:h2 [:i18n :views/topics]]
-        (when (seq active)
-          (topic-rows active topics counts current))
-        (when (seq archived)
-          [:details.archived (cond-> {}
-                               (some #(= {:kind :topic :topic %} current) archived) (assoc :open true))
-           [:summary [:span.name [:i18n :views/archived]] [:span.count (str (count archived))]]
-           (topic-rows archived topics counts current)])])
+     [:section.topics
+      [:h2 [:i18n :views/topics]]
+      [:ul.topics.new {:replicant/key "new"}
+       (view-row {:kind :new} [:i18n :views/new] nil (when (= :new (:kind current)) {:kind :new}))]
+      (when (seq active)
+        (topic-rows active topics counts current))
+      (when (seq archived)
+        [:details.archived (cond-> {}
+                             (some #(= {:kind :topic :topic %} current) archived) (assoc :open true))
+         [:summary [:span.name [:i18n :views/archived]] [:span.count (str (count archived))]]
+         (topic-rows archived topics counts current)])]
      (when advanced?
        (all-bots bots shown))
      [:div.bottom
@@ -2007,7 +2054,8 @@
    `:context-window` and `:spend`; `:run`, a run or a task shown in
    place of the chat, behind Advanced; `:conversation`, `{:entries
    :live :inbox}`; `:view`, the tab's view of the loop's conversation
-   (`{:kind :all | :needs | :topic, :topic id}`, `visible`), `:topics`
+   (`{:kind :all | :needs | :topic | :new, :topic id, :fresh token}`,
+   `visible`, `settled`), `:topics`
    the machine's (`rragent.machine/topics`); `:expanded` the folded
    rows the tab shows; `:artifacts` the pane; `:update`, `:locale`,
    `:onboarding`, `:note`, `:failed`, `:phone`, `:settings?`,
@@ -2016,15 +2064,16 @@
   (let [id (:id bot)
         base (when id (bots/url id))
         loop? (boolean (some #(and (= id (:id %)) (:loop? %)) bots))
-        ;; the views are the loop's; another conversation shows whole
-        view (if (and loop? (not run)) (or view {:kind :all}) {:kind :all})
         topics (or topics {})
         all (items conversation topics)
+        ;; the views are the loop's; another conversation shows whole
+        view (if (and loop? (not run)) (settled (or view {:kind :all}) all topics) {:kind :all})
+        new? (= :new (:kind view))
         shown-items (visible all view)
         status (status (:live conversation))
         fresh? (not-any? shown? all)
         artifacts? (or (seq (:artifacts/list pane)) (seq (:runs pane)))
-        onboarding (when-not run onboarding)
+        onboarding (when-not (or run new?) onboarding)
         topic-id (when (= :topic (:kind view)) (:topic view))
         topic-name (when topic-id (or (:name (get topics topic-id)) topic-id))]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
@@ -2079,7 +2128,7 @@
             [:div.banner.failed.cap [:i18n :budget/reached]])
           (when run
             (run-head id (:name bot) run))
-          (feed shown-items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (cond run [:i18n :run/empty] (not= :all (:kind view)) [:i18n :views/empty])})
+          (feed shown-items status onboarding {:base base :bot id :expanded (or expanded #{}) :empty (cond run [:i18n :run/empty] new? [:i18n :views/new-empty] (not= :all (:kind view)) [:i18n :views/empty])})
           (when-let [card (when-not run (open-card all))]
             (waiting card))
           ;; the form in place of the composer while the page asked for the
@@ -2090,7 +2139,8 @@
                       (when (and (:model bot) (not run))
                         (model-switch id (:model bot) (:thinking bot) (:models bot)))
                       topic-id
-                      topic-name))]
+                      topic-name
+                      new?))]
          ;; the handle between the chat and the pane, dragged to give one
          ;; more room (`rragent.client/splitter`); a phone has none
          [:ui/splitter]

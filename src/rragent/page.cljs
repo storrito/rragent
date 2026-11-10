@@ -344,6 +344,17 @@
       (machine/run-conversation bot run)
       (:conversation (machine/bot bot)))))
 
+(defn- tab-view
+  "The view the tab `tab` shows, as the page shows it over the
+   conversation of `bot`: the \"New topic\" view whose message got its
+   topic meanwhile is that topic's (`rragent.view/settled`)."
+  [bot tab]
+  (let [shown (get-in @db/db [:tab-views tab])]
+    (if (and (= :new (:kind shown)) (:fresh shown))
+      (let [topics (or (machine/topics) {})]
+        (view/settled shown (view/items (conversation (:value bot) (:history bot)) topics) topics))
+      shown)))
+
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as
    an input of the bot's conversation (`rragent.uploads/content`: a
@@ -358,14 +369,19 @@
    not wait for work it makes moot. A hook's call, a schedule's run and
    a bot's message stay follow-ups, each a run of its own."
   [w]
-  (let [{:keys [text attachments screen run topic tab]} (command/command-data w)
+  (let [{:keys [text attachments screen run topic tab] bot-id :bot} (command/command-data w)
         text (str/trim (str text))
+        {:keys [uploads] :as bot} (bot-of-command w)
+        view (when tab (tab-view bot tab))
         ;; the topic of the message: the command's, else the tab's view's
         topic-id (or (not-empty (str topic))
-                     (when tab (let [view (get-in @db/db [:tab-views tab])]
-                                 (when (= :topic (:kind view)) (:topic view)))))
-        topic (when topic-id {:id topic-id :name (or (:name (get (machine/topics) topic-id)) topic-id)})
-        {:keys [uploads] :as bot} (bot-of-command w)
+                     (when (= :topic (:kind view)) (:topic view)))
+        ;; from the "New topic" view: the view's token, made at its first message
+        fresh (when (and (not topic-id) (not run) (= :new (:kind view)) (machine/loop? bot-id))
+                (or (:fresh view) (str (random-uuid))))
+        topic (cond
+                topic-id {:id topic-id :name (or (:name (get (machine/topics) topic-id)) topic-id)}
+                fresh {:fresh fresh})
         conversation (conversation-of-command w)
         attachments (when conversation (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
     (cond
@@ -385,7 +401,12 @@
             content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
-            draft (person/draft content (person/name-of (:ring/request w)) (when-not run topic))]
+            draft (person/draft content (person/name-of (:ring/request w)) (when-not run topic))
+            view (if fresh {:kind :new :fresh fresh} view)]
+        ;; the tab's view as the message found it: the "New topic" view with
+        ;; its token, or the topic it became
+        (when (and tab view (not= view (get-in @db/db [:tab-views tab])))
+          (swap! db/db assoc-in [:tab-views tab] view))
         ;; a run keeps the instructions it started with; the bot reads its file again
         (if run
           (await (.submit conversation draft harness/context))
@@ -468,14 +489,15 @@
 
 (defn- view-show-command
   "The tab `tab` shows the view `kind` of the loop's conversation,
-   `all`, `needs` or `topic` with its `topic` id (docs/one-loop.md
-   §3); the tab shows the loop then, whatever bot it showed."
+   `all`, `needs`, `topic` with its `topic` id, or `new`, the empty
+   view whose first message makes a topic (docs/one-loop.md §3); the
+   tab shows the loop then, whatever bot it showed."
   [w]
   (let [{:keys [tab kind topic]} (command/command-data w)
         kind (keyword (str (some-> kind name)))]
     (cond
       (nil? tab) (command/rejected w :no-tab)
-      (not (#{:all :needs :topic} kind)) (command/rejected w :no-such-view)
+      (not (#{:all :needs :topic :new} kind)) (command/rejected w :no-such-view)
       (and (= :topic kind) (str/blank? (str topic))) (command/rejected w :no-topic)
       :else (do (swap! db/db assoc-in [:tab-views tab] (cond-> {:kind kind} (= :topic kind) (assoc :topic (str topic))))
                 (when-let [loop (machine/loop-id)]

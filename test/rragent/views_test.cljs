@@ -182,6 +182,102 @@
     (let [s (feed-strings (page {:bot {:id "1" :name "watcher"} :view {:kind :topic :topic "pinterest"}}))]
       (is (some #{"How are the covers?"} s)))))
 
+(def fresh-conversation
+  "Two messages from the \"New topic\" view under one token: the first
+   the model only answered, in the second's turn it made the topic."
+  {:entries [(person 1 "Lydia" "content-week" "Covers?")
+             (assistant 2 [{:type "text" :text "Eight."}])
+             {:id 3 :kind "rragent.person" :data {:name "Lydia" :fresh "t-1"}
+              :model [{:role "user" :content "Lydia (new topic): Something for autumn." :timestamp 3}]}
+             (assistant 4 [{:type "text" :text "What is it about?"}])
+             {:id 5 :kind "rragent.person" :data {:name "Lydia" :fresh "t-1"}
+              :model [{:role "user" :content "Lydia (new topic): A sale." :timestamp 5}]}
+             (assistant 6 [{:type "toolCall" :id "c1" :name "topic" :arguments {:action "create" :name "Autumn sale"}}])]
+   :live {}
+   :inbox {:items [{:id "q1" :mode "steer" :content "Lydia (new topic): From Monday."
+                    :entry {:kind "rragent.person" :data {:name "Lydia" :fresh "t-1"}}}]}})
+
+(deftest new-topic-view-test
+  (let [new-view {:kind :new :fresh "t-1"}
+        streaming (view/items fresh-conversation topics)
+        made (view/items (update fresh-conversation :entries conj
+                                 (tool-result 7 "c1" "Made the topic Autumn sale (autumn-sale); this turn is under it.")
+                                 (assistant 8 [{:type "text" :text "Autumn sale it is."}]))
+                         topics)
+        by-id (fn [items] (into {} (map (juxt :id identity)) items))]
+    (testing "a message from the view: the token on its turn, the text without the label"
+      (is (= "t-1" (:fresh (get (by-id streaming) 3))))
+      (is (= "t-1" (:fresh (get (by-id streaming) 4))) "the answer is of the turn")
+      (is (nil? (:fresh (get (by-id streaming) 2))))
+      (is (= "Something for autumn." (:text (get (by-id streaming) 3))))
+      (is (= "t-1" (:fresh (get (by-id streaming) "q1"))) "a waiting message too"))
+    (testing "the view before a message shows nothing, after it the turns of its token"
+      (is (empty? (view/visible streaming {:kind :new})))
+      (is (= [3 4 5 6 "c1" "q1"] (map :id (view/visible streaming new-view))))
+      (is (empty? (view/visible streaming {:kind :new :fresh "other"}))))
+    (testing "the view stays while the call that makes the topic has not run"
+      (is (= new-view (view/settled new-view streaming topics)))
+      (is (= {:kind :new} (view/settled {:kind :new} made topics)) "no token, nothing to find")
+      (is (= {:kind :all} (view/settled {:kind :all} made topics))))
+    (testing "the topic made: the view is the topic's, with every turn of the token"
+      (is (= {:kind :topic :topic "autumn-sale"} (view/settled new-view made topics)))
+      (is (= #{"autumn-sale"} (:topics (get (by-id made) 3))) "what was said before the topic was made is the topic's too")
+      (is (= [3 4 5 6 "c1" 8 "q1"] (map :id (view/visible made {:kind :topic :topic "autumn-sale"})))))
+    (testing "a failed call makes no topic's view"
+      (let [failed (view/items (update fresh-conversation :entries conj
+                                       {:id 7 :kind "pi.tool-result" :model [{:role "toolResult" :toolCallId "c1" :content [{:type "text" :text "No."}] :isError true}]})
+                               topics)]
+        (is (= new-view (view/settled new-view failed topics)))))
+    (testing "a tag of a topic that exists moves the view there"
+      (let [tagged (view/items {:entries [{:id 3 :kind "rragent.person" :data {:name "Lydia" :fresh "t-1"}
+                                           :model [{:role "user" :content "Lydia (new topic): More pins." :timestamp 3}]}
+                                          (assistant 4 [{:type "toolCall" :id "c1" :name "topic" :arguments {:action "tag" :topic "Pinterest"}}])
+                                          (tool-result 5 "c1" "This turn is under Pinterest (pinterest).")]
+                                :live {}
+                                :inbox {:items []}}
+                               topics)]
+        (is (= {:kind :topic :topic "pinterest"} (view/settled new-view tagged topics)))))))
+
+(deftest new-topic-page-test
+  (testing "the row is there without any topic, over the topics, and sends the view"
+    (let [p (page {:topics {} :view {:kind :all}})
+          section (find-tag p :section.topics)
+          row (find-tag section :ul.topics.new)
+          [_ attrs] (find-tag row :button.row)]
+      (is (some? section) "the Topics section stands without a topic")
+      (is (= "+ New topic" (second (find-tag row :span.name))))
+      (is (= {:tab :ui/tabid :kind :new} (get-in attrs [:on :click 0 1 :command/data])))
+      (is (nil? (:class (second (find-tag row :li)))))))
+  (testing "the empty view: the row marked, a line that says how it starts, the composer asking for the topic"
+    (let [p (page {:view {:kind :new} :bot {:id "7" :name "Assistant" :model "faux-1" :models [{:id "faux-1" :name "Faux"}]}})
+          composer (find-tag p :ui/composer)
+          send (:ui/send (second composer))]
+      (is (= "current" (:class (second (find-tag (find-tag p :ul.topics.new) :li)))))
+      (is (not-any? #(= "current" (:class (second %))) (find-tags (find-tag p :ul.topics) :li)))
+      (is (some #{"A new topic starts with your first message here: say what it is about."} (feed-strings p)))
+      (is (not (some #{"How are the covers?"} (feed-strings p))))
+      (is (= "What is the new topic about?" (:placeholder (second composer))))
+      (is (= "in a new topic" (second (find-tag p :span.topic))))
+      (is (= :ui/tabid (get-in send [0 1 :command/data :tab])) "the tab's view says that the message opens a topic")
+      (is (nil? (get-in send [0 1 :command/data :topic])))
+      (is (= [:draft "7/new topic"] (:ui/store-key (second composer))) "a draft of its own")))
+  (testing "after the first message the view shows its turns; once the topic is made the page shows the topic's view"
+    (let [p (page {:conversation fresh-conversation :view {:kind :new :fresh "t-1"}})]
+      (is (some #{"Something for autumn."} (feed-strings p)))
+      (is (not (some #{"Covers?"} (feed-strings p))))
+      (is (= "current" (:class (second (find-tag (find-tag p :ul.topics.new) :li))))))
+    (let [p (page {:conversation (update fresh-conversation :entries conj
+                                         (tool-result 7 "c1" "Made the topic Autumn sale (autumn-sale); this turn is under it."))
+                   :topics (assoc topics "autumn-sale" {:name "Autumn sale" :created 30 :archived? false})
+                   :view {:kind :new :fresh "t-1"}})
+          composer (find-tag p :ui/composer)]
+      (is (= "in Autumn sale" (second (find-tag p :span.topic))))
+      (is (= "autumn-sale" (get-in (:ui/send (second composer)) [0 1 :command/data :topic])))
+      (is (some #{"Something for autumn."} (feed-strings p)))
+      (is (nil? (:class (second (find-tag (find-tag p :ul.topics.new) :li)))))
+      (is (= ["Autumn sale"] (keep #(when (= "current" (:class (second %))) (second (find-tag % :span.name)))
+                                   (find-tags (find-tag p :ul.topics) :li)))))))
+
 (deftest composer-topic-test
   (testing "in a topic's view the composer names it and sends it"
     (let [p (page {:view {:kind :topic :topic "content-week"} :bot {:id "7" :name "Assistant" :model "faux-1" :models [{:id "faux-1" :name "Faux"}]}})

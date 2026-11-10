@@ -82,6 +82,7 @@
       (is (str/includes? loop-text "## When your memory is about to shrink"))
       (is (str/includes? loop-text "answer \"ready\" and nothing else"))
       (is (str/includes? loop-text "is opened by its\nproject, `artifacts/<project>`") "a card plays a design, it does not browse its source")
+      (is (str/includes? loop-text "`Lydia (new topic): …` came from the sidebar's \"New topic\"") "a message from the new view makes its topic")
       (is (not (str/includes? loop-text "bot create")))
       (is (not (str/includes? loop-text "`remember`"))))
     (testing "a task's text: no frontmatter, the result rules"

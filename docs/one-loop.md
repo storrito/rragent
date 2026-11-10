@@ -76,7 +76,14 @@ A topic is what the person would call a project: "Content week",
 artifact-project tool of the templates. Topics are data in the
 structure doc, `topics {id {name created archived}}`; the loop
 manages them with the `topic` tool (`create`, `rename`, `archive`,
-`tag`), the person by telling the loop.
+`tag`), the person with the sidebar's "New topic" row or by telling
+the loop. The row opens an empty view (`{kind new}`) with the
+composer; the first message sent from it gives the view a token,
+which the message's entry carries (`rragent.person {name fresh}`),
+and the model reads "Lydia (new topic): …" and makes the topic in
+that turn. Once a `topic create` or `topic tag` call ran in a turn of
+the token, the view is that topic's, and every turn of the token
+belongs to the topic.
 
 Every turn carries topics: the person's message carries the topic of
 the view it was sent from (`rragent.person {name topic}`, and the

@@ -112,20 +112,32 @@
       (subs text (count p))
       text)))
 
+(def new-topic
+  "What stands in the brackets of a message from the \"New topic\" view
+   (docs/one-loop.md §3): the model reads from it that the message
+   opens a matter of its own."
+  "new topic")
+
 (defn draft
   "The submission of the person's message: the input with `content`
    (`rragent.uploads/content`), steering a run that goes; with a `name`
    or a `topic` (`{:id :name}`, the view the message came from,
    docs/one-loop.md §3), the content prefixed with the label and the
-   entry of our kind with the name and the topic's id."
+   entry of our kind with the name and the topic's id. A `topic` of
+   `{:fresh token}` is the \"New topic\" view's: the label says
+   `new-topic` and the entry carries the token, by which the page
+   finds the topic the model then makes."
   [content name & [topic]]
-  (let [label (label name (:name topic))
+  (let [fresh (not-empty (str (:fresh topic)))
+        label (label name (if fresh new-topic (:name topic)))
         draft #js {:type "input" :content (clj->js (if label (with-name content label) content)) :whenBusy "steer"}]
     (when label
       (let [data #js {:kind kind :data #js {}}]
         (when (seq (str name))
           (aset (.-data data) "name" (str name)))
-        (when (:id topic)
+        (when (and (:id topic) (not fresh))
           (aset (.-data data) "topic" (str (:id topic))))
+        (when fresh
+          (aset (.-data data) "fresh" fresh))
         (aset draft "entry" data)))
     draft))
