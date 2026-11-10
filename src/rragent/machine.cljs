@@ -448,12 +448,15 @@
    the one a bot kept moved there, a new one seeded), then every bot
    of the storage that is not deleted, in the order they were made,
    and, once, what the one conversation adopted given back to the
-   bots (`rragent.migration/restore!`). `opts` as `harness/open` takes
+   bots (`rragent.migration/restore!`, the home copied first,
+   `rragent.migration/backup!`). `opts` as `harness/open` takes
    them: `:home` (RRAGENT_HOME without), `:models`, `:provider`,
    `:storage`, `:gateway`, `:retry`; and `:wiki?`, false for a machine
    without a wiki, which the tests of the other parts open (every real
    machine has one). Answers the bots."
   [opts]
+  (when-let [to (migration/backup! (or (:home opts) (home/home)))]
+    (println (str "the home was copied to " to " before its bots get back what the one conversation adopted")))
   (let [agent (await (harness/open (assoc opts :extensions [(bot-tool/extension {:adopt! #'adopt!
                                                                                  :list #'listed
                                                                                  :check-skill! (fn [skill] (skills/check! (home) skill))

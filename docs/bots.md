@@ -156,7 +156,9 @@ every bot but that one became a topic and was archived, its artifacts
 moved under the one conversation's `artifacts/<topic>/`, its
 schedules and hooks were set again there as messages. At the first
 open of this version (`rragent.migration/restore!`, once, marked
-`restored` in the structure):
+`restored` in the structure), after the database, every bot's
+definition and the wiki were copied to `<home>.bak-<version>` next
+to the home (`backup!`, for a home the adoption marked):
 
 - every adopted bot that is still there is taken off the archived
   list and is in the sidebar again;

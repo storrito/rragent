@@ -85,7 +85,8 @@ must survive (`rragent.compaction`, below).
 The releases 0.1.56 to 0.1.58 ran a machine as one conversation, the
 bots of before archived as its topics. At the first open of this
 version the bots get back what that conversation adopted
-(`rragent.migration`, once): they leave the archived list, the
+(`rragent.migration`, once, the database and the definitions copied
+to `<home>.bak-<version>` first): they leave the archived list, the
 schedules and hooks the adoption moved are theirs again as runs,
 their artifacts come back from `artifacts/<topic>/`, and a note in
 each chat says so without starting a turn. The one conversation

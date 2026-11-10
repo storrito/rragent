@@ -30,7 +30,13 @@
    topic made since the adoption gets no bot: its turns are read
    there. A machine that still has its manager, never adopted, gets
    the file alone. Rerun safe: the structure's `restored` stops a
-   second pass, a move finds its files gone."
+   second pass, a move finds its files gone.
+
+   Before the storage opens, `backup!` copies what the restore
+   changes and no rename brings back, the database with its sidecars
+   and every bot's definition and wiki, to `<home>.bak-<version>`
+   next to the home, for a home the adoption marked (`.one-loop`) and
+   the restore has not yet (`.bots-back`)."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
@@ -44,6 +50,50 @@
 (def restored-kind
   "The entry of the note in a bot's chat."
   "rragent.restored")
+
+(defn adopted-marker
+  "The file the adoption left in a home it made one conversation of."
+  [home]
+  (path/join home ".one-loop"))
+
+(defn marker
+  "The file that says the restore ran in the home."
+  [home]
+  (path/join home ".bots-back"))
+
+(defn backup-dir
+  "`<home>.bak-<version>`, the version of the bundle that restores."
+  [home]
+  (str (path/resolve home) ".bak-" version/version))
+
+(defn- copy!
+  [from to]
+  (when (fs/existsSync from)
+    (fs/mkdirSync (path/dirname to) #js {:recursive true})
+    (fs/cpSync from to #js {:recursive true})))
+
+(defn backup!
+  "The copies, before the storage opens: the database with its
+   sidecars, every bot's definition and the wiki a bot kept. Nothing
+   for a home the adoption never marked, one the restore marked, or
+   when the backup folder is there already. Answers the folder, nil
+   when nothing was copied."
+  [home]
+  (let [bots-dir (path/join home "bots")]
+    (when (and (fs/existsSync bots-dir)
+               (fs/existsSync (adopted-marker home))
+               (not (fs/existsSync (marker home)))
+               (not (fs/existsSync (backup-dir home))))
+      (let [to (backup-dir home)
+            database (home/database home)]
+        (doseq [suffix ["" "-wal" "-shm" "-journal"]]
+          (copy! (str database suffix) (path/join to (path/basename (str database suffix)))))
+        (doseq [id (array-seq (fs/readdirSync bots-dir))
+                :let [dir (path/join bots-dir id)]]
+          (doseq [name ["AGENT.md" "SKILL.md"]]
+            (copy! (path/join dir name) (path/join to "bots" id name)))
+          (copy! (wiki/before dir) (path/join to "bots" id "wiki")))
+        to))))
 
 (defn plan
   "What the restore does with the bots the adoption made topics of:
@@ -246,6 +296,7 @@
                           js/undefined)
                         context))
         (when adopted?
+          (fs/writeFileSync (marker home) (str version/version "\n"))
           (await (schedule/rearm! now))
           (let [wiki (wiki/dir home)]
             (doseq [{:keys [id slug] :as bot} plan]

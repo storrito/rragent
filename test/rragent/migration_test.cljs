@@ -153,6 +153,8 @@
                      ;; the wiki in the one conversation's folder, where it lay
                      (fs/renameSync (wiki/dir home) (wiki/before (home/bot-dir home one)))
                      (fs/writeFileSync (path/join (wiki/before (home/bot-dir home one)) "brand.md") "# Brand\n")
+                     ;; the adoption's mark in the home
+                     (fs/writeFileSync (migration/adopted-marker home) "0.1.58\n")
                      (await (machine/close-all!))
                      ;; this version opens it: no answer is scripted, no bot may be asked one
                      (.setResponses faux #js [])
@@ -161,6 +163,13 @@
                            {:keys [archived restored restored-bots bot-topics manager]} (machine/current-structure)
                            schedules-of (^:async fn [id] (js->clj (or (await (harness/schedules harness (js/Number id))) #js {})))
                            hooks-of (^:async fn [id] (js->clj (or (await (.snapshot harness hooks/Hooks (js/Number id) harness/context)) #js {})))]
+                       (testing "the home was copied first: the database and the definitions as they were, the wiki where it lay"
+                         (let [to (migration/backup-dir home)]
+                           (is (fs/existsSync (path/join to "agent.sqlite")))
+                           (is (str/includes? (fs/readFileSync (path/join to "bots" w1 "AGENT.md") "utf8") "Build the 202 template."))
+                           (is (= "# Brand\n" (fs/readFileSync (path/join to "bots" one "wiki" "brand.md") "utf8")))
+                           (is (fs/existsSync (migration/marker home)) "and the home says the restore ran")
+                           (is (nil? (migration/backup! home)) "no second copy")))
                        (testing "the bots are no archived chats any more; the restore is marked, once"
                          (is (= #{} archived))
                          (is (= version/version restored))
@@ -256,9 +265,33 @@
                            (is (= "Assistant" (machine/label-of one))))))))
                  (finally
                    (await (machine/close-all!))
+                   (fs/rmSync (migration/backup-dir home) #js {:recursive true :force true})
                    (test-home/remove! home)))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
+
+(deftest backup-test
+  (let [home (test-home/make)]
+    (try
+      (fs/mkdirSync (path/join home "bots" "1") #js {:recursive true})
+      (fs/writeFileSync (path/join home "bots" "1" "AGENT.md") "---\nname: x\n---\n")
+      (fs/writeFileSync (home/database home) "db")
+      (testing "a home the adoption never marked: nothing to restore, nothing copied"
+        (is (nil? (migration/backup! home)))
+        (is (not (fs/existsSync (migration/backup-dir home)))))
+      (testing "a home it marked: copied once"
+        (fs/writeFileSync (migration/adopted-marker home) "0.1.58\n")
+        (is (= (migration/backup-dir home) (migration/backup! home)))
+        (is (= "db" (fs/readFileSync (path/join (migration/backup-dir home) "agent.sqlite") "utf8")))
+        (is (fs/existsSync (path/join (migration/backup-dir home) "bots" "1" "AGENT.md")))
+        (is (nil? (migration/backup! home)) "the folder is there"))
+      (testing "a home the restore marked: nothing"
+        (fs/rmSync (migration/backup-dir home) #js {:recursive true :force true})
+        (fs/writeFileSync (migration/marker home) "x\n")
+        (is (nil? (migration/backup! home))))
+      (finally
+        (fs/rmSync (migration/backup-dir home) #js {:recursive true :force true})
+        (test-home/remove! home)))))
 
 (deftest a-machine-with-its-manager-test
   (async done
