@@ -158,9 +158,12 @@
                    lost-background? (dissoc :color))))))
 
 (defn- send-actions
+  "A button's send: the text as a message of the person's, with the
+   tab (`:ui/tabid`, filled in by the client), so that the message
+   carries the topic of the view the tab shows (`rragent.page`)."
   [text bot]
   {:click [[:data/command {:command/kind :chat/send
-                           :command/data (cond-> {:text (str text)}
+                           :command/data (cond-> {:text (str text) :tab :ui/tabid}
                                            bot (assoc :bot bot))}]]})
 
 (defn asks?

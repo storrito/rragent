@@ -3687,3 +3687,139 @@ form.person button.send {
 .waiting .label {
   color: var(--muted);
 }
+
+/* The views of the one conversation (rragent.view/sidebar): All and
+   the topics as rows that are buttons, the current one marked, a
+   "Needs you" badge while a card waits in one; the archived topics
+   folded like a project of before. */
+.sidebar ul.loop-views,
+.sidebar ul.topics {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar ul.loop-views li,
+.sidebar ul.topics li {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.sidebar ul.loop-views li button.row,
+.sidebar ul.topics li button.row {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.sidebar ul.loop-views li button.row .name,
+.sidebar ul.topics li button.row .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar ul.loop-views li:hover,
+.sidebar ul.topics li:hover {
+  background: color-mix(in srgb, var(--panel) 70%, var(--line));
+}
+
+.sidebar ul.loop-views li.current,
+.sidebar ul.topics li.current {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+
+.sidebar ul.loop-views .badge,
+.sidebar ul.topics .badge {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.sidebar ul.loop-views .badge.waits,
+.sidebar ul.topics .badge.waits {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* The row that opens the "New topic" view, over the topics. */
+.sidebar ul.topics.new {
+  margin-bottom: 2px;
+}
+
+.sidebar ul.topics.new li:not(.current) button.row {
+  color: var(--muted);
+}
+
+.sidebar details.archived > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  list-style: none;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar details.archived > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar details.archived > summary::before {
+  content: "▸";
+  width: 10px;
+  font-size: 12px;
+}
+
+.sidebar details.archived[open] > summary::before {
+  content: "▾";
+}
+
+.sidebar details.archived > summary .name {
+  flex: 1;
+}
+
+.sidebar details.archived > summary .count {
+  font-size: 12px;
+}
+
+.sidebar details.archived > ul.topics {
+  padding-left: 14px;
+}
+
+/* The composer's chip that names the view's topic (rragent.view/composer). */
+.composer .tools .topic {
+  margin-right: auto;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+

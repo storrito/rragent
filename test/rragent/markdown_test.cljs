@@ -218,7 +218,7 @@
     (let [hiccup (markdown/parse "Which?\n\n```hiccup\n[:button {:send \"This\"} \"This one\"]\n```\n\nOr type.")]
       (is (= [:p "Which?"] (first hiccup)))
       (is (= [:div.genui [:button {:on {:click [[:data/command {:command/kind :chat/send
-                                                                 :command/data {:text "This"}}]]}
+                                                                 :command/data {:text "This" :tab :ui/tabid}}]]}
                                    :title "This"}
                           "This one"]]
              (second hiccup)))

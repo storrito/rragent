@@ -87,6 +87,9 @@
    :chat/run-failed [:fn/str "A run failed · {{:about}}"]
    :chat/run-report "A run reported"
    :chat/run-started [:fn/str "Started by {{:about}}"]
+   :chat/task-done [:fn/str "A task is done · {{:line}}"]
+   :chat/task-started "Started as a task"
+   :chat/compaction-notice "The wiki is written before the memory shrinks"
    :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/ready "Ready"
@@ -298,8 +301,8 @@
    :mobile/installed "This is the installed app."
    :settings/advanced "Advanced"
    :advanced/title "Advanced"
-   :advanced/explain "The sidebar shows the manager, what needs you, the projects with their bots and the other bots. This adds the raw list of every bot, with New bot and the menus to rename and delete one. The choice holds for this machine; every tab sees it."
-   :advanced/show-all "Show every bot and the raw list"
+   :advanced/explain "The sidebar shows the views of this one conversation: all of it and the topics, marked while one needs you. This adds the raw list of the conversations of before and the tasks' transcripts in the activity, with New bot and the menus to rename and delete one. It also shows how full the model's context is, with what the conversation cost and the button that summarizes older messages, and the model and its effort under the message field. The choice holds for this machine; every tab sees it."
+   :advanced/show-all "Show every bot, the raw list and the technical details"
    :mcp/title "MCP servers"
    :mcp/explain "Services your bots use over MCP. Every bot of this machine has their tools."
    :mcp/none "No MCP server is connected yet."
@@ -338,6 +341,15 @@
    :bots/projects "Projects"
    :bots/other "Other"
    :bots/all "All bots"
+   :views/all "All"
+   :views/topics "Topics"
+   :views/archived "Archived"
+   :views/in-topic [:fn/str "in {{:topic}}"]
+   :views/empty "Nothing here yet."
+   :views/new "+ New topic"
+   :views/new-placeholder "What is the new topic about?"
+   :views/new-empty "A new topic starts with your first message here: say what it is about."
+   :views/in-new "in a new topic"
    :context/title "Context"
    :context/model "Model: {model}"
    :context/used "{percent} % used"
@@ -439,6 +451,9 @@
    :chat/run-failed [:fn/str "Ein Durchlauf ist fehlgeschlagen · {{:about}}"]
    :chat/run-report "Ein Durchlauf hat gemeldet"
    :chat/run-started [:fn/str "Gestartet durch {{:about}}"]
+   :chat/task-done [:fn/str "Eine Aufgabe ist fertig · {{:line}}"]
+   :chat/task-started "Als Aufgabe gestartet"
+   :chat/compaction-notice "Das Wiki wird geschrieben, bevor das Gedächtnis schrumpft"
    :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/ready "Bereit"
@@ -651,8 +666,8 @@
    :mobile/installed "Das hier ist die installierte App."
    :settings/advanced "Erweitert"
    :advanced/title "Erweitert"
-   :advanced/explain "Die Seitenleiste zeigt den Manager, was dich braucht, die Projekte mit ihren Bots und die anderen Bots. Das hier hängt die rohe Liste aller Bots an, mit Neuer Bot und den Menüs zum Umbenennen und Löschen. Die Wahl gilt für diese Maschine; jeder Tab sieht sie."
-   :advanced/show-all "Jeden Bot und die rohe Liste zeigen"
+   :advanced/explain "Die Seitenleiste zeigt die Ansichten dieses einen Gesprächs: alles und die Themen, markiert, solange eines dich braucht. Das hier hängt die rohe Liste der Gespräche von früher und die Protokolle der Aufgaben in der Aktivität an, mit Neuer Bot und den Menüs zum Umbenennen und Löschen. Es zeigt außerdem, wie voll der Kontext des Modells ist, mit den Kosten des Gesprächs und dem Knopf, der ältere Nachrichten zusammenfasst, und unter dem Nachrichtenfeld das Modell und seinen Aufwand. Die Wahl gilt für diese Maschine; jeder Tab sieht sie."
+   :advanced/show-all "Jeden Bot, die rohe Liste und die technischen Details zeigen"
    :mcp/title "MCP-Server"
    :mcp/explain "Dienste, die deine Bots über MCP nutzen. Jeder Bot dieser Maschine hat ihre Werkzeuge."
    :mcp/none "Noch ist kein MCP-Server verbunden."
@@ -691,6 +706,15 @@
    :bots/projects "Projekte"
    :bots/other "Andere"
    :bots/all "Alle Bots"
+   :views/all "Alles"
+   :views/topics "Themen"
+   :views/archived "Archiviert"
+   :views/in-topic [:fn/str "in {{:topic}}"]
+   :views/empty "Hier ist noch nichts."
+   :views/new "+ Neues Thema"
+   :views/new-placeholder "Worum geht es im neuen Thema?"
+   :views/new-empty "Ein neues Thema beginnt mit deiner ersten Nachricht hier: sag, worum es geht."
+   :views/in-new "in einem neuen Thema"
    :context/title "Kontext"
    :context/model "Modell: {model}"
    :context/used "{percent} % belegt"

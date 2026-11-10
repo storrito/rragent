@@ -15,7 +15,7 @@
     (is (= [:span "Needs you"] (i18n/translate [:span [:i18n :bots/needs-you]] :en)))
     (is (= [:span "archiviert"] (i18n/translate [:span [:i18n :bot/archived]] :de)))
     (is (= [:span "Erweitert"] (i18n/translate [:span [:i18n :settings/advanced]] :de)))
-    (is (= [:span "Show every bot and the raw list"] (i18n/translate [:span [:i18n :advanced/show-all]] :en))))
+    (is (= [:span "Show every bot, the raw list and the technical details"] (i18n/translate [:span [:i18n :advanced/show-all]] :en))))
   (testing "a key no dictionary has shows itself"
     (is (= [:p ":chat/nope"] (i18n/translate [:p [:i18n :chat/nope]] :de)))))
 

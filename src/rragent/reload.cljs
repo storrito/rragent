@@ -19,8 +19,8 @@
    next turn; then the file's body, the bot's job; then what the bot
    is, the body of the skill its frontmatter names with the skill's
    folder filled in for `<skill>` (`rragent.skills/skill`), or the
-   manager's instructions from the bundle (`rragent.bots/manager-body`);
-   then the person's preferences for the manager. Nothing of that is
+   loop's instructions from the bundle (`rragent.bots/loop-body`);
+   then the person's preferences for the loop. Nothing of that is
    copied into the file, so a change of any of it costs nothing on
    disk and is live at the next turn.
 
@@ -41,20 +41,22 @@
             [rragent.db :as db]
             [rragent.definition :as definition]
             [rragent.home :as home]
+            [rragent.roles :as roles]
             [rragent.skills :as skills]))
 
 (defn register!
   "The bot of the conversation `id`: its folder and the models'
    provider; nothing applied yet. With `:preferences`, a file whose
    text is appended to the definition at every read, under a heading
-   of its own: the manager's `preferences.md` (`rragent.wiki`), what
+   of its own: the loop's `preferences.md` (`rragent.wiki`), what
    the person asked of it, which outlives every release. With
-   `:manager?`, the bot is the manager: its instructions are the
-   bundle's `MANAGER.md`, read after the shared prompt."
-  [id {:keys [home provider preferences manager?]}]
+   `:loop?`, the bot is the loop, the one conversation of the machine:
+   its instructions are the bundle's `LOOP.md`, read after the shared
+   prompt, and its model sees the loop's tools alone (`rragent.roles`)."
+  [id {:keys [home provider preferences loop?]}]
   (swap! db/db assoc-in (conj (db/bot-path id) :reload) (cond-> {:home home :provider provider}
                                                            preferences (assoc :preferences preferences)
-                                                           manager? (assoc :manager? true))))
+                                                           loop? (assoc :loop? true))))
 
 (def ^:private frontmatter-pattern
   #"(?s)^(---\r?\n.*?\r?\n---\r?\n)(.*)$")
@@ -63,7 +65,7 @@
   "The text a bot is configured from: the frontmatter of `text`, its
    file, then `shared`, the prompt every bot works by, then the file's
    body, the bot's job, then `role`, what the bot is (a skill's body,
-   the manager's instructions); the parts separated by a blank line,
+   the loop's instructions); the parts separated by a blank line,
    the blank ones left out. A text without a frontmatter stays as it
    is, for `rragent.definition` to refuse."
   [text {:keys [shared role]}]
@@ -72,14 +74,14 @@
     text))
 
 (defn- role-text
-  "What follows the job: the manager's instructions from the bundle
-   for the manager, else the body of the skill the file names, with
-   `<skill>` in it replaced by the skill's folder; nil without either.
-   A skill the machine does not have is said on stderr, and the bot
-   works without it."
-  [bot-dir text manager?]
-  (if manager?
-    (bots/manager-body)
+  "What follows the job: the loop's instructions from the bundle for
+   the loop, else the body of the skill the file names, with `<skill>`
+   in it replaced by the skill's folder; nil without either. A skill
+   the machine does not have is said on stderr, and the bot works
+   without it."
+  [bot-dir text loop?]
+  (if loop?
+    (bots/loop-body)
     (when-let [name (not-empty (str (:skill (or (definition/frontmatter text) {}))))]
       (if-let [{:keys [body folder]} (skills/skill (skills/machine-home bot-dir) name)]
         (str/replace (str body) "<skill>" folder)
@@ -106,24 +108,30 @@
 
 (defn change
   "pi-durable's agent change for the definition: the model with its
-   provider, the thinking level, the instructions, and the bot's
-   `work/` as the directory the tools run in."
-  [{:keys [model thinking instructions]} provider work]
-  #js {:model #js {:provider provider :modelId model}
-       :thinkingLevel (or thinking js/undefined)
-       :instructions instructions
-       :cwd work})
+   provider, the thinking level, the instructions, the bot's `work/`
+   as the directory the tools run in, and, for a `role`
+   (`rragent.roles`, `:loop`), the tools its model sees."
+  ([definition provider work]
+   (change definition provider work nil))
+  ([{:keys [model thinking instructions]} provider work role]
+   (let [change #js {:model #js {:provider provider :modelId model}
+                     :thinkingLevel (or thinking js/undefined)
+                     :instructions instructions
+                     :cwd work}]
+     (when-let [tools (roles/model-tools role)]
+       (aset change "modelTools" tools))
+     change)))
 
 (defn- read-text
   "The text the bot is configured from (`assemble`): its definition
    file with the shared prompt and what the bot is, and the
    preferences file appended when the bot has one
    (`with-preferences`); nil when there is no definition."
-  [home preferences manager?]
+  [home preferences loop?]
   (when-let [file (home/definition-file home)]
     (let [text (fs/readFileSync file "utf8")]
       [file (with-preferences (assemble text {:shared (bots/system-prompt)
-                                              :role (role-text home text manager?)})
+                                              :role (role-text home text loop?)})
                               preferences)])))
 
 (defn changed
@@ -131,8 +139,8 @@
    text is not the one last applied; nil when it is, when the file
    does not read (said on stderr), or when no bot `id` is registered."
   [id]
-  (when-let [{:keys [home text preferences manager?]} (get-in @db/db (conj (db/bot-path id) :reload))]
-    (let [[file now] (read-text home preferences manager?)]
+  (when-let [{:keys [home text preferences loop?]} (get-in @db/db (conj (db/bot-path id) :reload))]
+    (let [[file now] (read-text home preferences loop?)]
       (cond
         (nil? file) (do (js/console.error "[definition]" (str "No AGENT.md or SKILL.md in " home ", the bot stays as it was.")) nil)
         (= text now) nil
@@ -160,8 +168,8 @@
   [conversation context]
   (let [id (.-id conversation)]
     (when-let [{:keys [text definition]} (changed id)]
-      (let [{:keys [home provider]} (get-in @db/db (conj (db/bot-path id) :reload))]
-        (await (.configure conversation (change definition provider (home/work-dir home)) context))
+      (let [{:keys [home provider loop?]} (get-in @db/db (conj (db/bot-path id) :reload))]
+        (await (.configure conversation (change definition provider (home/work-dir home) (when loop? :loop)) context))
         (applied! id text definition)
         definition))))
 
@@ -174,10 +182,10 @@
    state as it is."
   [runtime id context]
   (when-let [{:keys [text definition]} (changed id)]
-    (let [{:keys [home provider]} (get-in @db/db (conj (db/bot-path id) :reload))]
+    (let [{:keys [home provider loop?]} (get-in @db/db (conj (db/bot-path id) :reload))]
       (await (.commit runtime
                       (^:async fn [tx _current]
-                        (await (configure tx id (change definition provider (home/work-dir home))))
+                        (await (configure tx id (change definition provider (home/work-dir home) (when loop? :loop))))
                         js/undefined)
                       context))
       (applied! id text definition)

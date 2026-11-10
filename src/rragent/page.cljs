@@ -59,6 +59,7 @@
    `:secret/save` and `:secret/remove` its secrets (`rragent.secrets`),
    from the settings or from a bot's field, which tells the bot."
   (:require ["node:path" :as path]
+            ["node:fs" :as fs]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
             [rragent.assets :as assets]
@@ -227,10 +228,12 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes tab-views expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
-        run-id (shown-run tab-runs (:tabid w) (url-run w))
+        advanced? (machine/advanced?)
+        ;; a run's or a task's transcript is the advanced switch's
+        run-id (when advanced? (shown-run tab-runs (:tabid w) (url-run w)))
         run (when-let [run (run-of bot run-id)]
               (let [text (get-in bot [:runs/definitions run-id])]
                 (cond-> run
@@ -250,10 +253,14 @@
                                     (conversation (get-in bot [:runs/values run-id]))
                                     (conversation (:value bot) (:history bot)))
                     :expanded (get expanded (:tabid w))
-                    :artifacts (assoc (artifacts-pane bot)
-                                      :pane/shown (get tab-panes (:tabid w) :artifacts)
-                                      :pane/step (get-in bot [:pane/steps (:tabid w)])
-                                      :runs/current run-id)
+                    :artifacts (cond-> (assoc (artifacts-pane bot)
+                                              :pane/shown (get tab-panes (:tabid w) :artifacts)
+                                              :pane/step (get-in bot [:pane/steps (:tabid w)])
+                                              :runs/current run-id)
+                                 ;; the activity, the runs and the tasks, is the advanced switch's
+                                 (not advanced?) (dissoc :runs))
+                    :view (get tab-views (:tabid w) {:kind :all})
+                    :topics (machine/topics)
                     :phone (phone/status (:phone bot))
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
@@ -261,7 +268,8 @@
                     :settings? (contains? settings-open (:tabid w))
                     :settings-section (get settings-section (:tabid w))
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
-                    :advanced? (:advanced? (machine/current-structure))
+                    :advanced? advanced?
+                    :bots-before? (machine/bots-before?)
                     :link (page-link (:ring/request w))
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)
@@ -335,6 +343,17 @@
       (machine/run-conversation bot run)
       (:conversation (machine/bot bot)))))
 
+(defn- tab-view
+  "The view the tab `tab` shows, as the page shows it over the
+   conversation of `bot`: the \"New topic\" view whose message got its
+   topic meanwhile is that topic's (`rragent.view/settled`)."
+  [bot tab]
+  (let [shown (get-in @db/db [:tab-views tab])]
+    (if (and (= :new (:kind shown)) (:fresh shown))
+      (let [topics (or (machine/topics) {})]
+        (view/settled shown (view/items (conversation (:value bot) (:history bot)) topics) topics))
+      shown)))
+
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as
    an input of the bot's conversation (`rragent.uploads/content`: a
@@ -349,9 +368,19 @@
    not wait for work it makes moot. A hook's call, a schedule's run and
    a bot's message stay follow-ups, each a run of its own."
   [w]
-  (let [{:keys [text attachments screen run]} (command/command-data w)
+  (let [{:keys [text attachments screen run topic tab] bot-id :bot} (command/command-data w)
         text (str/trim (str text))
         {:keys [uploads] :as bot} (bot-of-command w)
+        view (when tab (tab-view bot tab))
+        ;; the topic of the message: the command's, else the tab's view's
+        topic-id (or (not-empty (str topic))
+                     (when (= :topic (:kind view)) (:topic view)))
+        ;; from the "New topic" view: the view's token, made at its first message
+        fresh (when (and (not topic-id) (not run) (= :new (:kind view)) (machine/loop? bot-id))
+                (or (:fresh view) (str (random-uuid))))
+        topic (cond
+                topic-id {:id topic-id :name (or (:name (get (machine/topics) topic-id)) topic-id)}
+                fresh {:fresh fresh})
         conversation (conversation-of-command w)
         attachments (when conversation (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
     (cond
@@ -367,7 +396,12 @@
             content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
-            draft (person/draft content (person/name-of (:ring/request w)))]
+            draft (person/draft content (person/name-of (:ring/request w)) (when-not run topic))
+            view (if fresh {:kind :new :fresh fresh} view)]
+        ;; the tab's view as the message found it: the "New topic" view with
+        ;; its token, or the topic it became
+        (when (and tab view (not= view (get-in @db/db [:tab-views tab])))
+          (swap! db/db assoc-in [:tab-views tab] view))
         ;; a run keeps the instructions it started with; the bot reads its file again
         (if run
           (await (.submit conversation draft harness/context))
@@ -436,6 +470,23 @@
                                               (command/accepted w))
       :else (command/rejected w :no-such-run))))
 
+(defn- view-show-command
+  "The tab `tab` shows the view `kind` of the loop's conversation,
+   `all`, `topic` with its `topic` id, or `new`, the empty
+   view whose first message makes a topic (docs/one-loop.md §3); the
+   tab shows the loop then, whatever bot it showed."
+  [w]
+  (let [{:keys [tab kind topic]} (command/command-data w)
+        kind (keyword (str (some-> kind name)))]
+    (cond
+      (nil? tab) (command/rejected w :no-tab)
+      (not (#{:all :topic :new} kind)) (command/rejected w :no-such-view)
+      (and (= :topic kind) (str/blank? (str topic))) (command/rejected w :no-topic)
+      :else (do (swap! db/db assoc-in [:tab-views tab] (cond-> {:kind kind} (= :topic kind) (assoc :topic (str topic))))
+                (when-let [loop (machine/loop-id)]
+                  (swap! db/db assoc-in [:tabs tab] loop))
+                (command/accepted w)))))
+
 (defn- pane-show-command
   "The tab `tab` sees the `pane` of the two lists of the pane,
    `:artifacts` or `:activity`."
@@ -459,6 +510,27 @@
     (if-let [readme (artifacts/readme (:artifacts/list value) folder)]
       (artifacts/picked value readme)
       value)))
+
+(defn- project-of
+  "The project the folder `folder` lies in, among the list of the bot's
+   map `value`: its path, nil for a folder outside one."
+  [value folder]
+  (let [top (first (str/split (str folder) #"/"))]
+    (some #(when (and (= :project (:kind %)) (= top (:path %))) (:path %))
+          (:artifacts/list value))))
+
+(defn- folder-shown
+  "The bot's map with `folder` opened from a card or a link, something
+   meant to be looked at: as `folder-opened`, and a folder of a project
+   without a README of its own, `story/composition` on a card, has
+   nothing to show, so the project's player takes the screen while the
+   list browses the folder."
+  [value folder]
+  (let [project (project-of value folder)]
+    (if (and project (not (artifacts/readme (:artifacts/list value) folder)))
+      (-> (artifacts/picked value project)
+          (artifacts/browsed folder))
+      (folder-opened value folder))))
 
 (defonce ^:private steps
   (atom 0))
@@ -496,7 +568,8 @@
 (defn- open-artifact-command
   "The person picked an artifact in the list or on a card, or went back
    to the list (a nil path); a path that is a folder's, a link in a
-   README, opens the folder. A step of the tab `tab` (`move-pane!`);
+   README, opens the folder, and a folder inside a project plays the
+   project (`folder-shown`). A step of the tab `tab` (`move-pane!`);
    the tab brought to the artifact's bot first when it shows another
    (`shown!`)."
   [w]
@@ -509,7 +582,7 @@
       (nil? bot) (command/rejected w :no-such-bot)
       (or (nil? path) (artifact-of bot path)) (do (move-pane! bot tab #(artifacts/picked % path))
                                                   (command/accepted w))
-      (artifacts/folder? (:artifacts/list bot) path) (do (move-pane! bot tab #(folder-opened % path))
+      (artifacts/folder? (:artifacts/list bot) path) (do (move-pane! bot tab #(folder-shown % path))
                                                          (command/accepted w))
       :else (command/rejected w :no-such-artifact))))
 
@@ -1187,10 +1260,18 @@
    file."
   [w]
   (let [[id rest] (split-bot (get-in w [:ring/route-params :*]))
-        bot (machine/bot id)]
+        bot (machine/bot id)
+        ;; a link of before to an archived bot's artifact: the loop's folder of its topic
+        moved (when (and (str/starts-with? (str rest) "artifacts/") (not (fs/existsSync (str (:work bot) "/" rest))))
+                (when-let [slug (get (:bot-topics (machine/current-structure)) (str id))]
+                  (when-let [loop (machine/loop-id)]
+                    (str (bots/url loop) "/artifacts/" slug "/" (subs (str rest) (count "artifacts/"))))))]
     (cond
       (str/blank? rest)
       (shim w)
+
+      moved
+      (assoc w :ring/response {:status 302 :headers {"Location" moved "Cache-Control" "no-store"} :body ""})
 
       (nil? bot)
       (assoc w :ring/response http/not-found)
@@ -1411,6 +1492,8 @@
       :ring/handler #'project-command}
      {:command/kind :chat/send
       :command/fn #'send-command}
+     {:command/kind :view/show
+      :command/fn #'view-show-command}
      {:command/kind :chat/stop
       :command/fn #'stop-command}
      {:command/kind :chat/compact

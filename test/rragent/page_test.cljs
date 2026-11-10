@@ -37,6 +37,19 @@
             [rragent.tools-test :as tools-test]
             [rragent.uploads-test :as uploads-test]))
 
+(defn- ^:async bots-before!
+  "The machine as one whose bots of before were adopted into the loop
+   (`botTopics` of the structure, `rragent.migration`): what gives the
+   settings their Advanced section and makes its switch count."
+  []
+  (let [harness (:harness (machine/agent))]
+    (await (.commit harness
+                    (^:async fn [tx]
+                      (aset (await (.doc tx machine/Structure)) "botTopics" #js {"999999" "before"})
+                      js/undefined)
+                    harness/context))
+    (await (machine/refresh-structure! harness))))
+
 (defn- mentions?
   "Whether a string of the hiccup contains `s`."
   [hiccup s]
@@ -165,7 +178,7 @@
   (let [[bot] (await (machine/open! (merge {:home home
                                             :models models
                                             :provider "faux"
-                                            :manager? false
+                                            :loop? false
                                             :storage (harness/memory-storage)}
                                            opts)))
         server (await (http/listen (page/handler "s3cret") 0))]
@@ -302,6 +315,22 @@
                                    (is (= {:success? true} (await (command! base cookie :artifacts/show {:bot id :path nil :folder "stories" :step "1.1" :tab "t1"}))))
                                    (let [frame (await (frame! #(= "1.1" (pane-step %))))]
                                      (is (= {:ui/bot id :ui/folder "stories" :ui/current nil :ui/step "1.1"} (second (find-tag frame :ui/pane-history))))))))
+                             (testing "a card that opens a folder inside a project plays the project, the list in that folder; a folder with a README shows that"
+                               (fs/mkdirSync (path/join dir "short" "composition" "notes") #js {:recursive true})
+                               (fs/writeFileSync (path/join dir "short" "package.json") "{\"name\":\"short\"}")
+                               (fs/writeFileSync (path/join dir "short" "composition" "index.html") "<h1>short</h1>")
+                               (fs/writeFileSync (path/join dir "short" "composition" "notes" "README.md") "# Notes")
+                               (artifacts/refresh! db/db (db/bot-path id) dir)
+                               (try
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "short/composition" :tab "t1"}))))
+                                 (is (= {:current "short" :folder "short/composition"} (artifacts/place (get-in @db/db [:bots id]))))
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "short/composition/notes" :tab "t1"}))))
+                                 (is (= {:current "short/composition/notes/README.md" :folder "short/composition/notes"} (artifacts/place (get-in @db/db [:bots id]))))
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "stories" :tab "t1"}))) "a folder outside a project is browsed as before")
+                                 (is (= "stories" (:folder (artifacts/place (get-in @db/db [:bots id])))))
+                                 (finally
+                                   (fs/rmSync (path/join dir "short") #js {:recursive true :force true})
+                                   (artifacts/refresh! db/db (db/bot-path id) dir))))
                              (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "And this" :screen "gone.html"}))))
                              (await (frame! #(mentions? % "Which one?")))
                              (is (= "And this" (last-message)) "what the list no longer has names nothing")
@@ -326,8 +355,9 @@
                            (is (= (str "/bot/" id) (url-of frame)) "the URL stays the bot's")
                            (is (= #{"t1"} (:settings-open @db/db))))
                          (testing "the advanced switch: the raw list with New bot and the row menus into the sidebar, the choice in the structure"
+                           (await (bots-before!))
                            (is (= {:success? true} (await (command! base cookie :settings/section {:tab "t1" :section :advanced}))))
-                           (await (frame! #(mentions? % "Show every bot and the raw list")))
+                           (await (frame! #(mentions? % "Show every bot, the raw list and the technical details")))
                            (is (= {:success? true} (await (command! base cookie :settings/advanced {:advanced true}))))
                            (let [frame (await (frame! #(mentions? % "New bot")))]
                              (is (true? (:advanced? (machine/current-structure))))
@@ -624,6 +654,9 @@
                    conversation (:conversation (machine/bot id))
                    note "From here on the model reads a summary of the messages above."]
                (try
+                 ;; the card with the button is the advanced switch's
+                 (await (bots-before!))
+                 (await (machine/set-advanced! (:harness (machine/agent)) true))
                  (is (= "Noted." (await (harness/ask-in conversation (long-text "red")))))
                  (is (= "Noted again." (await (harness/ask-in conversation (long-text "blue")))))
                  (let [{:keys [reader decoder]} (await (stream bot-url cookie controller "t9"))
@@ -865,6 +898,9 @@
                    other (js/AbortController.)
                    bot-url (str base "/bot/" id)]
                (try
+                 ;; a run's page is the advanced switch's
+                 (await (bots-before!))
+                 (await (machine/set-advanced! (:harness (machine/agent)) true))
                  (let [cookie (await (login base "s3cret"))
                        {:keys [reader decoder]} (await (stream bot-url cookie controller "t1"))
                        {first-frame :view buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
@@ -1057,6 +1093,80 @@
                      (is (str/includes? (str (.get (.-headers got) "set-cookie")) "Max-Age=0")))))
                (finally
                  (.abort controller)
+                 (await (stop!))
+                 (test-home/remove! home))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest new-topic-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [faux models]} (tools-test/faux-models)
+                 {:keys [base stop!]} (await (start! home models {:loop? true}))
+                 cookie (await (login base "s3cret"))
+                 loop-id (machine/loop-id)
+                 _ (bots/set-metadata! home loop-id "model" "faux-1")
+                 conversation (:conversation (machine/bot loop-id))
+                 people (^:async fn []
+                          (let [page (await (.entries conversation #js {} 50 js/undefined harness/context))]
+                            (->> (array-seq (.-items page))
+                                 (map #(js->clj % :keywordize-keys true))
+                                 (filter #(= "rragent.person" (:kind %)))
+                                 (sort-by :id))))
+                 ;; the page's value of the loop, once it holds `n` tool results
+                 results! (^:async fn [n]
+                            (let [started (js/Date.now)]
+                              (loop []
+                                (cond
+                                  (<= n (count (filter #(= "pi.tool-result" (:kind %))
+                                                       (:entries (page/conversation (:value (machine/bot loop-id)))))))
+                                  true
+                                  (< 15000 (- (js/Date.now) started)) (throw (js/Error. "no tool result after 15 s"))
+                                  :else (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                                            (recur))))))]
+             (try
+               (testing "the sidebar's row shows the empty view in the tab, on the loop"
+                 (is (= {:success? true} (await (command! base cookie :view/show {:tab "t1" :kind :new}))))
+                 (is (= {:kind :new} (get-in @db/db [:tab-views "t1"])))
+                 (is (= loop-id (get-in @db/db [:tabs "t1"]))))
+               (testing "an empty message leaves the view without a token"
+                 (is (= {:success? false :result {:error :empty-message}} (await (command! base cookie :chat/send {:bot loop-id :text " " :tab "t1"}))))
+                 (is (= {:kind :new} (get-in @db/db [:tab-views "t1"]))))
+               (testing "the first message: the view gets its token, the entry carries it, the model reads that the topic is new"
+                 (.setResponses faux #js [(tools-test/answer "What is it about?")])
+                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "Something for autumn." :tab "t1"})) [:success?])))
+                 (await (.waitForIdle conversation harness/context))
+                 (let [token (get-in @db/db [:tab-views "t1" :fresh])
+                       [person] (await (people))]
+                   (is (string? token))
+                   (is (= :new (get-in @db/db [:tab-views "t1" :kind])))
+                   (is (= {:name "Max" :fresh token} (:data person)))
+                   (is (= "Max (new topic): Something for autumn." (get-in person [:model 0 :content])))
+                   (testing "no topic made yet: the next message goes under the same token, and the model makes the topic"
+                     (.setResponses faux #js [(tools-test/tool-call "topic" {:action "create" :name "Autumn sale"} "c1")
+                                              (tools-test/answer "Autumn sale it is.")])
+                     (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "A sale campaign." :tab "t1"})) [:success?])))
+                     (await (.waitForIdle conversation harness/context))
+                     (is (= {:kind :new :fresh token} (get-in @db/db [:tab-views "t1"])))
+                     (is (= {:name "Max" :fresh token} (:data (second (await (people))))))
+                     (is (contains? (machine/topics) "autumn-sale")))))
+               (testing "the topic made: the tab's next message is the topic's, and the tab's view too"
+                 (await (results! 1))
+                 (.setResponses faux #js [(tools-test/answer "Noted.")])
+                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "It starts on Monday." :tab "t1"})) [:success?])))
+                 (await (.waitForIdle conversation harness/context))
+                 (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t1"])))
+                 (let [person (last (await (people)))]
+                   (is (= {:name "Max" :topic "autumn-sale"} (:data person)))
+                   (is (= "Max (Autumn sale): It starts on Monday." (get-in person [:model 0 :content])))))
+               (testing "another conversation than the loop takes no token"
+                 (swap! db/db assoc-in [:tab-views "t2"] {:kind :new})
+                 (.setResponses faux #js [(tools-test/answer "Hello.")])
+                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot "1" :text "Hi." :tab "t2"})) [:success?])))
+                 (is (= {:kind :new} (get-in @db/db [:tab-views "t2"]))))
+               (finally
+                 (swap! db/db dissoc :tab-views)
                  (await (stop!))
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))

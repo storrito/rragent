@@ -10,8 +10,8 @@
    holds the structure of the machine (`Structure`, read as data by
    `structure`, cached in the atom as `:structure` for the page): the
    manager, the bot the person lands on, made at the open when the
-   document names none (`make-manager!`) and given its file
-   from the bundle at every open (`rragent.bots/manager-text`, with
+   document names none (`make-loop!`) and given its file
+   from the bundle at every open (`rragent.bots/loop-text`, with
    `preferences.md` of its wiki appended at every read,
    `rragent.reload`); each bot's parent, the bot that made it with the
    `bot` tool, and its project, written in the commit that made its
@@ -57,7 +57,11 @@
             [rragent.runs :as runs]
             [rragent.skills :as skills]
             [rragent.status :as status]
+            [rragent.loop :as loop]
+            [rragent.migration :as migration]
+            [rragent.tasks :as tasks]
             [rragent.tools.bot :as bot-tool]
+            [rragent.tools.topic :as topic-tool]
             [rragent.transcript :as transcript]
             [rragent.wiki :as wiki]))
 
@@ -68,15 +72,16 @@
    the name of its project; `archived`, the ids of the archived bots;
    `advanced`, whether the page shows every bot and the raw list
    (`set-advanced!`), false until the person switches it on in the
-   settings. A document from before the manager has `hidden` alone;
-   the readers take a missing key as empty."
+   settings; `topics`, the loop's topics (docs/one-loop.md §3), id to
+   `{name created archived}`. A document from before the manager has
+   `hidden` alone; the readers take a missing key as empty."
   (defineDoc #js {:kind "rragent.bots"
                   :version 1
                   :scope "session"
                   :history "latest"
-                  :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil :advanced false})}))
+                  :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil :advanced false :topics #js {}})}))
 
-(declare adopt! listed refresh-spend! refresh-structure! dependents delete! transcript status-of write-status!)
+(declare adopt! listed loop? name-of used-at refresh-spend! refresh-structure! dependents delete! transcript status-of write-status!)
 
 (defn agent
   "The harness map of the machine."
@@ -90,14 +95,15 @@
 (defn context-window
   "The context a conversation on the model `id` keeps, in tokens: the
    model's window from the models registry of the agent, at most the
-   budget past which rragent compacts (`rragent.harness/context-tokens`),
+   budget past which rragent compacts (`rragent.harness/budget-for`),
    so that the page's ring fills towards the compaction; nil for a model
    it does not know."
   [id]
   (let [{:keys [models provider]} (agent)]
     (when (and models (seq (str id)))
       (try
-        (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-contextWindow (min (harness/context-tokens)))
+        (when-let [window (some-> (.getModel ^js models (str (or provider "openrouter")) (str id)) .-contextWindow)]
+          (min window (harness/budget-for window)))
         (catch :default _
           nil)))))
 
@@ -136,15 +142,24 @@
 
 (defn refresh-runs!
   "The newest runs of the bot `id` read into its map, `:runs`, for the
-   page. A promise."
+   page; for the loop its tasks among them (`rragent.tasks/as-run`),
+   newest first. A promise."
   [id]
   (let [id (str id)
         {:keys [harness]} (agent)]
     (if (and harness (bot id))
-      (-> (runs/listed harness (js/Number id) runs-shown harness/context)
-          (.then (fn [runs]
-                   (when (bot id)
-                     (swap! db/db assoc-in (conj (db/bot-path id) :runs) runs))))
+      (-> (js/Promise.all #js [(runs/listed harness (js/Number id) runs-shown harness/context)
+                               (if (loop? id)
+                                 (tasks/listed harness id runs-shown harness/context)
+                                 (js/Promise.resolve []))])
+          (.then (fn [both]
+                   (let [[runs tasks] (array-seq both)
+                         rows (->> (concat runs (map tasks/as-run tasks))
+                                   (sort-by #(- (or (:started %) 0)))
+                                   (take runs-shown)
+                                   (vec))]
+                     (when (bot id)
+                       (swap! db/db assoc-in (conj (db/bot-path id) :runs) rows)))))
           (.catch (fn [e] (js/console.error "[runs]" (str e)))))
       (js/Promise.resolve nil))))
 
@@ -161,8 +176,9 @@
         path (db/bot-path id)
         {:keys [harness]} (agent)
         run (when (and harness (bot id))
-              (await (runs/run harness run-id harness/context)))]
-    (when (and run (= (js/Number id) (:bot run)))
+              (or (await (runs/run harness run-id harness/context))
+                  (some-> (await (tasks/task harness run-id harness/context)) tasks/as-run)))]
+    (when (and run (= (js/Number id) (js/Number (:bot run))))
       (when (:definition run)
         (swap! db/db assoc-in (conj path :runs/definitions run-id) (:definition run)))
       (when (and (:conversation run) (not (get-in @db/db (conj path :runs/open run-id))))
@@ -346,17 +362,27 @@
 
 (defn ^:async structure
   "The session document as data, ids as strings: `{:hidden #{} :archived
-   #{} :parents {child parent} :projects {child name} :manager id
-   :advanced? false}`, `:manager` nil for a machine without one yet."
+   #{} :parents {child parent} :projects {child name} :topics {id
+   {:name :created :archived?}} :bot-topics {bot slug} :migrated
+   version :manager id :advanced? false}`, `:manager` nil for a
+   machine without one yet, `:migrated` nil before the adoption
+   (`rragent.migration`)."
   [harness]
   (let [doc (await (.snapshot harness Structure harness/context))
         ids (fn [xs] (set (map str (array-seq (or xs #js [])))))
         pairs (fn [o] (into {} (map (fn [[k v]] [(str k) (str v)])) (js/Object.entries (or o #js {}))))
+        topics (fn [o] (into {} (map (fn [[k v]] [(str k) {:name (str (.-name v))
+                                                           :created (.-created v)
+                                                           :archived? (boolean (.-archived v))}]))
+                             (js/Object.entries (or o #js {}))))
         manager (some-> doc .-manager)]
     {:hidden (ids (some-> doc .-hidden))
      :archived (ids (some-> doc .-archived))
      :parents (pairs (some-> doc .-parents))
      :projects (pairs (some-> doc .-projects))
+     :topics (topics (some-> doc .-topics))
+     :bot-topics (pairs (some-> doc .-botTopics))
+     :migrated (some-> doc .-migrated)
      :manager (when (some? manager) (str manager))
      :advanced? (boolean (some-> doc .-advanced))}))
 
@@ -418,6 +444,23 @@
                   harness/context))
   (await (refresh-structure! harness)))
 
+(defn bots-before?
+  "Whether the machine has bots of before the one loop: the adoption
+   made topics of some (`:bot-topics`, `rragent.migration`) and not
+   every one of them is deleted. Only such a machine's settings show
+   the Advanced section."
+  []
+  (let [{:keys [bot-topics hidden]} (current-structure)]
+    (boolean (some #(not (contains? hidden %)) (keys bot-topics)))))
+
+(defn advanced?
+  "Whether the page shows every bot, the raw list and the technical
+   details: the switch of the settings (`set-advanced!`), on a machine
+   with bots of before (`bots-before?`). A machine without them has
+   no switch, so one left on does not count."
+  []
+  (boolean (and (bots-before?) (:advanced? (current-structure)))))
+
 (defn ^:async relate-in!
   "In the transaction `tx` that makes the bot `child`: its `parent`
    (the id of the bot that makes it) and its `project` (a name) into
@@ -434,26 +477,70 @@
     (when (seq (str project))
       (aset (.-projects doc) (str child) (str project)))))
 
+(defn topics
+  "The loop's topics as the structure was last read: id to `{:name
+   :created :archived?}`."
+  []
+  (:topics (current-structure)))
+
+(defn- ^:async change-topics!
+  "`f` on the `topics` object of the session document, in a commit,
+   the structure read again after."
+  [harness f]
+  (await (.commit harness
+                  (^:async fn [tx]
+                    (let [doc (await (.doc tx Structure))]
+                      (when-not (.-topics doc)
+                        (aset doc "topics" #js {}))
+                      (f (.-topics doc))))
+                  harness/context))
+  (await (refresh-structure! harness)))
+
+(defn ^:async create-topic!
+  "A topic `name` made in the session document, its id the name's
+   slug, with a number behind it when the slug is taken; answers the
+   id."
+  [harness name]
+  (let [taken (topics)
+        base (topic-tool/slug name)
+        id (if (contains? taken base)
+             (some (fn [n] (let [candidate (str base "-" n)] (when-not (contains? taken candidate) candidate))) (iterate inc 2))
+             base)]
+    (await (change-topics! harness (fn [topics] (aset topics id #js {:name (str name) :created (js/Date.now) :archived false}))))
+    id))
+
+(defn ^:async rename-topic!
+  "The topic `id` named `name`."
+  [harness id name]
+  (await (change-topics! harness (fn [topics] (when-let [topic (aget topics id)] (aset topic "name" (str name)))))))
+
+(defn ^:async archive-topic!
+  "The topic `id` archived: its view folds away."
+  [harness id]
+  (await (change-topics! harness (fn [topics] (when-let [topic (aget topics id)] (aset topic "archived" true))))))
+
 (defn ^:async set-manager-in!
   "In the transaction `tx`: the bot `id` named as the manager."
   [tx id]
   (let [doc (await (.doc tx Structure))]
     (aset doc "manager" (js/Number id))))
 
-(defn manager-id
-  "The id of the manager as the structure was last read, nil without."
+(defn loop-id
+  "The id of the loop, the one conversation of the machine (the
+   `manager` of the structure, its key of before), as the structure
+   was last read; nil without."
   []
   (:manager (current-structure)))
 
-(defn manager?
-  "Whether the bot `id` is the manager."
+(defn loop?
+  "Whether the bot `id` is the loop."
   [id]
-  (and (some? (manager-id)) (= (str id) (manager-id))))
+  (and (some? (loop-id)) (= (str id) (loop-id))))
 
-(defn- ^:async make-manager!
+(defn- ^:async make-loop!
   "The manager made: an ownerless conversation and its id in the
    session document, one commit, and its folder with the definition
-   from the bundle (`rragent.bots/write-manager-definition!`). Answers
+   from the bundle (`rragent.bots/write-loop-definition!`). Answers
    the id."
   [{:keys [harness home]}]
   (let [id (await (.commit harness
@@ -462,7 +549,7 @@
                                (await (set-manager-in! tx (.-id record)))
                                (str (.-id record))))
                            harness/context))]
-    (bots/write-manager-definition! home id)
+    (bots/write-loop-definition! home id)
     (await (refresh-structure! harness))
     id))
 
@@ -475,6 +562,18 @@
          (sort-by js/Number)
          (vec))))
 
+(defn- loop-id-before-resume
+  "What `harness/open` runs before the harness resumes the tasks of
+   before: the loop's id from the structure, so that a schedule of
+   the loop's overdue at the open fires into its chat and not as a run
+   (docs/one-loop.md §6), and a charge counts as the loop's."
+  [opts]
+  (fn [harness _context]
+    (-> (refresh-structure! harness)
+        (.then (fn [{:keys [hidden manager]}]
+                 (when (and (not (false? (:loop? opts))) manager (not (contains? hidden manager)))
+                   (reset! loop/id manager)))))))
+
 (defn ^:async open!
   "The machine of the home opened: the harness over its one storage
    (`rragent.harness/open`, which moves a home from before the bots
@@ -482,15 +581,25 @@
    when it has none), then every bot of the storage that is not
    deleted, in the order they were made. `opts` as `harness/open`
    takes them: `:home` (RRAGENT_HOME without), `:models`, `:provider`,
-   `:storage`, `:gateway`, `:retry`; and `:manager?`, false for a
+   `:storage`, `:gateway`, `:retry`; and `:loop?`, false for a
    machine without a manager, which the tests of the other parts open
    (every real machine has one). Answers the bots."
   [opts]
-  (let [agent (await (harness/open (assoc opts :extensions [(bot-tool/extension {:adopt! #'adopt!
+  (when-not (false? (:loop? opts))
+    (when-let [to (migration/backup! (or (:home opts) (home/home)))]
+      (println (str "the home was copied to " to " before its adoption into the one conversation"))))
+  (reset! topic-tool/topics-fn topics)
+  (let [agent (await (harness/open (assoc opts
+                                          :before-resume (loop-id-before-resume opts)
+                                          :extensions [(topic-tool/extension {:topics #'topics
+                                                                                   :create! (fn [name] (create-topic! (:harness (agent)) name))
+                                                                                   :rename! (fn [id name] (rename-topic! (:harness (agent)) id name))
+                                                                                   :archive! (fn [id] (archive-topic! (:harness (agent)) id))})
+                                                           (bot-tool/extension {:adopt! #'adopt!
                                                                                  :list #'listed
                                                                                  :check-skill! (fn [skill] (skills/check! (home) skill))
                                                                                  :relate-in! #'relate-in!
-                                                                                 :manager? #'manager?
+                                                                                 :loop? #'loop?
                                                                                  :archive! (fn [id] (archive! (:harness (agent)) id))
                                                                                  :dependents #'dependents
                                                                                  :delete! #'delete!
@@ -504,16 +613,33 @@
     (runs/watch! (fn [bot-id] (refresh-runs! bot-id)))
     (let [{:keys [hidden manager]} (await (refresh-structure! (:harness agent)))
           manager (cond
-                    (false? (:manager? opts)) nil
-                    (and manager (not (contains? hidden manager))) (do (bots/write-manager-definition! (:home agent) manager)
+                    (false? (:loop? opts)) nil
+                    (and manager (not (contains? hidden manager))) (do (bots/write-loop-definition! (:home agent) manager)
                                                                        manager)
-                    :else (await (make-manager! agent)))
+                    :else (await (make-loop! agent)))
+          _ (reset! loop/id manager)
           _ (when manager
               (wiki/seed! (home/bot-dir (:home agent) manager) (js/Date.now)))
           preferences (when manager (wiki/preferences-file (home/bot-dir (:home agent) manager)))
           ids (remove hidden (await (conversations (:harness agent))))]
       (doseq [id ids]
-        (await (open-bot! id (when (and manager (= id manager)) {:preferences preferences :manager? true}))))
+        (await (open-bot! id (when (and manager (= id manager)) {:preferences preferences :loop? true}))))
+      ;; the bots of before adopted into the loop, once (docs/one-loop.md §9)
+      (when manager
+        (let [{:keys [projects topics]} (current-structure)]
+          (when-let [plan (await (migration/adopt! {:harness (:harness agent)
+                                                    :home (:home agent)
+                                                    :structure-doc Structure
+                                                    :ids ids
+                                                    :loop-id manager
+                                                    :projects projects
+                                                    :topics topics
+                                                    :names (into {} (map (fn [id] [id (name-of id)])) ids)
+                                                    :used (set (filter used-at ids))
+                                                    :context harness/context}))]
+            (when (seq plan)
+              (println (str "adopted " (count plan) " bots of before as topics: " (str/join ", " (map :topic plan))))))
+          (await (refresh-structure! (:harness agent)))))
       (mapv bot ids))))
 
 (defn ^:async close-all!
@@ -522,6 +648,7 @@
     (await (close-bot! id)))
   (when-let [agent (agent)]
     (await (harness/close agent)))
+  (reset! loop/id nil)
   (swap! db/db dissoc :machine))
 
 (defn codemode
@@ -549,7 +676,7 @@
   []
   {:known? (fn [id] (some? (bot id)))
    :idle? (fn [id] (not (some-> (bot id) :view (as-> view (harness/busy? {:view view})))))
-   :compact! (fn [id] (harness/compact-unless-compacting! (:harness (agent)) id))})
+   :compact! (fn [id] (harness/compact-unless-compacting! (:harness (agent)) id "away"))})
 
 (defn name-of
   "The bot's name: its definition's as the reload last read it
@@ -572,14 +699,15 @@
 
 (defn label-of
   "What the page calls the bot: its name, or, while it still has the
-   generic one and is not the machine's first bot, \"New bot\" with the
-   time it was made (an i18n tuple), since it names itself after its
-   first answer."
+   generic one and is neither the machine's first bot nor the loop,
+   \"New bot\" with the time it was made (an i18n tuple), since it
+   names itself after its first answer."
   [id]
   (let [{:keys [definition]} (bot id)]
     (if (and definition
              (definition/generic? definition)
-             (not= (str id) (str bots/root-id)))
+             (not= (str id) (str bots/root-id))
+             (not (loop? id)))
       [:i18n :bot/new-at {:time (time-of (or (bots/created-at (home) id) (js/Date.now)))}]
       (name-of id))))
 
@@ -614,7 +742,7 @@
 
 (defn listed
   "The bots in the order they were made, each `{:id :name :label
-   :state :created :used :deleting? :renaming? :manager? :parent
+   :state :created :used :deleting? :renaming? :loop? :parent
    :project :archived? :status}`: the name of the definition, the
    label the page shows, the sidebar's two flags, what the structure
    says of the bot (`current-structure`), and its status as the
@@ -632,7 +760,7 @@
                   :used (used-at id)
                   :deleting? (boolean deleting?)
                   :renaming? (boolean renaming?)
-                  :manager? (= id manager)
+                  :loop? (= id manager)
                   :parent (get parents id)
                   :project (get projects id)
                   :archived? (contains? archived id)
@@ -643,7 +771,7 @@
    else the one used last, else the first; nil without any."
   []
   (let [bots (listed)
-        manager (manager-id)]
+        manager (loop-id)]
     (or (when (bot manager) manager)
         (:id (last (sort-by :used (filter :used bots))))
         (:id (first bots)))))
@@ -718,7 +846,7 @@
   (cond
     (nil? (bot id)) :missing
     (= 1 (count (bots))) :last
-    (manager? id) :manager
+    (loop? id) :manager
     :else (do (await (close-bot! id))
               (await (hide! (:harness (agent)) id))
               (bots/trash! (home) id)
