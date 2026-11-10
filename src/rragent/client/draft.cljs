@@ -15,7 +15,7 @@
    of the frame's: it takes the draft when it mounts (`mount!`), and
    Replicant leaves its value alone from then on; a write from
    elsewhere, the dictation or the recorder ending in the draft, goes
-   to the node as well (`write!`). The send carries
+   to the node as well (`put!`, `write!`). The send carries
    `[:composer/draft key]`, which the enricher of `rragent.client`
    replaces with the text, and `[:composer/clear-draft key]` empties
    the draft once the message is in."
