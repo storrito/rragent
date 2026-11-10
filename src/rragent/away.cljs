@@ -37,6 +37,16 @@
   [id tokens now]
   (swap! answers assoc id {:at now :tokens tokens}))
 
+(defn forget!
+  "The last answer of the conversation `id` forgotten: its compaction
+   is under way (`rragent.compaction`). A bot answers the notice that
+   comes before its compaction, and that answer read the whole
+   context once more: noted, it would have the conversation compacted
+   a second time ten minutes later, the notice and the bot's turn
+   with it."
+  [id]
+  (swap! answers dissoc id))
+
 (defn forget-all!
   "No answer known: the harness closed."
   []

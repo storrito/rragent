@@ -1,11 +1,11 @@
 (ns rragent.tasks-test
-  "The tasks of the loop (docs/one-loop.md §2, `rragent.tasks`,
+  "The tasks of a bot (docs/bots.md §3, `rragent.tasks`,
    `rragent.tools.task`): started without waiting, the call answers
-   the id and the result arrives in the loop as a message from the
-   task, which the loop answers; the task's conversation has a task's
-   instructions, tools and the loop's work folder; with `wait`, the
-   call answers the result itself and nothing is delivered twice;
-   `list` names the tasks."
+   the id and the result arrives in the bot's chat as a message from
+   the task, which the bot answers; the task's conversation has a
+   task's instructions, tools and the bot's work folder and model;
+   with `wait`, the call answers the result itself and nothing is
+   delivered twice; `list` names the tasks."
   (:require [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
@@ -51,27 +51,31 @@
         :else (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
                   (recur))))))
 
-(deftest a-task-of-the-loop-test
+(defn- first-bot
+  "The id of the machine's first bot."
+  []
+  (:id (first (machine/listed))))
+
+(deftest a-task-of-a-bot-test
   (async done
     (-> ((^:async fn []
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
              (try
-               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
-               (let [loop (machine/loop-id)
+               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage) :wiki? false}))
+               (let [loop (first-bot)
                      _ (bots/set-metadata! home loop "model" "faux-1")
                      conversation (:conversation (machine/bot loop))
                      harness (:harness (machine/agent))
                      done-entries (fn [] (-> (entries conversation)
                                              (.then (fn [es] (filterv #(= tasks/done-kind (:kind %)) es)))))]
-                 (testing "started without waiting: the id at once, the result later as a message from the task, which the loop answers"
-                   (.setResponses faux #js [(tools-test/tool-call "task" {:text "Count the covers in artifacts/content-week." :topic "Content week" :model "faux-1"} "t1")
+                 (testing "started without waiting: the id at once, the result later as a message from the task, which the bot answers"
+                   (.setResponses faux #js [(tools-test/tool-call "task" {:text "Count the covers in artifacts/content-week."} "t1")
                                             (tools-test/answer "Started.")
                                             (tools-test/answer "Eight covers.")
                                             (tools-test/answer "Noted: eight.")])
                    (is (= "Started." (await (harness/ask-in conversation "How many covers?"))))
                    (is (str/starts-with? (get (await (results conversation)) "t1") "Started the task ") (get (await (results conversation)) "t1"))
-                   (is (str/includes? (get (await (results conversation)) "t1") "for Content week"))
                    (await (until (fn [] (-> (done-entries) (.then (fn [es] (= 1 (count es))))))))
                    (await (.waitForIdle conversation harness/context))
                    (let [[task] (await (tasks/listed harness loop 10 harness/context))
@@ -79,20 +83,20 @@
                          es (await (entries conversation))]
                      (is (= :done (:state task)))
                      (is (= "Eight covers." (:line task)))
-                     (is (= "Content week" (:topic task)))
+                     (is (= (str loop) (str (:bot task))) "the task is the bot's")
                      (is (= (:id task) (:task (:data entry))) "the entry names the task")
-                     (is (= {:topic "Content week" :state "done" :line "Eight covers."} (dissoc (:data entry) :task)))
-                     (is (= "Noted: eight." (:text (first es))) "the loop answered the result")
-                     (testing "the task's conversation: a task's text and tools, the loop's work folder, the text as an entry"
+                     (is (= {:state "done" :line "Eight covers."} (dissoc (:data entry) :task)))
+                     (is (= "Noted: eight." (:text (first es))) "the bot answered the result")
+                     (testing "the task's conversation: a task's text and tools, the bot's work folder and model, the text as an entry"
                        (let [child (await (.conversation harness (:conversation task) harness/context))
                              agent (await (.agent child harness/context))
                              child-entries (await (entries child))]
                          (is (str/starts-with? (.-instructions agent) "# Every conversation of this machine"))
                          (is (str/includes? (.-instructions agent) "\n# A task\n"))
                          (is (= (set roles/task-tools) (set (map #(.-name %) (array-seq (.-tools agent))))))
-                         (is (= (home/work-dir (home/bot-dir home loop)) (.-cwd agent)) "what it makes lands in the loop's artifacts")
-                         (is (= "faux-1" (.. agent -model -modelId)))
-                         (is (some #(and (= tasks/input-kind (:kind %)) (= "Content week" (:topic (:data %)))) child-entries))
+                         (is (= (home/work-dir (home/bot-dir home loop)) (.-cwd agent)) "what it makes lands in the bot's artifacts")
+                         (is (= "faux-1" (.. agent -model -modelId)) "no model named: the bot's own")
+                         (is (some #(= tasks/input-kind (:kind %)) child-entries))
                          (is (= "Eight covers." (:text (first child-entries)))))))
                    (is (= 0 (.getPendingResponseCount faux)) "every scripted answer used"))
                  (testing "with wait: the call answers the result, nothing is delivered twice"
@@ -115,7 +119,7 @@
                          lines (str/split-lines text)]
                      (is (= 2 (count lines)) text)
                      (is (str/includes? (first lines) "done · Say quick. → Quick: yes."))
-                     (is (str/includes? (second lines) "done · Content week · Count the covers in artifacts/content-week. → Eight covers.")))))
+                     (is (str/includes? (second lines) "done · Count the covers in artifacts/content-week. → Eight covers.")))))
                (finally
                  (await (machine/close-all!))
                  (test-home/remove! home))))))
@@ -123,13 +127,13 @@
         (.finally done))))
 
 (deftest task-model-test
-  (testing "a task may run on a model of the page's choices or on the loop's own, no other: an id the loop knows from its training is none"
+  (testing "a task may run on a model of the page's choices or on the bot's own, no other: an id the bot knows from its training is none"
     (is (true? (models/task-model? "anthropic/claude-opus-5.5" "openai/gpt-6.1-sol")))
     (is (true? (models/task-model? "openai/gpt-6.1-sol" "anthropic/claude-opus-5.5")))
-    (is (true? (models/task-model? "faux-1" "faux-1")) "the loop's own, a faux model in a test")
+    (is (true? (models/task-model? "faux-1" "faux-1")) "the bot's own, a faux model in a test")
     (is (false? (models/task-model? "anthropic/claude-opus-4.1" "anthropic/claude-opus-5.5")))
     (is (false? (models/task-model? "faux-1" nil)))
-    (is (= ["anthropic/claude-opus-5.5"] (models/stronger)))))
+    (is (= "anthropic/claude-opus-5.5" (:id (first models/choices))) "the default first")))
 
 (deftest a-task-on-no-such-model-test
   (async done
@@ -137,8 +141,8 @@
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
              (try
-               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
-               (let [loop (machine/loop-id)
+               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage) :wiki? false}))
+               (let [loop (first-bot)
                      _ (bots/set-metadata! home loop "model" "faux-1")
                      conversation (:conversation (machine/bot loop))
                      harness (:harness (machine/agent))]
@@ -173,8 +177,8 @@
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
              (try
-               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
-               (let [loop (machine/loop-id)
+               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage) :wiki? false}))
+               (let [loop (first-bot)
                      _ (bots/set-metadata! home loop "model" "faux-1")
                      conversation (:conversation (machine/bot loop))
                      harness (:harness (machine/agent))
@@ -209,13 +213,13 @@
                        (is (= "Blue it is." (:line second-task)))
                        (is (= 2 (count (filter #(= tasks/input-kind (:kind %)) child-entries))) "both texts went in")
                        (is (= "Blue it is." (:text (first child-entries))))
-                       (is (= "Done: blue." (:text (first (await (entries conversation))))) "the loop answered the result")))
+                       (is (= "Done: blue." (:text (first (await (entries conversation))))) "the bot answered the result")))
                    (testing "a task of another conversation, or one that does not exist, cannot be continued"
                      (.setResponses faux #js [(tools-test/tool-call "task" {:id "999999" :text "Go on." :model "faux-1"} "c3")
                                               (tools-test/answer "No such task.")])
                      (is (= "No such task." (await (harness/ask-in conversation "Continue 999999."))))
                      (is (str/includes? (get (await (results conversation)) "c3") "No task 999999 of this conversation")))
-                   (testing "a task whose phase fails still reaches the loop, as a failed result"
+                   (testing "a task whose phase fails still reaches the bot, as a failed result"
                      (.setResponses faux #js [(tools-test/answer "That did not run.")])
                      (await (.commit conversation
                                      (fn [tx]
@@ -231,7 +235,7 @@
                        (is (str/starts-with? (:line failed) "did not run: No task 999999") (:line failed))
                        (is (= "failed" (:state (:data entry))))
                        (is (= (:id failed) (:task (:data entry))))
-                       (is (= "That did not run." (:text (first (await (entries conversation))))) "the loop was told")
+                       (is (= "That did not run." (:text (first (await (entries conversation))))) "the bot was told")
                        (testing "a task that ended without a conversation cannot be continued"
                          (.setResponses faux #js [(tools-test/tool-call "task" {:id (str (:id failed)) :text "Again." :model "faux-1"} "c3b")
                                                   (tools-test/answer "Nothing to continue.")])

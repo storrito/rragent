@@ -2,11 +2,10 @@
   "A bot's chat as text for another bot: the entries of a conversation
    after an entry id, oldest first, folded to lines a model reads
    (`fold`) and cut to a budget of characters, with the id of the last
-   entry read, so that the next read goes on from there (`read!`). The
-   manager reads its workers' chats with it, also what the person said
-   there directly (`rragent.tools.bot`, its `transcript`), when it
-   needs their state, instead of carrying every worker's chat in its
-   own. What is folded: the person's messages, the bot's answers with
+   entry read, so that the next read goes on from there (`read!`). A
+   bot reads another bot's chat with it, also what the person said
+   there (`rragent.tools.bot`, its `transcript`), when the wiki does
+   not answer, instead of carrying that chat in its own. What is folded: the person's messages, the bot's answers with
    the names of the tools it called, a message from another bot, a
    run's report; a tool's result is one line with its size, the rest
    (system prompts, compaction notes) nothing."

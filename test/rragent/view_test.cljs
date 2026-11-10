@@ -150,8 +150,8 @@
 (deftest switch-test
   (let [models [{:id "openai/gpt-6.1-sol" :name "GPT-6.1 Sol" :cost {:input 2 :output 10}}
                 {:id "anthropic/claude-opus-5.5" :name "Claude Opus 5.5" :cost {:input 4 :output 20}}]
-        page (fn [bot & [plain?]]
-               (i18n/translate (view/page {:bot bot :conversation conversation :locale :en :advanced? (not plain?)}) :en))
+        page (fn [bot]
+               (i18n/translate (view/page {:bot bot :conversation conversation :locale :en}) :en))
         switch (fn [page] (find-tag page :details.actions.switch))
         buttons (fn [switch] (filter #(and (vector? %) (= :button.item (first %))) (nodes switch)))
         command (fn [button] (get-in (second button) [:on :click 0 1]))]
@@ -182,11 +182,11 @@
     (testing "the pill says high while the bot has no level of its own; a page without a bot has no switch"
       (is (contains? (set (strings (switch (page {:id "cc33dd44" :name "Counter" :model "openai/gpt-6.1-sol" :models models})))) "High"))
       (is (nil? (switch (page {})))))
-    (testing "the switch is the advanced switch's: without it the composer names no model"
-      (let [plain (page {:id "cc33dd44" :name "Counter" :model "anthropic/claude-opus-5.5" :thinking "high" :models models} true)]
-        (is (nil? (switch plain)))
-        (is (some? (find-tag plain :ui/composer)))
-        (is (not (contains? (set (strings plain)) "Claude Opus 5.5")))))))
+    (testing "the switch is every bot's, under its composer; a run's page has none"
+      (let [bot {:id "cc33dd44" :name "Counter" :model "anthropic/claude-opus-5.5" :thinking "high" :models models}
+            run (i18n/translate (view/page {:bot bot :run {:id 5 :state :done} :conversation conversation :locale :en}) :en)]
+        (is (contains? (set (strings (find-tag (page bot) :div.composer))) "Claude Opus 5.5"))
+        (is (nil? (switch run)))))))
 
 (deftest artifact-card-test
   (let [made (fn [name arguments result]
@@ -247,27 +247,27 @@
       (let [page (view/page {:bot {:id "b1" :name "Bot" :model "m" :context-window 1000000}
                              :conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cacheRead 0 :cacheWrite 0})]}
                              :locale :en
-                             :advanced? true})
+                            })
             ring (second (find-tag page :ui/context))]
         (is (= 1200 (:ui/used ring)))
         (is (= 1000000 (:ui/window ring)))
         (is (= "Context" (:title (:ui/labels (second (find-tag (i18n/translate page :en) :ui/context)))))))
-      (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en :advanced? true}) :ui/context)) "no ring before the first answer"))
-    (testing "the ring, its cost and the button that summarizes are the advanced switch's: without it the header has none"
+      (is (nil? (find-tag (view/page {:bot {:id "b1"} :conversation nil :locale :en}) :ui/context)) "no ring before the first answer"))
+    (testing "the ring is every bot's, with the button that summarizes"
       (let [page (view/page {:bot {:id "b1" :name "Bot" :model "m" :context-window 1000000 :spend 33.8}
                              :conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cost {:total 0.5}})]}
                              :locale :en})]
-        (is (nil? (find-tag page :ui/context)))
-        (is (not (contains? (set (strings (i18n/translate page :en))) "Summarize older messages now")))))
+        (is (some? (find-tag page :ui/context)))
+        (is (contains? (set (strings (i18n/translate page :en))) "Summarize older messages now"))))
     (testing "the cost is the bot's, its subagents included, when known, times the factor (1.3 by default): a compaction shortens the transcript, not what it cost"
       (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200 :cost {:total 0.5}})]}
-            shown (fn [bot] (:ui/cost (second (find-tag (view/page {:bot bot :conversation conversation :locale :en :advanced? true}) :ui/context))))]
+            shown (fn [bot] (:ui/cost (second (find-tag (view/page {:bot bot :conversation conversation :locale :en}) :ui/context))))]
         (is (< (js/Math.abs (- 43.94 (shown {:id "b1" :context-window 200000 :spend 33.8}))) 1e-9))
         (is (= 0.65 (shown {:id "b1" :context-window 200000})) "before it is read, the transcript's")))
     (testing "the card's button names the bot it summarizes, and says so while a compaction runs; a run's page has no button"
       (let [conversation {:entries [(with-usage 2 {:input 1000 :output 200})]}
             card (fn [opts]
-                   (second (find-tag (i18n/translate (view/page (merge {:bot {:id "b1" :context-window 200000} :conversation conversation :locale :en :advanced? true} opts)) :en)
+                   (second (find-tag (i18n/translate (view/page (merge {:bot {:id "b1" :context-window 200000} :conversation conversation :locale :en} opts)) :en)
                                      :ui/context)))]
         (is (= "b1" (:ui/bot (card {}))))
         (is (false? (:ui/compacting? (card {}))))
@@ -311,22 +311,19 @@
   (let [page (fn [update & [locale]]
                (let [locale (or locale :en)]
                  (i18n/translate (view/page {:agent {} :conversation nil :locale locale :settings? true :update update}) locale)))]
-    (testing "the sidebar's rows are the way back: no view is marked as the current one while the settings show, each is a click to its chat"
-      (let [opts {:bots [{:id "7" :name "Assistant" :label "Assistant" :state :idle :loop? true}]
-                  :bot {:id "7" :name "Assistant"}
-                  :conversation nil :locale :en
-                  :view {:kind :topic :topic "week"}
-                  :topics {"week" {:name "Content week" :created 1}}}
-            current (fn [page] (filter #(and (vector? %) (= :li (first %)) (= "current" (:class (second %)))) (nodes page)))
+    (testing "the sidebar's rows are the way back: no bot is marked as the current one while the settings show, each is the link to its chat"
+      (let [opts {:bots [{:id "7" :name "Assistant" :label "Assistant" :state :idle}
+                         {:id "8" :name "Content week" :label "Content week" :state :idle}]
+                  :bot {:id "8" :name "Content week"}
+                  :conversation nil :locale :en}
+            current (fn [page] (filter #(and (vector? %) (= :li (first %)) (some #{"current"} (:class (second %)))) (nodes page)))
             chat (i18n/translate (view/page opts) :en)
             settings (i18n/translate (view/page (assoc opts :settings? true)) :en)]
-        (is (= ["Content week"] (map #(last (find-tag % :span.name)) (current chat))) "the chat marks its view")
+        (is (= ["Content week"] (map #(last (find-tag % :span.name)) (current chat))) "the chat marks its bot")
         (is (empty? (current settings)) "the settings mark none")
         (is (= "current" (:class (second (find-tag settings :button.settings)))))
-        (is (some #(and (vector? %) (= :button.row (first %))
-                        (= [[:data/command {:command/kind :view/show :command/data {:tab :ui/tabid :kind :topic :topic "week"}}]] (get-in (second %) [:on :click])))
-                  (nodes settings))
-            "the topic's row shows its view")))
+        (is (= ["/bot/7" "/bot/8"] (map #(:href (second %)) (filter #(and (vector? %) (= :a.row (first %))) (nodes settings))))
+            "each row the link to its bot, which the client turns into the tab's pick")))
     (testing "in place of the chat: the title, the one section with the version and the button"
       (let [page (page {:current "0.1.2" :auto? false})
             text (set (strings page))]
@@ -345,7 +342,7 @@
         (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
     (testing "the Input section: which key sends, the browser's choice"
       (let [input (i18n/translate (view/page {:agent {} :conversation nil :locale :de :settings? true :settings-section :input}) :de)]
-        (is (= ["Updates" "Auf dem Handy" "Eingabe" "Aufnahme" "MCP-Server"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))) "no Advanced on a machine without bots of before")
+        (is (= ["Updates" "Auf dem Handy" "Eingabe" "Aufnahme" "MCP-Server"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))) "the sections")
         (is (= {:ui/ctrl-enter "Strg+Enter sendet (⌘+Enter auf dem Mac), Enter bricht die Zeile um"
                 :ui/enter "Enter sendet, Strg+Enter (⌘+Enter auf dem Mac) bricht die Zeile um"}
                (second (find-tag input :ui/send-key))))))
@@ -354,27 +351,6 @@
             choices (second (find-tag recording :ui/effects-timing))]
         (is (str/starts-with? (:ui/live choices) "Live"))
         (is (str/starts-with? (:ui/after choices) "Nach der Aufnahme"))))
-    (testing "the Advanced section: the switch that shows every bot and the raw list, its command carrying the state it goes to; a machine with bots of before alone has it"
-      (let [settings (fn [advanced? locale]
-                       (i18n/translate (view/page {:agent {} :conversation nil :locale locale :settings? true :settings-section :advanced :advanced? advanced? :bots-before? true}) locale))
-            tabs (fn [page] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes page))))
-            without (i18n/translate (view/page {:agent {} :conversation nil :locale :en :settings? true :settings-section :advanced}) :en)
-            box (fn [page] (second (find-tag (find-tag page :label.check) :input)))
-            off (settings false :en)
-            on (settings true :en)]
-        (is (some #{"Show every bot, the raw list and the technical details"} (strings off)))
-        (is (= "Advanced" (last (tabs off))))
-        (is (not-any? #{"Advanced"} (tabs without)) "without bots of before: no tab")
-        (is (nil? (find-tag without :section.advanced)) "and no section: the updates in its place")
-        (is (some #{"Check for updates"} (strings without)))
-        (is (= "checkbox" (:type (box off))))
-        (is (false? (:checked (box off))))
-        (is (= [[:data/command {:command/kind :settings/advanced :command/data {:advanced true}}]] (get-in (box off) [:on :change])))
-        (is (true? (:checked (box on))))
-        (is (= [[:data/command {:command/kind :settings/advanced :command/data {:advanced false}}]] (get-in (box on) [:on :change])))
-        (is (nil? (find-tag off :button.new)) "the sidebar beside it follows the switch")
-        (is (some? (find-tag on :button.new)))
-        (is (some #{"Jeden Bot, die rohe Liste und die technischen Details zeigen"} (strings (settings false :de))))))
     (testing "the composer's title for either key"
       (let [composer (second (find-tag (i18n/translate (view/page {:agent {} :conversation nil :locale :en}) :en) :ui/composer))]
         (is (str/starts-with? (:title composer) "Ctrl+Enter sends"))
@@ -700,19 +676,19 @@
     (is (some #(= [:i18n :mcp/none] %) (tree-seq coll? seq (view/mcp-section {}))))))
 
 (deftest settings-tabs-test
-  (let [tree (view/settings {:current "1.0"} :mcp {:servers []} nil nil)]
+  (let [tree (view/settings {:current "1.0"} :mcp {:servers []} nil)]
     (is (some #(= [:i18n :mcp/title] %) (tree-seq coll? seq tree)) "the MCP section when the tab picked it")
     (is (not (some #(= [:i18n :updates/title] %) (tree-seq coll? seq tree)))))
-  (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil nil nil))) "the updates without a pick")
-  (is (some #(= [:i18n :advanced/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} :advanced nil true nil true))) "the advanced switch when the tab picked it")
+  (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil nil))) "the updates without a pick")
+  (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} :advanced nil nil))) "a section of before, the advanced switch's, is none: the updates")
   (testing "the phone: the link as a QR code and the browser's install"
-    (let [tree (view/settings {:current "1.0"} :mobile nil nil "https://a.test/?token=s")
+    (let [tree (view/settings {:current "1.0"} :mobile nil "https://a.test/?token=s")
           tags (set (keep #(when (vector? %) (first %)) (tree-seq coll? seq tree)))]
       (is (contains? tags :svg.qr))
       (is (contains? tags :ui/install))
       (is (some #(= [:i18n :mobile/title] %) (tree-seq coll? seq tree))))
     (is (not (some #(and (vector? %) (= :svg.qr (first %)))
-                   (tree-seq coll? seq (view/settings {:current "1.0"} :mobile nil nil nil))))
+                   (tree-seq coll? seq (view/settings {:current "1.0"} :mobile nil nil))))
         "no code without a link")))
 
 (deftest message-items-test
@@ -726,8 +702,8 @@
         items (view/items conversation)
         [person answer queued] items]
     (testing "a bot's message is a user item with the bot as its author and its own words as the text"
-      (is (= {:kind :user :id 2 :author {:name "Counter" :url "/bot/7"} :markdown {:base "/bot/7" :bot "7"} :text "Seven." :topics #{}} answer) "its words as markdown, its files under its page")
-      (is (= {:kind :user :id "s1" :author {:name "Watcher" :url "/bot/1"} :markdown {:base "/bot/1" :bot "1"} :text "How many?" :pending? true :topics #{}} queued) "one waiting in the inbox too")
+      (is (= {:kind :user :id 2 :author {:name "Counter" :url "/bot/7"} :markdown {:base "/bot/7" :bot "7"} :text "Seven."} answer) "its words as markdown, its files under its page")
+      (is (= {:kind :user :id "s1" :author {:name "Watcher" :url "/bot/1"} :markdown {:base "/bot/1" :bot "1"} :text "How many?" :pending? true} queued) "one waiting in the inbox too")
       (is (nil? (:author person))))
     (testing "the feed shows the bot's name, a link to its page, in place of You"
       (let [feed (i18n/translate (view/feed items nil {:base "/bot/1/artifacts" :bot "1"}) :en)
@@ -822,3 +798,63 @@
         (is (some #(= "Waiting for your answer:" %) (tree-seq coll? seq strip)))
         (is (some #(= "The 203 template is ready." %) (tree-seq coll? seq strip))))
       (is (nil? (find-tag (view/page {:agent {} :conversation {:entries [(person 1 "Go") card]} :locale :en :bot {:id "7"}}) :div.waiting)) "the card itself is the last item"))))
+
+(deftest sidebar-test
+  (let [bots [{:id "1" :name "Assistant" :label "Assistant" :state :idle}
+              {:id "2" :name "Old one" :label "Old one" :state :idle :archived? true}
+              {:id "3" :name "Content week" :label "Content week" :state :running :needs 2}
+              {:id "4" :name "Importer" :label "Importer" :state :idle :tasks 1}
+              {:id "5" :name "Stories" :label "Stories" :state :asleep :needs 1}]
+        page (i18n/translate (view/page {:bots bots :bot {:id "3" :name "Content week"} :conversation nil :locale :en}) :en)
+        sidebar (find-tag page :aside.sidebar)
+        rows (filter #(and (vector? %) (= :li (first %))) (nodes sidebar))
+        row (fn [name] (some #(when (= name (last (find-tag % :span.name))) %) rows))
+        classes (fn [name] (set (:class (second (row name)))))]
+    (testing "every bot a row, in the order made, the archived ones last; the way to make one over them, for everyone"
+      (is (= ["Assistant" "Content week" "Importer" "Stories" "Old one"] (map #(last (find-tag % :span.name)) rows)))
+      (is (= [[:data/command {:command/kind :bot/create :command/data {:tab :ui/tabid}}]]
+             (get-in (second (find-tag sidebar :button.new)) [:on :click])))
+      (is (= "/bot/4" (:href (second (find-tag (row "Importer") :a.row)))))
+      (is (some? (find-tag (row "Importer") :details.actions)) "each row with its menu: rename, delete"))
+    (testing "the one shown is marked"
+      (is (contains? (classes "Content week") "current"))
+      (is (not (contains? (classes "Assistant") "current"))))
+    (testing "Needs you while a card of the bot waits, the count from the second on, in place of its state"
+      (is (= ["Needs you" " · 2"] (rest (find-tag (row "Content week") :span.badge.waits))))
+      (is (= ["Needs you" nil] (rest (find-tag (row "Stories") :span.badge.waits))))
+      (is (nil? (find-tag (row "Content week") :span.state)))
+      (is (contains? (classes "Stories") "waits"))
+      (is (nil? (find-tag (row "Assistant") :span.badge.waits))))
+    (testing "what works is marked: a run that goes, or a task of a bot that is ready itself"
+      (is (contains? (classes "Content week") "working"))
+      (is (some? (find-tag (row "Content week") :span.dot)) "beside the badge, which took the state's place")
+      (is (contains? (classes "Importer") "working"))
+      (is (= "running" (last (find-tag (row "Importer") :span.state))) "a task goes: the state says so")
+      (is (not (contains? (classes "Assistant") "working")))
+      (is (nil? (find-tag (row "Stories") :span.dot))))
+    (testing "an archived bot says so"
+      (is (contains? (classes "Old one") "archived"))
+      (is (= "archived" (last (find-tag (row "Old one") :span.state.archived)))))))
+
+(deftest needs-test
+  (let [person (fn [id text] {:id id :kind "pi.user" :model [{:role "user" :content text :timestamp id}]})
+        card (fn [id] (assistant id [{:type "text" :text "Ready.\n\n```hiccup\n[:button {:send \"approve\"} \"Approve\"]\n```"}]))
+        items (fn [entries] (view/items {:entries entries}))]
+    (is (= 0 (view/needs (items [(person 1 "Go") (assistant 2 [{:type "text" :text "Done."}])]))))
+    (is (= 1 (view/needs (items [(person 1 "Go") (card 2)]))) "a card waits")
+    (is (= 0 (view/needs (items [(person 1 "Go") (card 2) (person 3 "approve")]))) "answered")
+    (let [conversation {:entries [(person 1 "Go") (card 2)]}]
+      (is (identical? (view/items conversation) (view/items conversation)) "the items of a conversation are made once")
+      (is (= 1 (view/needs (view/items conversation)) (view/needs (view/items conversation)))))))
+
+(deftest topic-of-before-test
+  (testing "a message from the time the machine was one conversation: the topic behind the name, the label gone from the text"
+    (let [entry (fn [id data content] {:id id :kind "rragent.person" :data data :model [{:role "user" :content content :timestamp id}]})
+          [in-topic fresh plain] (view/items {:entries [(entry 1 {:name "Lydia" :topic "content-week"} "Lydia (Content week): The covers, please.")
+                                                        (entry 2 {:fresh "t-1"} "(new topic): A Pinterest short.")
+                                                        (entry 3 {:name "Lydia"} "Lydia: And now?")]})]
+      (is (= "Lydia · content-week" (:person in-topic)))
+      (is (= "The covers, please." (:text in-topic)))
+      (is (= "A Pinterest short." (:text fresh)))
+      (is (= "Lydia" (:person plain)))
+      (is (= "And now?" (:text plain))))))

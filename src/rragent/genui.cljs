@@ -158,12 +158,9 @@
                    lost-background? (dissoc :color))))))
 
 (defn- send-actions
-  "A button's send: the text as a message of the person's, with the
-   tab (`:ui/tabid`, filled in by the client), so that the message
-   carries the topic of the view the tab shows (`rragent.page`)."
   [text bot]
   {:click [[:data/command {:command/kind :chat/send
-                           :command/data (cond-> {:text (str text) :tab :ui/tabid}
+                           :command/data (cond-> {:text (str text)}
                                            bot (assoc :bot bot))}]]})
 
 (defn asks?
@@ -191,7 +188,7 @@
    (`:ui/tabid`, see `rragent.view/artifacts`). Another bot's page,
    `/bot/<id>`, shows that bot in the tab (`:bot/show`), and with an
    artifact of it, `/bot/<id>/artifacts/<path>`, opens that in its
-   pane: the manager's card opens a worker's design that way."
+   pane: a bot's card opens another bot's design that way."
   [path base bot]
   (if-let [[id rest] (other-bot path base)]
     {:click (cond-> [[:data/command {:command/kind :bot/show

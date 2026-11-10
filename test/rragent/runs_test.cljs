@@ -196,8 +196,19 @@
                  (is (= "Made." (await (harness/ask agent "Make a hook."))))
                  (let [secret (await (hook-secret agent "reviews"))
                        {:keys [run]} (await (hooks/receive! agent "reviews" secret {} "one" harness/context))
-                       {:keys [definition state]} (await (settled agent run))]
+                       {:keys [definition state conversation]} (await (settled agent run))]
                    (is (= :done state))
+                   (testing "the run's model sees a run's tools: the subagent's, not the task's, whose result nobody would read; the bot's the other way round"
+                     (let [tools-of (^:async fn [id]
+                                      (let [handle (await (.conversation (:harness agent) id harness/context))]
+                                        (set (map #(.-name %) (array-seq (.-tools (await (.agent handle harness/context))))))))
+                           of-run (await (tools-of conversation))
+                           of-bot (await (tools-of (.-id (:root agent))))]
+                       (is (contains? of-run "subagent"))
+                       (is (not (contains? of-run "task")))
+                       (is (contains? of-run "report"))
+                       (is (contains? of-bot "task"))
+                       (is (not (contains? of-bot "subagent")))))
                    (testing "the run keeps the text of the definition it worked from, the shared prompt in it; the list leaves it out"
                      (is (str/starts-with? definition "---\nname: watcher\n"))
                      (is (str/includes? definition "# Every conversation of this machine"))

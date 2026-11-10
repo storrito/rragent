@@ -61,7 +61,7 @@
 
 (deftest a-new-bots-file-test
   (testing "the file every new bot starts with reads: the generic name, the default model, no job yet"
-    (let [{:keys [name model instructions skill] :as definition} (definition/from-text "---\nname: \"Assistant\"\ndescription: \"A new agent on a machine of its own, which takes one of the skills on the machine, or the job the person describes, and becomes that agent.\"\nmetadata:\n  model: openai/gpt-6.1-sol\n---\n" "/x/AGENT.md")]
+    (let [{:keys [name model instructions skill] :as definition} (definition/from-text "---\nname: \"Assistant\"\ndescription: \"A new agent on a machine of its own, which takes one of the skills on the machine, or the job the person describes, and becomes that agent.\"\nmetadata:\n  model: anthropic/claude-opus-5.5\n---\n" "/x/AGENT.md")]
       (is (= definition/generic-name name))
       (is (= definition/default-model model))
       (is (= "" instructions))

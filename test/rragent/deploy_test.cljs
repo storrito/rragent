@@ -41,20 +41,20 @@
 
 (deftest the-shared-prompt-is-for-every-conversation-test
   (let [text (fs/readFileSync "deploy/agent/SYSTEM-PROMPT.md" "utf8")]
-    (testing "a text, not a definition: no frontmatter, for the loop and the tasks alike"
+    (testing "a text, not a definition: no frontmatter, for the bots and the tasks alike"
       (is (not (str/starts-with? text "---")))
       (is (str/starts-with? text "# Every conversation of this machine"))
-      (is (str/includes? text "the tasks it starts"))
-      (is (not (str/includes? text "## Your file")) "no file of a bot's: the loop's is written by rragent, a task has none")
-      (is (not (str/includes? text "bot create")) "no bots are made any more")
-      (is (not (str/includes? text "`remember`")) "the wiki is the memory, not the events tools")
+      (is (str/includes? text "the\nbots the person talks to and the tasks they start"))
+      (is (not (str/includes? text "## Your file")) "what is a bot's alone is the bot's text: a task has no file")
+      (is (not (str/includes? text "bot create")))
+      (is (not (str/includes? text "`remember`")) "a task has no events tools")
       (is (not (str/includes? text "Name yourself")))
-      (is (not (str/includes? text "start a run of yours")) "no runs: a trigger is a message into the loop"))
-    (testing "the skills: read and done, offered when several fit, kept with skill create"
+      (is (not (str/includes? text "start a run of yours")))
+      (is (not (str/includes? text "topic")) "no topics any more"))
+    (testing "the skills: where they are, a skill a job names read and done"
       (is (str/includes? text "## Skills"))
       (is (str/includes? text "github.com/SKILLS_REPO") "the placeholder rragent fills from the clone")
       (is (str/includes? text "read that skill's `SKILL.md`"))
-      (is (str/includes? text "skill create"))
       (is (str/includes? text "never to learn how to use it")))
     (testing "the rules of files, programs, offers and failed steps"
       (is (str/includes? text "## Files and programs"))
@@ -62,35 +62,43 @@
       (is (str/includes? text "[:remember ...]") "programs keep their events through the machine's effects")
       (is (str/includes? text "Offer what the person may not know exists"))
       (is (str/includes? text "none twice"))
-      (is (str/includes? text "When a step of yours did not work"))
-      (is (str/includes? text "One folder per topic at the top")))))
+      (is (str/includes? text "When a step of yours did not work")))))
 
-(deftest the-loop-and-task-texts-test
-  (let [loop-text (fs/readFileSync "deploy/agent/LOOP.md" "utf8")
+(deftest the-bot-and-task-texts-test
+  (let [bot-text (fs/readFileSync "deploy/agent/BOT.md" "utf8")
         task-text (fs/readFileSync "deploy/agent/TASK.md" "utf8")]
-    (testing "the loop's text: a frontmatter with the model, then the rules of the one conversation"
-      (is (str/starts-with? loop-text "---\nname: Assistant\n"))
-      (is (str/includes? loop-text "  model: anthropic/claude-opus-5.5\n"))
-      (is (str/includes? loop-text "## Hard rules"))
-      (is (str/includes? loop-text "One thing at a time."))
-      (is (str/includes? loop-text "## Topics"))
-      (is (str/includes? loop-text "`topic create`"))
-      (is (str/includes? loop-text "## Tasks"))
-      (is (str/includes? loop-text "`wait: true`"))
-      (is (str/includes? loop-text "## Your wiki"))
-      (is (str/includes? loop-text "`topics/<name>.md`"))
-      (is (str/includes? loop-text "## When your memory is about to shrink"))
-      (is (str/includes? loop-text "answer \"ready\" and nothing else"))
-      (is (str/includes? loop-text "is opened by its\nproject, `artifacts/<project>`") "a card plays a design, it does not browse its source")
-      (is (str/includes? loop-text "`Lydia (new topic): …` came from the sidebar's \"New topic\"") "a message from the new view makes its topic")
-      (is (not (str/includes? loop-text "bot create")))
-      (is (not (str/includes? loop-text "`remember`"))))
+    (testing "a bot's text: no frontmatter, what a bot is, after the shared prompt"
+      (is (str/starts-with? bot-text "# A bot of this machine"))
+      (is (str/includes? bot-text "## Your file"))
+      (is (str/includes? bot-text "## A new bot"))
+      (is (str/includes? bot-text "skill: <the skill's folder name>") "a bot takes a skill into its file")
+      (is (str/includes? bot-text "Name yourself"))
+      (is (str/includes? bot-text "skill create"))
+      (is (str/includes? bot-text "## Tasks"))
+      (is (str/includes? bot-text "`wait: true`"))
+      (is (str/includes? bot-text "## Runs"))
+      (is (str/includes? bot-text "A hook's call and a schedule's fire start a run of yours"))
+      (is (str/includes? bot-text "`mode: message`"))
+      (is (str/includes? bot-text "## The other bots"))
+      (is (str/includes? bot-text "`bot create`"))
+      (is (str/includes? bot-text "`bot transcript`"))
+      (is (str/includes? bot-text "## The wiki"))
+      (is (str/includes? bot-text "`<wiki>/`") "the placeholder the definition fills with the machine's wiki")
+      (is (str/includes? bot-text "`topics/<name>.md`"))
+      (is (str/includes? bot-text "never `git add -A`") "the bots share the repository")
+      (is (str/includes? bot-text "`<wiki>/preferences.md`"))
+      (is (str/includes? bot-text "## When your memory is about to shrink"))
+      (is (str/includes? bot-text "answer \"ready\" and nothing else"))
+      (is (str/includes? bot-text "## Asking the person"))
+      (is (str/includes? bot-text "is opened by its project,\n`artifacts/<project>`") "a card plays a design, it does not browse its source")
+      (is (not (str/includes? bot-text "`topic create`")) "no topics")
+      (is (not (str/includes? bot-text "manager"))))
     (testing "a task's text: no frontmatter, the result rules"
       (is (str/starts-with? task-text "# A task"))
       (is (str/includes? task-text "Your last message is your result"))
       (is (str/includes? task-text "You answer a bot, not a person"))
       (is (str/includes? task-text "a design made with `project` by its\nproject, `artifacts/<project>`"))
-      (is (str/includes? task-text "set\nnone, start none")))))
+      (is (str/includes? task-text "set none, write\nnone, start none")))))
 
 (deftest the-shared-prompt-offers-the-connection-test
   (testing "a service the person names is connected in the same answer, through a machine"

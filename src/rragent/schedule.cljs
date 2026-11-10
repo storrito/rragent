@@ -24,7 +24,6 @@
             [rragent.db :as db]
             [rragent.reload :as reload]
             [rragent.runs :as runs]
-            [rragent.loop :as loop]
             [rragent.wake :as wake]))
 
 (def Schedules
@@ -139,25 +138,18 @@
                                      #js {:status "running" :checkpoint #js {:phase "wait" :at next}}
                                      (terminal #js {:status "completed" :result nil})))]
                        (await (reload/reload-in-task! runtime (.-conversationId runtime) context))
-                       (cond
-                         ;; the loop gets every fire as an input (docs/one-loop.md §6)
-                         (or (= "message" (.-mode entry)) (loop/loop? (.-conversationId runtime)))
-                         (let [conversation (await (.conversation runtime (.-conversationId runtime) context))
-                               topic (not-empty (str (.-topic entry)))]
+                       (if (= "message" (.-mode entry))
+                         (let [conversation (await (.conversation runtime (.-conversationId runtime) context))]
                            (await (.submit conversation
                                            #js {:type "input"
-                                                :content (if topic (str content "\nTopic: " topic) content)
+                                                :content content
                                                 :whenBusy "followUp"
                                                 :requestId (str "schedule:" name ":" at)
-                                                :entry #js {:kind "rragent.schedule" :data (let [data #js {:name name :at at}]
-                                                                                             (when topic (aset data "topic" topic))
-                                                                                             data)}}
+                                                :entry #js {:kind "rragent.schedule" :data #js {:name name :at at}}}
                                            context))
                            (await (.commit runtime (fn [] (moved)) context)))
-
                          ;; the run's task and the schedule's next step in one commit:
                          ;; a crash in between makes neither twice
-                         :else
                          (await (.commit runtime
                                          (^:async fn [tx]
                                            (await (runs/create-in tx (.-conversationId runtime)
@@ -179,13 +171,11 @@
 
 (defn ^:async set!
   "The schedule `name` set to `cron` in `tz` with `text` and `mode`
-   (`run` without one), and the `topic` the job belongs to for the
-   loop, replacing an earlier one of the name: a new task, then the
-   document naming it. Answers the next run."
-  [api name cron tz text mode now call-context & [topic]]
+   (`run` without one), replacing an earlier one of the name: a new
+   task, then the document naming it. Answers the next run."
+  [api name cron tz text mode now call-context]
   (let [tz (or (not-empty tz) "UTC")
         mode (or (not-empty mode) "run")
-        topic (not-empty (str topic))
         at (or (next-run cron tz now)
                (throw (js/Error. (str "the cron line " cron " has no next run"))))]
     (when-not (contains? modes mode)
@@ -200,11 +190,7 @@
       (await (.commit api
                       (^:async fn [tx]
                         (let [doc (await (.doc tx Schedules (.-conversationId api)))]
-                          (let [entry #js {:cron cron :tz tz :text text :mode mode :taskId task-id}]
-                            ;; a document holds strict JSON: no undefined
-                            (when topic
-                              (aset entry "topic" topic))
-                            (aset doc name entry))))
+                          (aset doc name #js {:cron cron :tz tz :text text :mode mode :taskId task-id})))
                       call-context)))
     at))
 
@@ -225,5 +211,5 @@
   "The schedules without their task ids, for the model."
   [schedules]
   (->> (js/Object.entries (or schedules #js {}))
-       (map (fn [[name s]] (str name ": " (.-cron s) " " (.-tz s) " (next " (some-> (next-run (.-cron s) (.-tz s) (js/Date.now)) (js/Date.) .toISOString) "): " (.-text s) (when (= "message" (.-mode s)) " · mode message") (when (seq (str (.-topic s))) (str " · topic " (.-topic s))))))
+       (map (fn [[name s]] (str name ": " (.-cron s) " " (.-tz s) " (next " (some-> (next-run (.-cron s) (.-tz s) (js/Date.now)) (js/Date.) .toISOString) "): " (.-text s) (when (= "message" (.-mode s)) " · mode message"))))
        (str/join "\n")))

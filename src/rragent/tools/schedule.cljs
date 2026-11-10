@@ -7,7 +7,6 @@
             ["@earendil-works/pi-durable" :refer [defineTool]]
             [rragent.docs :as docs]
             [rragent.schedule :as schedule]
-            [rragent.tools.topic :as topic-tool]
             [rragent.tools.work :as work]))
 
 (defn- text
@@ -36,8 +35,7 @@
                                        :cron (.Optional Type (.String Type #js {:description "The cron line"}))
                                        :tz (.Optional Type (.String Type #js {:description "The time zone of the cron line, an IANA name such as Europe/Berlin"}))
                                        :text (.Optional Type (.String Type #js {:description "The text the run gets when it fires: what to do then; its first sentence names the run in the activity, so start with the words a person reads"}))
-                                       :mode (.Optional Type (.Union Type #js [(.Literal Type "run") (.Literal Type "message")]))
-                                       :topic (.Optional Type (.String Type #js {:description "The topic the job belongs to, by name or id: the fire's message carries it"}))})
+                                       :mode (.Optional Type (.Union Type #js [(.Literal Type "run") (.Literal Type "message")]))})
         :execute (^:async fn [args api call-context]
                    (let [action (.-action args)
                          name (.-name args)]
@@ -45,7 +43,7 @@
                      (case action
                        "set" (do (when (or (empty? name) (empty? (.-cron args)) (empty? (.-text args)))
                                    (throw (js/Error. "set needs name, cron and text")))
-                                 (let [at (await (schedule/set! api name (.-cron args) (.-tz args) (.-text args) (.-mode args) (js/Date.now) call-context (topic-tool/resolve-or-keep (.-topic args))))]
+                                 (let [at (await (schedule/set! api name (.-cron args) (.-tz args) (.-text args) (.-mode args) (js/Date.now) call-context))]
                                    (await (rearm!))
                                    (text (str "Schedule " name " set; next run " (.toISOString (js/Date. at)) "."
                                               (when-not (= "message" (.-mode args))

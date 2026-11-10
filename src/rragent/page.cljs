@@ -47,15 +47,12 @@
    of the bot's conversation summarized now
    (`rragent.harness/compact-unless-compacting!`).
    The command `:settings/open` puts the settings in place of the
-   chat for a tab (`rragent.view/settings`); a view or a bot picked in
-   the sidebar brings the chat back (`:view/show`, `:bot/show`), there
-   is no button for it; `:view/earlier` shows more of the items
-   before a feed's window; `:update/check` is the settings' lookup
+   chat for a tab (`rragent.view/settings`); a bot picked in the
+   sidebar brings the chat back (`:bot/show`), there is no button for
+   it; `:view/earlier` shows more of the items before a feed's
+   window; `:update/check` is the settings' lookup
    of a newer release, `:update/apply` the Update button's
-   (`rragent.update`); `:settings/section` picks the tab's section;
-   `:settings/advanced` is the Advanced section's switch, whether the
-   sidebar shows every bot and the raw list, into the machine's
-   structure (`rragent.machine/set-advanced!`), so every tab follows.
+   (`rragent.update`); `:settings/section` picks the tab's section.
    The MCP section's commands (`:mcp/test`, `:mcp/enable`,
    `:mcp/remove`, `:mcp/keep`, `:mcp/setup`) change the machine's
    servers (`rragent.mcp`), whose overview the atom follows (`:mcp`);
@@ -127,12 +124,13 @@
 (def sidebar-keys
   "The value keys of a bot every tab shows, in the sidebar: its name
    (the definition), its state (asleep, failed), a rename or delete
-   under way in its row, and its status as the manager last read it
-   (`rragent.status`, what \"Needs you\" counts). A change of one goes
-   to every tab, as a run of the bot starting or ending does (the
-   state running); the rest of the value keys, the conversation's
-   view as it streams and the pane, go to the tabs showing the bot."
-  #{:definition :schedules/next :failed :deleting? :renaming? :status})
+   under way in its row. A change of one goes to every tab, as a run
+   of the bot starting or ending does (the state running, and with
+   its end the card that makes the row say \"Needs you\") and a task
+   of it starting or ending (`sidebar-of`); the rest of the value
+   keys, the conversation's view as it streams and the pane, go to
+   the tabs showing the bot."
+  #{:definition :schedules/next :failed :deleting? :renaming?})
 
 (defonce ^:private conversations
   ;; view value -> #js [history conversation], see `conversation`
@@ -218,16 +216,29 @@
 
 (defn working-tasks
   "The tasks of the bot that go, queued or running, among its listed
-   runs (`rragent.tasks/as-run` rows): `{:id :topic :line}` each, the
-   line the task's text as the activity names it. The page marks what
-   they work on (`rragent.view/working-topics`), with or without the
-   advanced switch."
+   runs (`rragent.tasks/as-run` rows): `{:id :line}` each, the line
+   the task's text as the activity names it. The page says so at the
+   end of the bot's feed and on its row of the sidebar: the bot is
+   ready while its tasks work (docs/bots.md §9)."
   [runs]
   (into []
-        (keep (fn [{:keys [id state topic trigger]}]
+        (keep (fn [{:keys [id state trigger]}]
                 (when (and (= "task" (:kind trigger)) (contains? #{:queued :running} state))
-                  {:id id :topic topic :line (:line trigger)})))
+                  {:id id :line (:line trigger)})))
         runs))
+
+(defn- marked
+  "The bots of the sidebar (`rragent.machine/listed`) with what the
+   page marks on a row: `:needs`, how many cards of the bot wait for
+   the person's answer (`rragent.view/needs`, over its chat as the
+   page reads it), and `:tasks`, how many tasks of it go."
+  [bots]
+  (mapv (fn [{:keys [id] :as row}]
+          (let [bot (machine/bot id)]
+            (assoc row
+                   :needs (view/needs (view/items (conversation (:value bot) (:history bot))))
+                   :tasks (count (working-tasks (:runs bot))))))
+        bots))
 
 (defn- run-of
   "The run `run-id` among the bot's listed runs, nil for none."
@@ -258,19 +269,17 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes tab-views tab-limits expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes tab-limits expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
-        advanced? (machine/advanced?)
-        ;; a run's or a task's transcript is the advanced switch's
-        run-id (when advanced? (shown-run tab-runs (:tabid w) (url-run w)))
+        run-id (shown-run tab-runs (:tabid w) (url-run w))
         run (when-let [run (run-of bot run-id)]
               (let [text (get-in bot [:runs/definitions run-id])]
                 (cond-> run
                   text (assoc :definition {:text text
                                            :changed? (not= text (get-in bot [:reload :text]))}))))
         locale (i18n/locale (:ring/request w))]
-    (-> (view/page {:bots (machine/listed)
+    (-> (view/page {:bots (marked (machine/listed))
                     :bot {:id id
                           :name (machine/label-of id)
                           :model (:model definition)
@@ -283,16 +292,12 @@
                                     (conversation (get-in bot [:runs/values run-id]))
                                     (conversation (:value bot) (:history bot)))
                     :expanded (get expanded (:tabid w))
-                    :artifacts (cond-> (assoc (artifacts-pane bot)
-                                              :pane/shown (get tab-panes (:tabid w) :artifacts)
-                                              :pane/step (get-in bot [:pane/steps (:tabid w)])
-                                              :runs/current run-id)
-                                 ;; the activity, the runs and the tasks, is the advanced switch's
-                                 (not advanced?) (dissoc :runs))
-                    :view (get tab-views (:tabid w))
+                    :artifacts (assoc (artifacts-pane bot)
+                                      :pane/shown (get tab-panes (:tabid w) :artifacts)
+                                      :pane/step (get-in bot [:pane/steps (:tabid w)])
+                                      :runs/current run-id)
                     :limit (get tab-limits (:tabid w))
                     :tasks (working-tasks (:runs bot))
-                    :topics (machine/topics)
                     :phone (phone/status (:phone bot))
                     :locale locale
                     :onboarding (onboarding/onboarding (:metadata definition) locale)
@@ -300,8 +305,6 @@
                     :settings? (contains? settings-open (:tabid w))
                     :settings-section (get settings-section (:tabid w))
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
-                    :advanced? advanced?
-                    :bots-before? (machine/bots-before?)
                     :link (page-link (:ring/request w))
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)
@@ -315,17 +318,19 @@
   (some? (some-> (:value bot) .-docs (aget "pi.live") .-run)))
 
 (defn- sidebar-of
-  "What the sidebar shows of a bot: its `sidebar-keys` and whether it
-   runs."
+  "What the sidebar shows of a bot: its `sidebar-keys`, whether it
+   runs and whether a task of it goes."
   [bot]
-  (assoc (select-keys bot sidebar-keys) :running? (running? bot)))
+  (assoc (select-keys bot sidebar-keys)
+         :running? (running? bot)
+         :tasks (count (working-tasks (:runs bot)))))
 
 (def ^:private tab-keys
   "The keys of the atom that hold what one tab shows, each `{tabid
-   value}`: the bot, the run, the pane's list, the view of the loop's
-   conversation and how far back it reaches, the settings' section,
-   the folded rows. A change of one is that tab's alone."
-  [:tabs :tab-runs :tab-panes :tab-views :tab-limits :settings-section :expanded])
+   value}`: the bot, the run, the pane's list, how far back its feed
+   reaches, the settings' section, the folded rows. A change of one
+   is that tab's alone."
+  [:tabs :tab-runs :tab-panes :tab-limits :settings-section :expanded])
 
 (defn- changed-tabs
   "The tabs whose own state differs between `old` and `new`: an entry
@@ -351,8 +356,8 @@
    came or went, or when what the sidebar shows of a bot changed
    (`sidebar-keys`, a run starting or ending); the tabs showing a bot
    whose other value keys (`bot-value-keys`) changed, and the tabs
-   whose own state changed (`changed-tabs`: a view or a bot picked, a
-   fold, the settings), no other: a click in one tab renders no frame
+   whose own state changed (`changed-tabs`: a bot picked, a fold, the
+   settings), no other: a click in one tab renders no frame
    for the others. Nil when only handles changed."
   [old new]
   (let [before (:bots old)
@@ -393,40 +398,11 @@
       (machine/run-conversation bot run)
       (:conversation (machine/bot bot)))))
 
-(defn- tab-view
-  "The view the tab `tab` shows over the conversation of `bot`, the
-   loop, as the page shows it (`rragent.view/shown-view`): the one it
-   picked, the \"New topic\" view whose message got its topic
-   meanwhile as that topic's, the default while it picked none."
-  [bot tab]
-  (let [topics (or (machine/topics) {})]
-    (view/shown-view (get-in @db/db [:tab-views tab])
-                     (view/items (conversation (:value bot) (:history bot)) topics)
-                     topics)))
-
-(defn- pin-view!
-  "The view the tab `tab` shows written down as its own while it
-   picked none (`:tab-views`): the default is the first topic of the
-   sidebar's order, which the next activity changes, and a tab does
-   not change its view under the person. Done when the tab's stream
-   opens (`stream`, before its first frame; again after a restart,
-   the atom is in memory), and when a tab comes to the loop
-   (`:bot/show`) or sends (`send-command`)."
-  [tab]
-  (when-let [bot (some-> (machine/loop-id) machine/bot)]
-    (when-not (get-in @db/db [:tab-views tab])
-      (swap! db/db assoc-in [:tab-views tab] (tab-view bot tab)))))
-
 (def ^:private stream
   "The view stream of a bot's page, POST /bot/<id>: the bot id of the
-   path is in the route params of the connection. The tab's view of
-   the loop's conversation is settled at the open (`pin-view!`); the
-   refresh that follows the write renders the same page, which
-   `rragent.rframes.sse/stream-handler` does not send again."
+   path is in the route params of the connection."
   (:ring/handler (replicant/expand-entry {:replicant/render "/bot/*"
-                                          :render/fn #'page-view
-                                          ;; a stream without a tab id (no body) has no view to settle
-                                          :open/fn (fn [w] (when-let [tab (:tabid w)] (pin-view! tab)))})))
+                                          :render/fn #'page-view})))
 
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as
@@ -445,22 +421,10 @@
    (`[:composer/draft …]`, `rragent.client`), is refused as
    `:bad-text`: printed, it would reach the model as the message."
   [w]
-  (let [{:keys [text attachments screen run topic tab] bot-id :bot} (command/command-data w)
+  (let [{:keys [text attachments screen run]} (command/command-data w)
         text? (or (nil? text) (string? text))
         text (str/trim (str text))
         {:keys [uploads] :as bot} (bot-of-command w)
-        ;; the views are the loop's; another conversation has none
-        picked (when tab (get-in @db/db [:tab-views tab]))
-        view (when (and tab (machine/loop? bot-id)) (tab-view bot tab))
-        ;; the topic of the message: the command's, else the tab's view's
-        topic-id (or (not-empty (str topic))
-                     (when (= :topic (:kind view)) (:topic view)))
-        ;; from the "New topic" view: the view's token, made at its first message
-        fresh (when (and (not topic-id) (not run) (= :new (:kind view)))
-                (or (:fresh view) (str (random-uuid))))
-        topic (cond
-                topic-id {:id topic-id :name (or (:name (get (machine/topics) topic-id)) topic-id)}
-                fresh {:fresh fresh})
         conversation (conversation-of-command w)
         attachments (when conversation (uploads/named uploads (when (sequential? attachments) (keep :name attachments))))]
     (cond
@@ -479,17 +443,7 @@
             content (await (uploads/content uploads text attachments
                                             (await (harness/sees-images? (:models (machine/agent)) conversation))
                                             (artifacts/screen-line bot screen)))
-            draft (person/draft content (person/name-of (:ring/request w)) (when-not run topic))
-            ;; the tab's view as the message found it: the "New topic" view
-            ;; with its token, or, while the tab picked none, the topic the
-            ;; message went to (the composer's, of the page as the person saw
-            ;; it; the default may have moved since)
-            view (cond
-                   fresh {:kind :new :fresh fresh}
-                   (and view (nil? picked) topic-id) {:kind :topic :topic topic-id}
-                   :else view)]
-        (when (and tab view (not= view (get-in @db/db [:tab-views tab])))
-          (swap! db/db assoc-in [:tab-views tab] view))
+            draft (person/draft content (person/name-of (:ring/request w)))]
         ;; a run keeps the instructions it started with; the bot reads its file again
         (if run
           (await (.submit conversation draft harness/context))
@@ -560,35 +514,11 @@
                                               (command/accepted w))
       :else (command/rejected w :no-such-run))))
 
-(defn- view-show-command
-  "The tab `tab` shows the view `kind` of the loop's conversation:
-   `topic` with its `topic` id, `new`, the empty view whose first
-   message makes a topic, or `loose`, the turns of no topic, the row a
-   card outside every topic gets (docs/one-loop.md §3); there is no
-   view of everything at once. The tab shows the loop then, whatever
-   bot it showed, the feed at its newest items, and the chat again
-   when it showed the settings (`chat-in`): the sidebar's rows are the
-   way back from them."
-  [w]
-  (let [{:keys [tab kind topic]} (command/command-data w)
-        kind (keyword (str (some-> kind name)))]
-    (cond
-      (nil? tab) (command/rejected w :no-tab)
-      (not (#{:topic :new :loose} kind)) (command/rejected w :no-such-view)
-      (and (= :topic kind) (str/blank? (str topic))) (command/rejected w :no-topic)
-      :else (do (swap! db/db (fn [value]
-                                 (cond-> (-> (assoc-in value [:tab-views tab] (cond-> {:kind kind} (= :topic kind) (assoc :topic (str topic))))
-                                             (update :tab-limits dissoc tab))
-                                   (contains? (:settings-open value) tab) (chat-in tab))))
-                (when-let [loop (machine/loop-id)]
-                  (swap! db/db assoc-in [:tabs tab] loop))
-                (command/accepted w)))))
-
 (defn- view-earlier-command
   "The tab `tab` shows `rragent.view/feed-step` more of the items
    before the ones its feed shows (\"Show earlier messages\", the
-   window of `rragent.view/feed`); the next view, bot or run picked
-   starts at the newest again (`chat-in`, `view-show-command`)."
+   window of `rragent.view/feed`); the next bot or run picked starts
+   at the newest again (`chat-in`)."
   [w]
   (let [{:keys [tab]} (command/command-data w)]
     (if (nil? tab)
@@ -968,18 +898,6 @@
                 (swap! db/db assoc-in [:settings-section tab] section)
                 (command/accepted w)))))
 
-(defn- ^:async settings-advanced-command
-  "The Advanced section's switch: whether the sidebar shows every bot
-   and the raw list, `advanced`, into the structure of the machine
-   (`rragent.machine/set-advanced!`), which every tab's sidebar
-   reads."
-  [w]
-  (let [{:keys [advanced]} (command/command-data w)]
-    (if-let [harness (:harness (machine/agent))]
-      (do (await (machine/set-advanced! harness (boolean advanced)))
-          (command/accepted w))
-      (command/rejected w :no-machine))))
-
 (def min-testing-ms
   "How long a row says \"Testing …\" at least."
   500)
@@ -1208,17 +1126,14 @@
 
 (defn- show-command
   "The tab `tab` shows the bot `id` from now on, nil whatever its URL
-   names; its settings close. A tab that comes to the loop by this
-   gets its view settled (`pin-view!`)."
+   names; its settings close."
   [w]
   (let [{:keys [id tab]} (command/command-data w)]
     (cond
       (nil? tab) (command/rejected w :no-tab)
       (nil? id) (do (swap! db/db #(-> (update % :tabs dissoc tab) (update :tab-runs dissoc tab) (chat-in tab)))
-                    (pin-view! tab)
                     (command/accepted w))
       (machine/bot id) (do (swap! db/db #(-> (assoc-in % [:tabs tab] (str id)) (assoc-in [:tab-runs tab] nil) (chat-in tab)))
-                           (pin-view! tab)
                            (command/accepted w))
       :else (command/rejected w :no-such-bot))))
 
@@ -1357,6 +1272,31 @@
                                      "Cache-Control" "no-cache"}
                            :body (replicant/shim-html (assets/head (assets/client)))}))
 
+(defn moved-artifact
+  "Where an artifact's address of before leads now, nil for a file
+   that is where its address says (docs/bots.md §8). `rest` is the
+   path under the page of the bot `id`, `bot` its map. While the
+   machine was one conversation, a bot's `artifacts/` lay under that
+   conversation's `artifacts/<topic>/`, and came back to the bots
+   that had a topic to themselves: so an address of a bot whose
+   folder stayed there (`:bot-topics` of the structure) leads into
+   that folder, and an address into the folder of a topic whose bot
+   got it back (`:restored-bots`) leads to the bot."
+  [id bot rest]
+  (let [rest (str rest)
+        {:keys [bot-topics restored-bots manager]} (machine/current-structure)]
+    (when (and (str/starts-with? rest "artifacts/")
+               (not (fs/existsSync (str (:work bot) "/" rest))))
+      (let [below (subs rest (count "artifacts/"))]
+        (if (= (str id) (str manager))
+          (some (fn [[restored slug]]
+                  (when (str/starts-with? below (str slug "/"))
+                    (str (bots/url restored) "/artifacts/" (subs below (inc (count slug))))))
+                restored-bots)
+          (when-let [slug (get bot-topics (str id))]
+            (when (and manager (not (contains? restored-bots (str id))))
+              (str (bots/url manager) "/artifacts/" slug "/" below))))))))
+
 (defn- ^:async bot-get
   "GET /bot/<id>: the page, for any id (the stream shows another bot
    with a note when the id is gone); /bot/<id>/artifacts/<path>: a
@@ -1365,11 +1305,7 @@
   [w]
   (let [[id rest] (split-bot (get-in w [:ring/route-params :*]))
         bot (machine/bot id)
-        ;; a link of before to an archived bot's artifact: the loop's folder of its topic
-        moved (when (and (str/starts-with? (str rest) "artifacts/") (not (fs/existsSync (str (:work bot) "/" rest))))
-                (when-let [slug (get (:bot-topics (machine/current-structure)) (str id))]
-                  (when-let [loop (machine/loop-id)]
-                    (str (bots/url loop) "/artifacts/" slug "/" (subs (str rest) (count "artifacts/"))))))]
+        moved (moved-artifact id bot rest)]
     (cond
       (str/blank? rest)
       (shim w)
@@ -1596,8 +1532,6 @@
       :ring/handler #'project-command}
      {:command/kind :chat/send
       :command/fn #'send-command}
-     {:command/kind :view/show
-      :command/fn #'view-show-command}
      {:command/kind :view/earlier
       :command/fn #'view-earlier-command}
      {:command/kind :chat/stop
@@ -1634,8 +1568,6 @@
       :command/fn #'settings-open-command}
      {:command/kind :settings/section
       :command/fn #'settings-section-command}
-     {:command/kind :settings/advanced
-      :command/fn #'settings-advanced-command}
      {:command/kind :chat/fold
       :command/fn #'fold-command}
      {:command/kind :mcp/test

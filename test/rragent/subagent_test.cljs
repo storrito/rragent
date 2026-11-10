@@ -1,10 +1,12 @@
 (ns rragent.subagent-test
-  "The subagent tool through a tool-calling turn of the faux model: the
-   agent hands a task over, the subagent answers in a conversation of
-   its own, and the answer is the call's result."
+  "The subagent tool through a tool-calling turn of the faux model, in a
+   conversation whose model sees a run's tools: the agent hands a task
+   over, the subagent answers in a conversation of its own, and the
+   answer is the call's result."
   (:require [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.harness :as harness]
+            [rragent.roles :as roles]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]
             [rragent.tools.subagent :as subagent-tool]))
@@ -36,6 +38,8 @@
                                       (answering "It has 42 words.")])
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
                (try
+                 ;; the tool is a run's: a bot hands its work to tasks (`rragent.roles`)
+                 (await (.configure (:root agent) #js {:modelTools (roles/model-tools :run)} harness/context))
                  (is (= "It has 42 words." (await (harness/ask agent "How long are my notes?"))))
                  (let [[parent child after] @requests]
                    (testing "the agent is offered the tool, the subagent is not"

@@ -93,10 +93,11 @@
                                                                      :instructions "You turn a guest's words into a story with `<skill>/artifacts/stories/template.md`."
                                                                      :files ["artifacts/stories/template.md"]} "s1")
                                       (tools-test/tool-call "skill" {:action "list"} "s2")
-                                      (tools-test/answer "Kept.")])
-             (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :loop? false :storage (harness/memory-storage)}))]
+                                      (tools-test/tool-call "bot" {:action "create" :name "Second flat" :instructions "The same for the second apartment." :skill "review-stories"} "c1")
+                                      (tools-test/answer "Kept and handed on.")])
+             (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :wiki? false :storage (harness/memory-storage)}))]
                (try
-                 (is (= "Kept." (await (harness/ask-in (:conversation bot) "Keep this as a skill."))))
+                 (is (= "Kept and handed on." (await (harness/ask-in (:conversation bot) "Keep this as a skill and make a bot for the second flat."))))
                  (let [folder (path/join home "skills" "review-stories")
                        page (await (.entries (:conversation bot) #js {} 100 js/undefined harness/context))
                        results (->> (array-seq (.-items page))
@@ -107,7 +108,16 @@
                      (is (str/includes? (get results "s1") (str "Skill review-stories at " folder)))
                      (is (= "review-stories" (:name (definition/frontmatter (fs/readFileSync (path/join folder "SKILL.md") "utf8")))))
                      (is (fs/existsSync (path/join folder "artifacts" "stories" "template.md")))
-                     (is (str/includes? (get results "s2") "review-stories: Review stories"))))
+                     (is (str/includes? (get results "s2") "review-stories: Review stories")))
+                   (testing "another bot takes it"
+                     (is (str/includes? (get results "c1") "is ready on its page"))
+                     (let [second (second (machine/listed))
+                           text (fs/readFileSync (path/join (home/bot-dir home (:id second)) "AGENT.md") "utf8")
+                           instructions (get-in (machine/bot (:id second)) [:definition :instructions])]
+                       (is (str/includes? text "skill: \"review-stories\"\n") "named in its file")
+                       (is (str/includes? text "description: \"A story from a 5-star review.\"\n"))
+                       (is (str/includes? text "## Your job\n\nThe same for the second apartment."))
+                       (is (str/includes? instructions (str "You turn a guest's words into a story with `" folder "/artifacts/stories/template.md`.")) "the skill's body after the job at the read, its folder filled in"))))
                  (finally
                    (await (machine/close-all!))
                    (test-home/remove! home)))))))

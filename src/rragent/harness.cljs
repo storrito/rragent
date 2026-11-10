@@ -51,7 +51,6 @@
             [rragent.reload :as reload]
             [rragent.runs :as runs]
             [rragent.compaction :as compaction]
-            [rragent.loop :as loop]
             [rragent.tasks :as tasks]
             [rragent.schedule :as schedule]
             [rragent.secrets :as secrets]
@@ -72,7 +71,8 @@
             [rragent.tools.task :as task-tool]
             [rragent.tools.transcribe :as transcribe-tool]
             [rragent.tools.youtube :as youtube-tool]
-            [rragent.warm-summary :as warm-summary]))
+            [rragent.warm-summary :as warm-summary]
+            [rragent.wiki :as wiki]))
 
 (def context
   "The Chord context every call takes; this one never cancels."
@@ -219,7 +219,7 @@
 
 (def window-share
   "How much of a model's window a conversation uses before it is
-   compacted, without `RRAGENT_CONTEXT_TOKENS` (docs/one-loop.md §4)."
+   compacted, without `RRAGENT_CONTEXT_TOKENS` (docs/bots.md §5)."
   0.7)
 
 (defn budget-for
@@ -232,8 +232,8 @@
         (js/Math.round (* window-share window)))
       default-context-tokens))
 
-(defn- loop-id-of
-  "`id` as the loop's conversation is keyed, a number when the text is one."
+(defn- conversation-key
+  "`id` as a conversation is keyed, a number when the text is one."
   [id]
   (let [text (str id)]
     (if (re-matches #"\d+" text) (js/Number text) id)))
@@ -289,16 +289,18 @@
 (defn ^:async compact-unless-compacting!
   "A manual compaction of the conversation `id` of `harness` admitted,
    unless one runs for it already (`pi.live` of it lists it), its
-   summary asked for the pictures' files (`compaction-focus`). For
-   the loop, the compaction task instead (`rragent.compaction/start!`),
-   which has the loop write its wiki first; `reason` names what asks."
+   summary asked for the pictures' files (`compaction-focus`). For a
+   bot (`rragent.compaction/bot?`), the compaction task instead
+   (`rragent.compaction/start!`), which has the bot write the wiki
+   first; `reason` names what asks."
   [harness id & [reason]]
-  (if (loop/loop? id)
-    (await (compaction/start! harness (loop-id-of id) (or reason "asked") context))
-    (let [live (await (.snapshot harness LiveDoc id context))]
-      (when (empty? (some-> live .-compactions array-seq))
-        (when-let [conversation (await (.conversation harness id context))]
-          (await (.compact conversation compaction-focus context)))))))
+  (let [id (conversation-key id)]
+    (if (await (compaction/bot? harness id context))
+      (await (compaction/start! harness id (or reason "asked") context))
+      (let [live (await (.snapshot harness LiveDoc id context))]
+        (when (empty? (some-> live .-compactions array-seq))
+          (when-let [conversation (await (.conversation harness id context))]
+            (await (.compact conversation compaction-focus context))))))))
 
 (defn context-budget
   "The extension that keeps every conversation within its budget of
@@ -306,7 +308,7 @@
    the window of the answer's model in `models`): an answer that read
    more (`context-read`) admits a compaction of the conversation of
    `@harness`, which summarizes while the conversation goes on and
-   places its summary at the next boundary; for the loop the
+   places its summary at the next boundary; for a bot the
    compaction task, which writes the wiki first (`rragent.compaction`). pi-durable compacts by the
    model's window only (blocking at 16K below it), and its settings are
    one for every model; the window stays the model's, so pi-ai's room
@@ -374,13 +376,13 @@
    (`rragent.schedule/watch!`), their next run noted in the bot's map
    as `:schedules/next` for the page; the events its conversation
    held as entries before the events file moved into the file
-   (`rragent.events/migrate!`). `opts` go to the reload's registration:
-   `:preferences`, the manager's file appended to its definition.
-   Answers the definition."
-  [{:keys [harness home provider]} conversation & [opts]]
+   (`rragent.events/migrate!`). The person's preferences,
+   `preferences.md` of the machine's wiki (`rragent.wiki`), are
+   appended to its definition at every read. Answers the definition."
+  [{:keys [harness home provider]} conversation]
   (let [id (.-id conversation)
         dir (home/bot-dir home id)]
-    (reload/register! id (merge {:home dir :provider provider} opts))
+    (reload/register! id {:home dir :provider provider :preferences (wiki/preferences-file home)})
     (await (reload/reload! conversation context))
     (when-let [moved (await (events/migrate! conversation (home/events-file dir) context))]
       (js/console.error "[events]" (str moved " facts of the bot " id " moved into its events.edn")))
@@ -425,10 +427,8 @@
    models and the media tools (`rragent.openrouter`), which asks the
    gateway again at a call when nothing was found. The other bots'
    conversations are opened by `rragent.machine` with
-   `register-conversation!`. `before-resume`, a function of the
-   harness and the context, runs before the harness resumes the
-   durable tasks of before, for what they must find in place."
-  [{:keys [home models storage provider now gateway retry extensions before-resume]}]
+   `register-conversation!`."
+  [{:keys [home models storage provider now gateway retry extensions]}]
   (let [home (or home (home/home))
         _ (fs/mkdirSync home #js {:recursive true})
         ;; every chat completion request measured, a refusal as too
@@ -461,13 +461,6 @@
         view (await (.viewState root context))
         agent {:harness harness :home home :models models :codemode codemode :provider (or provider "openrouter")}
         definition (await (register-conversation! agent root))]
-    ;; what the caller needs in place before the tasks of before go on:
-    ;; the loop's id (`rragent.machine`), read by a schedule's fire.
-    ;; Nothing above may submit, compact, abort or wait on a
-    ;; conversation: pi-durable resumes its scheduler on any of those,
-    ;; and the tasks would go on before this ran
-    (when before-resume
-      (await (before-resume harness context)))
     (.resume harness)
     (assoc agent
            :root root

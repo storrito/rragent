@@ -1,34 +1,33 @@
 (ns rragent.machine
   "The bots of this process: the one harness of the machine
-   (`rragent.harness`) and, in its storage, one conversation per bot.
-   The bots are the ownerless conversations of the storage, listed
-   through pi-durable (`scanConversations`, ascending by id, which is
-   the order they were made in; a subagent's conversation is owned by
-   a task and is none), less the ones deleted, which the session
-   document `rragent.bots` names: a deleted bot is hidden, its
-   conversation stays, its folder goes to the trash. The same document
-   holds the structure of the machine (`Structure`, read as data by
-   `structure`, cached in the atom as `:structure` for the page): the
-   manager, the bot the person lands on, made at the open when the
-   document names none (`make-loop!`) and given its file
-   from the bundle at every open (`rragent.bots/loop-text`, with
-   `preferences.md` of its wiki appended at every read,
-   `rragent.reload`); each bot's parent, the bot that made it with the
-   `bot` tool, and its project, written in the commit that made its
-   conversation (`relate-in!`); and the archived bots, whose chat is
-   over but whose files stay (`archive!`). The manager's folder holds
-   its wiki, seeded at the open (`rragent.wiki`). The root
-   conversation is the first bot. Each open bot is a map in the one
-   atom (`rragent.db`, under `[:bots id]`): the view value of its
-   conversation and the keys of its pane, which the page reads, and
-   the handles of its runtime; its artifacts pane is followed
-   (`rragent.artifacts`, `rragent.projects`, `rragent.render`), its
-   REPL worker made at its first program (`rragent.codemode-worker`);
-   its runs (`rragent.runs`), the newest `runs-shown` as `:runs`, read
+   (`rragent.harness`) and, in its storage, one conversation per bot
+   (docs/bots.md). The bots are the ownerless conversations of the
+   storage, listed through pi-durable (`scanConversations`, ascending
+   by id, which is the order they were made in; a task's, a run's or a
+   subagent's conversation is owned by a task and is none), less the
+   ones deleted, which the session document `rragent.bots` names: a
+   deleted bot is hidden, its conversation stays, its folder goes to
+   the trash. The same document holds the structure of the machine
+   (`Structure`, read as data by `structure`, cached in the atom as
+   `:structure` for the page): each bot's parent, the bot that made
+   it with the `bot` tool, and its project, written in the commit
+   that made its conversation (`relate-in!`); the archived bots, whose
+   chat the manager of before said was over; and what the
+   machine was before every bot was one of equals: the chat it began
+   with (`manager`, the manager's conversation and then the one
+   conversation's, `first-chat-id`), and what the one conversation
+   adopted and the bots got back (`rragent.migration`). The machine
+   has one wiki, seeded at the open (`rragent.wiki`), which every bot
+   reads and writes. The root conversation is the first bot. Each open
+   bot is a map in the one atom (`rragent.db`, under `[:bots id]`):
+   the view value of its conversation and the keys of its pane, which
+   the page reads, and the handles of its runtime; its artifacts pane
+   is followed (`rragent.artifacts`, `rragent.projects`,
+   `rragent.render`), its REPL worker made at its first program
+   (`rragent.codemode-worker`); its runs (`rragent.runs`) and its
+   tasks (`rragent.tasks`), the newest `runs-shown` as `:runs`, read
    again whenever one changes, and the view value of a run a tab shows
-   under `:runs/values` (`open-run!`); its status as the manager last
-   read it (`rragent.status`) as `:status`, read at the open and after
-   every write (`refresh-status!`).
+   under `:runs/values` (`open-run!`).
    The harness map of the machine is the atom's `:machine`. A bot's
    name is its definition's (`name:` of its `AGENT.md`), as the reload
    last read it; when it was made, the birth time of its folder; when
@@ -37,7 +36,7 @@
    tool in its own commit (`rragent.tools.bot`), and `adopt!` gives it
    its folder and definition, a file of its name, model and job
    (`rragent.bots/definition-text`); the rules every bot works by are
-   the shared prompt, read in front of the file (`rragent.reload`)."
+   the bundle's, read in front of the file (`rragent.reload`)."
   (:require ["@earendil-works/pi-durable" :refer [defineDoc]]
             [clojure.string :as str]
             [rragent.artifacts :as artifacts]
@@ -49,6 +48,7 @@
             [rragent.history :as history]
             [rragent.home :as home]
             [rragent.hooks :as hooks]
+            [rragent.migration :as migration]
             [rragent.models :as models]
             [rragent.projects :as projects]
             [rragent.reload :as reload]
@@ -56,32 +56,30 @@
             [rragent.rframes.sse :as sse]
             [rragent.runs :as runs]
             [rragent.skills :as skills]
-            [rragent.status :as status]
-            [rragent.loop :as loop]
-            [rragent.migration :as migration]
             [rragent.tasks :as tasks]
             [rragent.tools.bot :as bot-tool]
-            [rragent.tools.topic :as topic-tool]
             [rragent.transcript :as transcript]
             [rragent.wiki :as wiki]))
 
 (def Structure
   "The structure of the machine, a session document of the storage:
-   `hidden`, the ids of the deleted bots; `manager`, the id of the
-   manager; `parents`, child id to parent id; `projects`, child id to
-   the name of its project; `archived`, the ids of the archived bots;
-   `advanced`, whether the page shows every bot and the raw list
-   (`set-advanced!`), false until the person switches it on in the
-   settings; `topics`, the loop's topics (docs/one-loop.md §3), id to
-   `{name created archived}`. A document from before the manager has
-   `hidden` alone; the readers take a missing key as empty."
+   `hidden`, the ids of the deleted bots; `parents`, child id to
+   parent id; `projects`, child id to the name of its project;
+   `archived`, the ids of the archived bots. And the machine's past:
+   `manager`, the id of the chat it began with, the manager's and then
+   the one conversation's (`first-chat-id`); `topics`, `botTopics`
+   and `migrated`, what the one conversation adopted, and `restored`
+   and `restoredBots`, what the bots got back (`rragent.migration`);
+   `advanced`, a switch of the settings of before, read by nothing. A
+   document from before the manager has `hidden` alone; the readers
+   take a missing key as empty."
   (defineDoc #js {:kind "rragent.bots"
                   :version 1
                   :scope "session"
                   :history "latest"
-                  :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil :advanced false :topics #js {}})}))
+                  :initial (fn [] #js {:hidden #js [] :archived #js [] :parents #js {} :projects #js {} :manager nil})}))
 
-(declare adopt! listed loop? name-of used-at refresh-spend! refresh-structure! dependents delete! transcript status-of write-status!)
+(declare adopt! listed first-chat-id name-of used-at refresh-spend! refresh-structure! dependents delete! transcript)
 
 (defn agent
   "The harness map of the machine."
@@ -142,16 +140,14 @@
 
 (defn refresh-runs!
   "The newest runs of the bot `id` read into its map, `:runs`, for the
-   page; for the loop its tasks among them (`rragent.tasks/as-run`),
-   newest first. A promise."
+   page, its tasks among them (`rragent.tasks/as-run`), newest first.
+   A promise."
   [id]
   (let [id (str id)
         {:keys [harness]} (agent)]
     (if (and harness (bot id))
       (-> (js/Promise.all #js [(runs/listed harness (js/Number id) runs-shown harness/context)
-                               (if (loop? id)
-                                 (tasks/listed harness id runs-shown harness/context)
-                                 (js/Promise.resolve []))])
+                               (tasks/listed harness id runs-shown harness/context)])
           (.then (fn [both]
                    (let [[runs tasks] (array-seq both)
                          rows (->> (concat runs (map tasks/as-run tasks))
@@ -247,15 +243,6 @@
       (refresh-spend! (last path)))
     (refresh-history! path conversation value)))
 
-(defn ^:async refresh-status!
-  "The bot's status (`rragent.status/snapshot`) read into its map as
-   `:status`, for the page and the manager's tool; answers it."
-  [id]
-  (let [status (await (status/snapshot (:harness (agent)) id))]
-    (when (bot id)
-      (swap! db/db assoc-in (conj (db/bot-path id) :status) status))
-    status))
-
 (defn- refresh-spend!
   "The bot's cost so far, its subagents' and runs' included
    (`rragent.harness/spend`), into its map as `:spend`, for the page."
@@ -302,10 +289,8 @@
    conversation's handle (the root's for the first bot), its folder
    registered with the reload, its view. One that does not open (no
    definition in its folder) is kept with its reason, said on stderr
-   and on its page. `opts` go to the reload's registration
-   (`rragent.harness/register-conversation!`): the manager's
-   `:preferences` file."
-  [id & [opts]]
+   and on its page."
+  [id]
   (let [{:keys [harness root] :as agent} (agent)
         id (str id)
         path (db/bot-path id)]
@@ -314,7 +299,7 @@
                            root
                            (or (await (.conversation harness (js/Number id) harness/context))
                                (throw (js/Error. (str "no conversation " id " in the storage")))))
-            definition (await (harness/register-conversation! agent conversation opts))
+            definition (await (harness/register-conversation! agent conversation))
             _ (when-not definition
                 (throw (js/Error. (str "no definition in " (home/bot-dir (home) id)))))
             view (await (.viewState conversation harness/context))
@@ -322,7 +307,6 @@
         (swap! db/db update-in path merge {:id id :conversation conversation :view view} handles)
         (refresh-spend! id)
         (await (refresh-runs! id))
-        (await (refresh-status! id))
         (bot id))
       (catch :default e
         (js/console.error "[bots]" (str "the bot " id " did not open: " (.-message e)))
@@ -344,8 +328,8 @@
 
 (defn ^:async conversations
   "The ownerless conversations of the storage, the bots, ascending by
-   id: every conversation less the ones a task owns (a subagent's) and
-   the forks. Read through a commit that changes nothing, where the
+   id: every conversation less the ones a task owns (a task's, a
+   run's, a subagent's) and the forks. Read through a commit that changes nothing, where the
    transaction scans them."
   [harness]
   (loop [cursor js/undefined
@@ -362,29 +346,27 @@
 
 (defn ^:async structure
   "The session document as data, ids as strings: `{:hidden #{} :archived
-   #{} :parents {child parent} :projects {child name} :topics {id
-   {:name :created :archived?}} :bot-topics {bot slug} :migrated
-   version :manager id :advanced? false}`, `:manager` nil for a
-   machine without one yet, `:migrated` nil before the adoption
-   (`rragent.migration`)."
+   #{} :parents {child parent} :projects {child name} :manager id
+   :bot-topics {bot slug} :restored-bots {bot slug} :migrated version
+   :restored version}`; `:manager` the chat the machine began with,
+   nil for a machine made since; `:bot-topics` the bots the one
+   conversation adopted as topics, `:restored-bots` those of them
+   that got their work back; `:migrated` and `:restored` nil before
+   the adoption and before the bots came back (`rragent.migration`)."
   [harness]
   (let [doc (await (.snapshot harness Structure harness/context))
         ids (fn [xs] (set (map str (array-seq (or xs #js [])))))
         pairs (fn [o] (into {} (map (fn [[k v]] [(str k) (str v)])) (js/Object.entries (or o #js {}))))
-        topics (fn [o] (into {} (map (fn [[k v]] [(str k) {:name (str (.-name v))
-                                                           :created (.-created v)
-                                                           :archived? (boolean (.-archived v))}]))
-                             (js/Object.entries (or o #js {}))))
         manager (some-> doc .-manager)]
     {:hidden (ids (some-> doc .-hidden))
      :archived (ids (some-> doc .-archived))
      :parents (pairs (some-> doc .-parents))
      :projects (pairs (some-> doc .-projects))
-     :topics (topics (some-> doc .-topics))
      :bot-topics (pairs (some-> doc .-botTopics))
+     :restored-bots (pairs (some-> doc .-restoredBots))
      :migrated (some-> doc .-migrated)
-     :manager (when (some? manager) (str manager))
-     :advanced? (boolean (some-> doc .-advanced))}))
+     :restored (some-> doc .-restored)
+     :manager (when (some? manager) (str manager))}))
 
 (defn ^:async refresh-structure!
   "The structure read again into the atom, `:structure`, which the
@@ -423,44 +405,6 @@
                   harness/context))
   (await (refresh-structure! harness)))
 
-(defn ^:async archive!
-  "The bot `id` marked archived in the session document: its chat is
-   over, its files and its page stay, the lists say so."
-  [harness id]
-  (await (.commit harness
-                  (^:async fn [tx]
-                    (push-id! (await (.doc tx Structure)) "archived" id))
-                  harness/context))
-  (await (refresh-structure! harness)))
-
-(defn ^:async set-advanced!
-  "The advanced switch of the settings into the session document:
-   whether the page shows every bot and the raw list (`advanced?`, a
-   boolean), for everyone who opens it."
-  [harness advanced?]
-  (await (.commit harness
-                  (^:async fn [tx]
-                    (aset (await (.doc tx Structure)) "advanced" (boolean advanced?)))
-                  harness/context))
-  (await (refresh-structure! harness)))
-
-(defn bots-before?
-  "Whether the machine has bots of before the one loop: the adoption
-   made topics of some (`:bot-topics`, `rragent.migration`) and not
-   every one of them is deleted. Only such a machine's settings show
-   the Advanced section."
-  []
-  (let [{:keys [bot-topics hidden]} (current-structure)]
-    (boolean (some #(not (contains? hidden %)) (keys bot-topics)))))
-
-(defn advanced?
-  "Whether the page shows every bot, the raw list and the technical
-   details: the switch of the settings (`set-advanced!`), on a machine
-   with bots of before (`bots-before?`). A machine without them has
-   no switch, so one left on does not count."
-  []
-  (boolean (and (bots-before?) (:advanced? (current-structure)))))
-
 (defn ^:async relate-in!
   "In the transaction `tx` that makes the bot `child`: its `parent`
    (the id of the bot that makes it) and its `project` (a name) into
@@ -477,81 +421,15 @@
     (when (seq (str project))
       (aset (.-projects doc) (str child) (str project)))))
 
-(defn topics
-  "The loop's topics as the structure was last read: id to `{:name
-   :created :archived?}`."
-  []
-  (:topics (current-structure)))
-
-(defn- ^:async change-topics!
-  "`f` on the `topics` object of the session document, in a commit,
-   the structure read again after."
-  [harness f]
-  (await (.commit harness
-                  (^:async fn [tx]
-                    (let [doc (await (.doc tx Structure))]
-                      (when-not (.-topics doc)
-                        (aset doc "topics" #js {}))
-                      (f (.-topics doc))))
-                  harness/context))
-  (await (refresh-structure! harness)))
-
-(defn ^:async create-topic!
-  "A topic `name` made in the session document, its id the name's
-   slug, with a number behind it when the slug is taken; answers the
-   id."
-  [harness name]
-  (let [taken (topics)
-        base (topic-tool/slug name)
-        id (if (contains? taken base)
-             (some (fn [n] (let [candidate (str base "-" n)] (when-not (contains? taken candidate) candidate))) (iterate inc 2))
-             base)]
-    (await (change-topics! harness (fn [topics] (aset topics id #js {:name (str name) :created (js/Date.now) :archived false}))))
-    id))
-
-(defn ^:async rename-topic!
-  "The topic `id` named `name`."
-  [harness id name]
-  (await (change-topics! harness (fn [topics] (when-let [topic (aget topics id)] (aset topic "name" (str name)))))))
-
-(defn ^:async archive-topic!
-  "The topic `id` archived: its view folds away."
-  [harness id]
-  (await (change-topics! harness (fn [topics] (when-let [topic (aget topics id)] (aset topic "archived" true))))))
-
-(defn ^:async set-manager-in!
-  "In the transaction `tx`: the bot `id` named as the manager."
-  [tx id]
-  (let [doc (await (.doc tx Structure))]
-    (aset doc "manager" (js/Number id))))
-
-(defn loop-id
-  "The id of the loop, the one conversation of the machine (the
-   `manager` of the structure, its key of before), as the structure
-   was last read; nil without."
+(defn first-chat-id
+  "The id of the chat the machine began with (the `manager` of the
+   structure: the manager's conversation, then the one conversation's),
+   as the structure was last read; nil for a machine made since, whose
+   bots are all of a kind. It is a bot like the others: only its label
+   and the page's links of before know it (`label-of`,
+   `rragent.page`)."
   []
   (:manager (current-structure)))
-
-(defn loop?
-  "Whether the bot `id` is the loop."
-  [id]
-  (and (some? (loop-id)) (= (str id) (loop-id))))
-
-(defn- ^:async make-loop!
-  "The manager made: an ownerless conversation and its id in the
-   session document, one commit, and its folder with the definition
-   from the bundle (`rragent.bots/write-loop-definition!`). Answers
-   the id."
-  [{:keys [harness home]}]
-  (let [id (await (.commit harness
-                           (^:async fn [tx]
-                             (let [record (await (.createConversation tx #js {:ownership #js {:kind "ownerless"}}))]
-                               (await (set-manager-in! tx (.-id record)))
-                               (str (.-id record))))
-                           harness/context))]
-    (bots/write-loop-definition! home id)
-    (await (refresh-structure! harness))
-    id))
 
 (defn children-of
   "The ids of the bots whose parent is `id`, the deleted ones left out."
@@ -562,84 +440,52 @@
          (sort-by js/Number)
          (vec))))
 
-(defn- loop-id-before-resume
-  "What `harness/open` runs before the harness resumes the tasks of
-   before: the loop's id from the structure, so that a schedule of
-   the loop's overdue at the open fires into its chat and not as a run
-   (docs/one-loop.md §6), and a charge counts as the loop's."
-  [opts]
-  (fn [harness _context]
-    (-> (refresh-structure! harness)
-        (.then (fn [{:keys [hidden manager]}]
-                 (when (and (not (false? (:loop? opts))) manager (not (contains? hidden manager)))
-                   (reset! loop/id manager)))))))
-
 (defn ^:async open!
   "The machine of the home opened: the harness over its one storage
    (`rragent.harness/open`, which moves a home from before the bots
-   into the layout and gives the first bot a new bot's file
-   when it has none), then every bot of the storage that is not
-   deleted, in the order they were made. `opts` as `harness/open`
-   takes them: `:home` (RRAGENT_HOME without), `:models`, `:provider`,
-   `:storage`, `:gateway`, `:retry`; and `:loop?`, false for a
-   machine without a manager, which the tests of the other parts open
-   (every real machine has one). Answers the bots."
+   into the layout first, and gives the first bot the assistant's file
+   when it has none), the machine's wiki in its place (`rragent.wiki`:
+   the one a bot kept moved there, a new one seeded), then every bot
+   of the storage that is not deleted, in the order they were made,
+   and, once, what the one conversation adopted given back to the
+   bots (`rragent.migration/restore!`). `opts` as `harness/open` takes
+   them: `:home` (RRAGENT_HOME without), `:models`, `:provider`,
+   `:storage`, `:gateway`, `:retry`; and `:wiki?`, false for a machine
+   without a wiki, which the tests of the other parts open (every real
+   machine has one). Answers the bots."
   [opts]
-  (when-not (false? (:loop? opts))
-    (when-let [to (migration/backup! (or (:home opts) (home/home)))]
-      (println (str "the home was copied to " to " before its adoption into the one conversation"))))
-  (reset! topic-tool/topics-fn topics)
-  (let [agent (await (harness/open (assoc opts
-                                          :before-resume (loop-id-before-resume opts)
-                                          :extensions [(topic-tool/extension {:topics #'topics
-                                                                                   :create! (fn [name] (create-topic! (:harness (agent)) name))
-                                                                                   :rename! (fn [id name] (rename-topic! (:harness (agent)) id name))
-                                                                                   :archive! (fn [id] (archive-topic! (:harness (agent)) id))})
-                                                           (bot-tool/extension {:adopt! #'adopt!
+  (let [agent (await (harness/open (assoc opts :extensions [(bot-tool/extension {:adopt! #'adopt!
                                                                                  :list #'listed
                                                                                  :check-skill! (fn [skill] (skills/check! (home) skill))
                                                                                  :relate-in! #'relate-in!
-                                                                                 :loop? #'loop?
-                                                                                 :archive! (fn [id] (archive! (:harness (agent)) id))
-                                                                                 :dependents #'dependents
-                                                                                 :delete! #'delete!
-                                                                                 :transcript #'transcript
-                                                                                 :children-of #'children-of
-                                                                                 :status-of #'status-of
-                                                                                 :write-status! #'write-status!})])))]
-    (when-let [id (:migrated agent)]
-      (println (str "the agent of " (:home agent) " is the bot " id " now")))
+                                                                                 :transcript #'transcript})])))]
     (swap! db/db assoc :machine agent)
     (runs/watch! (fn [bot-id] (refresh-runs! bot-id)))
     (let [{:keys [hidden manager]} (await (refresh-structure! (:harness agent)))
-          manager (cond
-                    (false? (:loop? opts)) nil
-                    (and manager (not (contains? hidden manager))) (do (bots/write-loop-definition! (:home agent) manager)
-                                                                       manager)
-                    :else (await (make-loop! agent)))
-          _ (reset! loop/id manager)
-          _ (when manager
-              (wiki/seed! (home/bot-dir (:home agent) manager) (js/Date.now)))
-          preferences (when manager (wiki/preferences-file (home/bot-dir (:home agent) manager)))
+          home (:home agent)
+          wiki? (not (false? (:wiki? opts)))
+          _ (when wiki?
+              (when (and manager (wiki/adopt! home (home/bot-dir home manager)))
+                (println (str "the wiki of the bot " manager " is the machine's now, in " (wiki/dir home))))
+              (wiki/seed! home (js/Date.now)))
           ids (remove hidden (await (conversations (:harness agent))))]
       (doseq [id ids]
-        (await (open-bot! id (when (and manager (= id manager)) {:preferences preferences :loop? true}))))
-      ;; the bots of before adopted into the loop, once (docs/one-loop.md §9)
-      (when manager
-        (let [{:keys [projects topics]} (current-structure)]
-          (when-let [plan (await (migration/adopt! {:harness (:harness agent)
-                                                    :home (:home agent)
-                                                    :structure-doc Structure
-                                                    :ids ids
-                                                    :loop-id manager
-                                                    :projects projects
-                                                    :topics topics
-                                                    :names (into {} (map (fn [id] [id (name-of id)])) ids)
-                                                    :used (set (filter used-at ids))
-                                                    :context harness/context}))]
-            (when (seq plan)
-              (println (str "adopted " (count plan) " bots of before as topics: " (str/join ", " (map :topic plan))))))
-          (await (refresh-structure! (:harness agent)))))
+        (await (open-bot! id)))
+      ;; what the one conversation adopted goes back to the bots, once (docs/bots.md §8)
+      (when-let [{:keys [bots first-chat]} (await (migration/restore! {:harness (:harness agent)
+                                                                         :home home
+                                                                         :structure-doc Structure
+                                                                         :ids ids
+                                                                         :names (into {} (map (fn [id] [id (name-of id)])) ids)
+                                                                         :context harness/context}))]
+        (when first-chat
+          (println (str "the chat of the bot " first-chat " is a bot like the others now")))
+        (when (seq bots)
+          (println (str "restored " (count bots) " bots of before: " (str/join ", " (map :name bots)))))
+        (await (refresh-structure! (:harness agent)))
+        ;; the first chat's file was written anew: read it now, not at its next turn
+        (when-let [conversation (:conversation (bot first-chat))]
+          (await (reload/reload! conversation harness/context))))
       (mapv bot ids))))
 
 (defn ^:async close-all!
@@ -648,7 +494,6 @@
     (await (close-bot! id)))
   (when-let [agent (agent)]
     (await (harness/close agent)))
-  (reset! loop/id nil)
   (swap! db/db dissoc :machine))
 
 (defn codemode
@@ -699,15 +544,17 @@
 
 (defn label-of
   "What the page calls the bot: its name, or, while it still has the
-   generic one and is neither the machine's first bot nor the loop,
-   \"New bot\" with the time it was made (an i18n tuple), since it
-   names itself after its first answer."
+   generic one, \"New bot\" with the time it was made (an i18n
+   tuple), since it names itself after its first answer. The chat the
+   machine began with keeps its name, generic or not: the first bot
+   (the root conversation), or, on a machine that had a manager or
+   was one conversation, that one (`first-chat-id`), beside which the
+   root is a bot nobody talked to."
   [id]
   (let [{:keys [definition]} (bot id)]
     (if (and definition
              (definition/generic? definition)
-             (not= (str id) (str bots/root-id))
-             (not (loop? id)))
+             (not= (str id) (str (or (first-chat-id) bots/root-id))))
       [:i18n :bot/new-at {:time (time-of (or (bots/created-at (home) id) (js/Date.now)))}]
       (name-of id))))
 
@@ -742,16 +589,15 @@
 
 (defn listed
   "The bots in the order they were made, each `{:id :name :label
-   :state :created :used :deleting? :renaming? :loop? :parent
-   :project :archived? :status}`: the name of the definition, the
-   label the page shows, the sidebar's two flags, what the structure
-   says of the bot (`current-structure`), and its status as the
-   manager last read it (`rragent.status`)."
+   :state :created :used :deleting? :renaming? :parent :project
+   :archived?}`: the name of the definition, the label the page shows,
+   the sidebar's two flags, and what the structure says of the bot
+   (`current-structure`)."
   []
-  (let [{:keys [manager parents projects archived]} (current-structure)]
+  (let [{:keys [parents projects archived]} (current-structure)]
     (->> (vals (bots))
          (sort-by #(js/Number (:id %)))
-         (mapv (fn [{:keys [id deleting? renaming? status]}]
+         (mapv (fn [{:keys [id deleting? renaming?]}]
                  {:id id
                   :name (name-of id)
                   :label (label-of id)
@@ -760,20 +606,16 @@
                   :used (used-at id)
                   :deleting? (boolean deleting?)
                   :renaming? (boolean renaming?)
-                  :loop? (= id manager)
                   :parent (get parents id)
                   :project (get projects id)
-                  :archived? (contains? archived id)
-                  :status (or status status/initial)})))))
+                  :archived? (contains? archived id)})))))
 
 (defn default-id
-  "The bot the root of the page goes to: the manager when it is open,
-   else the one used last, else the first; nil without any."
+  "The bot the root of the page goes to: the one used last, else the
+   first; nil without any."
   []
-  (let [bots (listed)
-        manager (loop-id)]
-    (or (when (bot manager) manager)
-        (:id (last (sort-by :used (filter :used bots))))
+  (let [bots (listed)]
+    (or (:id (last (sort-by :used (filter :used bots))))
         (:id (first bots)))))
 
 (defn ^:async adopt!
@@ -837,16 +679,13 @@
 (defn ^:async delete!
   "The bot hidden: closed, marked deleted in the session document,
    its folder moved to the trash; its conversation stays in the
-   storage. The last visible bot stays, and the manager stays. Answers
-   `:deleted`, `:last`, `:manager` or `:missing`. What depends on the
-   bot is the caller's to look at first (`dependents`): the manager's
-   tool does (`rragent.tools.bot`), the page's row leaves it to the
-   person."
+   storage. The last visible bot stays. Answers `:deleted`, `:last`
+   or `:missing`. What depends on the bot (`dependents`) is the
+   person's to look at: the page's row asks before it deletes."
   [id]
   (cond
     (nil? (bot id)) :missing
     (= 1 (count (bots))) :last
-    (loop? id) :manager
     :else (do (await (close-bot! id))
               (await (hide! (:harness (agent)) id))
               (bots/trash! (home) id)
@@ -859,23 +698,6 @@
   [id since]
   (let [{:keys [conversation]} (or (bot id) (throw (js/Error. (str "No bot " id " on this machine."))))]
     (await (transcript/read! conversation (or since 0)))))
-
-(defn status-of
-  "The bot's status as last read and the id of its newest entry, for
-   the manager's tool: `{:status :newest}`, stale when the entry is
-   past the status (`rragent.status/stale?`); throws for a bot the
-   machine has not open."
-  [id]
-  (let [{:keys [status]} (or (bot id) (throw (js/Error. (str "No bot " id " on this machine."))))]
-    {:status (or status status/initial)
-     :newest (newest-entry id)}))
-
-(defn ^:async write-status!
-  "The bot's status written (`rragent.status/write!`) and read again
-   into its map, so that every tab's sidebar follows it; answers it."
-  [id status]
-  (await (status/write! (:harness (agent)) id status))
-  (await (refresh-status! id)))
 
 (defn ^:async hook!
   "A hook's call tried on every open bot (`rragent.hooks/receive!`):

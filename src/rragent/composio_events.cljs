@@ -23,7 +23,6 @@
             [rragent.home :as home]
             [rragent.hooks :as hooks]
             [rragent.reload :as reload]
-            [rragent.loop :as loop]
             [rragent.runs :as runs]))
 
 (def tolerance-ms
@@ -196,26 +195,11 @@
                 bot (or (when trigger (owner (events-of bots) trigger))
                         (default-id))
                 conversation (:conversation (get bots bot))]
-            (cond
-              (nil? conversation)
-              {:status 200 :body (cond-> {:ok true} bot (assoc :bot bot))}
-
-              :else
+            (if conversation
               (do (await (reload/reload! conversation context))
-                  (if (loop/loop? bot)
-                    ;; the loop gets the event as an input (docs/one-loop.md §6)
-                    (let [trigger (trigger-of event body)
-                          submission (await (.submit conversation
-                                                     #js {:type "input"
-                                                          :content (message event body)
-                                                          :whenBusy "followUp"
-                                                          :requestId (str "composio:" id)
-                                                          :entry #js {:kind "rragent.hook"
-                                                                      :data (clj->js {:name "composio" :bytes (count (str body)) :event (or (:line trigger) (:name trigger))})}}
-                                                     context))]
-                      {:status 200 :body {:ok true :bot bot :submission (.-id submission)}})
-                    (let [run (await (runs/start! conversation
-                                                  {:trigger (trigger-of event body)
-                                                   :content (message event body)}
-                                                  context))]
-                      {:status 200 :body {:ok true :bot bot :run run}}))))))))))
+                  (let [run (await (runs/start! conversation
+                                                {:trigger (trigger-of event body)
+                                                 :content (message event body)}
+                                                context))]
+                    {:status 200 :body {:ok true :bot bot :run run}}))
+              {:status 200 :body (cond-> {:ok true} bot (assoc :bot bot))})))))))

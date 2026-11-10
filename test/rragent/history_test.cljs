@@ -36,12 +36,13 @@
                  long-text (fn [word] (str/join " " (repeat 25000 word)))
                  env (.-env js/process)
                  budget-was (aget env "RRAGENT_CONTEXT_TOKENS")]
-             (.setResponses faux #js [(tools-test/answer "Noted.") (tools-test/answer "Noted again.") (tools-test/answer "The person sent two long texts.")])
+             ;; the bot's \"ready\" to the notice that comes before a compaction (`rragent.compaction`), then the summary
+             (.setResponses faux #js [(tools-test/answer "Noted.") (tools-test/answer "Noted again.") (tools-test/answer "ready") (tools-test/answer "The person sent two long texts.")])
              ;; no compaction by the budget: the test asks for one itself
              ;; once the conversation is long enough for a summary to keep
              ;; the newest 20,000 tokens and cut before them
              (aset env "RRAGENT_CONTEXT_TOKENS" "1000000")
-             (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :loop? false :storage (harness/memory-storage)}))
+             (let [[bot] (await (machine/open! {:home home :models models :provider "faux" :wiki? false :storage (harness/memory-storage)}))
                    id (:id bot)]
                (try
                  (is (= "Noted." (await (harness/ask-in (:conversation bot) (long-text "red")))))

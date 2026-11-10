@@ -250,24 +250,7 @@ body {
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
-/* The sections: a small heading over the projects, the other bots and
-   the raw list; the manager's row and Needs you stand for themselves.
-   An archived bot is dimmed, the word archived in place of its state. */
-.sidebar section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sidebar section h2 {
-  margin: 4px 10px 0;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
+/* An archived bot is dimmed, the word archived in place of its state. */
 .sidebar ul.bots li.archived {
   opacity: 0.55;
 }
@@ -276,87 +259,35 @@ body {
   display: none;
 }
 
-/* Needs you: the count of what waits for the person as a badge; a
-   link to the manager's page once there is something. */
-.sidebar .needs .row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: inherit;
-  text-decoration: none;
+/* What a row says at a glance (rragent.view/bot-row): the dot of its
+   state pulses while the bot works, a run of it going or a task; a
+   badge "Needs you" stands in place of the state while a card of the
+   bot waits for the person's answer, with a dot of its own beside it
+   while the bot works on. */
+.sidebar ul.bots li.working .state::before {
+  background: var(--warn);
+  opacity: 1;
+  animation: pulse 1.2s ease-in-out infinite;
 }
 
-.sidebar .needs .row .name {
-  flex: 1;
+.sidebar ul.bots li .row .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: pulse 1.2s ease-in-out infinite;
 }
 
-.sidebar .needs span.row {
-  color: var(--muted);
-}
-
-.sidebar .needs a.row:hover {
-  background: color-mix(in srgb, var(--panel) 70%, var(--line));
-}
-
-.sidebar .needs .badge {
-  min-width: 20px;
+.sidebar ul.bots li .badge.waits {
+  flex: none;
   padding: 1px 7px;
   border-radius: 10px;
   background: var(--accent);
   color: var(--on-accent);
   font-size: 12px;
   font-weight: 600;
-  text-align: center;
-}
-
-/* A project: its name and how many bots it has on the summary, the
-   rows folded under it, open while the bot shown is one of them. */
-.sidebar details.project > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  list-style: none;
-  cursor: pointer;
-  user-select: none;
-}
-
-.sidebar details.project > summary::-webkit-details-marker {
-  display: none;
-}
-
-.sidebar details.project > summary::before {
-  content: "▸";
-  width: 10px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.sidebar details.project[open] > summary::before {
-  content: "▾";
-}
-
-.sidebar details.project > summary:hover {
-  background: color-mix(in srgb, var(--panel) 70%, var(--line));
-}
-
-.sidebar details.project > summary .name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sidebar details.project > summary .count {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.sidebar details.project > ul.bots {
-  padding-left: 14px;
 }
 
 /* The bottom of the sidebar: the way to the settings
@@ -3696,152 +3627,3 @@ form.person button.send {
 .waiting .label {
   color: var(--muted);
 }
-
-/* The views of the one conversation (rragent.view/sidebar): the
-   topics as rows that are buttons, the current one marked, a
-   "Needs you" badge while a card waits in one; the archived topics
-   folded like a project of before. */
-.sidebar ul.loop-views,
-.sidebar ul.topics {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.sidebar ul.loop-views li,
-.sidebar ul.topics li {
-  display: flex;
-  align-items: center;
-  border-radius: 8px;
-}
-
-.sidebar ul.loop-views li button.row,
-.sidebar ul.topics li button.row {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.sidebar ul.loop-views li button.row .name,
-.sidebar ul.topics li button.row .name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* The dot of a view worked on right now (rragent.view/working-topics):
-   the turn that runs is its, or a task of it goes; the header's dot,
-   beside the row's name. */
-.sidebar ul.loop-views li button.row .dot,
-.sidebar ul.topics li button.row .dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--warn);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.sidebar ul.loop-views li:hover,
-.sidebar ul.topics li:hover {
-  background: color-mix(in srgb, var(--panel) 70%, var(--line));
-}
-
-.sidebar ul.loop-views li.current,
-.sidebar ul.topics li.current {
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
-}
-
-.sidebar ul.loop-views .badge,
-.sidebar ul.topics .badge {
-  min-width: 20px;
-  padding: 1px 7px;
-  border-radius: 10px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 12px;
-  font-weight: 600;
-  text-align: center;
-}
-
-.sidebar ul.loop-views .badge.waits,
-.sidebar ul.topics .badge.waits {
-  flex: none;
-  white-space: nowrap;
-}
-
-/* The row that opens the "New topic" view, over the topics. */
-.sidebar ul.topics.new {
-  margin-bottom: 2px;
-}
-
-.sidebar ul.topics.new li:not(.current) button.row {
-  color: var(--muted);
-}
-
-.sidebar details.archived > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  list-style: none;
-  color: var(--muted);
-  cursor: pointer;
-  user-select: none;
-}
-
-.sidebar details.archived > summary::-webkit-details-marker {
-  display: none;
-}
-
-.sidebar details.archived > summary::before {
-  content: "▸";
-  width: 10px;
-  font-size: 12px;
-}
-
-.sidebar details.archived[open] > summary::before {
-  content: "▾";
-}
-
-.sidebar details.archived > summary .name {
-  flex: 1;
-}
-
-.sidebar details.archived > summary .count {
-  font-size: 12px;
-}
-
-.sidebar details.archived > ul.topics {
-  padding-left: 14px;
-}
-
-/* The composer's chip that names the view's topic (rragent.view/composer). */
-.composer .tools .topic {
-  margin-right: auto;
-  padding: 4px 10px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-

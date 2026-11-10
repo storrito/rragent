@@ -1,33 +1,32 @@
 (ns rragent.tasks
-  "The tasks of the loop (docs/one-loop.md, §2): a task is a
-   fresh-context subagent the loop starts with its `task` tool
-   (`rragent.tools.task`), a background task of the loop's
-   conversation (`Task`, kind `rragent.task`) that makes a
-   conversation of its own, owned by the task, configured with the
-   shared prompt and the bundle's `TASK.md` (`rragent.bots/
-   task-instructions`), a task's tools (`rragent.roles`), the model of
-   the call or the default, and the loop's `work/` as cwd, so that
-   what it makes lands in the loop's artifacts; submits the text to
-   it, waits for the answer and keeps it as its result, the answer's
-   first line as the line the activity shows. A `continue` id makes
-   the task submit into an earlier task's conversation instead, which
-   keeps what it knew.
+  "The tasks of a bot (docs/bots.md §3): a task is a fresh-context
+   helper a bot starts with its `task` tool (`rragent.tools.task`), a
+   background task of the bot's conversation (`Task`, kind
+   `rragent.task`) that makes a conversation of its own, owned by the
+   task, configured with the shared prompt and the bundle's `TASK.md`
+   (`rragent.bots/task-instructions`), a task's tools
+   (`rragent.roles`), the model of the call or the bot's own, and the
+   bot's `work/` as cwd, so that what it makes lands in the bot's
+   artifacts; submits the text to it, waits for the answer and keeps
+   it as its result, the answer's first line as the line the activity
+   shows. A `continue` id makes the task submit into an earlier
+   task's conversation instead, which keeps what it knew.
 
-   The result reaches the loop one of two ways, never both: the loop's
+   The result reaches the bot one of two ways, never both: the bot's
    `task` call waits for it (`wait: true`, up to a minute) and takes
-   it as the call's result, or the task delivers it into the loop as a
-   follow-up input, kind `rragent.task-done`, which wakes the loop for
-   one turn. The `Taken` document decides: the call marks the task
-   `taken` in one transaction, the task marks itself `delivering` in
-   another, and each gives way to the mark it finds. The result is in
-   the task's checkpoint before either happens, so a call that polls
-   finds it.
+   it as the call's result, or the task delivers it into the bot's
+   chat as a follow-up input, kind `rragent.task-done`, which wakes
+   the bot for one turn. The `Taken` document decides: the call marks
+   the task `taken` in one transaction, the task marks itself
+   `delivering` in another, and each gives way to the mark it finds.
+   The result is in the task's checkpoint before either happens, so a
+   call that polls finds it.
 
    A stop (`task stop`) aborts the task: its conversation's turn is
    aborted through the harness (`harness`, set at open), the task ends
-   aborted and delivers nothing. The tasks of the loop are its tasks
-   of the kind, newest first (`listed`), which the activity of the
-   pane shows behind Advanced, each with its conversation to open."
+   aborted and delivers nothing. The tasks of a bot are its tasks of
+   the kind, newest first (`listed`), which the activity of the pane
+   shows beside its runs, each with its conversation to open."
   (:refer-clojure :exclude [run!])
   (:require ["@earendil-works/pi-durable" :refer [configure defineDoc defineTask]]
             [clojure.string :as str]
@@ -42,7 +41,7 @@
   "rragent.task")
 
 (def done-kind
-  "The entry of a task's result in the loop's chat."
+  "The entry of a task's result in the bot's chat."
   "rragent.task-done")
 
 (def input-kind
@@ -57,10 +56,10 @@
   (atom nil))
 
 (def Taken
-  "A session document: the tasks whose result the loop's call took
+  "A session document: the tasks whose result the bot's call took
    (`taken`), the tasks a waiting call let go of when its minute ran
-   out (`released`), and the tasks that deliver theirs into the loop
-   (`delivering`), each task id to true. A waited task (`wait` in its
+   out (`released`), and the tasks that deliver theirs into the bot's
+   chat (`delivering`), each task id to true. A waited task (`wait` in its
    input) holds its result until the call took or released it, so the
    call wins while it waits."
   (defineDoc #js {:kind "rragent.tasks"
@@ -98,16 +97,16 @@
   #js {:status "terminal" :outcome outcome})
 
 (defn done-content
-  "What the loop reads when a task is done."
-  [id topic result]
-  (str "The task " id (when (seq topic) (str " (" topic ")")) " is done. Its result:\n\n" result
+  "What the bot reads when a task is done."
+  [id result]
+  (str "The task " id " is done. Its result:\n\n" result
        "\n\nTell the person what matters to them of it, in a sentence or a card, and file in the wiki what is worth keeping. "
        "When the task asks for an answer from the person, ask them, and continue the task with its id once you have it."))
 
 (defn failed-content
-  "What the loop reads when a task did not answer."
-  [id topic reason]
-  (str "The task " id (when (seq topic) (str " (" topic ")")) " did not answer: " reason
+  "What the bot reads when a task did not answer."
+  [id reason]
+  (str "The task " id " did not answer: " reason
        ". Tell the person in a sentence what did not happen and what you propose."))
 
 (defn- conversation-id
@@ -130,7 +129,7 @@
 
 (defn- ^:async fail!
   "A phase that threw: the task moves to `deliver` with a failed
-   result, so that the loop hears of it (docs/one-loop.md §2) instead
+   result, so that the bot hears of it (docs/bots.md §3) instead
    of a task that ends in silence; an abort under way (the runtime's
    signal) is left to the abort handler."
   [runtime ^js checkpoint error context]
@@ -158,10 +157,11 @@
         provider (or (some-> agent .-model .-provider) "openrouter")
         own (some-> agent .-model .-modelId)
         asked (not-empty (str (.-model input)))
-        ;; the tool refuses an id the page does not offer; a record of before
-        ;; that carries one runs on the loop's own model, the stronger one
+        ;; a task runs on the bot's own model unless the call named another
+        ;; the page offers; the tool refuses any other id, and a record of
+        ;; before that carries one runs on the bot's own
         model (cond
-                (nil? asked) definition/default-model
+                (nil? asked) (or own definition/default-model)
                 (models/task-model? asked own) asked
                 :else (do (js/console.warn "[tasks]" (str "the task " id " asked for the model " asked ", which this machine does not offer; it runs on " (or own definition/default-model)))
                           (or own definition/default-model)))
@@ -220,9 +220,7 @@
                                    #js {:type "input"
                                         :content (.-text input)
                                         :requestId (str "task:" id)
-                                        :entry #js {:kind input-kind :data (let [data #js {}]
-                                                                             (when (seq (str (.-topic input))) (aset data "topic" (str (.-topic input))))
-                                                                             data)}}
+                                        :entry #js {:kind input-kind :data #js {}}}
                                    context))
         ^js settled (await (.wait submission context))
         done? (= "done" (.-status settled))
@@ -251,10 +249,10 @@
         (await (fail! runtime checkpoint error context))))))
 
 (defn- ^:async deliver!
-  "The result into the loop, unless the loop's call took it: the claim
-   in one transaction on the `Taken` document, then the input, which
-   the request id deduplicates."
-  [runtime ^js input ^js done context]
+  "The result into the bot's chat, unless the bot's call took it: the
+   claim in one transaction on the `Taken` document, then the input,
+   which the request id deduplicates."
+  [runtime ^js done context]
   (let [id (.-taskId runtime)
         key (str id)
         claimed (atom false)]
@@ -267,20 +265,17 @@
                       js/undefined)
                     context))
     (when @claimed
-      (let [loop (await (.conversation runtime (.-conversationId runtime) context))
-            topic (not-empty (str (.-topic input)))
+      (let [bot (await (.conversation runtime (.-conversationId runtime) context))
             state (.-state done)]
-        (await (.submit loop
+        (await (.submit bot
                         #js {:type "input"
                              :content (if (= "done" state)
-                                        (done-content id topic (.-result done))
-                                        (failed-content id topic (.-reason done)))
+                                        (done-content id (.-result done))
+                                        (failed-content id (.-reason done)))
                              :whenBusy "followUp"
                              :requestId (str "task-done:" id)
                              :entry #js {:kind done-kind
-                                         :data (let [data #js {:task id :state state :line (.-line done)}]
-                                                 (when topic (aset data "topic" topic))
-                                                 data)}}
+                                         :data #js {:task id :state state :line (.-line done)}}}
                         context))))))
 
 (defn- ^:async held!
@@ -308,13 +303,12 @@
         ^js input (.-input task)]
     (when (or (not (true? (.-wait input)))
               (await (held! runtime context)))
-      (await (deliver! runtime input done context)))
+      (await (deliver! runtime done context)))
     (await (.commit runtime
                     (fn [] (terminal #js {:status "completed"
                                           :result #js {:state (.-state done)
                                                        :line (.-line done)
                                                        :result (.-result done)
-                                                       :topic (or (.-topic input) js/undefined)
                                                        :text (.-text input)
                                                        :conversation (.-conversation checkpoint)
                                                        :started (.-started checkpoint)
@@ -342,10 +336,11 @@
                        (.then (fn [] (runs/changed! (.-conversationId runtime)))))))}))
 
 (defn task-of
-  "A task record as the page and the model read it: `{:id :loop :text
-   :topic :state :line :result :started :ended :conversation}`, the
-   state `:queued` before the conversation is made, `:running` while
-   the answer is waited for, then `:done`, `:failed` or `:aborted`."
+  "A task record as the page and the model read it: `{:id :bot :text
+   :state :line :result :started :ended :conversation}`, `:bot` the
+   conversation that started it, the state `:queued` before the
+   conversation is made, `:running` while the answer is waited for,
+   then `:done`, `:failed` or `:aborted`."
   [record]
   (let [^js state (.-state record)
         ^js checkpoint (.-checkpoint state)
@@ -354,9 +349,8 @@
         ^js done (or result (some-> checkpoint .-done))
         ^js input (.-input record)]
     {:id (.-id record)
-     :loop (.-conversationId record)
+     :bot (.-conversationId record)
      :text (.-text input)
-     :topic (not-empty (str (.-topic input)))
      :state (cond
               (some? outcome) (case (.-status outcome)
                                 "completed" (keyword (or (some-> result .-state) "done"))
@@ -375,14 +369,12 @@
   "A task as the activity of the pane lists a run
    (`rragent.runs/run-of`): `{:id :bot :trigger :state :line :started
    :ended :conversation}`, the trigger a task's with the text's first
-   sentence as its line and the topic as its name; `:topic` as well,
-   the id or name the task was given, for the page's marks of what is
-   worked on (`rragent.page/working-tasks`)."
-  [{:keys [id loop text topic state line started ended conversation]}]
+   sentence as its line, which the page's mark of what a bot works on
+   names too (`rragent.page/working-tasks`)."
+  [{:keys [id bot text state line started ended conversation]}]
   {:id id
-   :bot loop
-   :topic topic
-   :trigger {:kind "task" :name (or topic "task") :line (runs/short-line text)}
+   :bot bot
+   :trigger {:kind "task" :name "task" :line (runs/short-line text)}
    :state state
    :line line
    :started started
@@ -390,11 +382,11 @@
    :conversation conversation})
 
 (defn ^:async listed
-  "The newest `n` tasks of the loop whose conversation is `loop-id`,
+  "The newest `n` tasks of the bot whose conversation is `bot-id`,
    through a commit of `harness` that changes nothing."
-  [harness loop-id n context]
+  [harness bot-id n context]
   (let [page (await (.commit harness
-                             (fn [tx] (.scanTasks tx #js {:conversationId (conversation-id loop-id) :kind kind :order "descending"} n))
+                             (fn [tx] (.scanTasks tx #js {:conversationId (conversation-id bot-id) :kind kind :order "descending"} n))
                              context))]
     (mapv #(dissoc (task-of %) :result) (array-seq (.-items page)))))
 

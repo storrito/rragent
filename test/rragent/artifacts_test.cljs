@@ -666,8 +666,9 @@
 
 (deftest wiki-test
   (let [root (temp-dir "rragent-wiki-")
-        dir (path/join root "work" "artifacts")
-        wiki (path/join root "wiki")
+        ;; a bot's artifacts, and the machine's wiki two folders above its own
+        dir (path/join root "bots" "7" "work" "artifacts")
+        wiki (path/join root "shared" "wiki")
         db (atom {})]
     (try
       (touch! dir "card.html" 1000)
@@ -694,7 +695,7 @@
         (is (= [wiki ""] (artifacts/root-of dir "wiki")))
         (is (= (path/join wiki "projects/guest-reviews.md") (artifacts/file-of dir "wiki/projects/guest-reviews.md")))
         (is (artifacts/inside? dir "wiki/index.md"))
-        (is (not (artifacts/inside? dir "wiki")) "the folder itself is the manager's")
+        (is (not (artifacts/inside? dir "wiki")) "the folder itself is the machine's")
         (is (not (artifacts/inside? dir "wiki/raw/mail.txt")) "raw stays as it came")
         (is (not (artifacts/inside? dir "wiki/.git/HEAD")))
         (is (not (artifacts/inside? dir "wiki/../card.html"))))
@@ -708,16 +709,23 @@
         (let [bot {:artifacts/list (:artifacts/list @db) :artifacts/current "wiki/index.md"}]
           (is (= "on screen beside the chat: wiki/index.md" (artifacts/screen-line bot "wiki/index.md")))
           (is (= "wiki/index.md" (artifacts/screen-of "Fix it\non screen beside the chat: wiki/index.md")))))
-      (testing "a bot without a wiki: nothing of it on the list, no folder made by the watch"
+      (testing "another bot of the machine lists the same wiki"
+        (let [dir3 (path/join root "bots" "8" "work" "artifacts")
+              db3 (atom {})]
+          (touch! dir3 "b.txt" 1000)
+          (artifacts/refresh! db3 dir3)
+          (is (= wiki (artifacts/wiki-dir dir3)))
+          (is (some #{"wiki/index.md"} (map :path (:artifacts/list @db3))))))
+      (testing "a machine without a wiki: nothing of it on the list, no folder made by the watch"
         (let [other (temp-dir "rragent-nowiki-")
-              dir2 (path/join other "work" "artifacts")
+              dir2 (path/join other "bots" "7" "work" "artifacts")
               db2 (atom {})]
           (try
             (touch! dir2 "a.txt" 1000)
             (let [stop (artifacts/watch! db2 dir2)]
               (stop))
             (is (= ["a.txt"] (map :path (:artifacts/list @db2))))
-            (is (not (fs/existsSync (path/join other "wiki"))))
+            (is (not (fs/existsSync (path/join other "shared" "wiki"))))
             (finally
               (fs/rmSync other #js {:recursive true :force true})))))
       (finally
@@ -732,11 +740,11 @@
     (try
       (touch! dir "card.html" 1000)
       (touch! dir "skills/stray.md" 1500)
-      (touch! (path/join bot "wiki") "index.md" 2000)
+      (touch! (path/join home "shared" "wiki") "index.md" 2000)
       (touch! skills "review-stories/SKILL.md" 3000)
       (touch! skills "review-stories/artifacts/stories/template.md" 4000)
       (touch! skills ".DS_Store" 9000)
-      (testing "the manager's pane lists the person's skills under skills/, not a folder of that name among the artifacts"
+      (testing "a bot's pane lists the person's skills under skills/, not a folder of that name among the artifacts"
         (artifacts/refresh! db dir)
         (is (= ["skills/review-stories/artifacts/stories/template.md" "skills/review-stories/SKILL.md" "wiki/index.md" "card.html"]
                (map :path (:artifacts/list @db))))
@@ -764,15 +772,16 @@
         (let [bot {:artifacts/list (:artifacts/list @db) :artifacts/current "skills/review-stories/SKILL.md"}]
           (is (= "on screen beside the chat: skills/review-stories/SKILL.md" (artifacts/screen-line bot "skills/review-stories/SKILL.md")))
           (is (= "skills/review-stories/SKILL.md" (artifacts/screen-of "Fix it\non screen beside the chat: skills/review-stories/SKILL.md")))))
-      (testing "the watch makes the skills folder for the manager"
+      (testing "the watch makes the skills folder"
         (fs/rmSync skills #js {:recursive true :force true})
         (let [stop (artifacts/watch! db dir)]
           (stop))
         (is (fs/existsSync skills)))
-      (testing "a worker's pane, no wiki: no skills on the list, a skills/ folder of its own stays off it too, no folder made"
+      (testing "a machine without a wiki, a home a test made: no skills on the list, a skills/ folder of the bot's own stays off it too, no folder made"
         (let [dir2 (path/join home "bots" "8" "work" "artifacts")
               db2 (atom {})]
           (fs/rmSync skills #js {:recursive true :force true})
+          (fs/rmSync (path/join home "shared") #js {:recursive true :force true})
           (touch! dir2 "a.txt" 1000)
           (touch! dir2 "skills/own.md" 1100)
           (let [stop (artifacts/watch! db2 dir2)]

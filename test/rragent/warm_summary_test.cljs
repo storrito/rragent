@@ -96,8 +96,9 @@
   (async done
     (let [before @warm-summary/post]
       (-> ((^:async fn []
-             (doseq [[label kept? summaries] [["with the last request kept, the summary from it" true ["Noted." "Noted again."]]
-                                              ["without, pi-durable's own" false ["Noted." "Noted again." "Summary by pi-durable."]]]]
+             ;; \"ready\" is the bot's answer to the notice that comes before its compaction (`rragent.compaction`)
+             (doseq [[label kept? summaries] [["with the last request kept, the summary from it" true ["Noted." "Noted again." "ready"]]
+                                              ["without, pi-durable's own" false ["Noted." "Noted again." "ready" "Summary by pi-durable."]]]]
                (testing label
                  (let [home (test-home/make "AGENT.md" (str/replace test-home/definition-text "faux-1" "wide-1"))
                        {:keys [faux models]} (tools-test/faux-models {:models [{:id "wide-1" :contextWindow 1050000}]})
