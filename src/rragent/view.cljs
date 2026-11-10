@@ -1,7 +1,7 @@
 (ns rragent.view
   "The page as a function of the one conversation, its view and its
-   artifacts: the sidebar with the views (all of it, what needs the
-   person, the topics; the raw list of the conversations of before
+   artifacts: the sidebar with the views (New topic, the topics, a
+   row for a card without one; the raw list of the conversations of before
    with the way to make, rename and delete one behind the advanced
    switch; the settings at its bottom), the header, the transcript of
    pi-durable's view (`rragent.page/conversation` turns the view value
