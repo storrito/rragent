@@ -364,8 +364,11 @@
                              (is (some? (find-tag frame :details.actions)) "the row's menu")
                              (is (true? (:checked (second (find-tag (find-tag frame :label.check) :input)))) "the switch as it stands"))
                            (is (= {:success? true} (await (command! base cookie :settings/section {:tab "t1" :section :updates})))))
-                         (is (= {:success? true} (await (command! base cookie :settings/close {:tab "t1"}))))
-                         (await (frame! #(find-tag % :ui/composer)))
+                         (testing "a view picked in the sidebar brings the chat back: there is no command to close them"
+                           (is (= {:success? true} (await (command! base cookie :view/show {:tab "t1" :kind :all}))))
+                           (await (frame! #(find-tag % :ui/composer)))
+                           (is (= #{} (:settings-open @db/db)))
+                           (is (= {:kind :all} (get-in @db/db [:tab-views "t1"]))))
                          (is (= {:success? true} (await (command! base cookie :settings/open {:tab "t1"}))))
                          (await (frame! #(mentions? % "Check for updates")))
                          (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))))

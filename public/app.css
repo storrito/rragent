@@ -3014,24 +3014,8 @@ pre {
 }
 
 /* The settings in place of the chat (rragent.view/settings): the bar
-   with the way back, the sections below it; the look follows pchat's
-   settings. */
-.main.settings-open .bar button.close {
-  margin-left: auto;
-  padding: 2px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.main.settings-open .bar button.close:hover {
-  border-color: var(--muted);
-}
+   with the title, the sections below it; the look follows pchat's
+   settings. The way back is the sidebar. */
 
 .main .settings {
   flex: 1;

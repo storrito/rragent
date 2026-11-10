@@ -972,9 +972,10 @@
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
    (`:settings/open`: the button at the bottom of the sidebar, or the
-   version in the header): a bar with the title and the way back
-   (`:settings/close`), the tabs of the sections (`:settings/section`,
-   per tab), and the section the tab picked: the updates
+   version in the header): a bar with the title, the tabs of the
+   sections (`:settings/section`, per tab), and the section the tab
+   picked; the way back to the chat is the sidebar, a view picked
+   there (`:view/show`), no button here: the updates
    (`updates-section`), the page on the phone (`mobile-section`,
    `link` the page's secret link), the keys of the composer
    (`input-section`), the MCP servers (`mcp-section`, `mcp` its data)
@@ -988,10 +989,7 @@
     (list
      [:header.bar
       [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
-      [:h1 [:i18n :settings/title]]
-      [:button.link.close {:on {:click [[:data/command {:command/kind :settings/close
-                                                        :command/data {:tab :ui/tabid}}]]}}
-       [:i18n :settings/close]]]
+      [:h1 [:i18n :settings/title]]]
      [:div.settings
       [:nav.tabs {:role "tablist" :aria-label [:i18n :settings/tabs]}
        (for [k sections]
@@ -1990,12 +1988,16 @@
    list of the conversations of before with the way to make, rename
    and delete one (`all-bots`). At the bottom who this browser is and
    the way to the settings, marked while this tab shows them
-   (`settings?`). `view` is the tab's, `topics` the machine's,
+   (`settings?`): then no view and no bot is marked as the current
+   one, so that each row reads as what it is, the way to its chat.
+   `view` is the tab's, `topics` the machine's,
    `counts` and `activity` by topic id (`topic-counts`,
    `topic-activity`), `needs` the count of the open cards of no
    topic (`loose-cards`), which mark the row of all."
   [{:keys [bots shown version settings? advanced? person view topics counts activity needs]}]
-  (let [current (or view {:kind :all})
+  (let [view (or view {:kind :all})
+        current (when-not settings? view)
+        shown (when-not settings? shown)
         waits? (fn [id] (pos? (get counts id 0)))
         order (fn [ids] (sort-by (fn [id] [(if (waits? id) 0 1) (- (get activity id 0)) (- (or (:created (get topics id)) 0))]) ids))
         active (order (keys (remove (fn [[_ t]] (:archived? t)) topics)))
@@ -2015,7 +2017,7 @@
         (topic-rows active topics counts current))
       (when (seq archived)
         [:details.archived (cond-> {}
-                             (some #(or (waits? %) (= {:kind :topic :topic %} current)) archived) (assoc :open true))
+                             (some #(or (waits? %) (= {:kind :topic :topic %} view)) archived) (assoc :open true))
          [:summary [:span.name [:i18n :views/archived]] [:span.count (str (count archived))]]
          (topic-rows archived topics counts current)])]
      (when advanced?

@@ -262,7 +262,6 @@
 
    :settings/button "Settings"
    :settings/title "Settings"
-   :settings/close "Back to the chat"
    :settings/version-title "Look for a newer rragent in the settings"
    :updates/title "Updates"
    :updates/current [:fn/str "You run rragent {{:version}}."]
@@ -627,7 +626,6 @@
 
    :settings/button "Einstellungen"
    :settings/title "Einstellungen"
-   :settings/close "Zurück zum Chat"
    :settings/version-title "In den Einstellungen nach einer neueren rragent-Version sehen"
    :updates/title "Updates"
    :updates/current [:fn/str "Du nutzt rragent {{:version}}."]

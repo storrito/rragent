@@ -45,9 +45,10 @@
    `:chat/compact` is the context card's button: the older messages
    of the bot's conversation summarized now
    (`rragent.harness/compact-unless-compacting!`).
-   The commands `:settings/open` and `:settings/close` put the settings
-   in place of the chat for a tab and bring the chat back
-   (`rragent.view/settings`); `:update/check` is the settings' lookup
+   The command `:settings/open` puts the settings in place of the
+   chat for a tab (`rragent.view/settings`); a view or a bot picked in
+   the sidebar brings the chat back (`:view/show`, `:bot/show`), there
+   is no button for it; `:update/check` is the settings' lookup
    of a newer release, `:update/apply` the Update button's
    (`rragent.update`); `:settings/section` picks the tab's section;
    `:settings/advanced` is the Advanced section's switch, whether the
@@ -474,7 +475,9 @@
   "The tab `tab` shows the view `kind` of the loop's conversation,
    `all`, `topic` with its `topic` id, or `new`, the empty
    view whose first message makes a topic (docs/one-loop.md §3); the
-   tab shows the loop then, whatever bot it showed."
+   tab shows the loop then, whatever bot it showed, and the chat
+   again when it showed the settings (`chat-in`): the sidebar's rows
+   are the way back from them."
   [w]
   (let [{:keys [tab kind topic]} (command/command-data w)
         kind (keyword (str (some-> kind name)))]
@@ -482,7 +485,9 @@
       (nil? tab) (command/rejected w :no-tab)
       (not (#{:all :topic :new} kind)) (command/rejected w :no-such-view)
       (and (= :topic kind) (str/blank? (str topic))) (command/rejected w :no-topic)
-      :else (do (swap! db/db assoc-in [:tab-views tab] (cond-> {:kind kind} (= :topic kind) (assoc :topic (str topic))))
+      :else (do (swap! db/db (fn [value]
+                                 (cond-> (assoc-in value [:tab-views tab] (cond-> {:kind kind} (= :topic kind) (assoc :topic (str topic))))
+                                   (contains? (:settings-open value) tab) (chat-in tab))))
                 (when-let [loop (machine/loop-id)]
                   (swap! db/db assoc-in [:tabs tab] loop))
                 (command/accepted w)))))
@@ -795,14 +800,6 @@
   [w]
   (if-let [tab (:tab (command/command-data w))]
     (do (swap! db/db update :settings-open (fnil conj #{}) tab)
-        (command/accepted w))
-    (command/rejected w :no-tab)))
-
-(defn- settings-close-command
-  "Back to the chat in the tab `tab`."
-  [w]
-  (if-let [tab (:tab (command/command-data w))]
-    (do (swap! db/db chat-in tab)
         (command/accepted w))
     (command/rejected w :no-tab)))
 
@@ -1526,8 +1523,6 @@
       :command/fn #'update-check-command}
      {:command/kind :settings/open
       :command/fn #'settings-open-command}
-     {:command/kind :settings/close
-      :command/fn #'settings-close-command}
      {:command/kind :settings/section
       :command/fn #'settings-section-command}
      {:command/kind :settings/advanced
