@@ -270,7 +270,7 @@ order of their last activity, the archived ones folded, and, while a
 card of no topic waits, a row "Without topic"; there is no view of
 everything. A click shows the view in this tab (`:view/show`, the
 tab's, not the URL's), a tab that picked none shows the first topic;
-a view shows its newest 200 turns and "Show earlier messages" above
+a view shows its newest 200 messages and "Show earlier messages" above
 them. The composer says which topic it is in and sends it with the
 message, and a card's button sends it too. Behind the settings' advanced switch the raw list
 of every conversation, with "New bot" and, behind the three dots of a

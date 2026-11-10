@@ -411,7 +411,8 @@
    nothing to change in it."
   (:ring/handler (replicant/expand-entry {:replicant/render "/bot/*"
                                           :render/fn #'page-view
-                                          :open/fn (fn [w] (pin-view! (:tabid w)))})))
+                                          ;; a stream without a tab id (no body) has no view to settle
+                                          :open/fn (fn [w] (when-let [tab (:tabid w)] (pin-view! tab)))})))
 
 (defn- ^:async send-command
   "The text of the composer and the files attached to it submitted as

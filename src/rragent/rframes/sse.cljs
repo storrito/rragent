@@ -179,7 +179,13 @@
                                                                   (send! frame)))))
                                                      (.catch (fn [error]
                                                                (js/console.error "[sse]" (str error))))))))]
-                           (when open-fn (open-fn w))
+                           ;; the head is out: a throw here would leave the
+                           ;; page without a frame and the connection unknown
+                           (when open-fn
+                             (try
+                               (open-fn w)
+                               (catch :default error
+                                 (js/console.error "[sse] open" (str error)))))
                            (swap! conns assoc conn-id {:render render :w w})
                            (render)))
               :on-close (fn []
