@@ -109,6 +109,8 @@
                          (is (= {"guest-reviews" "Guest reviews" "local-events" "Local events"} (into {} (map (fn [[k v]] [k (:name v)])) topics)))
                          (is (= #{w1 w2} archived))
                          (is (= {w1 "guest-reviews" w2 "local-events"} bot-topics))
+                         (is (true? (machine/bots-before?)) "which is what gives the settings their Advanced section")
+                         (is (false? (machine/advanced?)) "its switch off")
                          (is (= version/version migrated))
                          (is (fs/existsSync (migration/marker home))))
                        (testing "the artifacts under the loop's topic folders"

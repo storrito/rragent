@@ -213,7 +213,8 @@ file is and how to get at it with the commands of the machine's PATH
 (`pdftotext`, `ffprobe`, `unzip`), or that a tool is missing
 (`rragent.binary`).
 
-The bots of before are reached behind the settings' advanced switch:
+The bots of before are reached behind the settings' advanced switch,
+which only a machine that has such bots shows (`rragent.machine/bots-before?`):
 the raw list of every conversation of the machine, with "New bot" and
 the row menus, for the people behind this machine. A bot made there
 starts with a file of the frontmatter alone
@@ -278,7 +279,8 @@ redirects to the loop, and a tab whose conversation is gone shows
 another with a note. The header shows the name and the model.
 Settings, at the bottom of the sidebar, opens in place of the chat
 for this tab, its sections Updates, On the phone, Input, Recording,
-MCP servers and Advanced (Updates and Deploy, below); the
+MCP servers and, on a machine with bots of before the one loop,
+Advanced (Updates and Deploy, below); the
 version in the header opens it too, and a view picked in the sidebar
 brings the chat back. The rest of the page is the bot's: its
 conversation as a chat, user messages, the

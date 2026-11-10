@@ -978,9 +978,13 @@
    (`updates-section`), the page on the phone (`mobile-section`,
    `link` the page's secret link), the keys of the composer
    (`input-section`), the MCP servers (`mcp-section`, `mcp` its data)
-   or the advanced switch (`advanced-section`, `advanced?` its state)."
-  [update section mcp advanced? link]
-  (let [section (if (some #{section} settings-sections) section :updates)]
+   or the advanced switch (`advanced-section`, `advanced?` its state),
+   which only a machine with bots of before the one loop has
+   (`bots-before?`, `rragent.machine/bots-before?`): without them no
+   Advanced tab and no section."
+  [update section mcp advanced? link & [bots-before?]]
+  (let [sections (cond->> settings-sections (not bots-before?) (remove #{:advanced}))
+        section (if (some #{section} sections) section :updates)]
     (list
      [:header.bar
       [:label.menu {:for "nav" :aria-label [:i18n :bots/menu]} "☰"]
@@ -990,7 +994,7 @@
        [:i18n :settings/close]]]
      [:div.settings
       [:nav.tabs {:role "tablist" :aria-label [:i18n :settings/tabs]}
-       (for [k settings-sections]
+       (for [k sections]
          [:button.tab {:replicant/key (name k)
                        :role "tab"
                        :aria-selected (= k section)
@@ -2044,8 +2048,10 @@
    the machine's (`rragent.machine/topics`); `:expanded` the folded
    rows the tab shows; `:artifacts` the pane; `:update`, `:locale`,
    `:onboarding`, `:note`, `:failed`, `:phone`, `:settings?`,
-   `:settings-section`, `:mcp`, `:link`, `:person` as before."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics] pane :artifacts}]
+   `:settings-section`, `:mcp`, `:link`, `:person` as before;
+   `:bots-before?`, whether the settings have their Advanced section
+   (`settings`)."
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp advanced? link person view topics bots-before?] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         loop? (boolean (some #(and (= id (:id %)) (:loop? %)) bots))
@@ -2083,7 +2089,7 @@
      (if settings?
        ;; keyed apart from the chat: the two share no element
        [:div.main.settings-open {:replicant/key "settings"}
-        (settings update settings-section mcp advanced? link)]
+        (settings update settings-section mcp advanced? link bots-before?)]
        ;; keyed by the bot, the view and the run when one is shown: a
        ;; switch builds the chat anew, two transcripts share no element
        [:div.main {:replicant/key (cond

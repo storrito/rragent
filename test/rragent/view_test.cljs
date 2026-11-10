@@ -328,7 +328,7 @@
         (is (not-any? #(and (string? %) (str/includes? % ":i18n")) text) "every text is translated")))
     (testing "the Input section: which key sends, the browser's choice"
       (let [input (i18n/translate (view/page {:agent {} :conversation nil :locale :de :settings? true :settings-section :input}) :de)]
-        (is (= ["Updates" "Auf dem Handy" "Eingabe" "Aufnahme" "MCP-Server" "Erweitert"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))))
+        (is (= ["Updates" "Auf dem Handy" "Eingabe" "Aufnahme" "MCP-Server"] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes input)))) "no Advanced on a machine without bots of before")
         (is (= {:ui/ctrl-enter "Strg+Enter sendet (⌘+Enter auf dem Mac), Enter bricht die Zeile um"
                 :ui/enter "Enter sendet, Strg+Enter (⌘+Enter auf dem Mac) bricht die Zeile um"}
                (second (find-tag input :ui/send-key))))))
@@ -337,13 +337,19 @@
             choices (second (find-tag recording :ui/effects-timing))]
         (is (str/starts-with? (:ui/live choices) "Live"))
         (is (str/starts-with? (:ui/after choices) "Nach der Aufnahme"))))
-    (testing "the Advanced section: the switch that shows every bot and the raw list, its command carrying the state it goes to"
+    (testing "the Advanced section: the switch that shows every bot and the raw list, its command carrying the state it goes to; a machine with bots of before alone has it"
       (let [settings (fn [advanced? locale]
-                       (i18n/translate (view/page {:agent {} :conversation nil :locale locale :settings? true :settings-section :advanced :advanced? advanced?}) locale))
+                       (i18n/translate (view/page {:agent {} :conversation nil :locale locale :settings? true :settings-section :advanced :advanced? advanced? :bots-before? true}) locale))
+            tabs (fn [page] (map last (filter #(and (vector? %) (= :button.tab (first %))) (nodes page))))
+            without (i18n/translate (view/page {:agent {} :conversation nil :locale :en :settings? true :settings-section :advanced}) :en)
             box (fn [page] (second (find-tag (find-tag page :label.check) :input)))
             off (settings false :en)
             on (settings true :en)]
         (is (some #{"Show every bot, the raw list and the technical details"} (strings off)))
+        (is (= "Advanced" (last (tabs off))))
+        (is (not-any? #{"Advanced"} (tabs without)) "without bots of before: no tab")
+        (is (nil? (find-tag without :section.advanced)) "and no section: the updates in its place")
+        (is (some #{"Check for updates"} (strings without)))
         (is (= "checkbox" (:type (box off))))
         (is (false? (:checked (box off))))
         (is (= [[:data/command {:command/kind :settings/advanced :command/data {:advanced true}}]] (get-in (box off) [:on :change])))
@@ -681,7 +687,7 @@
     (is (some #(= [:i18n :mcp/title] %) (tree-seq coll? seq tree)) "the MCP section when the tab picked it")
     (is (not (some #(= [:i18n :updates/title] %) (tree-seq coll? seq tree)))))
   (is (some #(= [:i18n :updates/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} nil nil nil nil))) "the updates without a pick")
-  (is (some #(= [:i18n :advanced/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} :advanced nil true nil))) "the advanced switch when the tab picked it")
+  (is (some #(= [:i18n :advanced/title] %) (tree-seq coll? seq (view/settings {:current "1.0"} :advanced nil true nil true))) "the advanced switch when the tab picked it")
   (testing "the phone: the link as a QR code and the browser's install"
     (let [tree (view/settings {:current "1.0"} :mobile nil nil "https://a.test/?token=s")
           tags (set (keep #(when (vector? %) (first %)) (tree-seq coll? seq tree)))]

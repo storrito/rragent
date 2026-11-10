@@ -231,7 +231,7 @@
   (let [{:keys [tabs tab-runs tab-panes tab-views expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
-        advanced? (:advanced? (machine/current-structure))
+        advanced? (machine/advanced?)
         ;; a run's or a task's transcript is the advanced switch's
         run-id (when advanced? (shown-run tab-runs (:tabid w) (url-run w)))
         run (when-let [run (run-of bot run-id)]
@@ -269,6 +269,7 @@
                     :settings-section (get settings-section (:tabid w))
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
                     :advanced? advanced?
+                    :bots-before? (machine/bots-before?)
                     :link (page-link (:ring/request w))
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)

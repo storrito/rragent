@@ -109,7 +109,11 @@ conversations of before and the tasks' transcripts, and a "New bot"
 for the people behind this machine; the header's context ring (how
 full the window is, the cost, "Summarize older messages now") and the
 composer's model and effort switch show with it only, technical
-details a person need not meet. The composer says which topic it
+details a person need not meet. Only a machine with bots of before
+the one loop has the Advanced section (the adoption of §9 made
+topics of some, `rragent.machine/bots-before?`): a new machine's
+settings show no such tab, and a switch left on there does not
+count. The composer says which topic it
 is in; a card's button sends from the tab's view too. A view is the
 tab's, not the URL's.
 

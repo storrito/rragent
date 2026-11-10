@@ -37,6 +37,19 @@
             [rragent.tools-test :as tools-test]
             [rragent.uploads-test :as uploads-test]))
 
+(defn- ^:async bots-before!
+  "The machine as one whose bots of before were adopted into the loop
+   (`botTopics` of the structure, `rragent.migration`): what gives the
+   settings their Advanced section and makes its switch count."
+  []
+  (let [harness (:harness (machine/agent))]
+    (await (.commit harness
+                    (^:async fn [tx]
+                      (aset (await (.doc tx machine/Structure)) "botTopics" #js {"999999" "before"})
+                      js/undefined)
+                    harness/context))
+    (await (machine/refresh-structure! harness))))
+
 (defn- mentions?
   "Whether a string of the hiccup contains `s`."
   [hiccup s]
@@ -342,6 +355,7 @@
                            (is (= (str "/bot/" id) (url-of frame)) "the URL stays the bot's")
                            (is (= #{"t1"} (:settings-open @db/db))))
                          (testing "the advanced switch: the raw list with New bot and the row menus into the sidebar, the choice in the structure"
+                           (await (bots-before!))
                            (is (= {:success? true} (await (command! base cookie :settings/section {:tab "t1" :section :advanced}))))
                            (await (frame! #(mentions? % "Show every bot, the raw list and the technical details")))
                            (is (= {:success? true} (await (command! base cookie :settings/advanced {:advanced true}))))
@@ -641,6 +655,7 @@
                    note "From here on the model reads a summary of the messages above."]
                (try
                  ;; the card with the button is the advanced switch's
+                 (await (bots-before!))
                  (await (machine/set-advanced! (:harness (machine/agent)) true))
                  (is (= "Noted." (await (harness/ask-in conversation (long-text "red")))))
                  (is (= "Noted again." (await (harness/ask-in conversation (long-text "blue")))))
@@ -884,6 +899,7 @@
                    bot-url (str base "/bot/" id)]
                (try
                  ;; a run's page is the advanced switch's
+                 (await (bots-before!))
                  (await (machine/set-advanced! (:harness (machine/agent)) true))
                  (let [cookie (await (login base "s3cret"))
                        {:keys [reader decoder]} (await (stream bot-url cookie controller "t1"))

@@ -444,6 +444,23 @@
                   harness/context))
   (await (refresh-structure! harness)))
 
+(defn bots-before?
+  "Whether the machine has bots of before the one loop: the adoption
+   made topics of some (`:bot-topics`, `rragent.migration`) and not
+   every one of them is deleted. Only such a machine's settings show
+   the Advanced section."
+  []
+  (let [{:keys [bot-topics hidden]} (current-structure)]
+    (boolean (some #(not (contains? hidden %)) (keys bot-topics)))))
+
+(defn advanced?
+  "Whether the page shows every bot, the raw list and the technical
+   details: the switch of the settings (`set-advanced!`), on a machine
+   with bots of before (`bots-before?`). A machine without them has
+   no switch, so one left on does not count."
+  []
+  (boolean (and (bots-before?) (:advanced? (current-structure)))))
+
 (defn ^:async relate-in!
   "In the transaction `tx` that makes the bot `child`: its `parent`
    (the id of the bot that makes it) and its `project` (a name) into

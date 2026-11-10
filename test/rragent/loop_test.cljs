@@ -129,7 +129,9 @@
                  (testing "the advanced switch of the settings lives in the structure"
                    (await (machine/set-advanced! (:harness (machine/agent)) true))
                    (is (true? (:advanced? (machine/current-structure))))
-                   (is (true? (:advanced? (await (machine/structure (:harness (machine/agent)))))) "in the document"))
+                   (is (true? (:advanced? (await (machine/structure (:harness (machine/agent)))))) "in the document")
+                   (is (false? (machine/bots-before?)) "a machine without bots of before: no Advanced section")
+                   (is (false? (machine/advanced?)) "so the switch left on does not count"))
                  (testing "opened again: the same loop, its definition from the bundle anew, the person's picks kept"
                    (bots/set-metadata! home loop "thinking" "low")
                    (fs/appendFileSync (definition-file home loop) "\nA line someone added.\n")
