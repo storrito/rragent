@@ -3688,10 +3688,10 @@ form.person button.send {
   color: var(--muted);
 }
 
-/* The views of the one conversation (rragent.view/sidebar): All, Needs
-   you and the topics as rows that are buttons, the current one marked,
-   a badge with the open cards; the archived topics folded like a
-   project of before. */
+/* The views of the one conversation (rragent.view/sidebar): All and
+   the topics as rows that are buttons, the current one marked, a
+   "Needs you" badge while a card waits in one; the archived topics
+   folded like a project of before. */
 .sidebar ul.loop-views,
 .sidebar ul.topics {
   display: flex;
@@ -3757,6 +3757,12 @@ form.person button.send {
   font-size: 12px;
   font-weight: 600;
   text-align: center;
+}
+
+.sidebar ul.loop-views .badge.waits,
+.sidebar ul.topics .badge.waits {
+  flex: none;
+  white-space: nowrap;
 }
 
 /* The row that opens the "New topic" view, over the topics. */

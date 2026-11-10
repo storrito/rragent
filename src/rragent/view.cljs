@@ -376,8 +376,8 @@
 
 (defn open-cards
   "The bot's answers that ask the person something (`rragent.genui/
-   asks?`) and have no answer of theirs yet: what \"Needs you\" counts
-   and shows."
+   asks?`) and have no answer of theirs yet: what the sidebar marks
+   with \"Needs you\" on the row of their topic."
   [items]
   (filter #(and (= :assistant (:kind %)) (not (:answered? %)) (not (:streaming? %)) (genui/asks? (:text %))) items))
 
@@ -398,14 +398,13 @@
 
 (defn visible
   "The items a `view` shows: all of them (`{:kind :all}`), the turns
-   of a topic (`{:kind :topic :topic id}`), the open cards (`{:kind
-   :needs}`), or, in the \"New topic\" view (`{:kind :new}`), nothing
+   of a topic (`{:kind :topic :topic id}`), or, in the \"New topic\"
+   view (`{:kind :new}`), nothing
    until a message was sent from it, then the turns of its token
    (`:fresh`) until the model made their topic (`settled`)."
   [items {:keys [kind topic fresh]}]
   (case kind
     :topic (filter #(contains? (:topics %) topic) items)
-    :needs (open-cards items)
     :new (if fresh (filter #(= fresh (:fresh %)) items) ())
     items))
 
@@ -413,6 +412,12 @@
   "How many open cards each topic has, by id."
   [items]
   (frequencies (mapcat :topics (open-cards items))))
+
+(defn loose-cards
+  "How many open cards belong to no topic: what the row of all is
+   marked for."
+  [items]
+  (count (remove #(seq (:topics %)) (open-cards items))))
 
 (defn topic-activity
   "The newest entry id each topic has an item of, by id: the order of
@@ -1973,17 +1978,18 @@
 
 (defn- view-row
   "A row of the sidebar that shows a view of the one conversation
-   (`:view/show`, per tab): its label, a badge when it has one, the
-   current view marked."
-  [{:keys [kind topic] :as row} label badge current]
+   (`:view/show`, per tab): its label, the current view marked, and
+   \"Needs you\" while open cards wait in it (`waits`, their count,
+   said from the second on)."
+  [{:keys [kind topic] :as row} label waits current]
   [:li {:replicant/key (str (name kind) (when topic (str ":" topic)))
         :class (when (= row current) "current")}
    [:button.row {:on {:click [[:data/command {:command/kind :view/show
                                               :command/data (cond-> {:tab :ui/tabid :kind kind}
                                                               topic (assoc :topic topic))}]]}}
     [:span.name label]
-    (when (and badge (pos? badge))
-      [:span.badge (str badge)])]])
+    (when (and waits (pos? waits))
+      [:span.badge.waits [:i18n :bots/needs-you] (when (< 1 waits) (str " · " waits))])]])
 
 (defn- topic-rows
   "The rows of the topics `ids`, in their order."
@@ -1994,21 +2000,25 @@
 
 (defn sidebar
   "The views of the one conversation (docs/one-loop.md §3), top to
-   bottom: all of it, what needs the person (the open cards, their
-   count the badge), then the topics: first the row that opens the
+   bottom: all of it, then the topics: first the row that opens the
    \"New topic\" view (`{:kind :new}`), whose first message makes the
-   topic, then each topic, a view with the count of its open cards, in
-   the order of their last activity, the archived ones folded at the
-   end; a click shows the view in the tab (`:view/show`). With the advanced switch on (`advanced?`), the raw
+   topic, then each topic, a view marked \"Needs you\" while a card of
+   it waits for the person; the topics that need the person first,
+   then in the order of their last activity, the archived ones folded
+   at the end (open while one of them needs the person). There is no
+   view of the open cards alone: a card is read in its topic, with
+   what led to it. A click shows the view in the tab (`:view/show`). With the advanced switch on (`advanced?`), the raw
    list of the conversations of before with the way to make, rename
    and delete one (`all-bots`). At the bottom who this browser is and
    the way to the settings, marked while this tab shows them
    (`settings?`). `view` is the tab's, `topics` the machine's,
    `counts` and `activity` by topic id (`topic-counts`,
-   `topic-activity`), `needs` the count of every open card."
+   `topic-activity`), `needs` the count of the open cards of no
+   topic (`loose-cards`), which mark the row of all."
   [{:keys [bots shown version settings? advanced? person view topics counts activity needs]}]
   (let [current (or view {:kind :all})
-        order (fn [ids] (sort-by (fn [id] [(- (get activity id 0)) (- (or (:created (get topics id)) 0))]) ids))
+        waits? (fn [id] (pos? (get counts id 0)))
+        order (fn [ids] (sort-by (fn [id] [(if (waits? id) 0 1) (- (get activity id 0)) (- (or (:created (get topics id)) 0))]) ids))
         active (order (keys (remove (fn [[_ t]] (:archived? t)) topics)))
         archived (order (keys (filter (fn [[_ t]] (:archived? t)) topics)))]
     [:aside.sidebar
@@ -2017,8 +2027,7 @@
         [:span.version {:title "rragent version"} version])]
      [:section.loop-views
       [:ul.loop-views
-       (view-row {:kind :all} [:i18n :views/all] nil current)
-       (view-row {:kind :needs} [:i18n :bots/needs-you] needs current)]]
+       (view-row {:kind :all} [:i18n :views/all] needs current)]]
      [:section.topics
       [:h2 [:i18n :views/topics]]
       [:ul.topics.new {:replicant/key "new"}
@@ -2027,7 +2036,7 @@
         (topic-rows active topics counts current))
       (when (seq archived)
         [:details.archived (cond-> {}
-                             (some #(= {:kind :topic :topic %} current) archived) (assoc :open true))
+                             (some #(or (waits? %) (= {:kind :topic :topic %} current)) archived) (assoc :open true))
          [:summary [:span.name [:i18n :views/archived]] [:span.count (str (count archived))]]
          (topic-rows archived topics counts current)])]
      (when advanced?
@@ -2055,7 +2064,7 @@
    `:context-window` and `:spend`; `:run`, a run or a task shown in
    place of the chat, behind Advanced; `:conversation`, `{:entries
    :live :inbox}`; `:view`, the tab's view of the loop's conversation
-   (`{:kind :all | :needs | :topic | :new, :topic id, :fresh token}`,
+   (`{:kind :all | :topic | :new, :topic id, :fresh token}`,
    `visible`, `settled`), `:topics`
    the machine's (`rragent.machine/topics`); `:expanded` the folded
    rows the tab shows; `:artifacts` the pane; `:update`, `:locale`,
@@ -2094,7 +2103,7 @@
                :topics topics
                :counts (topic-counts all)
                :activity (topic-activity all)
-               :needs (count (open-cards all))})
+               :needs (loose-cards all)})
      [:label.backdrop {:for "nav"}]
      (if settings?
        ;; keyed apart from the chat: the two share no element

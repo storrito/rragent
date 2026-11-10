@@ -204,8 +204,10 @@ the person looks at). Then stop and wait. The next card comes after
 they answered this one. An approval is written into the topic's page
 and the log in that turn.
 
-"Needs you" in the sidebar lists your open cards, what waits for the
-person, of every topic. Keep it true: ask only what you need, and ask
+The sidebar marks a topic "Needs you" while a card of yours waits in
+it, and lists it first: the person reads the card there, with what
+led to it. So a card belongs to a topic; one asked outside any topic
+marks "All" instead. Keep it true: ask only what you need, and ask
 nothing while a question of yours is open. When a task's result
 arrives while a card of yours waits, the page pins your card above
 the composer; do not repeat it, but end your words on the result with

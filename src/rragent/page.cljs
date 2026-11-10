@@ -489,7 +489,7 @@
 
 (defn- view-show-command
   "The tab `tab` shows the view `kind` of the loop's conversation,
-   `all`, `needs`, `topic` with its `topic` id, or `new`, the empty
+   `all`, `topic` with its `topic` id, or `new`, the empty
    view whose first message makes a topic (docs/one-loop.md §3); the
    tab shows the loop then, whatever bot it showed."
   [w]
@@ -497,7 +497,7 @@
         kind (keyword (str (some-> kind name)))]
     (cond
       (nil? tab) (command/rejected w :no-tab)
-      (not (#{:all :needs :topic :new} kind)) (command/rejected w :no-such-view)
+      (not (#{:all :topic :new} kind)) (command/rejected w :no-such-view)
       (and (= :topic kind) (str/blank? (str topic))) (command/rejected w :no-topic)
       :else (do (swap! db/db assoc-in [:tab-views tab] (cond-> {:kind kind} (= :topic kind) (assoc :topic (str topic))))
                 (when-let [loop (machine/loop-id)]

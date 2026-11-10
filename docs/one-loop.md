@@ -95,13 +95,16 @@ stored on assistant entries: the page groups entries into turns and
 reads the tags from the input entry and the topic calls. A turn may
 carry several topics; it shows in each view and in All.
 
-The sidebar is All / Needs you / Topics / Settings. All is the whole
+The sidebar is All / Topics / Settings. All is the whole
 conversation, what the model sees. A topic's row shows the turns
-tagged with it, with a badge of its open cards; rows order by last
-activity, archived topics fold at the end. Needs you lists the open
-cards of every topic, the badge their count; a card is open when the
-loop asked (a ```hiccup block with a `:send` button) and no person
-answered since. Settings → Advanced keeps the raw list of the
+tagged with it, with a "Needs you" badge while a card of it is open
+(its count from the second on); the topics that need the person come
+first, then rows order by last activity, archived topics fold at the
+end. There is no view of the open cards alone (there was, "Needs
+you": the same card as in its topic with less around it, which
+confused): a card is read in its topic, and an open card of no topic
+marks All. A card is open when the loop asked (a ```hiccup block with
+a `:send` button) and no person answered since. Settings → Advanced keeps the raw list of the
 conversations of before and the tasks' transcripts, and a "New bot"
 for the people behind this machine; the header's context ring (how
 full the window is, the cost, "Summarize older messages now") and the
