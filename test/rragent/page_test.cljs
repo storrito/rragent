@@ -628,9 +628,13 @@
                      {:keys [frame! none-within]} (frames! reader decoder buffer)]
                  ;; the open's own refresh, if any, settles first
                  (await (none-within 500))
-                 (testing "a value key the tab's page does not show changed: the page is rendered again, the same, and no frame goes"
-                   (swap! db/db assoc-in [:bots id :artifacts/durations] {"clips/none" 3})
-                   (is (true? (await (none-within 1500)))))
+                 (testing "a value key the tab's page does not show changed: the tab is refreshed, the page is rendered again, the same, and no frame goes"
+                   (let [before @db/db
+                         after (swap! db/db assoc-in [:bots id :artifacts/durations] {"clips/none" 3})
+                         pred (page/affected before after)]
+                     (is (fn? pred))
+                     (is (true? (pred {:tabid "t1" :ring/route-params {:* id}})) "the refresh picks the tab, as `affected-test` reads it")
+                     (is (true? (await (none-within 1500))))))
                  (testing "a change the page shows is a frame"
                    (swap! db/db assoc-in [:bots id :failed] "a value")
                    (is (mentions? (await (frame! #(mentions? % "a value"))) "This bot did not open: a value"))
