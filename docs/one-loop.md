@@ -145,7 +145,14 @@ items shown, and the loop's conversation only grows. The composer's
 draft stays out of the browser's store (`rragent.client.draft`): a
 typed letter renders nothing, only a frame does; the first letter of
 a message and the last one deleted render once, for the Send
-button. Settings → Advanced keeps the raw list of the
+button. A frame equal to the one a tab last got is not sent
+(`rragent.rframes.sse/stream-handler` keeps the last encoded frame
+per connection, one string compare): while the loop streams a turn,
+every token changes the bot's value and refreshes every tab showing
+the bot, and a tab whose view is another topic would get the same
+page up to ten times a second, decoded, walked and diffed for nothing
+while the person types in it.
+Settings → Advanced keeps the raw list of the
 conversations of before and the tasks' transcripts, and a "New bot"
 for the people behind this machine; the header's context ring (how
 full the window is, the cost, "Summarize older messages now") and the

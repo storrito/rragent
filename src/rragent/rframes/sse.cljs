@@ -7,7 +7,11 @@
    node:zlib stream, and the lock of a connection is a promise chain. A
    refresh can go to every connection or to the ones a predicate of
    their world picks (`watch!` with `affected`): a page of several bots
-   pushes a bot's change to the tabs showing it."
+   pushes a bot's change to the tabs showing it. A frame equal to the
+   one a connection last got is not sent: a tab that a change refreshes
+   but whose page the change leaves as it was would decode, walk and
+   diff the same page for nothing, ten times a second while a turn
+   streams."
   (:require ["node:zlib" :as zlib]
             [clojure.string :as str]))
 
@@ -142,7 +146,11 @@
   "A handler `w -> w` that holds an SSE view connection. `:render/fn` is
    `w -> view`, called per refresh with the world of the connection, which
    is captured at connect and kept with the connection for `refresh-where!`.
-   `encode` turns a view into a frame string, nil skips the frame.
+   `encode` turns a view into a frame string, nil skips the frame. The
+   frame string a connection last got is kept with it, and a frame
+   equal to it is dropped before the gzip and the send, one string
+   compare: a refresh that renders the same page again costs the
+   browser nothing. The first frame of a connection always goes.
    `:open/fn`, when given, is `w -> any`, called once per connection
    when it opens, before its first frame, with the same world: what
    the page settles for a tab the moment it comes (its view). The
@@ -161,7 +169,10 @@
           ;; The refresh and the open may render at the same time, the gzip
           ;; stream needs the frames in order: one chain of promises per
           ;; connection, a frame after the one before it.
-          chain (atom (js/Promise.resolve nil))]
+          chain (atom (js/Promise.resolve nil))
+          ;; the frame string last sent, nil before the first: a frame
+          ;; equal to it is dropped, the page has it already
+          sent (atom nil)]
       (assoc w
              :ring/response
              {:status 200
@@ -174,9 +185,11 @@
                                                      (.then (fn []
                                                               (when-let [frame (some-> (view render-fn w)
                                                                                        (encode))]
-                                                                (if compress
-                                                                  (.then (compress frame) send!)
-                                                                  (send! frame)))))
+                                                                (when (not= frame @sent)
+                                                                  (reset! sent frame)
+                                                                  (if compress
+                                                                    (.then (compress frame) send!)
+                                                                    (send! frame))))))
                                                      (.catch (fn [error]
                                                                (js/console.error "[sse]" (str error))))))))]
                            ;; the head is out: a throw here would leave the

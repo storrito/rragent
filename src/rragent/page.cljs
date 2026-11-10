@@ -421,8 +421,8 @@
   "The view stream of a bot's page, POST /bot/<id>: the bot id of the
    path is in the route params of the connection. The tab's view of
    the loop's conversation is settled at the open (`pin-view!`); the
-   frame that follows the write is the same page, the browser finds
-   nothing to change in it."
+   refresh that follows the write renders the same page, which
+   `rragent.rframes.sse/stream-handler` does not send again."
   (:ring/handler (replicant/expand-entry {:replicant/render "/bot/*"
                                           :render/fn #'page-view
                                           ;; a stream without a tab id (no body) has no view to settle

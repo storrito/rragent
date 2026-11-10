@@ -4,8 +4,9 @@
    as frames, a picture attached under the bot's page, a second bot
    made from the sidebar and shown in the tab with its own chat and
    files, renamed, deleted to the trash, a tab whose bot is gone, the
-   hook, the Update button; and the main thread free while a program
-   of the REPL blocks."
+   hook, the Update button, a refresh that leaves a tab's page as it
+   was and sends it no frame; and the main thread free while a
+   program of the REPL blocks."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]
@@ -611,6 +612,42 @@
         (is (true? (pred shows-1)) "the bot's tabs and the tab's own, one predicate")
         (is (true? (pred shows-7)))
         (is (false? (pred (w "t9" "7"))))))))
+
+(deftest identical-frames-test
+  ;; a change of a bot's value refreshes every tab showing the bot; a
+  ;; tab whose page the change leaves as it was gets no frame of it
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [models]} (tools-test/faux-models)
+                 {:keys [id base stop!]} (await (start! home models))
+                 cookie (await (login base "s3cret"))
+                 controller (js/AbortController.)]
+             (try
+               (let [{:keys [reader decoder]} (await (stream (str base "/bot/" id) cookie controller "t1"))
+                     {buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
+                     {:keys [frame! none-within]} (frames! reader decoder buffer)]
+                 ;; the open's own refresh, if any, settles first
+                 (await (none-within 500))
+                 (testing "a value key the tab's page does not show changed: the tab is refreshed, the page is rendered again, the same, and no frame goes"
+                   (let [before @db/db
+                         after (swap! db/db assoc-in [:bots id :artifacts/durations] {"clips/none" 3})
+                         pred (page/affected before after)]
+                     (is (fn? pred))
+                     (is (true? (pred {:tabid "t1" :ring/route-params {:* id}})) "the refresh picks the tab, as `affected-test` reads it")
+                     (is (true? (await (none-within 1500))))))
+                 (testing "a change the page shows is a frame"
+                   (swap! db/db assoc-in [:bots id :failed] "a value")
+                   (is (mentions? (await (frame! #(mentions? % "a value"))) "This bot did not open: a value"))
+                   (swap! db/db update-in [:bots id] dissoc :failed)
+                   (is (some? (await (frame! #(not (mentions? % "a value"))))) "and the page without it again")))
+               (finally
+                 (.abort controller)
+                 (swap! db/db dissoc :tab-views)
+                 (await (stop!))
+                 (test-home/remove! home))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
 
 (deftest stop-test
   (async done
