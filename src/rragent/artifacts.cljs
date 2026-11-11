@@ -24,7 +24,7 @@
    are on the list as the root's folder `programs/` (`programs-folder`,
    `root-of`): the person sees the code that runs for them and can
    show it to someone who reads Clojure, while the agent keeps
-   reaching it as `programs/<name>/`. The manager's pane lists two
+   reaching it as `programs/<name>/`. Every bot's pane lists two
    folders more the same way: its wiki as `wiki/` (`wiki-folder`) and
    the person's skills on the machine as `skills/` (`skills-folder`,
    `skills-dir`), so that the person sees what skills their bots
@@ -124,10 +124,11 @@
   (home/programs-dir (path/dirname dir)))
 
 (def wiki-folder
-  "The folder of the root that holds the bot's wiki when it has one,
-   the manager's (`rragent.wiki`): `wiki/` in the bot's folder, on the
-   list as if it lay under the artifacts, so that the person browses
-   and edits its pages in the pane, as the wiki's pattern allows. Its
+  "The folder of the root that holds the wiki of the machine
+   (`rragent.wiki`, `shared/wiki/` of the home, the same in every
+   bot's pane), on the list as if it lay under the artifacts, so that
+   the person browses and edits its pages in the pane, as the wiki's
+   pattern allows. Its
    `raw/`, what the person brought as it came, stays off the list and
    out of the pane's reach (`wiki-raw?`); `.git` is hidden like every
    dotted name. A folder of this name under artifacts/ itself stays
@@ -153,10 +154,10 @@
         (str/starts-with? p (str wiki-raw-folder "/")))))
 
 (defn wiki-dir
-  "The wiki's folder on disk, in the bot's folder above the artifacts'
-   `dir` (`work/artifacts/` of it)."
+  "The wiki's folder on disk, the machine's, found from the bot's
+   folder above the artifacts' `dir` (`work/artifacts/` of it)."
   [dir]
-  (wiki/dir (path/dirname (path/dirname dir))))
+  (wiki/of-bot (path/dirname (path/dirname dir))))
 
 (defn- directory?
   [p]
@@ -168,8 +169,8 @@
 (def skills-folder
   "The folder of the root that holds the person's skills on the
    machine (`rragent.skills`, `<home>/skills/`, one folder per skill
-   with its `SKILL.md`), in the manager's pane alone (`skills-dir`):
-   on the list as if it lay under the artifacts, so that the person
+   with its `SKILL.md`), in every bot's pane on a machine with a wiki
+   (`skills-dir`): on the list as if it lay under the artifacts, so that the person
    sees what skills their bots have, reads one and may edit it by
    hand. Ours, the clone's, stay out: they are not the person's. A
    folder of this name under artifacts/ itself stays off the list,
@@ -184,20 +185,20 @@
         (str/starts-with? p (str skills-folder "/")))))
 
 (defn skills-dir
-  "The skills' folder on disk for the manager's pane: the machine's
-   `skills/` above the bot's folder, for the bot that keeps a wiki,
-   which `rragent.machine` seeds for the manager alone (`wiki-dir`);
-   nil for any other bot, whose pane shows its own work."
+  "The skills' folder on disk for the pane: the machine's `skills/`
+   above the bot's folder, on a machine that has its wiki
+   (`wiki-dir`, which `rragent.machine` seeds at the open); nil on one
+   without, a home a test made, whose pane shows the bot's own work."
   [dir]
   (let [bot-dir (path/dirname (path/dirname dir))]
-    (when (directory? (wiki/dir bot-dir))
+    (when (directory? (wiki/of-bot bot-dir))
       (skills/path-of (skills/machine-home bot-dir)))))
 
 (defn root-of
   "Where a path of the list lies on disk: `[folder relative]`, the
    artifacts' `dir` with the path as it is, the programs' folder with
    the rest of a path in `programs/`, the wiki's with the rest of a
-   path in `wiki/`, or, in the manager's pane, the machine's skills
+   path in `wiki/`, or the machine's skills
    folder with the rest of a path in `skills/` (\"\" for the folder
    itself)."
   [dir p]
@@ -459,8 +460,8 @@
 
 (defn- skill-files
   "The person's skills as files of the list, each under `skills/`
-   (`skills-folder`), in the manager's pane (`skills-dir`); none in
-   another bot's."
+   (`skills-folder`), on a machine with its wiki (`skills-dir`); none
+   on one without."
   [dir]
   (if-let [skills (skills-dir dir)]
     (map (fn [file] (update file :path #(str skills-folder "/" %)))
@@ -760,7 +761,7 @@
   "GET /artifacts/<path>: the file, never a hidden one nor one of the
    wiki's raw sources; a path in `programs/` from the programs' folder,
    in `wiki/` from the wiki's, in `skills/` from the machine's skills
-   in the manager's pane (`root-of`)."
+   (`root-of`)."
   [dir w]
   (let [subpath (str (get-in w [:ring/route-params :*]))
         file (when-not (or (hidden? subpath) (wiki-raw? subpath))
@@ -783,9 +784,9 @@
 (defn watch!
   "The bot's map at `path` of the db follows the folder, and the
    programs' folder beside it (`programs-dir`), both made when
-   missing, the bot's wiki when it has one (`wiki-dir`, never made
-   here) and, in the manager's pane, the person's skills on the
-   machine (`skills-dir`, made when missing): a recursive watch
+   missing, the machine's wiki when it has one (`wiki-dir`, never made
+   here) and, with it, the person's skills on the machine
+   (`skills-dir`, made when missing): a recursive watch
    reports every change, the folders are read again after a short
    pause, and every two seconds besides. Answers a function that ends
    the watch."

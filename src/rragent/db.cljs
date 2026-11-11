@@ -12,9 +12,6 @@
        :tabs     {tabid bot-id}, the bot each tab picked in the sidebar
        :tab-runs {tabid run-id}, the run a tab shows in place of the chat
        :tab-panes {tabid pane}, which list of the pane a tab sees
-       :tab-views {tabid view}, the view of the loop's conversation a
-                 tab shows, a topic's, the \"New topic\" one
-                 (`rragent.view/shown-view`)
        :tab-limits {tabid n}, how many items a tab's feed shows once
                  the person asked for earlier ones (`rragent.view/feed`)
        :settings-open  #{tabid}, the tabs showing the settings in place
@@ -31,7 +28,6 @@
    `viewState`), `:history` (the entries before the active context,
    read after a compaction, `rragent.history`), `:definition` (as
    `rragent.reload` last applied it),
-   `:status` (as the manager last read it, `rragent.status`),
    `:schedules/next`, `:failed`, the keys of its pane
    (`:artifacts/list`, `:artifacts/rev`, `:artifacts/current`,
    `:artifacts/folder`, `:projects`, `:renders`) and the sidebar's

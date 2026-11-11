@@ -80,12 +80,12 @@
   []
   (bundled "system-prompt.md" "deploy/agent/SYSTEM-PROMPT.md"))
 
-(defn bundled-loop-file
-  "The loop's definition as the bundle carries it: `loop.md` beside
-   the bundle (the build copies `deploy/agent/LOOP.md` there), else
-   that file of the checkout."
+(defn bundled-bot-file
+  "What a bot is, as the bundle carries it: `bot.md` beside the bundle
+   (the build copies `deploy/agent/BOT.md` there), else that file of
+   the checkout."
   []
-  (bundled "loop.md" "deploy/agent/LOOP.md"))
+  (bundled "bot.md" "deploy/agent/BOT.md"))
 
 (defn bundled-task-file
   "A task's text as the bundle carries it: `task.md` beside the bundle
@@ -108,23 +108,25 @@
         nil))))
 
 (defn system-prompt
-  "The text every bot of the machine works by, put in front of its own
-   instructions at every read (`rragent.reload`): the bundle's
-   `SYSTEM-PROMPT.md`, with the skills repository of the clone filled
-   in for `SKILLS_REPO`. A release replaces it; nothing on the machine
-   changes it."
+  "The text every conversation of the machine works by, a bot's and a
+   task's: the bundle's `SYSTEM-PROMPT.md`, with the skills repository
+   of the clone filled in for `SKILLS_REPO`. A release replaces it;
+   nothing on the machine changes it."
   []
   (let [text (fs/readFileSync (bundled-system-prompt-file) "utf8")]
     (if-let [repo (skills-repo)]
       (str/replace text "`github.com/SKILLS_REPO`" (str "`github.com/" repo "`"))
       text)))
 
-(defn loop-body
-  "The loop's instructions: the body of the bundle's `LOOP.md`, read
-   after the shared prompt at every read of the loop's definition
-   (`rragent.reload`)."
+(defn bot-prompt
+  "The text every bot of the machine works by, put in front of its own
+   instructions at every read (`rragent.reload`): the shared prompt
+   (`system-prompt`), then the bundle's `BOT.md`, what a bot is: its
+   file, its tasks, its runs, the other bots, the wiki. `<wiki>` in it
+   means the machine's wiki, which the definition fills in
+   (`rragent.definition`)."
   []
-  (:body (definition/frontmatter (fs/readFileSync (bundled-loop-file) "utf8"))))
+  (str (str/trim (system-prompt)) "\n\n" (str/trim (fs/readFileSync (bundled-bot-file) "utf8")) "\n"))
 
 (defn task-instructions
   "What a task's conversation is configured with (`rragent.tasks`):
@@ -289,34 +291,46 @@
 
 (defn- metadata-of
   "The `model` and `thinking` of a definition text's metadata, the
-   ones the person may have picked for the manager, which a rewrite
-   keeps."
+   ones the person may have picked, which a rewrite keeps."
   [text]
   (select-keys (:metadata (or (definition/frontmatter text) {})) ["model" "thinking"]))
 
-(defn loop-text
-  "The loop's file: the frontmatter of the bundle's `LOOP.md` alone,
-   its name, description, model and thinking level, with the `model`
-   and `thinking` of `current`, the file as it was, kept when they
-   differ from the bundle's, since the person picks them on the page
-   (`set-metadata!`). No body: the loop's instructions are the
-   bundle's at every read (`loop-body`, `rragent.reload`), and the
-   person's part lives in the wiki's `preferences.md`. Written anew at
-   every start of the machine (`rragent.machine`)."
-  [current]
-  (let [[head] (split-frontmatter (fs/readFileSync (bundled-loop-file) "utf8"))
-        kept (when current (metadata-of current))]
-    (reduce (fn [head [k v]] (with-metadata head k v)) head kept)))
+(def first-chat-name
+  "The name of the chat the machine began with, in the sidebar."
+  "Assistant")
 
-(defn write-loop-definition!
-  "The loop's folder, `bots/<id>/` of `home`, with its `AGENT.md`
-   written from the bundle (`loop-text`), the file as it was read
-   first for the picks it keeps; answers the folder."
+(def first-chat-description
+  "The description of the file of that chat (`first-chat-text`)."
+  "The chat this machine began with. While the machine ran as one conversation, every matter of the person's went through it, so what was said then is read here. It works on as a bot like the others.")
+
+(defn first-chat-text
+  "The file of the bot that was the manager and then the one
+   conversation of the machine (docs/bots.md §8), written once when
+   the bots come back (`rragent.migration`): its name, said to be the
+   person's so that the bot keeps it (`renamed-line`), a description
+   of what its chat holds, and the `model` and `thinking` of `current`,
+   the file as it was, the default model and thinking without. No
+   body: it is a bot without a job of its own, as a new one is."
+  [current]
+  (let [{:strs [model thinking]} (when current (metadata-of current))]
+    (str "---\n"
+         "name: " (quoted first-chat-name) "\n"
+         renamed-line "\n"
+         "description: " (quoted first-chat-description) "\n"
+         "metadata:\n"
+         "  model: " (or (not-empty (str model)) definition/default-model) "\n"
+         "  thinking: " (or (not-empty (str thinking)) definition/default-thinking) "\n"
+         "---\n")))
+
+(defn write-first-chat-definition!
+  "The folder of the bot `id` with its `AGENT.md` as `first-chat-text`
+   makes it, the file as it was read first for the picks it keeps;
+   answers the folder."
   [home id]
   (let [dir (home/bot-dir home id)
         file (path/join dir "AGENT.md")
         current (when (fs/existsSync file) (fs/readFileSync file "utf8"))]
-    (write-definition! home id (loop-text current))))
+    (write-definition! home id (first-chat-text current))))
 
 (defn trash!
   "The bot's folder moved to `<home>/trash/<id>` (an earlier folder of

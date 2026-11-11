@@ -116,8 +116,13 @@
                             (tools-test/answer text)))
                  ;; some 25,000 tokens each, four characters a token
                  long-text (fn [word] (str/join " " (repeat 25000 word)))]
-             (.setResponses faux #js [(answer "Noted.") (answer "Noted again.") (answer "The person sent two long texts.")])
-             (await (with-env "RRAGENT_CONTEXT_TOKENS" "40000"
+             ;; the bot's \"ready\" to the notice that comes before its compaction (`rragent.compaction`), then the summary
+             (.setResponses faux #js [(answer "Noted.") (answer "Noted again.") (answer "ready") (answer "The person sent two long texts.")])
+             ;; the budget between what the first answer read and the second: the
+             ;; faux model counts a prompt it sees first as read and as written to
+             ;; its cache, so one long text with the bot's prompt reads as some 77,000
+             ;; tokens, the two as some 101,000
+             (await (with-env "RRAGENT_CONTEXT_TOKENS" "90000"
                       (^:async fn []
                         (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))]
                           (try
@@ -129,7 +134,7 @@
                               (is (some? entry) "an answer that read more than the budget compacts the conversation, its model's window far off")
                               (is (str/includes? (js/JSON.stringify entry) "The person sent two long texts.") "the summary is the model's")
                               (is (str/includes? (last @asked) (str "Additional focus: " harness/compaction-focus)) "asked for the pictures' files"))
-                            (is (= [1050000 1050000 1050000] @windows) "the model keeps its own window, for the answers and the summary")
+                            (is (= [1050000 1050000 1050000 1050000] @windows) "the model keeps its own window, for the answers and the summary")
                             (finally
                               (await (harness/close agent))
                               (test-home/remove! home))))))))))

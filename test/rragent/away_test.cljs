@@ -80,7 +80,8 @@
                  {:keys [faux models]} (tools-test/faux-models {:models [{:id "wide-1" :contextWindow 1050000}]})
                  ;; some 25,000 tokens each, four characters a token
                  long-text (fn [word] (str/join " " (repeat 25000 word)))]
-             (.setResponses faux #js [(tools-test/answer "Noted.") (tools-test/answer "Noted again.") (tools-test/answer "Two long texts.")])
+             ;; the bot's \"ready\" to the notice that comes before its compaction (`rragent.compaction`), then the summary
+             (.setResponses faux #js [(tools-test/answer "Noted.") (tools-test/answer "Noted again.") (tools-test/answer "ready") (tools-test/answer "Two long texts.")])
              (let [agent (await (harness/open {:home home :models models :storage (harness/memory-storage) :provider "faux"}))
                    root (:root agent)
                    id (.-id root)]

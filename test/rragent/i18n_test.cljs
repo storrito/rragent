@@ -10,12 +10,11 @@
   (is (= [:button "Senden"] (i18n/translate [:button [:i18n :composer/send]] :de)))
   (is (= [:p "Used fetch"] (i18n/translate [:p [:i18n :tool/other {:name "fetch"}]] :en)))
   (is (= [:p "fetch benutzt"] (i18n/translate [:p [:i18n :tool/other {:name "fetch"}]] :de)))
-  (testing "the sidebar's sections and the advanced switch"
+  (testing "the sidebar's marks"
     (is (= [:span "Braucht dich"] (i18n/translate [:span [:i18n :bots/needs-you]] :de)))
     (is (= [:span "Needs you"] (i18n/translate [:span [:i18n :bots/needs-you]] :en)))
     (is (= [:span "archiviert"] (i18n/translate [:span [:i18n :bot/archived]] :de)))
-    (is (= [:span "Erweitert"] (i18n/translate [:span [:i18n :settings/advanced]] :de)))
-    (is (= [:span "Show every bot, the raw list and the technical details"] (i18n/translate [:span [:i18n :advanced/show-all]] :en))))
+    (is (= [:span "Die Bots sind zurück: eine Notiz für diesen Bot"] (i18n/translate [:span [:i18n :chat/restored]] :de))))
   (testing "a key no dictionary has shows itself"
     (is (= [:p ":chat/nope"] (i18n/translate [:p [:i18n :chat/nope]] :de)))))
 

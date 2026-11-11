@@ -2,7 +2,8 @@
   "The agent's definition: an `AGENT.md` (or an agentitos `SKILL.md`) in
    the Agent Skills format, a YAML frontmatter and a body. The body is
    the agent's instructions, `<skill>` and `<agent>` in it meaning the
-   folder. The frontmatter carries the name and the description, and
+   folder, and `<wiki>` the wiki of the machine, `shared/wiki/` of the
+   home two folders above a bot's (`rragent.wiki`). The frontmatter carries the name and the description, and
    under `metadata` what the harness reads: `model` (an OpenRouter
    model id), `thinking` (a level, `default-thinking` without),
    `templates` (the templates the
@@ -18,7 +19,11 @@
             [clojure.string :as str]))
 
 (def default-model
-  "openai/gpt-6.1-sol")
+  "The model of a new bot's file (`rragent.bots/definition-text`) and
+   of a definition that names none: Opus 5.5 (docs/bots.md §7). A bot
+   made before carries the model it was made with in its file, which
+   stays."
+  "anthropic/claude-opus-5.5")
 
 (def default-thinking
   "The thinking level of a definition that names none. pi-durable would
@@ -108,7 +113,8 @@
      :skill (not-empty (str skill))
      :instructions (-> body
                        (str/replace "<skill>" folder)
-                       (str/replace "<agent>" folder))
+                       (str/replace "<agent>" folder)
+                       (str/replace "<wiki>" (path/join (path/dirname (path/dirname folder)) "shared" "wiki")))
      :folder folder}))
 
 (defn definition

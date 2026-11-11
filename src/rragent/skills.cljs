@@ -11,8 +11,8 @@
    skill's body is read after the shared prompt at every turn
    (`skill`, `rragent.reload`). A skill of ours a person
    wants changed is copied under a name of their own, so the two
-   never share a name. The person browses them in the manager's pane
-   as its root folder `skills/` (`rragent.artifacts/skills-folder`)
+   never share a name. The person browses them in a bot's pane as
+   its root folder `skills/` (`rragent.artifacts/skills-folder`)
    and may edit one by hand there."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]

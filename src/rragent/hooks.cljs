@@ -13,7 +13,6 @@
             ["@earendil-works/pi-durable" :refer [defineDoc]]
             [clojure.string :as str]
             [rragent.reload :as reload]
-            [rragent.loop :as loop]
             [rragent.runs :as runs]))
 
 (def Hooks
@@ -43,10 +42,9 @@
   #{"run" "message"})
 
 (defn ^:async create!
-  "The hook `name` made (or its secret renewed) with `purpose`, `mode`
-   (`run` without one) and the `topic` the job belongs to for the
-   loop. Answers its address."
-  [api name purpose mode call-context & [topic]]
+  "The hook `name` made (or its secret renewed) with `purpose` and
+   `mode` (`run` without one). Answers its address."
+  [api name purpose mode call-context]
   (when-not (re-matches #"[a-z0-9][a-z0-9-]*" (str name))
     (throw (js/Error. "a hook's name is lowercase letters, digits and dashes")))
   (when-not (contains? modes (or mode "run"))
@@ -55,11 +53,7 @@
     (await (.commit api
                     (^:async fn [tx]
                       (let [doc (await (.doc tx Hooks (.-conversationId api)))]
-                        (let [entry #js {:secret secret :purpose purpose :mode (or mode "run") :createdAt (js/Date.now)}]
-                          ;; a document holds strict JSON: no undefined
-                          (when-let [topic (not-empty (str topic))]
-                            (aset entry "topic" topic))
-                          (aset doc name entry))))
+                        (aset doc name #js {:secret secret :purpose purpose :mode (or mode "run") :createdAt (js/Date.now)})))
                     call-context))
     (address name secret)))
 
@@ -77,7 +71,7 @@
 (defn listed
   [hooks]
   (->> (js/Object.entries (or hooks #js {}))
-       (map (fn [[name h]] (str name ": " (address name (.-secret h)) " (" (.-purpose h) ")" (when (= "message" (.-mode h)) " · mode message") (when (seq (str (.-topic h))) (str " · topic " (.-topic h))))))
+       (map (fn [[name h]] (str name ": " (address name (.-secret h)) " (" (.-purpose h) ")" (when (= "message" (.-mode h)) " · mode message"))))
        (str/join "\n")))
 
 (defn- message
@@ -155,19 +149,12 @@
   (let [conversation (or conversation root)
         hooks (await (.snapshot harness Hooks (.-id conversation) context))
         hook (some-> hooks (aget name))]
-    (cond
-      (not (and hook (= secret (.-secret hook))))
-      {:ok false}
-
-      :else
+    (if (and hook (= secret (.-secret hook)))
       (let [kept (into {} (keep (fn [h] (when-let [v (get headers h)] [h v]))) kept-headers)
-            topic (not-empty (str (.-topic hook)))
-            content (cond-> (message name (.-purpose hook) kept body)
-                      topic (str "\nTopic: " topic))
-            data (cond-> (entry-data name body) topic (assoc :topic topic))]
+            content (message name (.-purpose hook) kept body)
+            data (entry-data name body)]
         (await (reload/reload! conversation context))
-        ;; the loop gets every call as an input (docs/one-loop.md §6)
-        (if (or (= "message" (.-mode hook)) (loop/loop? (.-id conversation)))
+        (if (= "message" (.-mode hook))
           (let [submission (await (.submit conversation #js {:type "input"
                                                       :content content
                                                       :whenBusy "followUp"
@@ -179,4 +166,5 @@
                 trigger (cond-> {:kind "hook" :name name}
                           line (assoc :line line))
                 run (await (runs/start! conversation {:trigger trigger :content content} context))]
-            {:ok true :run run}))))))
+            {:ok true :run run})))
+      {:ok false})))

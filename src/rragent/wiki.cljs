@@ -1,43 +1,56 @@
 (ns rragent.wiki
-  "The manager's wiki: its compiled knowledge of the person's projects,
+  "The wiki of the machine: what its bots know, compiled by them,
    after Karpathy's LLM wiki (gist 442a6bf555914893e9891c11519de94f):
-   `wiki/` in the manager's folder, a git repository of Markdown pages
-   the manager writes and reads, `index.md` the catalog of the pages
-   by category with a summary and a date each, `log.md` the
-   append-only timeline with a parseable prefix per entry, `README.md`
-   the schema of the pages the manager and the person settle, `raw/`
-   what the person brought as it came, never changed, `projects/<name>.md`
-   one page per project, `workers/<id>.md` one per worker,
-   `sources/<name>.md` one summary per raw file, `notes/<topic>.md`
-   answers filed back, `decisions.md`, `brand.md`, `preferences.md`
-   what the person asked of the manager (`preferences-file`). The manager ingests (a report, an approval, a decision
-   goes into the pages, one commit with the log line as its message),
-   queries (reads the index and the project's page at the start of a
-   turn, not its own events) and lints (a weekly look for
-   contradictions and stale items), as `deploy/agent/MANAGER.md`
-   tells it. One writer, the manager; git keeps the history of every
+   `shared/wiki/` of the home, one git repository of Markdown pages
+   that every bot reads, searches and writes (docs/bots.md §4),
+   `index.md` the catalog of the pages by category with a summary and
+   a date each, `log.md` the append-only timeline with a parseable
+   prefix per entry, `README.md` the schema of the pages the bots and
+   the person settle, `raw/` what the person brought as it came, never
+   changed, `topics/<name>.md` one page per matter, `sources/<name>.md`
+   one summary per raw file, `notes/<topic>.md` answers filed back,
+   `decisions.md`, `brand.md`, `people.md`, and `preferences.md`, what
+   the person asked of their bots (`preferences-file`). A bot ingests
+   (a result, an approval, a decision goes into the pages, one commit
+   with the log line as its message), queries (reads the index and its
+   matter's page, not its own transcript) and writes what must survive
+   before its conversation is compacted (`rragent.compaction`), as
+   `deploy/agent/BOT.md` tells it. Git keeps the history of every
    page, a bad rewrite is a revert away. `seed!` makes the folder with
-   its three files and the repository's first commit when the manager's
-   folder has none yet (`rragent.machine/open!`); a machine without
-   git gets the files alone and a line on stderr."
+   its three files and the repository's first commit when the machine
+   has none yet (`rragent.machine/open!`); a machine without git gets
+   the files alone and a line on stderr. The wiki of before, the one
+   conversation's in its bot's folder, is moved here once (`adopt!`)."
   (:require ["node:child_process" :as child]
             ["node:fs" :as fs]
             ["node:path" :as path]
             [clojure.string :as str]))
 
 (defn dir
-  "The wiki of the bot whose folder is `bot-dir`."
+  "The wiki of the machine whose folder is `home`."
+  [home]
+  (path/join home "shared" "wiki"))
+
+(defn of-bot
+  "The wiki of the machine as a bot's folder finds it, `bots/<id>/`
+   of the home."
+  [bot-dir]
+  (dir (path/dirname (path/dirname bot-dir))))
+
+(defn before
+  "Where the wiki of one bot lay before the bots shared one: `wiki/`
+   in the folder of the manager, then of the one conversation."
   [bot-dir]
   (path/join bot-dir "wiki"))
 
 (defn preferences-file
-  "What the person asked of the manager, `preferences.md` of the wiki,
-   the person's page: appended to the manager's definition at every
-   read (`rragent.reload`), so that it shapes every turn and every run,
-   and in the wiki, so that git keeps its history and the lint sees
-   it. Made by the manager at the first preference."
-  [bot-dir]
-  (path/join (dir bot-dir) "preferences.md"))
+  "What the person asked of their bots, `preferences.md` of the wiki,
+   the person's page: appended to every bot's definition at every
+   read (`rragent.reload`), so that it shapes every turn and every
+   run, and in the wiki, so that git keeps its history. Made by a bot
+   at the first preference."
+  [home]
+  (path/join (dir home) "preferences.md"))
 
 (defn- day
   "`2026-11-04` of the time `ms`."
@@ -55,12 +68,11 @@
        "## Wiki\n\n"
        "- [README.md](README.md) — the conventions of this wiki, settled with the person · " (day now) "\n"
        "- [log.md](log.md) — the timeline: what happened and when, append-only · " (day now) "\n"
-       "- preferences.md — what the person asked of the manager, one line each; appended to the manager's definition at every turn\n"
-       "- people.md — who talks to the manager: first name, role, what they decide, what they prefer\n"
+       "- preferences.md — what the person asked of their bots, one line each; appended to every bot's instructions at every turn\n"
+       "- people.md — who talks to the bots: first name, role, what they decide, what they prefer\n"
        "- brand.md — the person's brand: names, links, colors, fonts, pictures, tone\n"
-       "- decisions.md — what was decided across projects, dated, with the why\n\n"
-       "## Projects\n\n(none yet: projects/<name>.md, one per project)\n\n"
-       "## Workers\n\n(none yet: workers/<id>.md, one per worker bot)\n\n"
+       "- decisions.md — what was decided, dated, with the why\n\n"
+       "## Topics\n\n(none yet: topics/<name>.md, one per matter)\n\n"
        "## Sources\n\n(none yet: sources/<name>.md, one summary per file under raw/)\n\n"
        "## Notes\n\n(none yet: notes/<topic>.md, answers worth keeping)\n"))
 
@@ -71,34 +83,33 @@
   [now]
   (str "# Log\n\n"
        "The timeline of this wiki, append only, newest last. Every entry starts with `## [YYYY-MM-DD] kind | what` "
-       "(kinds: ingest, query, lint, decision, approval), with a line on the pages it touched under it.\n\n"
+       "(kinds: ingest, query, lint, decision, approval), with a line on the pages it touched and the bot that wrote it under it.\n\n"
        "## [" (day now) "] seed | the wiki begins\n\n"
        "index.md, log.md and README.md written by rragent.\n"))
 
 (defn readme-seed
   "The schema of the wiki as it starts: the layers, the page
-   conventions, what the person and the manager may change here."
+   conventions, what the person and the bots may change here."
   []
   (str "# This wiki\n\n"
-       "The manager's compiled knowledge of the person's projects, after Karpathy's LLM wiki: `raw/` holds what the person brought, "
-       "as it came and never changed (pictures under `raw/assets/`); the pages are the manager's; this file holds the conventions "
-       "the manager and the person settle together. The manager's definition says how the wiki is run; this file says how its pages look.\n\n"
+       "What the bots of this machine know of the person's matters, compiled by them, after Karpathy's LLM wiki: `raw/` holds what the person brought, "
+       "as it came and never changed (pictures under `raw/assets/`); the pages are the bots'; this file holds the conventions "
+       "the bots and the person settle together. Every bot's instructions say how the wiki is run; this file says how its pages look.\n\n"
        "## Pages\n\n"
        "- Every page starts with a frontmatter: `updated: YYYY-MM-DD` and `sources: [...]`, the raw files and pages it rests on, and links the pages it mentions.\n"
-       "- `projects/<name>.md`: goal · scope now · later · decisions (dated) · workers with their versions · open items · next step.\n"
-       "- `workers/<id>.md`: its job · its contract (what it must deliver, in which form) · what it delivered, by version · what it asked.\n"
+       "- `topics/<name>.md`: goal · scope now · later · decisions (dated) · what was approved · open items · next step · the bot that works on it.\n"
        "- `sources/<name>.md`: the summary of one file under `raw/`, with the takeaways and what it changed in other pages.\n"
        "- `notes/<topic>.md`: an answer worth keeping, a comparison, an analysis, a plan.\n"
        "- `decisions.md`, `brand.md`, `preferences.md`, `people.md`: one each.\n\n"
        "## Changing this file\n\n"
-       "When a convention proves wrong, the manager changes it here with the person's word, in a commit of its own, logged as a decision.\n"))
+       "When a convention proves wrong, a bot changes it here with the person's word, in a commit of its own, logged as a decision.\n"))
 
 (defn- git
   "`git args` in `dir`: `{:status :out :err}`. No signing, no system
-   config, a fixed author: the manager."
+   config, a fixed author: rragent."
   [dir & args]
   (let [result (child/spawnSync "git"
-                                (clj->js (concat ["-c" "user.name=Manager" "-c" "user.email=manager@rragent"
+                                (clj->js (concat ["-c" "user.name=rragent" "-c" "user.email=rragent@rragent"
                                                   "-c" "commit.gpgsign=false" "-c" "init.defaultBranch=main"]
                                                  args))
                                 #js {:cwd dir :encoding "utf8" :env (js/Object.assign #js {} (.-env js/process) #js {:GIT_CONFIG_NOSYSTEM "1"})})]
@@ -108,13 +119,13 @@
      :error (.-error result)}))
 
 (defn seed!
-  "The wiki of `bot-dir` made when there is none: the folder,
-   `index.md`, `log.md`, and the repository with its first commit.
-   Answers `:seeded`, `:present` for a folder that is there already
-   (left as it is), or `:no-git` when the files are there but git is
-   not, or refused (said on stderr)."
-  [bot-dir now]
-  (let [wiki (dir bot-dir)]
+  "The wiki of the machine in `home` made when there is none: the
+   folder, `index.md`, `log.md`, `README.md`, and the repository with
+   its first commit. Answers `:seeded`, `:present` for a folder that
+   is there already (left as it is), or `:no-git` when the files are
+   there but git is not, or refused (said on stderr)."
+  [home now]
+  (let [wiki (dir home)]
     (if (fs/existsSync wiki)
       :present
       (do (fs/mkdirSync wiki #js {:recursive true})
@@ -128,15 +139,36 @@
                                    (str "git " (str/join " " args) ": " (or (some-> error .-message) (str/trim err))))))
                              steps)]
             (if failed
-              (do (js/console.error "[wiki]" (str "the wiki of " bot-dir " is not a git repository: " failed))
+              (do (js/console.error "[wiki]" (str "the wiki of " home " is not a git repository: " failed))
                   :no-git)
               :seeded))))))
 
+(defn adopt!
+  "The wiki one bot kept in its folder `bot-dir` (`before`: the
+   manager's, then the one conversation's) moved to the machine's
+   place, `shared/wiki/` of `home`, with its git history, one rename;
+   a link stays where it lay, so that a path the bot's chat names
+   still reads. Nothing when the machine has a wiki already or the
+   bot has none. Answers `:moved`, else nil."
+  [home bot-dir]
+  (let [from (before bot-dir)
+        to (dir home)]
+    (when (and (not (fs/existsSync to))
+               (fs/existsSync from)
+               (not (.isSymbolicLink (fs/lstatSync from))))
+      (fs/mkdirSync (path/dirname to) #js {:recursive true})
+      (fs/renameSync from to)
+      (try
+        (fs/symlinkSync (path/relative bot-dir to) from "dir")
+        (catch :default error
+          (js/console.error "[wiki]" (str "no link from " from " to the machine's wiki: " (.-message error)))))
+      :moved)))
+
 (defn commits
-  "The number of commits of the wiki of `bot-dir`, 0 without a
-   repository."
-  [bot-dir]
-  (let [{:keys [status out]} (git (dir bot-dir) "rev-list" "--count" "HEAD")]
+  "The number of commits of the wiki of the machine in `home`, 0
+   without a repository."
+  [home]
+  (let [{:keys [status out]} (git (dir home) "rev-list" "--count" "HEAD")]
     (if (zero? status)
       (js/parseInt (str/trim out))
       0)))

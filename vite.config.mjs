@@ -42,8 +42,8 @@ export default ({ command }) => {
       // folder as the harness and the agent need it (TEMPLATE.md, project/,
       // the executables, a built dist/), without its sources, tests and
       // build files. And the shared prompt every bot works by
-      // (deploy/agent/SYSTEM-PROMPT.md) as system-prompt.md, the loop's text
-      // (deploy/agent/LOOP.md) as loop.md and a task's (deploy/agent/TASK.md) as
+      // (deploy/agent/SYSTEM-PROMPT.md) as system-prompt.md, a bot's text
+      // (deploy/agent/BOT.md) as bot.md and a task's (deploy/agent/TASK.md) as
       // task.md, read by rragent.bots. And the
       // starters (starters/<name>, see the README's Starters section), the
       // how-to and example a bot's programs begin from, whole but for what
@@ -57,7 +57,7 @@ export default ({ command }) => {
               filter: (source) => !/(^|\/)(src|test|node_modules|target|\.[^/]+|vite[^/]*\.mjs)$/.test(source),
             });
             cpSync('deploy/agent/SYSTEM-PROMPT.md', 'dist/system-prompt.md');
-            cpSync('deploy/agent/LOOP.md', 'dist/loop.md');
+            cpSync('deploy/agent/BOT.md', 'dist/bot.md');
             cpSync('deploy/agent/TASK.md', 'dist/task.md');
             cpSync('starters', 'dist/starters', {
               recursive: true,

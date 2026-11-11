@@ -39,19 +39,6 @@
             [rragent.uploads-test :as uploads-test]
             [rragent.view :as view]))
 
-(defn- ^:async bots-before!
-  "The machine as one whose bots of before were adopted into the loop
-   (`botTopics` of the structure, `rragent.migration`): what gives the
-   settings their Advanced section and makes its switch count."
-  []
-  (let [harness (:harness (machine/agent))]
-    (await (.commit harness
-                    (^:async fn [tx]
-                      (aset (await (.doc tx machine/Structure)) "botTopics" #js {"999999" "before"})
-                      js/undefined)
-                    harness/context))
-    (await (machine/refresh-structure! harness))))
-
 (defn- mentions?
   "Whether a string of the hiccup contains `s`."
   [hiccup s]
@@ -180,7 +167,7 @@
   (let [[bot] (await (machine/open! (merge {:home home
                                             :models models
                                             :provider "faux"
-                                            :loop? false
+                                            :wiki? false
                                             :storage (harness/memory-storage)}
                                            opts)))
         server (await (http/listen (page/handler "s3cret") 0))]
@@ -233,7 +220,8 @@
                        (is (mentions? first-frame "Nothing here yet") "the empty feed, in English")
                        (is (mentions? first-frame "What should the agent do") "the composer")
                        (is (mentions? first-frame "watcher") "the bot in the sidebar")
-                       (is (not (mentions? first-frame "New bot")) "the raw list is behind the advanced switch")
+                       (is (mentions? first-frame "New bot") "the way to make a bot, for everyone")
+                       (is (some? (find-tag first-frame :details.actions)) "and each row's menu")
                        (is (= (str "/bot/" id) (url-of first-frame)))
                        (is (= [:draft id] (:ui/store-key (second (find-tag first-frame :ui/composer)))) "the draft is the bot's")
                        (is (= "1" id) "the root conversation")
@@ -357,25 +345,12 @@
                            (is (nil? (find-tag frame :ui/composer)) "no chat")
                            (is (= (str "/bot/" id) (url-of frame)) "the URL stays the bot's")
                            (is (= #{"t1"} (:settings-open @db/db))))
-                         (testing "the advanced switch: the raw list with New bot and the row menus into the sidebar, the choice in the structure"
-                           (await (bots-before!))
-                           (is (= {:success? true} (await (command! base cookie :settings/section {:tab "t1" :section :advanced}))))
-                           (await (frame! #(mentions? % "Show every bot, the raw list and the technical details")))
-                           (is (= {:success? true} (await (command! base cookie :settings/advanced {:advanced true}))))
-                           (let [frame (await (frame! #(mentions? % "New bot")))]
-                             (is (true? (:advanced? (machine/current-structure))))
-                             (is (some? (find-tag frame :details.actions)) "the row's menu")
-                             (is (true? (:checked (second (find-tag (find-tag frame :label.check) :input)))) "the switch as it stands"))
-                           (is (= {:success? true} (await (command! base cookie :settings/section {:tab "t1" :section :updates})))))
-                         (testing "a view picked in the sidebar brings the chat back: there is no command to close them"
-                           (is (= {:success? false :result {:error :no-such-view}} (await (command! base cookie :view/show {:tab "t1" :kind :all})))
-                               "there is no view of everything at once")
+                         (testing "a bot picked in the sidebar brings the chat back: there is no command to close them"
                            (is (= #{"t1"} (:settings-open @db/db)))
                            (swap! db/db assoc-in [:tab-limits "t1"] 700)
-                           (is (= {:success? true} (await (command! base cookie :view/show {:tab "t1" :kind :new}))))
+                           (is (= {:success? true} (await (command! base cookie :bot/show {:tab "t1" :id id}))))
                            (await (frame! #(find-tag % :ui/composer)))
                            (is (= #{} (:settings-open @db/db)))
-                           (is (= {:kind :new} (get-in @db/db [:tab-views "t1"])))
                            (is (nil? (get-in @db/db [:tab-limits "t1"])) "the feed at its newest items again"))
                          (testing "earlier messages: the tab's feed reaches further back, a step per click, until the next view or bot"
                            (is (= {:success? false :result {:error :no-tab}} (await (command! base cookie :view/earlier {}))))
@@ -588,9 +563,8 @@
       (is (= :all (page/affected old (assoc-in old [:bots "9"] {:id "9"}))))
       (is (= :all (page/affected old (assoc old :update {:current "1"}))))
       (is (= :all (page/affected old (assoc old :mcp {:servers []})))))
-    (testing "what one tab shows goes to that tab alone: the bot it picked, its view, how far back its feed reaches, its settings"
+    (testing "what one tab shows goes to that tab alone: the bot it picked, how far back its feed reaches, its settings"
       (doseq [new [(assoc-in old [:tabs "t1"] "7")
-                   (assoc-in old [:tab-views "t1"] {:kind :topic :topic "content-week"})
                    (assoc-in old [:tab-limits "t1"] 700)
                    (assoc-in old [:tab-runs "t1"] nil)
                    (assoc-in old [:tab-panes "t1"] :activity)
@@ -605,10 +579,10 @@
             pred (page/affected open (assoc open :settings-open #{"t2"}))]
         (is (true? (pred shows-1)) "the settings closed")
         (is (false? (pred shows-7))))
-      (let [pred (page/affected (assoc-in old [:tab-views "t1"] {:kind :new}) old)]
+      (let [pred (page/affected (assoc-in old [:tab-limits "t1"] 700) old)]
         (is (true? (pred shows-1)) "an entry gone")
         (is (false? (pred shows-7))))
-      (let [pred (page/affected old (-> old (assoc-in [:tab-views "t2"] {:kind :new}) (assoc-in [:bots "1" :artifacts/list] [{:path "x.html"}])))]
+      (let [pred (page/affected old (-> old (assoc-in [:tab-limits "t2"] 700) (assoc-in [:bots "1" :artifacts/list] [{:path "x.html"}])))]
         (is (true? (pred shows-1)) "the bot's tabs and the tab's own, one predicate")
         (is (true? (pred shows-7)))
         (is (false? (pred (w "t9" "7"))))))))
@@ -643,7 +617,6 @@
                    (is (some? (await (frame! #(not (mentions? % "a value"))))) "and the page without it again")))
                (finally
                  (.abort controller)
-                 (swap! db/db dissoc :tab-views)
                  (await (stop!))
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
@@ -723,7 +696,8 @@
                  long-text (fn [word] (str/join " " (repeat 25000 word)))
                  env (.-env js/process)
                  budget-was (aget env "RRAGENT_CONTEXT_TOKENS")]
-             (.setResponses faux #js [(tools-test/answer "Noted.") (tools-test/answer "Noted again.") (tools-test/answer "The person sent two long texts.")])
+             ;; the bot's \"ready\" to the notice that comes before its compaction (`rragent.compaction`), then the summary
+             (.setResponses faux #js [(tools-test/answer "Noted.") (tools-test/answer "Noted again.") (tools-test/answer "ready") (tools-test/answer "The person sent two long texts.")])
              ;; no compaction by the budget: the card's button asks for one
              (aset env "RRAGENT_CONTEXT_TOKENS" "1000000")
              (let [{:keys [id base stop!]} (await (start! home models))
@@ -733,9 +707,6 @@
                    conversation (:conversation (machine/bot id))
                    note "From here on the model reads a summary of the messages above."]
                (try
-                 ;; the card with the button is the advanced switch's
-                 (await (bots-before!))
-                 (await (machine/set-advanced! (:harness (machine/agent)) true))
                  (is (= "Noted." (await (harness/ask-in conversation (long-text "red")))))
                  (is (= "Noted again." (await (harness/ask-in conversation (long-text "blue")))))
                  (let [{:keys [reader decoder]} (await (stream bot-url cookie controller "t9"))
@@ -977,9 +948,6 @@
                    other (js/AbortController.)
                    bot-url (str base "/bot/" id)]
                (try
-                 ;; a run's page is the advanced switch's
-                 (await (bots-before!))
-                 (await (machine/set-advanced! (:harness (machine/agent)) true))
                  (let [cookie (await (login base "s3cret"))
                        {:keys [reader decoder]} (await (stream bot-url cookie controller "t1"))
                        {first-frame :view buffer :buffer} (await (within 15000 (next-frame reader decoder "" (constantly true))))
@@ -1177,113 +1145,10 @@
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))
 
-(deftest new-topic-test
-  (async done
-    (-> ((^:async fn []
-           (let [home (test-home/make)
-                 {:keys [faux models]} (tools-test/faux-models)
-                 {:keys [base stop!]} (await (start! home models {:loop? true}))
-                 cookie (await (login base "s3cret"))
-                 loop-id (machine/loop-id)
-                 _ (bots/set-metadata! home loop-id "model" "faux-1")
-                 conversation (:conversation (machine/bot loop-id))
-                 people (^:async fn []
-                          (let [page (await (.entries conversation #js {} 50 js/undefined harness/context))]
-                            (->> (array-seq (.-items page))
-                                 (map #(js->clj % :keywordize-keys true))
-                                 (filter #(= "rragent.person" (:kind %)))
-                                 (sort-by :id))))
-                 ;; the page's value of the loop, once it holds `n` tool results
-                 results! (^:async fn [n]
-                            (let [started (js/Date.now)]
-                              (loop []
-                                (cond
-                                  (<= n (count (filter #(= "pi.tool-result" (:kind %))
-                                                       (:entries (page/conversation (:value (machine/bot loop-id)))))))
-                                  true
-                                  (< 15000 (- (js/Date.now) started)) (throw (js/Error. "no tool result after 15 s"))
-                                  :else (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
-                                            (recur))))))]
-             (try
-               (testing "the sidebar's row shows the empty view in the tab, on the loop"
-                 (is (= {:success? true} (await (command! base cookie :view/show {:tab "t1" :kind :new}))))
-                 (is (= {:kind :new} (get-in @db/db [:tab-views "t1"])))
-                 (is (= loop-id (get-in @db/db [:tabs "t1"]))))
-               (testing "an empty message leaves the view without a token"
-                 (is (= {:success? false :result {:error :empty-message}} (await (command! base cookie :chat/send {:bot loop-id :text " " :tab "t1"}))))
-                 (is (= {:kind :new} (get-in @db/db [:tab-views "t1"]))))
-               (testing "the first message: the view gets its token, the entry carries it, the model reads that the topic is new"
-                 (.setResponses faux #js [(tools-test/answer "What is it about?")])
-                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "Something for autumn." :tab "t1"})) [:success?])))
-                 (await (.waitForIdle conversation harness/context))
-                 (let [token (get-in @db/db [:tab-views "t1" :fresh])
-                       [person] (await (people))]
-                   (is (string? token))
-                   (is (= :new (get-in @db/db [:tab-views "t1" :kind])))
-                   (is (= {:name "Max" :fresh token} (:data person)))
-                   (is (= "Max (new topic): Something for autumn." (get-in person [:model 0 :content])))
-                   (testing "no topic made yet: the next message goes under the same token, and the model makes the topic"
-                     (.setResponses faux #js [(tools-test/tool-call "topic" {:action "create" :name "Autumn sale"} "c1")
-                                              (tools-test/answer "Autumn sale it is.")])
-                     (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "A sale campaign." :tab "t1"})) [:success?])))
-                     (await (.waitForIdle conversation harness/context))
-                     (is (= {:kind :new :fresh token} (get-in @db/db [:tab-views "t1"])))
-                     (is (= {:name "Max" :fresh token} (:data (second (await (people))))))
-                     (is (contains? (machine/topics) "autumn-sale")))))
-               (testing "the topic made: the tab's next message is the topic's, and the tab's view too"
-                 (await (results! 1))
-                 (.setResponses faux #js [(tools-test/answer "Noted.")])
-                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "It starts on Monday." :tab "t1"})) [:success?])))
-                 (await (.waitForIdle conversation harness/context))
-                 (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t1"])))
-                 (let [person (last (await (people)))]
-                   (is (= {:name "Max" :topic "autumn-sale"} (:data person)))
-                   (is (= "Max (Autumn sale): It starts on Monday." (get-in person [:model 0 :content])))))
-               (testing "a tab whose stream opens without a pick gets the default view written down before its first frame: the first topic, which the next activity must not change under the person"
-                 (is (nil? (get-in @db/db [:tab-views "t6"])))
-                 (let [opened (js/AbortController.)
-                       {:keys [reader decoder]} (await (stream (str base "/bot/" loop-id) cookie opened "t6"))
-                       {:keys [view]} (await (within 15000 (next-frame reader decoder "" (constantly true))))]
-                   (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t6"])))
-                   (is (mentions? view "in Autumn sale") "the first frame shows it")
-                   (.abort opened)))
-               (testing "a tab that comes to the loop from another page (:bot/show) without a pick gets the default view written down too"
-                 (is (nil? (get-in @db/db [:tab-views "t3"])))
-                 (is (= {:success? true} (await (command! base cookie :bot/show {:tab "t3" :id nil}))))
-                 (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t3"])))
-                 (swap! db/db assoc-in [:tab-views "t3"] {:kind :loose})
-                 (is (= {:success? true} (await (command! base cookie :bot/show {:tab "t3" :id nil}))))
-                 (is (= {:kind :loose} (get-in @db/db [:tab-views "t3"])) "a pick stays"))
-               (testing "a message from a tab without a pick is the default view's: what its page shows"
-                 (.setResponses faux #js [(tools-test/answer "Yes.")])
-                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "And the price?" :tab "t4"})) [:success?])))
-                 (await (.waitForIdle conversation harness/context))
-                 (is (= {:name "Max" :topic "autumn-sale"} (:data (last (await (people))))))
-                 (is (= {:kind :topic :topic "autumn-sale"} (get-in @db/db [:tab-views "t4"]))))
-               (testing "the view of the turns of no topic: a message from it carries none"
-                 (is (= {:success? true} (await (command! base cookie :view/show {:tab "t5" :kind :loose}))))
-                 (is (= {:kind :loose} (get-in @db/db [:tab-views "t5"])))
-                 (.setResponses faux #js [(tools-test/answer "Fine.")])
-                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot loop-id :text "Ok." :tab "t5"})) [:success?])))
-                 (await (.waitForIdle conversation harness/context))
-                 (is (= {:name "Max"} (:data (last (await (people))))))
-                 (is (= {:kind :loose} (get-in @db/db [:tab-views "t5"]))))
-               (testing "another conversation than the loop takes no token"
-                 (swap! db/db assoc-in [:tab-views "t2"] {:kind :new})
-                 (.setResponses faux #js [(tools-test/answer "Hello.")])
-                 (is (= {:success? true} (select-keys (await (command! base cookie :chat/send {:bot "1" :text "Hi." :tab "t2"})) [:success?])))
-                 (is (= {:kind :new} (get-in @db/db [:tab-views "t2"]))))
-               (finally
-                 (swap! db/db dissoc :tab-views)
-                 (await (stop!))
-                 (test-home/remove! home))))))
-        (.catch (fn [e] (is (nil? e) (str e))))
-        (.finally done))))
-
 (deftest working-tasks-test
-  (is (= [{:id 2 :topic "pinterest" :line "Make the pin."} {:id 3 :topic nil :line "Tidy up."}]
-         (page/working-tasks [{:id 1 :state :done :topic "pinterest" :trigger {:kind "task" :name "pinterest" :line "Old."}}
-                              {:id 2 :state :running :topic "pinterest" :trigger {:kind "task" :name "pinterest" :line "Make the pin."}}
-                              {:id 3 :state :queued :topic nil :trigger {:kind "task" :name "task" :line "Tidy up."}}
+  (is (= [{:id 2 :line "Make the pin."} {:id 3 :line "Tidy up."}]
+         (page/working-tasks [{:id 1 :state :done :trigger {:kind "task" :name "task" :line "Old."}}
+                              {:id 2 :state :running :trigger {:kind "task" :name "task" :line "Make the pin."}}
+                              {:id 3 :state :queued :trigger {:kind "task" :name "task" :line "Tidy up."}}
                               {:id 4 :state :running :trigger {:kind "schedule" :name "tick" :line "Tick."}}]))
       "the tasks that go, queued or running; not a task that ended, not a run of a hook or a schedule"))

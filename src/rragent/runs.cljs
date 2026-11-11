@@ -26,6 +26,7 @@
   (:require ["@earendil-works/pi-durable" :refer [configure defineTask]]
             [clojure.string :as str]
             [rragent.db :as db]
+            [rragent.roles :as roles]
             [rragent.tools.subagent :as subagent-tool]))
 
 (def kind
@@ -187,7 +188,9 @@
                             conversation (if existing
                                            (.-id existing)
                                            (let [created (.-id (await (.createConversation tx #js {:ownership #js {:kind "task" :taskId id}})))]
-                                             (await (configure tx created #js {:instructions (instructions (.-instructions agent))}))
+                                             ;; a run sees the bot's tools but `task`: nobody reads its chat (`rragent.roles`)
+                                             (await (configure tx created #js {:instructions (instructions (.-instructions agent))
+                                                                               :modelTools (roles/model-tools :run)}))
                                              created))]
                         #js {:status "running"
                              :checkpoint #js {:phase "run"

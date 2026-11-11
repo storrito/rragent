@@ -90,6 +90,7 @@
    :chat/task-done [:fn/str "A task is done · {{:line}}"]
    :chat/task-started "Started as a task"
    :chat/compaction-notice "The wiki is written before the memory shrinks"
+   :chat/restored "The bots are back: a note for this bot"
    :chat/fact [:fn/str "Noted: {{:event}}"]
    :chat/working "Working"
    :chat/task-working [:fn/str "A task works on it · {{:line}}"]
@@ -300,10 +301,6 @@
    :mobile/install "Install the app"
    :mobile/install-explain "This browser installs the page as an app of its own: a window without the browser's bars, an icon among the apps."
    :mobile/installed "This is the installed app."
-   :settings/advanced "Advanced"
-   :advanced/title "Advanced"
-   :advanced/explain "The sidebar shows the views of this one conversation: the topics, marked while one needs you, and a row for a card without a topic. This adds the raw list of the conversations of before and the tasks' transcripts in the activity, with New bot and the menus to rename and delete one. It also shows how full the model's context is, with what the conversation cost and the button that summarizes older messages, and the model and its effort under the message field. The choice holds for this machine; every tab sees it."
-   :advanced/show-all "Show every bot, the raw list and the technical details"
    :mcp/title "MCP servers"
    :mcp/explain "Services your bots use over MCP. Every bot of this machine has their tools."
    :mcp/none "No MCP server is connected yet."
@@ -337,20 +334,7 @@
 
    :bots/title "Bots"
    :bots/menu "The bots"
-   :bots/manager "Manager"
    :bots/needs-you "Needs you"
-   :bots/projects "Projects"
-   :bots/other "Other"
-   :bots/all "All bots"
-   :views/loose "Without topic"
-   :views/topics "Topics"
-   :views/archived "Archived"
-   :views/in-topic [:fn/str "in {{:topic}}"]
-   :views/empty "Nothing here yet."
-   :views/new "+ New topic"
-   :views/new-placeholder "What is the new topic about?"
-   :views/new-empty "A new topic starts with your first message here: say what it is about."
-   :views/in-new "in a new topic"
    :context/title "Context"
    :context/model "Model: {model}"
    :context/used "{percent} % used"
@@ -455,6 +439,7 @@
    :chat/task-done [:fn/str "Eine Aufgabe ist fertig · {{:line}}"]
    :chat/task-started "Als Aufgabe gestartet"
    :chat/compaction-notice "Das Wiki wird geschrieben, bevor das Gedächtnis schrumpft"
+   :chat/restored "Die Bots sind zurück: eine Notiz für diesen Bot"
    :chat/fact [:fn/str "Gemerkt: {{:event}}"]
    :chat/working "Arbeitet"
    :chat/task-working [:fn/str "Eine Aufgabe arbeitet daran · {{:line}}"]
@@ -666,10 +651,6 @@
    :mobile/install "App installieren"
    :mobile/install-explain "Dieser Browser installiert die Seite als eigene App: ein Fenster ohne die Leisten des Browsers, ein Icon unter den Apps."
    :mobile/installed "Das hier ist die installierte App."
-   :settings/advanced "Erweitert"
-   :advanced/title "Erweitert"
-   :advanced/explain "Die Seitenleiste zeigt die Ansichten dieses einen Gesprächs: die Themen, markiert, solange eines dich braucht, und eine Zeile für eine Karte ohne Thema. Das hier hängt die rohe Liste der Gespräche von früher und die Protokolle der Aufgaben in der Aktivität an, mit Neuer Bot und den Menüs zum Umbenennen und Löschen. Es zeigt außerdem, wie voll der Kontext des Modells ist, mit den Kosten des Gesprächs und dem Knopf, der ältere Nachrichten zusammenfasst, und unter dem Nachrichtenfeld das Modell und seinen Aufwand. Die Wahl gilt für diese Maschine; jeder Tab sieht sie."
-   :advanced/show-all "Jeden Bot, die rohe Liste und die technischen Details zeigen"
    :mcp/title "MCP-Server"
    :mcp/explain "Dienste, die deine Bots über MCP nutzen. Jeder Bot dieser Maschine hat ihre Werkzeuge."
    :mcp/none "Noch ist kein MCP-Server verbunden."
@@ -703,20 +684,7 @@
 
    :bots/title "Bots"
    :bots/menu "Die Bots"
-   :bots/manager "Manager"
    :bots/needs-you "Braucht dich"
-   :bots/projects "Projekte"
-   :bots/other "Andere"
-   :bots/all "Alle Bots"
-   :views/loose "Ohne Thema"
-   :views/topics "Themen"
-   :views/archived "Archiviert"
-   :views/in-topic [:fn/str "in {{:topic}}"]
-   :views/empty "Hier ist noch nichts."
-   :views/new "+ Neues Thema"
-   :views/new-placeholder "Worum geht es im neuen Thema?"
-   :views/new-empty "Ein neues Thema beginnt mit deiner ersten Nachricht hier: sag, worum es geht."
-   :views/in-new "in einem neuen Thema"
    :context/title "Kontext"
    :context/model "Modell: {model}"
    :context/used "{percent} % belegt"

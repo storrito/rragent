@@ -1,162 +1,373 @@
 (ns rragent.migration-test
-  "A machine of before adopted into the one loop (docs/one-loop.md §9,
-   `rragent.migration`): a manager with two workers, one with a
-   project, with artifacts, a schedule and a hook; at the first open
-   of this version every worker is a topic and archived, its
-   artifacts under the loop's topic folder, its schedule on the loop
-   in message mode with the topic, its hook on the loop with its
-   secret, the home backed up, the handover turn and the compaction;
-   opened again, nothing twice."
+  "The bots given back what the one conversation adopted (docs/bots.md
+   §8, `rragent.migration`): the plan of the bots to restore and whose
+   a schedule or a hook is; a machine as the releases 0.1.56 to 0.1.58
+   left it, opened by this version: the bots off the archived list,
+   their schedules, hooks and artifacts theirs again, a note in each
+   chat that starts no turn, the one conversation a bot like the
+   others with its own schedules as messages, the wiki the machine's,
+   an address of before still leading to its file, nothing twice; and
+   a machine that still has its manager."
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
+            [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
             [rragent.compaction :as compaction]
+            [rragent.definition :as definition]
             [rragent.harness :as harness]
             [rragent.home :as home]
             [rragent.hooks :as hooks]
             [rragent.machine :as machine]
             [rragent.migration :as migration]
+            [rragent.page :as page]
+            [rragent.schedule :as schedule]
             [rragent.sprite :as sprite]
             [rragent.test-home :as test-home]
             [rragent.tools-test :as tools-test]
-            [rragent.version :as version]))
+            [rragent.version :as version]
+            [rragent.wiki :as wiki]))
 
 (deftest plan-test
-  (let [plan (migration/plan ["1" "7" "8" "9" "10"] "7" {"8" "Guest reviews"} {} {"1" "watcher" "8" "Template 202" "9" "Guest reviews" "10" "Never used"} #{"1" "8" "9"})]
-    (is (= [{:id "1" :name "watcher" :topic "watcher" :slug "watcher"}
-            {:id "8" :name "Template 202" :topic "Guest reviews" :slug "guest-reviews"}
-            {:id "9" :name "Guest reviews" :topic "Guest reviews" :slug "guest-reviews"}]
-           plan)
-        "the project's name, else the bot's; the same name is the same topic; the loop and a bot never used left out"))
-  (is (= [{:id "3" :name "" :topic "Bot 3" :slug "bot-3"}] (migration/plan ["3"] "7" {} {} {} #{"3"})) "a bot without a name")
-  (is (= "x-2" (:slug (first (migration/plan ["3"] "7" {"3" "X"} {"x" {:name "Other"}} {} #{"3"})))) "the slug unique among the topics: the same word for another topic gets a number")
-  (is (= "x" (:slug (first (migration/plan ["3"] "7" {"3" "X"} {"x" {:name "x"}} {} #{"3"})))) "the same name is the topic that exists"))
+  (let [bot-topics {"3" "guest-reviews" "4" "content-week" "5" "content-week" "6" "gone" "9" "deleted-one"}
+        names {"3" "Template 202" "4" "Stories A" "5" "Stories B" "6" "Old"}]
+    (testing "every adopted bot that is open, in the order made; alone when no other bot was adopted as its topic"
+      (is (= [{:id "3" :slug "guest-reviews" :name "Template 202" :alone? true}
+              {:id "4" :slug "content-week" :name "Stories A" :alone? false}
+              {:id "5" :slug "content-week" :name "Stories B" :alone? false}
+              {:id "6" :slug "gone" :name "Old" :alone? true}]
+             (migration/plan bot-topics ["2" "3" "4" "5" "6"] names))))
+    (testing "a bot deleted since is not restored, and still counts for the topic it shared"
+      (is (= [{:id "4" :slug "content-week" :name "Stories A" :alone? false}]
+             (migration/plan bot-topics ["4"] names))))
+    (is (= [] (migration/plan {} ["2" "3"] names)) "nothing adopted: nothing to restore")))
+
+(deftest owner-test
+  (let [plan (migration/plan {"3" "guest-reviews" "4" "content-week" "5" "content-week"} ["3" "4" "5"] {})
+        id (fn [name topic mode] (:id (migration/owner plan name topic mode)))]
+    (testing "what the adoption moved carries `message` and the topic: the one bot of the topic"
+      (is (= "3" (id "daily" "guest-reviews" "message"))))
+    (testing "a name the adoption changed, taken on the conversation: the bot whose id it ends in"
+      (is (= "4" (id "weekly-4" "content-week" "message")))
+      (is (= "5" (id "weekly-5" "content-week" "message"))))
+    (testing "a topic two bots share and a name that tells neither: it stays"
+      (is (nil? (id "weekly" "content-week" "message"))))
+    (testing "what the conversation set itself stays: a run of its own, or no topic"
+      (is (nil? (id "lint" nil "run")))
+      (is (nil? (id "daily" "guest-reviews" "run")))
+      (is (nil? (id "note" nil "message")))
+      (is (nil? (id "other" "a-topic-made-since" "message"))))))
+
+(deftest moved?-test
+  (let [marks {:handover 300 :adopted-at 1000}]
+    (testing "a schedule: its task older than the handover's, the adoption made it; younger, the conversation set it since"
+      (is (true? (migration/moved? #js {:cron "0 9 * * *" :taskId 290} marks)))
+      (is (false? (migration/moved? #js {:cron "0 9 * * *" :taskId 341} marks))))
+    (testing "a hook: made no later than the adoption, which kept the time it was made at"
+      (is (true? (migration/moved? #js {:secret "s" :createdAt 900} marks)))
+      (is (true? (migration/moved? #js {:secret "s" :createdAt 1000} marks)))
+      (is (false? (migration/moved? #js {:secret "s" :createdAt 1500} marks))))
+    (testing "without the mark to compare with, every one counts as moved"
+      (is (true? (migration/moved? #js {:cron "0 9 * * *" :taskId 341} {})))
+      (is (true? (migration/moved? #js {:secret "s" :createdAt 1500} {})))
+      (is (true? (migration/moved? #js {:cron "0 9 * * *"} marks)))
+      (is (true? (migration/moved? #js {:secret "s"} marks))))))
+
+(deftest name-before-test
+  (is (= "weekly" (migration/name-before "weekly-4" "4" #{})) "the id the adoption put behind it goes")
+  (is (= "weekly-4" (migration/name-before "weekly-4" "4" #{"weekly"})) "unless the bot has that name again")
+  (is (= "daily" (migration/name-before "daily" "4" #{})))
+  (is (= "-4" (migration/name-before "-4" "4" #{})) "nothing in front of it: as it is"))
 
 (defn- ^:async entries
+  "The entries of a conversation, oldest first, as `{:kind :data :text}`,
+   the text the model's of the entry."
   [conversation]
   (let [page (await (.entries conversation #js {} 200 js/undefined harness/context))]
     (->> (array-seq (.-items page))
          (reverse)
          (mapv (fn [e] {:kind (.-kind e)
                         :data (js->clj (.-data e) :keywordize-keys true)
-                        :text (when (= "pi.assistant" (.-kind e))
-                                (->> (array-seq (.-content (aget (.-model e) 0)))
-                                     (filter #(= "text" (.-type %)))
-                                     (map #(.-text %))
-                                     (apply str)))})))))
+                        :text (when-let [message (some-> (.-model e) (aget 0))]
+                                (let [content (.-content message)]
+                                  (if (string? content)
+                                    content
+                                    (->> (array-seq content)
+                                         (filter #(= "text" (.-type %)))
+                                         (map #(.-text %))
+                                         (apply str)))))})))))
 
-(defn- ^:async until
-  [pred]
-  (let [started (js/Date.now)]
-    (loop []
-      (cond
-        (await (pred)) true
-        (< 20000 (- (js/Date.now) started)) (throw (js/Error. "nothing after 20 s"))
-        :else (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve 100))))
-                  (recur))))))
+(defn- notes
+  [entries]
+  (filterv #(= migration/restored-kind (:kind %)) entries))
 
-(deftest a-machine-of-before-is-adopted-test
+(defn- touch!
+  [file text]
+  (fs/mkdirSync (path/dirname file) #js {:recursive true})
+  (fs/writeFileSync file text))
+
+(defn- artifacts-of
+  [home id & more]
+  (apply path/join (home/artifacts-dir (home/work-dir (home/bot-dir home id))) more))
+
+(deftest a-machine-of-one-conversation-gets-its-bots-back-test
   (async done
     (-> ((^:async fn []
            (let [home (test-home/make)
                  {:keys [faux models]} (tools-test/faux-models)]
              (binding [sprite/*sprite-env* "no-such-command-anywhere"]
                (try
-                 ;; a machine as the manager left it: the loop (its manager), two workers
+                 ;; the machine on disk, so that it opens again as it was left
                  (await (machine/open! {:home home :models models :provider "faux"}))
-                 (let [loop (machine/loop-id)
-                       harness (:harness (machine/agent))
-                       ;; the loop on the faux model, kept across the opens as a pick of the person's
-                       _ (bots/set-metadata! home loop "model" "faux-1")
+                 (let [harness (:harness (machine/agent))
+                       {one :id} (await (machine/create! {:name "Assistant"}))
                        {w1 :id} (await (machine/create! {:name "Template 202" :instructions "Build the 202 template."}))
-                       {w2 :id} (await (machine/create! {:name "Local events" :instructions "Find the events."}))]
-                   (await (.commit harness
-                                   (^:async fn [tx]
-                                     (await (machine/relate-in! tx w1 {:parent loop :project "Guest reviews"}))
-                                     (await (machine/relate-in! tx w2 {:parent loop}))
-                                     js/undefined)
-                                   harness/context))
-                   (await (machine/refresh-structure! harness))
-                   (let [covers (path/join (home/artifacts-dir (home/work-dir (home/bot-dir home w1))) "covers")]
-                     (fs/mkdirSync covers #js {:recursive true})
-                     (fs/writeFileSync (path/join covers "a.png") "png"))
-                   (fs/writeFileSync (path/join (home/artifacts-dir (home/work-dir (home/bot-dir home w2))) "notes.md") "notes")
-                   (bots/set-metadata! home w1 "model" "faux-1")
-                   (bots/set-metadata! home w2 "model" "faux-1")
+                       {w2 :id} (await (machine/create! {:name "Local events" :instructions "Find the events."}))
+                       {w3 :id} (await (machine/create! {:name "Stories A" :instructions "The stories of flat A."}))
+                       {w4 :id} (await (machine/create! {:name "Stories B" :instructions "The stories of flat B."}))
+                       weekly (str "weekly-" w3)]
+                   (doseq [id [one w1]]
+                     (bots/set-metadata! home id "model" "faux-1"))
+                   ;; what the one conversation held: the schedules and hooks the adoption
+                   ;; moved to it and two of its own
                    (.setResponses faux #js [(tools-test/tool-call "schedule" {:action "set" :name "daily" :cron "0 9 * * *" :tz "UTC" :text "Post the day's story."} "s1")
+                                            (tools-test/tool-call "schedule" {:action "set" :name weekly :cron "0 9 * * 1" :tz "UTC" :text "The week's stories."} "s2")
+                                            (tools-test/tool-call "schedule" {:action "set" :name "lint" :cron "0 8 * * 1" :tz "UTC" :text "Lint the wiki."} "s3")
+                                            (tools-test/tool-call "hook" {:action "create" :name "reviews" :purpose "A new review"} "h1")
+                                            (tools-test/tool-call "hook" {:action "create" :name "own" :purpose "A word for the conversation"} "h2")
                                             (tools-test/answer "Set.")])
-                   (is (= "Set." (await (harness/ask-in (:conversation (machine/bot w1)) "Every day at nine."))))
-                   (.setResponses faux #js [(tools-test/tool-call "hook" {:action "create" :name "reviews" :purpose "A new review"} "h1")
-                                            (tools-test/answer "Made.")])
-                   (is (= "Made." (await (harness/ask-in (:conversation (machine/bot w2)) "A hook for reviews."))))
-                   (let [secret (.. (await (.snapshot harness hooks/Hooks (js/Number w2) harness/context)) -reviews -secret)]
-                     ;; as a machine from before this version: no flag, no marker
+                   (is (= "Set." (await (harness/ask-in (:conversation (machine/bot one)) "Set them."))))
+                   (let [secret (.. (await (.snapshot harness hooks/Hooks (js/Number one) harness/context)) -reviews -secret)
+                         adopted-at (js/Date.now)]
+                     ;; the handover the adoption started right after its commit, and what the
+                     ;; one conversation set itself since, in a topic that came from a bot:
+                     ;; a reminder and a hook, each a message, as the loop set them
+                     (.setResponses faux #js [(tools-test/answer "ready")])
+                     (await (compaction/start! harness (js/Number one) "migration" harness/context {:instruction "The handover."}))
+                     (let [started (js/Date.now)]
+                       (loop []
+                         (when (and (await (compaction/running? harness (js/Number one) harness/context)) (< (- (js/Date.now) started) 15000))
+                           (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                           (recur))))
+                     (.setResponses faux #js [(tools-test/tool-call "schedule" {:action "set" :name "reminder" :cron "0 9 * * 1" :tz "UTC" :text "Remind Max of the covers." :mode "message"} "s4")
+                                              (tools-test/tool-call "hook" {:action "create" :name "late" :purpose "A late word" :mode "message"} "h3")
+                                              (tools-test/answer "Set too.")])
+                     (is (= "Set too." (await (harness/ask-in (:conversation (machine/bot one)) "And a reminder."))))
+                     ;; the machine as the adoption left it (0.1.58): the one conversation the
+                     ;; structure's manager, every other bot a topic and archived, what it moved
+                     ;; marked as a message with the topic
                      (await (.commit harness
                                      (^:async fn [tx]
-                                       (js-delete (await (.doc tx machine/Structure)) "migrated")
+                                       (let [^js structure (await (.doc tx machine/Structure))
+                                             ^js schedules (await (.doc tx schedule/Schedules (js/Number one)))
+                                             ^js hooks (await (.doc tx hooks/Hooks (js/Number one)))]
+                                         (js-delete structure "restored")
+                                         (aset structure "manager" (js/Number one))
+                                         (aset structure "migrated" "0.1.58")
+                                         (aset structure "archived" (clj->js (mapv js/Number [w1 w2 w3 w4])))
+                                         (aset structure "botTopics" (clj->js {w1 "guest-reviews" w2 "local-events" w3 "content-week" w4 "content-week"}))
+                                         (aset structure "topics" (clj->js {"guest-reviews" {:name "Guest reviews" :created adopted-at :archived false}
+                                                                            "local-events" {:name "Local events" :created adopted-at :archived false}
+                                                                            "content-week" {:name "Content week" :created adopted-at :archived false}
+                                                                            "pinterest" {:name "Pinterest short" :created (+ adopted-at 60000) :archived false}}))
+                                         (doto (aget schedules "daily") (aset "mode" "message") (aset "topic" "guest-reviews"))
+                                         (doto (aget schedules weekly) (aset "mode" "message") (aset "topic" "content-week"))
+                                         (doto (aget hooks "reviews") (aset "mode" "message") (aset "topic" "local-events"))
+                                         ;; the loop's own, in the topics of two bots
+                                         (aset (aget schedules "reminder") "topic" "guest-reviews")
+                                         (aset (aget hooks "late") "topic" "local-events"))
                                        js/undefined)
                                      harness/context))
-                     (fs/rmSync (migration/marker home) #js {:force true})
+                     (touch! (artifacts-of home one "guest-reviews" "covers" "a.png") "png")
+                     (touch! (artifacts-of home one "guest-reviews" "keep.txt") "the conversation's")
+                     (touch! (artifacts-of home w1 "keep.txt") "the bot's")
+                     (touch! (artifacts-of home one "local-events" "notes.md") "notes")
+                     (touch! (artifacts-of home one "content-week" "x.txt") "shared")
+                     (touch! (artifacts-of home one "pinterest" "pin.png") "made since")
+                     ;; the wiki in the one conversation's folder, where it lay
+                     (fs/renameSync (wiki/dir home) (wiki/before (home/bot-dir home one)))
+                     (fs/writeFileSync (path/join (wiki/before (home/bot-dir home one)) "brand.md") "# Brand\n")
+                     ;; the adoption's mark in the home
+                     (fs/writeFileSync (migration/adopted-marker home) "0.1.58\n")
                      (await (machine/close-all!))
-                     ;; the handover's turn and the summary
-                     (.setResponses faux #js [(tools-test/answer "ready")
-                                              (tools-test/answer "The topics' pages hold what the workers did.")])
+                     ;; this version opens it: no answer is scripted, no bot may be asked one
+                     (.setResponses faux #js [])
                      (await (machine/open! {:home home :models models :provider "faux"}))
                      (let [harness (:harness (machine/agent))
-                           {:keys [topics archived bot-topics migrated]} (machine/current-structure)]
-                       (testing "a topic per worker, archived, the moves recorded, the version marked"
-                         (is (= {"guest-reviews" "Guest reviews" "local-events" "Local events"} (into {} (map (fn [[k v]] [k (:name v)])) topics)))
-                         (is (= #{w1 w2} archived))
-                         (is (= {w1 "guest-reviews" w2 "local-events"} bot-topics))
-                         (is (true? (machine/bots-before?)) "which is what gives the settings their Advanced section")
-                         (is (false? (machine/advanced?)) "its switch off")
-                         (is (= version/version migrated))
-                         (is (fs/existsSync (migration/marker home))))
-                       (testing "the artifacts under the loop's topic folders"
-                         (is (= "png" (fs/readFileSync (path/join (home/bot-dir home loop) "work" "artifacts" "guest-reviews" "covers" "a.png") "utf8")))
-                         (is (= "notes" (fs/readFileSync (path/join (home/bot-dir home loop) "work" "artifacts" "local-events" "notes.md") "utf8")))
-                         (is (not (fs/existsSync (path/join (home/bot-dir home w1) "work" "artifacts" "covers")))))
-                       (testing "the schedule on the loop in message mode with the topic, the worker's gone"
-                         (let [on-loop (await (harness/schedules harness (js/Number loop)))
-                               daily (aget on-loop "daily")]
-                           (is (some? daily))
-                           (is (= "message" (.-mode daily)))
-                           (is (= "guest-reviews" (.-topic daily)))
-                           (is (= "0 9 * * *" (.-cron daily))))
-                         (is (empty? (js/Object.keys (or (await (harness/schedules harness (js/Number w1))) #js {})))))
-                       (testing "the hook on the loop with its secret and topic, the worker's gone"
-                         (let [on-loop (await (.snapshot harness hooks/Hooks (js/Number loop) harness/context))
-                               reviews (aget on-loop "reviews")]
-                           (is (= secret (.-secret reviews)))
-                           (is (= "local-events" (.-topic reviews))))
-                         (is (empty? (js/Object.keys (or (await (.snapshot harness hooks/Hooks (js/Number w2) harness/context)) #js {})))))
-                       (testing "the backup beside the home"
+                           {:keys [archived restored restored-bots bot-topics manager]} (machine/current-structure)
+                           schedules-of (^:async fn [id] (js->clj (or (await (harness/schedules harness (js/Number id))) #js {})))
+                           hooks-of (^:async fn [id] (js->clj (or (await (.snapshot harness hooks/Hooks (js/Number id) harness/context)) #js {})))]
+                       (testing "the home was copied first: the database and the definitions as they were, the wiki where it lay"
                          (let [to (migration/backup-dir home)]
-                           (is (fs/existsSync (path/join to "bots" w1 "AGENT.md")))
-                           (is (fs/existsSync (path/join to "agent.sqlite")))))
-                       (testing "the handover: the notice in the loop's chat with the topics, the loop's ready, the compaction asked (a chat this small compacts to nothing)"
-                         (let [conversation (:conversation (machine/bot loop))]
-                           (await (until (fn [] (-> (compaction/running? harness (js/Number loop) harness/context)
-                                                    (.then (fn [running?] (not running?)))))))
-                           (await (.waitForIdle conversation harness/context))
-                           (let [es (await (entries conversation))
-                                 notice (first (filter #(= compaction/notice-kind (:kind %)) es))
-                                 content (str (some-> notice :data))]
-                             (is (= {:reason "migration"} (:data notice)))
-                             (is (some #(and (= "pi.assistant" (:kind %)) (= "ready" (:text %))) es) (pr-str (map :kind es)))
-                             (is (string? content)))))
+                           (is (fs/existsSync (path/join to "agent.sqlite")))
+                           (is (str/includes? (fs/readFileSync (path/join to "bots" w1 "AGENT.md") "utf8") "Build the 202 template."))
+                           (is (= "# Brand\n" (fs/readFileSync (path/join to "bots" one "wiki" "brand.md") "utf8")))
+                           (is (fs/existsSync (migration/marker home)) "and the home says the restore ran")
+                           (is (nil? (migration/backup! home)) "no second copy")))
+                       (testing "the bots are no archived chats any more; the restore is marked, once"
+                         (is (= #{} archived))
+                         (is (= version/version restored))
+                         (is (= one manager) "the one conversation stays the chat the machine began with")
+                         (is (= {w1 "guest-reviews" w2 "local-events"} restored-bots) "the bots with a topic to themselves got their folder back")
+                         (is (= 4 (count bot-topics)) "what was adopted stays on record")
+                         (is (= #{false} (set (map :archived? (machine/listed))))))
+                       (testing "a schedule the adoption moved is the bot's again, a run as it was; the conversation's own stays, a message as it was"
+                         (let [on-one (await (schedules-of one))
+                               on-w1 (await (schedules-of w1))
+                               on-w3 (await (schedules-of w3))]
+                           (is (= #{"lint" "reminder"} (set (keys on-one))) "the reminder the conversation set in a bot's topic stays: as a run its words would reach nobody")
+                           (is (= "message" (get-in on-one ["lint" "mode"])))
+                           (is (= "message" (get-in on-one ["reminder" "mode"])))
+                           (is (= ["daily"] (keys on-w1)))
+                           (is (= {"cron" "0 9 * * *" "tz" "UTC" "text" "Post the day's story." "mode" "run"} (dissoc (get on-w1 "daily") "taskId")))
+                           (is (some? (get-in on-w1 ["daily" "taskId"])) "with a task of the bot's that waits for the fire")
+                           (is (= ["weekly"] (keys on-w3)) "of a topic two bots shared: the one whose id the name ended in, the name as it was")
+                           (is (empty? (await (schedules-of w4))))))
+                       (testing "a hook goes back with its secret, so its address keeps working"
+                         (let [on-one (await (hooks-of one))
+                               on-w2 (await (hooks-of w2))]
+                           (is (= #{"own" "late"} (set (keys on-one))) "the hook the conversation made in a bot's topic stays")
+                           (is (= "message" (get-in on-one ["own" "mode"])))
+                           (is (= ["reviews"] (keys on-w2)))
+                           (is (= secret (get-in on-w2 ["reviews" "secret"])))
+                           (is (= "run" (get-in on-w2 ["reviews" "mode"])))
+                           (is (= "A new review" (get-in on-w2 ["reviews" "purpose"])))))
+                       (testing "the artifacts of a topic one bot had: back in the bot's folder, a name taken there left where it is"
+                         (is (= "png" (fs/readFileSync (artifacts-of home w1 "covers" "a.png") "utf8")))
+                         (is (= "the bot's" (fs/readFileSync (artifacts-of home w1 "keep.txt") "utf8")))
+                         (is (= "the conversation's" (fs/readFileSync (artifacts-of home one "guest-reviews" "keep.txt") "utf8")))
+                         (is (= "notes" (fs/readFileSync (artifacts-of home w2 "notes.md") "utf8")))
+                         (is (not (fs/existsSync (artifacts-of home one "local-events"))) "the emptied folder is gone"))
+                       (testing "the folder of a topic two bots shared, and of a topic made since, stays with the conversation"
+                         (is (= "shared" (fs/readFileSync (artifacts-of home one "content-week" "x.txt") "utf8")))
+                         (is (= "made since" (fs/readFileSync (artifacts-of home one "pinterest" "pin.png") "utf8"))))
+                       (testing "an address of before still leads to its file"
+                         (is (= (str "/bot/" w2 "/artifacts/notes.md") (page/moved-artifact one (machine/bot one) "artifacts/local-events/notes.md")) "into a folder that went back to its bot")
+                         (is (= (str "/bot/" one "/artifacts/content-week/x.txt") (page/moved-artifact w3 (machine/bot w3) "artifacts/x.txt")) "of a bot whose folder stayed")
+                         (is (nil? (page/moved-artifact w1 (machine/bot w1) "artifacts/covers/a.png")) "a file that is where its address says")
+                         (is (nil? (page/moved-artifact w1 (machine/bot w1) "artifacts/nowhere.png")) "a restored bot's own miss is a miss")
+                         (is (nil? (page/moved-artifact one (machine/bot one) "artifacts/pinterest/pin.png"))))
+                       (testing "the wiki is the machine's, with what it held, and reads at its place of before"
+                         (is (= "# Brand\n" (fs/readFileSync (path/join (wiki/dir home) "brand.md") "utf8")))
+                         (is (.isSymbolicLink (fs/lstatSync (wiki/before (home/bot-dir home one)))))
+                         (is (= 1 (wiki/commits home))))
+                       (testing "the one conversation is a bot like the others: its file its own, its name kept"
+                         (let [{:keys [name description renamed? model]} (definition/definition (path/join (home/bot-dir home one) "AGENT.md"))]
+                           (is (= "Assistant" name))
+                           (is (true? renamed?))
+                           (is (= bots/first-chat-description description))
+                           (is (= "faux-1" model) "the model the person picked for it"))
+                         (is (= "Assistant" (machine/label-of one)) "by its name, generic as it is")
+                         (is (= bots/first-chat-description (:description (:definition (machine/bot one)))) "read at once"))
+                       (testing "a note in every restored chat and in the conversation's, which starts no turn"
+                         (let [es (loop [[id & more] [one w1 w2 w3 w4]
+                                         found {}]
+                                    (if (nil? id)
+                                      found
+                                      (recur more (assoc found id (await (entries (:conversation (machine/bot id))))))))
+                               note-of (fn [id] (:text (first (notes (get es id)))))]
+                           (is (= [1 1 1 1 1] (map #(count (notes (get es %))) [one w1 w2 w3 w4])))
+                           (is (not-any? #(= "pi.assistant" (:kind %)) (get es w1)) "no bot answered: nobody asked")
+                           (is (= {:topic "guest-reviews" :from one} (:data (first (notes (get es w1))))))
+                           (is (str/includes? (note-of w1) "as the topic \"Guest reviews\""))
+                           (is (str/includes? (note-of w1) (str (wiki/dir home) "/topics/")))
+                           (is (str/includes? (note-of w1) (str "the bot " one ": `bot transcript` reads it")))
+                           (is (str/includes? (note-of w1) "Your artifacts are under artifacts/ again"))
+                           (is (str/includes? (note-of w1) "the schedules daily"))
+                           (is (str/includes? (note-of w2) "the hooks reviews"))
+                           (is (str/includes? (note-of w3) (str "Your artifacts stayed with the bot " one ", under its artifacts/content-week/")))
+                           (is (str/includes? (note-of w3) "the schedules weekly"))
+                           (is (str/includes? (note-of one) "you are one of them now"))
+                           (is (str/includes? (note-of one) (str "guest-reviews to Template 202 (bot " w1 "), with artifacts/guest-reviews/")))
+                           (is (str/includes? (note-of one) (str "content-week to Stories A (bot " w3 ")")))
+                           (is (str/includes? (note-of one) "Their schedules went with them: daily, weekly."))
+                           (is (str/includes? (note-of one) (str "shared by every bot: " (wiki/dir home))))))
+                       (testing "the bot reads its note at its next turn"
+                         (let [asked (atom nil)]
+                           (.setResponses faux #js [(fn [context]
+                                                      (reset! asked (js/JSON.stringify (.-messages context)))
+                                                      (tools-test/answer "Back."))])
+                           (is (= "Back." (await (harness/ask-in (:conversation (machine/bot w1)) "Hello again."))))
+                           (is (str/includes? @asked "A note from rragent, not from the person"))
+                           (is (str/includes? @asked "Hello again."))
+                           (is (< (.indexOf @asked "A note from rragent") (.indexOf @asked "Hello again.")))))
                        (testing "opened again: nothing twice"
                          (await (machine/close-all!))
                          (await (machine/open! {:home home :models models :provider "faux"}))
-                         (let [{:keys [topics archived]} (machine/current-structure)
-                               conversation (:conversation (machine/bot loop))]
-                           (is (= 2 (count topics)))
-                           (is (= #{w1 w2} archived))
-                           (is (= 1 (count (filter #(= compaction/notice-kind (:kind %)) (await (entries conversation)))))))))))
+                         (let [harness (:harness (machine/agent))]
+                           (is (= 1 (count (notes (await (entries (:conversation (machine/bot w1))))))))
+                           (is (= 1 (count (notes (await (entries (:conversation (machine/bot one))))))))
+                           (is (= ["daily"] (vec (js/Object.keys (await (harness/schedules harness (js/Number w1)))))))
+                           (is (= "run" (.. (await (harness/schedules harness (js/Number w1))) -daily -mode)))
+                           (is (= "Assistant" (machine/label-of one))))))))
                  (finally
                    (await (machine/close-all!))
                    (fs/rmSync (migration/backup-dir home) #js {:recursive true :force true})
                    (test-home/remove! home)))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest backup-test
+  (let [home (test-home/make)]
+    (try
+      (fs/mkdirSync (path/join home "bots" "1") #js {:recursive true})
+      (fs/writeFileSync (path/join home "bots" "1" "AGENT.md") "---\nname: x\n---\n")
+      (fs/writeFileSync (home/database home) "db")
+      (testing "a home the adoption never marked: nothing to restore, nothing copied"
+        (is (nil? (migration/backup! home)))
+        (is (not (fs/existsSync (migration/backup-dir home)))))
+      (testing "a home it marked: copied once"
+        (fs/writeFileSync (migration/adopted-marker home) "0.1.58\n")
+        (is (= (migration/backup-dir home) (migration/backup! home)))
+        (is (= "db" (fs/readFileSync (path/join (migration/backup-dir home) "agent.sqlite") "utf8")))
+        (is (fs/existsSync (path/join (migration/backup-dir home) "bots" "1" "AGENT.md")))
+        (is (nil? (migration/backup! home)) "the folder is there"))
+      (testing "a home the restore marked: nothing"
+        (fs/rmSync (migration/backup-dir home) #js {:recursive true :force true})
+        (fs/writeFileSync (migration/marker home) "x\n")
+        (is (nil? (migration/backup! home))))
+      (finally
+        (fs/rmSync (migration/backup-dir home) #js {:recursive true :force true})
+        (test-home/remove! home)))))
+
+(deftest a-machine-with-its-manager-test
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [models]} (tools-test/faux-models)]
+             (try
+               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
+               (let [harness (:harness (machine/agent))
+                     {manager :id} (await (machine/create! {:name "Manager" :instructions "You manage."}))
+                     {worker :id} (await (machine/create! {:name "Template 202" :instructions "Build the 202 template."}))
+                     restore! (fn [] (migration/restore! {:harness harness
+                                                          :home home
+                                                          :structure-doc machine/Structure
+                                                          :ids (map :id (machine/listed))
+                                                          :names (into {} (map (juxt :id :name)) (machine/listed))
+                                                          :context harness/context}))]
+                 (testing "a machine opened by this version from the start: marked, nothing to restore"
+                   (is (= version/version (:restored (machine/current-structure))))
+                   (is (nil? (await (restore!)))))
+                 ;; a machine of 0.1.55: a manager, never one conversation
+                 (await (.commit harness
+                                 (^:async fn [tx]
+                                   (let [^js structure (await (.doc tx machine/Structure))]
+                                     (js-delete structure "restored")
+                                     (aset structure "manager" (js/Number manager)))
+                                   js/undefined)
+                                 harness/context))
+                 (testing "the manager is a bot like the others: its file its own, nothing else touched"
+                   (is (= {:first-chat manager :bots []} (await (restore!))))
+                   (await (machine/refresh-structure! harness))
+                   (is (= version/version (:restored (machine/current-structure))))
+                   (is (= "Assistant" (:name (definition/definition (path/join (home/bot-dir home manager) "AGENT.md")))))
+                   (is (str/includes? (fs/readFileSync (path/join (home/bot-dir home worker) "AGENT.md") "utf8") "Build the 202 template."))
+                   (is (empty? (notes (await (entries (:conversation (machine/bot manager)))))) "no note: nothing was adopted"))
+                 (testing "once"
+                   (is (nil? (await (restore!))))))
+               (finally
+                 (await (machine/close-all!))
+                 (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))
         (.finally done))))

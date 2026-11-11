@@ -21,7 +21,12 @@
          (person/with-name [{:type "image" :data "x"}] "Harry")) "a text block of the name first")
   (is (= "Hi" (person/strip-name "Harry: Hi" "Harry")))
   (is (= "Harry: Hi" (person/strip-name "Harry: Hi" "Max")) "another name's prefix stays")
-  (is (= "Hi" (person/strip-name "Hi" nil))))
+  (is (= "Hi" (person/strip-name "Hi" nil)))
+  (testing "a label of the time the machine was one conversation, the topic behind the name or alone"
+    (is (= "The covers, please." (person/strip-label "Lydia (Content week): The covers, please.")))
+    (is (= "A Pinterest short." (person/strip-label "(new topic): A Pinterest short.")))
+    (is (= "Hi: there" (person/strip-label "Harry: Hi: there")) "the first label alone")
+    (is (= "No label here" (person/strip-label "No label here")))))
 
 (deftest back-path-test
   (is (= "/bot/7" (person/back-path "/bot/7")))
@@ -40,12 +45,4 @@
   (testing "without: as before"
     (let [draft (person/draft "Hi" nil)]
       (is (= "Hi" (.-content draft)))
-      (is (nil? (.-entry draft)))))
-  (testing "from the \"New topic\" view: the label says so, the entry carries the view's token and no topic"
-    (let [draft (person/draft "A sale." "Harry" {:fresh "t-1"})]
-      (is (= "Harry (new topic): A sale." (.-content draft)))
-      (is (= "t-1" (.. draft -entry -data -fresh)))
-      (is (= ["name" "fresh"] (js->clj (js/Object.keys (.. draft -entry -data)))) "no key without a value: the entry's data is strict JSON"))
-    (let [draft (person/draft "A sale." nil {:fresh "t-1"})]
-      (is (= "(new topic): A sale." (.-content draft)))
-      (is (= ["fresh"] (js->clj (js/Object.keys (.. draft -entry -data))))))))
+      (is (nil? (.-entry draft))))))

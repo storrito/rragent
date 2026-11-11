@@ -1,10 +1,10 @@
 (ns rragent.compaction-test
-  "The compaction of the loop (docs/one-loop.md §4,
-   `rragent.compaction`): an answer that read more than the budget
-   starts the compaction task, which has the loop write its wiki first
-   (the notice entry, the loop's \"ready\") and then compacts; the
-   budget is a share of the model's window unless RRAGENT_CONTEXT_TOKENS
-   names one."
+  "The compaction of a bot (docs/bots.md §5, `rragent.compaction`): an
+   answer that read more than the budget starts the compaction task,
+   which has the bot write the wiki first (the notice entry, the
+   bot's \"ready\") and then compacts; a conversation that is no
+   bot's, a task's, is compacted at once; the budget is a share of the
+   model's window unless RRAGENT_CONTEXT_TOKENS names one."
   (:require [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
@@ -52,7 +52,7 @@
         :else (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve 100))))
                   (recur))))))
 
-(deftest the-loop-writes-the-wiki-before-a-compaction-test
+(deftest a-bot-writes-the-wiki-before-a-compaction-test
   (async done
     (-> ((^:async fn []
            (let [home (test-home/make)
@@ -60,10 +60,14 @@
                  ;; some 25,000 tokens each, four characters a token
                  long-text (fn [word] (str/join " " (repeat 25000 word)))
                  before (aget (.-env js/process) "RRAGENT_CONTEXT_TOKENS")]
-             (aset (.-env js/process) "RRAGENT_CONTEXT_TOKENS" "40000")
+             ;; the budget between what the first answer read and the second: the
+             ;; faux model counts a prompt it sees first as read and as written to
+             ;; its cache, so one long text with the bot's prompt reads as some 78,000
+             ;; tokens, the two as some 101,000
+             (aset (.-env js/process) "RRAGENT_CONTEXT_TOKENS" "90000")
              (try
-               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage)}))
-               (let [loop (machine/loop-id)
+               (await (machine/open! {:home home :models models :provider "faux" :storage (harness/memory-storage) :wiki? false}))
+               (let [loop (:id (first (machine/listed)))
                      _ (bots/set-metadata! home loop "model" "wide-1")
                      conversation (:conversation (machine/bot loop))]
                  (.setResponses faux #js [(tools-test/answer "Noted.")
@@ -78,12 +82,15 @@
                        kinds (mapv :kind es)
                        notice (.indexOf kinds compaction/notice-kind)
                        compacted (.indexOf kinds "pi.compaction")]
-                   (testing "the notice first, the loop's ready, then the compaction"
+                   (testing "the notice first, the bot's ready, then the compaction"
                      (is (<= 0 notice) (pr-str kinds))
                      (is (< notice compacted))
                      (is (= {:reason "budget"} (:data (nth es notice))))
                      (is (some #(and (= "pi.assistant" (:kind %)) (= "ready" (:text %))) es))
                      (is (some #(and (= "pi.compaction" (:kind %))) es)))
+                   (testing "a bot is a conversation nobody owns; a task's is none"
+                     (is (true? (await (compaction/bot? (:harness (machine/agent)) (js/Number loop) harness/context))))
+                     (is (false? (await (compaction/bot? (:harness (machine/agent)) 999999 harness/context))) "no such conversation"))
                    (testing "once: no second task while the first is under way"
                      (is (false? (await (compaction/running? (:harness (machine/agent)) (js/Number loop) harness/context))) "the task ended")
                      (is (= 0 (.getPendingResponseCount faux)) "every scripted answer used, the summary among them"))))
