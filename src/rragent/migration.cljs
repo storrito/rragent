@@ -11,7 +11,11 @@
    - a schedule or a hook the adoption moved is the bot's again, a
      run of its own as it was (the adoption wrote `message` and the
      topic into every one it moved; the mode of before is not kept
-     anywhere, and a run was what a bot's job was written for);
+     anywhere, and a run was what a bot's job was written for). One
+     the conversation set itself in such a topic carries the same two
+     marks, a reminder for one, and stays where it is: as a run its
+     words would reach nobody. The two are told apart by their age
+     (`moved?`);
    - its artifacts come back from `artifacts/<topic>/`, with what was
      made there since;
    - a note in its chat says what happened, read by the model at its
@@ -129,6 +133,21 @@
             (when (:alone? (first of-topic))
               (first of-topic)))))))
 
+(defn moved?
+  "Whether the adoption moved the schedule or hook `entry` (a draft
+   of the document's entry), not the conversation that set it itself
+   in an adopted topic since: both carry `message` and the topic. A
+   schedule's task (`taskId`) is older than the handover's
+   (`:handover`, the id of the compaction task the adoption started
+   right after its commit, which made the moved schedules' tasks); a
+   hook was made (`createdAt`) no later than the adoption
+   (`:adopted-at`, the time it gave its topics). Without the mark to
+   compare with, every one counts as moved."
+  [^js entry {:keys [handover adopted-at]}]
+  (if (some? (.-cron entry))
+    (or (nil? handover) (nil? (.-taskId entry)) (< (.-taskId entry) handover))
+    (or (nil? adopted-at) (nil? (.-createdAt entry)) (<= (.-createdAt entry) adopted-at))))
+
 (defn name-before
   "The name a schedule or a hook had before the adoption: without the
    `-<id>` the adoption put behind a name taken, when the bot's own
@@ -216,6 +235,15 @@
   [doc]
   (vec (js/Object.entries (or doc #js {}))))
 
+(defn- ^:async handover-task
+  "The id of the compaction task the adoption started for its handover
+   in the conversation `id` (its reason `migration`); nil without one."
+  [harness id context]
+  (let [page (await (.commit harness
+                             (fn [tx] (.scanTasks tx #js {:conversationId id :kind "rragent.compaction" :order "ascending"} 50))
+                             context))]
+    (some #(when (= "migration" (some-> (.-input %) .-reason)) (.-id %)) (array-seq (.-items page)))))
+
 (defn ^:async restore!
   "The restore, after the bots opened: nothing when the structure says
    `restored`. `structure-doc` is the machine's document token
@@ -233,6 +261,13 @@
             topic-name (fn [slug] (or (some-> (.-topics doc) (aget slug) .-name str not-empty) slug))
             plan (if adopted? (plan bot-topics ids names) [])
             first-key (some-> first-chat js/Number)
+            ;; what tells a schedule or a hook the adoption moved from one set since
+            marks (when adopted?
+                    {:handover (await (handover-task harness first-key context))
+                     :adopted-at (some (fn [slug] (some-> (.-topics doc) (aget slug) .-created)) (vals bot-topics))})
+            back (fn [name ^js entry]
+                   (when (moved? entry marks)
+                     (owner plan name (.-topic entry) (.-mode entry))))
             now (js/Date.now)
             moved (atom {:schedules [] :hooks []})
             given (atom {})]
@@ -243,7 +278,7 @@
           ;; the commit that sets them again on their bots
           (let [schedules (await (.snapshot harness schedule/Schedules first-key context))]
             (doseq [[name entry] (entries schedules)]
-              (when (owner plan name (.-topic entry) (.-mode entry))
+              (when (back name entry)
                 (when-let [task-id (.-taskId entry)]
                   (try
                     (await (.abortTask harness task-id context))
@@ -257,7 +292,7 @@
                               (reset! moved {:schedules [] :hooks []})
                               (reset! given {})
                               (doseq [[name entry] (entries first-schedules)]
-                                (if-let [{:keys [id]} (owner plan name (.-topic entry) (.-mode entry))]
+                                (if-let [{:keys [id]} (back name entry)]
                                   (let [^js to (await (.doc tx schedule/Schedules (js/Number id)))
                                         cron (.-cron entry) tz (or (.-tz entry) "UTC") text (.-text entry)
                                         at (schedule/next-run cron tz now)
@@ -273,7 +308,7 @@
                                   ;; the conversation's own: a message, as every fire was
                                   (aset entry "mode" "message")))
                               (doseq [[name entry] (entries first-hooks)]
-                                (if-let [{:keys [id]} (owner plan name (.-topic entry) (.-mode entry))]
+                                (if-let [{:keys [id]} (back name entry)]
                                   (let [^js to (await (.doc tx hooks/Hooks (js/Number id)))
                                         named (name-before name id (set (js/Object.keys to)))]
                                     (aset to named #js {:secret (.-secret entry) :purpose (or (.-purpose entry) "") :mode "run" :createdAt (or (.-createdAt entry) now)})

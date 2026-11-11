@@ -13,6 +13,7 @@
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.bots :as bots]
+            [rragent.compaction :as compaction]
             [rragent.definition :as definition]
             [rragent.harness :as harness]
             [rragent.home :as home]
@@ -56,6 +57,21 @@
       (is (nil? (id "daily" "guest-reviews" "run")))
       (is (nil? (id "note" nil "message")))
       (is (nil? (id "other" "a-topic-made-since" "message"))))))
+
+(deftest moved?-test
+  (let [marks {:handover 300 :adopted-at 1000}]
+    (testing "a schedule: its task older than the handover's, the adoption made it; younger, the conversation set it since"
+      (is (true? (migration/moved? #js {:cron "0 9 * * *" :taskId 290} marks)))
+      (is (false? (migration/moved? #js {:cron "0 9 * * *" :taskId 341} marks))))
+    (testing "a hook: made no later than the adoption, which kept the time it was made at"
+      (is (true? (migration/moved? #js {:secret "s" :createdAt 900} marks)))
+      (is (true? (migration/moved? #js {:secret "s" :createdAt 1000} marks)))
+      (is (false? (migration/moved? #js {:secret "s" :createdAt 1500} marks))))
+    (testing "without the mark to compare with, every one counts as moved"
+      (is (true? (migration/moved? #js {:cron "0 9 * * *" :taskId 341} {})))
+      (is (true? (migration/moved? #js {:secret "s" :createdAt 1500} {})))
+      (is (true? (migration/moved? #js {:cron "0 9 * * *"} marks)))
+      (is (true? (migration/moved? #js {:secret "s"} marks))))))
 
 (deftest name-before-test
   (is (= "weekly" (migration/name-before "weekly-4" "4" #{})) "the id the adoption put behind it goes")
@@ -121,7 +137,22 @@
                                             (tools-test/tool-call "hook" {:action "create" :name "own" :purpose "A word for the conversation"} "h2")
                                             (tools-test/answer "Set.")])
                    (is (= "Set." (await (harness/ask-in (:conversation (machine/bot one)) "Set them."))))
-                   (let [secret (.. (await (.snapshot harness hooks/Hooks (js/Number one) harness/context)) -reviews -secret)]
+                   (let [secret (.. (await (.snapshot harness hooks/Hooks (js/Number one) harness/context)) -reviews -secret)
+                         adopted-at (js/Date.now)]
+                     ;; the handover the adoption started right after its commit, and what the
+                     ;; one conversation set itself since, in a topic that came from a bot:
+                     ;; a reminder and a hook, each a message, as the loop set them
+                     (.setResponses faux #js [(tools-test/answer "ready")])
+                     (await (compaction/start! harness (js/Number one) "migration" harness/context {:instruction "The handover."}))
+                     (let [started (js/Date.now)]
+                       (loop []
+                         (when (and (await (compaction/running? harness (js/Number one) harness/context)) (< (- (js/Date.now) started) 15000))
+                           (await (js/Promise. (fn [resolve] (js/setTimeout resolve 50))))
+                           (recur))))
+                     (.setResponses faux #js [(tools-test/tool-call "schedule" {:action "set" :name "reminder" :cron "0 9 * * 1" :tz "UTC" :text "Remind Max of the covers." :mode "message"} "s4")
+                                              (tools-test/tool-call "hook" {:action "create" :name "late" :purpose "A late word" :mode "message"} "h3")
+                                              (tools-test/answer "Set too.")])
+                     (is (= "Set too." (await (harness/ask-in (:conversation (machine/bot one)) "And a reminder."))))
                      ;; the machine as the adoption left it (0.1.58): the one conversation the
                      ;; structure's manager, every other bot a topic and archived, what it moved
                      ;; marked as a message with the topic
@@ -135,13 +166,16 @@
                                          (aset structure "migrated" "0.1.58")
                                          (aset structure "archived" (clj->js (mapv js/Number [w1 w2 w3 w4])))
                                          (aset structure "botTopics" (clj->js {w1 "guest-reviews" w2 "local-events" w3 "content-week" w4 "content-week"}))
-                                         (aset structure "topics" (clj->js {"guest-reviews" {:name "Guest reviews" :created 1 :archived false}
-                                                                            "local-events" {:name "Local events" :created 2 :archived false}
-                                                                            "content-week" {:name "Content week" :created 3 :archived false}
-                                                                            "pinterest" {:name "Pinterest short" :created 4 :archived false}}))
+                                         (aset structure "topics" (clj->js {"guest-reviews" {:name "Guest reviews" :created adopted-at :archived false}
+                                                                            "local-events" {:name "Local events" :created adopted-at :archived false}
+                                                                            "content-week" {:name "Content week" :created adopted-at :archived false}
+                                                                            "pinterest" {:name "Pinterest short" :created (+ adopted-at 60000) :archived false}}))
                                          (doto (aget schedules "daily") (aset "mode" "message") (aset "topic" "guest-reviews"))
                                          (doto (aget schedules weekly) (aset "mode" "message") (aset "topic" "content-week"))
-                                         (doto (aget hooks "reviews") (aset "mode" "message") (aset "topic" "local-events")))
+                                         (doto (aget hooks "reviews") (aset "mode" "message") (aset "topic" "local-events"))
+                                         ;; the loop's own, in the topics of two bots
+                                         (aset (aget schedules "reminder") "topic" "guest-reviews")
+                                         (aset (aget hooks "late") "topic" "local-events"))
                                        js/undefined)
                                      harness/context))
                      (touch! (artifacts-of home one "guest-reviews" "covers" "a.png") "png")
@@ -181,8 +215,10 @@
                          (let [on-one (await (schedules-of one))
                                on-w1 (await (schedules-of w1))
                                on-w3 (await (schedules-of w3))]
-                           (is (= ["lint"] (keys on-one)))
+                           (is (= #{"lint" "reminder"} (set (keys on-one))) "the reminder the conversation set in a bot's topic stays: as a run its words would reach nobody")
                            (is (= "message" (get-in on-one ["lint" "mode"])))
+                           (is (= "message" (get-in on-one ["reminder" "mode"])))
+                           (is (= ["daily"] (keys on-w1)))
                            (is (= {"cron" "0 9 * * *" "tz" "UTC" "text" "Post the day's story." "mode" "run"} (dissoc (get on-w1 "daily") "taskId")))
                            (is (some? (get-in on-w1 ["daily" "taskId"])) "with a task of the bot's that waits for the fire")
                            (is (= ["weekly"] (keys on-w3)) "of a topic two bots shared: the one whose id the name ended in, the name as it was")
@@ -190,8 +226,9 @@
                        (testing "a hook goes back with its secret, so its address keeps working"
                          (let [on-one (await (hooks-of one))
                                on-w2 (await (hooks-of w2))]
-                           (is (= ["own"] (keys on-one)))
+                           (is (= #{"own" "late"} (set (keys on-one))) "the hook the conversation made in a bot's topic stays")
                            (is (= "message" (get-in on-one ["own" "mode"])))
+                           (is (= ["reviews"] (keys on-w2)))
                            (is (= secret (get-in on-w2 ["reviews" "secret"])))
                            (is (= "run" (get-in on-w2 ["reviews" "mode"])))
                            (is (= "A new review" (get-in on-w2 ["reviews" "purpose"])))))

@@ -163,10 +163,14 @@ to the home (`backup!`, for a home the adoption marked):
 - every adopted bot that is still there is taken off the archived
   list and is in the sidebar again;
 - a schedule or a hook the adoption moved is the bot's again, as a
-  run. The adoption wrote `message` and the topic into every one it
-  moved, which is how they are told from the ones the conversation
-  set itself; the mode of before is kept nowhere, and a run is what a
-  bot's job was written for;
+  run: the mode of before is kept nowhere, and a run is what a bot's
+  job was written for. The adoption wrote `message` and the topic
+  into every one it moved, and so did the conversation into the ones
+  it set itself since, a reminder in a bot's topic for one; those
+  stay with the conversation, where their words reach the person.
+  The two are told apart by their age (`moved?`): a moved schedule's
+  task is older than the task of the adoption's handover, a moved
+  hook was made before the adoption;
 - the artifacts of a topic one bot had come back into the bot's
   `artifacts/`, with what was made there since; a name taken in the
   bot's folder stays where it is;
