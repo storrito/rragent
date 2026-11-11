@@ -513,9 +513,10 @@
     []))
 
 (def ^:private name-collator
-  ;; one for every comparison: `localeCompare` with options makes a
-  ;; collator per call, forty times the time on a few thousand names,
-  ;; and the list is ordered for every frame
+  "The collator of `by-name`, one for every comparison:
+   `localeCompare` with options makes one per call, forty times the
+   time on a few thousand names, and the list is ordered for every
+   frame."
   (js/Intl.Collator. js/undefined #js {:numeric true :sensitivity "base"}))
 
 (defn by-name

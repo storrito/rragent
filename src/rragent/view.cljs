@@ -1582,8 +1582,9 @@
    (`:artifacts/filter`, `rragent.page`), the rows are the ones the
    text names instead (`found`), wherever they are: at most
    `filter-limit` of them, and a last row that says how many more
-   there are. The alias gets the text its rows are narrowed by as
-   `:ui/query`, and tells the server when the field holds another one
+   there are. The alias gets the tab's text as `:ui/query`, what its
+   rows are narrowed by whenever there is a field, and tells the
+   server when the field holds another one
    (`rragent.client.filter`). So only the rows in sight travel: a
    frame carries the whole page, and a list the browser narrowed had
    every file of the bot in every frame, a few thousand hidden rows."

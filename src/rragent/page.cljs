@@ -544,7 +544,7 @@
    `rragent.client.filter`); all of the level browsed again for a
    blank one. Kept by tab and bot (`:tab-filters`), as the field
    keeps its text, so that a tab back at a bot finds its list as it
-   left it. The next frame of that tab carries the rows the text
+   left it; of two commands the text of the one that arrives last. The next frame of that tab carries the rows the text
    names (`rragent.view/file-list`): the server narrows, so that a
    frame has the rows in sight and not every file of the bot. A text
    that is none, a placeholder the browser did not fill, or one

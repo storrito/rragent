@@ -19,8 +19,10 @@
    A server that had the text and lost it, a machine that woke,
    sends a frame narrowed by nothing and is told again. A text whose
    frame never comes is not: a command that failed, as no click is
-   sent again, or a server that went down between the command and
-   its frame. The list stays as it was then, under a field that says
+   sent again, a server that went down between the command and its
+   frame, or two commands that passed one another on their way, when
+   one frame answers both: the server keeps the text that arrives
+   last. The list stays as it was then, under a field that says
    otherwise, until the text changes."
   (:require [rframes.client.state :as state]))
 

@@ -588,7 +588,7 @@
         (is (= "b1" (:ui/bot short)) "the bot the field tells the server its text of")
         (is (false? (:ui/field? short)))
         (is (true? (:ui/field? long)))
-        (is (= "" (:ui/query long)) "what the rows are narrowed by: nothing")
+        (is (= "" (:ui/query long)) "the tab's text: none")
         (is (= view/filter-length (:ui/length long)) "how long a text the field takes")
         (is (= "Liste filtern" (:ui/placeholder (second (find-tag (i18n/translate (pane "card.html") :de) :ui/files-filter)))))))
     (testing "a text in the field: the server narrows, the rows are the ones the text names, wherever they are"
@@ -596,7 +596,7 @@
             v (narrowed "  PLAN ")
             row (some #(when (and (vector? %) (= "deep:notes/plan.md" (:replicant/key (second %)))) %) (nodes v))]
         (is (= ["deep:notes/plan.md"] (keys-of v)) "a file of another level, keyed apart from the row it is inside its folder: no node moves between the two")
-        (is (= "PLAN" (:ui/query (second (find-tag v :ui/files-filter)))) "the text the rows are narrowed by, for the field to compare its own with; case aside for the rows")
+        (is (= "PLAN" (:ui/query (second (find-tag v :ui/files-filter)))) "the tab's text, trimmed, for the field to compare its own with; case aside for the rows")
         (is (= ["md" " · " "notes/" " · " "40 B"] (rest (find-tag row :span.meta))) "a file of another level names its folder")
         (is (= "plan.md" (:download (second (last (filter #(and (vector? %) (= :a.item (first %))) (nodes row)))))) "and has its menu")
         (is (= ["notes" "deep:notes/plan.md"] (keys-of (narrowed "notes"))) "a folder of the level by its name, a file by its path")
