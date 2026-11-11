@@ -8,24 +8,31 @@
    The text is the field's, in the store of the page, so that a
    letter typed never waits for a frame; the server follows. Every
    frame says what its rows are narrowed by (`:ui/query`), and the
-   field tells the server its text when that is another one: after a
-   pause (`pause`), so that a word typed is a command or two and not
-   one per letter, and once per text (`:asked`), until the server has
-   it. So a server that lost the text, a machine that woke, learns it
-   again from the frame it sends itself. A command that fails is not
-   sent again, as no click is: the list stays as it was until the
-   text changes."
+   field tells the server its text when that is another one: not at
+   once but `wait-ms` after the first letter the server does not
+   have, with the text as it is by then. So the letters typed faster
+   than that go as one command, and no two commands of a field are
+   closer than that; typed slower, every letter is a command, and
+   the list follows the typing. A text is told once (`:asked`),
+   until a frame carries it.
+
+   A server that had the text and lost it, a machine that woke,
+   sends a frame narrowed by nothing and is told again. A text whose
+   frame never comes is not: a command that failed, as no click is
+   sent again, or a server that went down between the command and
+   its frame. The list stays as it was then, under a field that says
+   otherwise, until the text changes."
   (:require [rframes.client.state :as state]))
 
-(def pause
-  "How many milliseconds a field waits before it tells the server its
-   text."
+(def wait-ms
+  "How many milliseconds a field waits, from the first letter the
+   server does not have, before it tells the server its text."
   150)
 
 (defonce fields*
   ;; per key of a field: `:text`, what it holds, `:query`, what the
   ;; rows of the last frame are narrowed by, `:asked`, the text last
-  ;; sent to the server, and the `:timer` of a pause that runs
+  ;; sent to the server, and the `:timer` of a wait that runs
   (atom {}))
 
 (defn seen
@@ -44,7 +51,7 @@
   (and (not= text query) (not= text asked)))
 
 (defn- ask!
-  "The pause of the field under `key` is over: its text to the
+  "The wait of the field under `key` is over: its text to the
    server, when that is still due."
   [key bot]
   (swap! fields* update key dissoc :timer)
@@ -56,12 +63,12 @@
 
 (defn follow!
   "The field under `key`, of the bot `bot`, rendered with the `text`
-   it holds while the rows are narrowed by `query`: the server is
-   told after the pause when the two differ (`due?`). Called from a
-   render, so it sends nothing itself: a command changes the store,
-   and the store renders."
+   it holds while the rows are narrowed by `query`: when the two
+   differ (`due?`) the server is told after the wait, one that runs
+   already left to run. Called from a render, so it sends nothing
+   itself: a command changes the store, and the store renders."
   [key bot text query]
   (let [entry (get (swap! fields* update key seen text query) key)]
     (when (and (due? entry) (nil? (:timer entry)))
       (swap! fields* assoc-in [key :timer]
-             (js/setTimeout #(ask! key bot) pause)))))
+             (js/setTimeout #(ask! key bot) wait-ms)))))

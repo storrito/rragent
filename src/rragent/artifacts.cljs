@@ -512,11 +512,17 @@
            (vec)))
     []))
 
+(def ^:private name-collator
+  ;; one for every comparison: `localeCompare` with options makes a
+  ;; collator per call, forty times the time on a few thousand names,
+  ;; and the list is ordered for every frame
+  (js/Intl.Collator. js/undefined #js {:numeric true :sensitivity "base"}))
+
 (defn by-name
   "The order of a folder on a computer: by name, case aside, a number
    in a name as a number (`frame-2` before `frame-10`)."
   [a b]
-  (.localeCompare (str a) (str b) js/undefined #js {:numeric true :sensitivity "base"}))
+  (.compare name-collator (str a) (str b)))
 
 (defn file-name
   [p]

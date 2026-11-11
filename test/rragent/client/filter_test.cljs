@@ -1,7 +1,8 @@
 (ns rragent.client.filter-test
   "The field of the list's filter and the server that narrows the
-   list: when the field tells its text, after a pause and once per
-   text, and again when the server lost it."
+   list: when the field tells its text, a wait after the first letter
+   the server does not have and once per text, and again when the
+   server lost it."
   (:require [clojure.test :refer [async deftest is testing]]
             [rframes.client.state :as state]
             [rragent.client.filter :as list-filter]))
@@ -12,7 +13,7 @@
   (testing "the text asked for stays until the server has it"
     (is (= {:text "plan" :query "pl" :asked "plan"} (list-filter/seen {:asked "plan"} "plan" "pl")))
     (is (= {:text "plan" :query "plan"} (list-filter/seen {:asked "plan"} "plan" "plan"))))
-  (testing "a pause that runs is kept"
+  (testing "a wait that runs is kept"
     (is (= {:text "p" :query "" :timer 7} (list-filter/seen {:timer 7} "p" "")))))
 
 (deftest due-test
@@ -31,52 +32,70 @@
     (let [sent (atom [])
           texts #(mapv (fn [[_ command]] (get-in command [:command/data :text])) @sent)
           key [:artifacts-filter "7"]
-          past-pause #(wait (+ list-filter/pause 60))]
+          past-wait #(wait (+ list-filter/wait-ms 60))]
       (reset! list-filter/fields* {})
       (swap! state/store assoc :replicant/dispatch! (fn [{:keys [actions]}] (swap! sent into actions)))
       (-> ((^:async fn []
              (testing "a field that holds what the rows are narrowed by tells nothing"
                (list-filter/follow! key "7" "" "")
-               (await (past-pause))
+               (await (past-wait))
                (is (= [] @sent)))
-             (testing "the letters typed within the pause are one command, with the text the field holds at its end"
+             (testing "the letters typed within the wait are one command, with the text the field holds at its end"
                (list-filter/follow! key "7" "p" "")
                (list-filter/follow! key "7" "pl" "")
                (is (= [] @sent) "a render sends nothing itself")
-               (await (past-pause))
+               (await (past-wait))
                (is (= [[:data/command {:command/kind :artifacts/filter
                                        :command/data {:bot "7" :text "pl" :tab state/tabid}}]]
                       @sent)))
              (testing "the renders before the server's frame, and a frame of an older text, ask nothing again"
                (list-filter/follow! key "7" "pl" "")
                (list-filter/follow! key "7" "pl" "p")
-               (await (past-pause))
+               (await (past-wait))
                (is (= ["pl"] (texts))))
              (testing "a text typed on meanwhile is told; the frame of the text before it changes nothing"
                (list-filter/follow! key "7" "plan" "")
-               (await (past-pause))
+               (await (past-wait))
                (list-filter/follow! key "7" "plan" "pl")
-               (await (past-pause))
+               (await (past-wait))
                (is (= ["pl" "plan"] (texts))))
              (testing "the server has the text: nothing more; a server that lost it, a machine that woke, is told again"
                (list-filter/follow! key "7" "plan" "plan")
-               (await (past-pause))
+               (await (past-wait))
                (is (= ["pl" "plan"] (texts)))
                (list-filter/follow! key "7" "plan" "")
-               (await (past-pause))
+               (await (past-wait))
                (is (= ["pl" "plan" "plan"] (texts))))
-             (testing "a text taken back within the pause is not told"
+             (testing "a text taken back within the wait is not told"
                (list-filter/follow! key "7" "plan" "plan")
                (list-filter/follow! key "7" "plans" "plan")
                (list-filter/follow! key "7" "plan" "plan")
-               (await (past-pause))
+               (await (past-wait))
                (is (= ["pl" "plan" "plan"] (texts))))
              (testing "a field emptied tells the blank text; each bot's field for itself"
                (list-filter/follow! key "7" "" "plan")
                (list-filter/follow! [:artifacts-filter "8"] "8" "x" "")
-               (await (past-pause))
+               (await (past-wait))
                (is (= #{{:bot "7" :text "" :tab state/tabid} {:bot "8" :text "x" :tab state/tabid}}
-                      (set (map #(get-in % [1 :command/data]) (drop 3 @sent))))))))
+                      (set (map #(get-in % [1 :command/data]) (drop 3 @sent))))))
+             (testing "letters typed slower than the wait are a command each: the list follows the typing"
+               (reset! sent [])
+               (list-filter/follow! key "7" "" "")
+               (doseq [text ["s" "sh" "sho"]]
+                 (list-filter/follow! key "7" text "")
+                 (await (past-wait)))
+               (is (= ["s" "sh" "sho"] (texts))))
+             (testing "a wait that runs is left to run: a letter in it starts none of its own"
+               (reset! sent [])
+               (list-filter/follow! key "7" "sho" "sho")
+               (list-filter/follow! key "7" "shot" "sho")
+               (let [timer (get-in @list-filter/fields* [key :timer])]
+                 (is (some? timer))
+                 (list-filter/follow! key "7" "shot-" "sho")
+                 (is (identical? timer (get-in @list-filter/fields* [key :timer])) "the wait of the first letter, not one after the last"))
+               (await (past-wait))
+               (is (= ["shot-"] (texts)))
+               (is (nil? (get-in @list-filter/fields* [key :timer])) "over, the wait is gone"))))
           (.catch (fn [e] (is (nil? e) (str e))))
           (.finally (fn []
                       (swap! state/store dissoc :replicant/dispatch!)

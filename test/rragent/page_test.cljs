@@ -405,8 +405,9 @@
                              (let [frame (await (frame! #(= "Note-4" (query-of %))))]
                                (is (= {"t1" {id "Note-4"}} (:tab-filters @db/db)) "the text of the tab and the bot, trimmed")
                                (is (= ["deep:drafts/note-4.md"] (keys-of frame)) "the one file the text names, case aside"))
-                             (is (= {:success? true} (await (command! base cookie :artifacts/filter {:bot id :text "Note-4" :tab "t1"}))) "told the text it has")
-                             (is (true? (await (none-within 300))) "no frame for it")
+                             (let [before @db/db]
+                               (is (= {:success? true} (await (command! base cookie :artifacts/filter {:bot id :text "Note-4" :tab "t1"}))))
+                               (is (identical? (:tab-filters before) (:tab-filters @db/db)) "told the text it has: nothing changes, so nothing is refreshed"))
                              (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))))
                              (is (= {"t1" {id "Note-4"}} (:tab-filters @db/db)) "the tab back at the bot finds its list as it left it")
                              (is (= {:success? true} (await (command! base cookie :artifacts/filter {:bot id :text "  " :tab "t1"}))))
