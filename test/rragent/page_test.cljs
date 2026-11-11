@@ -383,6 +383,43 @@
                          (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))) "the chat built anew: every fold closed")
                          (await (frame! #(not (mentions? % ":event \"asked\""))))
                          (is (nil? (get-in @db/db [:expanded "t1"]))))
+                       (testing "the filter of the list: the server narrows it for the tab that typed, and the frame carries the rows the text names"
+                         (let [dir (path/join (home/bot-dir home id) "work" "artifacts")
+                               keys-of (fn [frame] (keep #(when (and (vector? %) (#{:li :li.folder} (first %))) (:replicant/key (second %))) (nodes (find-tag frame :ui/files-filter))))
+                               query-of #(:ui/query (second (find-tag % :ui/files-filter)))]
+                           (fs/mkdirSync (path/join dir "drafts") #js {:recursive true})
+                           (doseq [i (range 9)]
+                             (fs/writeFileSync (path/join dir "drafts" (str "note-" i ".md")) "# Note"))
+                           (artifacts/refresh! db/db (db/bot-path id) dir)
+                           (try
+                             (let [frame (await (frame! #(some #{"drafts"} (keys-of %))))]
+                               (is (true? (:ui/field? (second (find-tag frame :ui/files-filter)))) "a long list has the field")
+                               (is (= "" (query-of frame)))
+                               (is (not-any? #(str/includes? % "note-") (keys-of frame)) "the files inside a folder are no rows of the frame"))
+                             (is (= {:success? false :result {:error :no-tab}} (await (command! base cookie :artifacts/filter {:bot id :text "note-4"}))))
+                             (is (= {:success? false :result {:error :no-such-bot}} (await (command! base cookie :artifacts/filter {:bot "99" :text "note-4" :tab "t1"}))))
+                             (is (= {:success? false :result {:error :bad-text}} (await (command! base cookie :artifacts/filter {:bot id :text :event/target.value :tab "t1"}))) "a placeholder the browser did not fill is no text")
+                             (is (= {:success? false :result {:error :bad-text}} (await (command! base cookie :artifacts/filter {:bot id :text (apply str (repeat (inc view/filter-length) "n")) :tab "t1"}))) "nor is one longer than the field takes")
+                             (is (nil? (:tab-filters @db/db)))
+                             (is (= {:success? true} (await (command! base cookie :artifacts/filter {:bot id :text " Note-4 " :tab "t1"}))))
+                             (let [frame (await (frame! #(= "Note-4" (query-of %))))]
+                               (is (= {"t1" {id "Note-4"}} (:tab-filters @db/db)) "the text of the tab and the bot, trimmed")
+                               (is (= ["deep:drafts/note-4.md"] (keys-of frame)) "the one file the text names, case aside"))
+                             (let [before @db/db]
+                               (is (= {:success? true} (await (command! base cookie :artifacts/filter {:bot id :text "Note-4" :tab "t1"}))))
+                               (is (identical? (:tab-filters before) (:tab-filters @db/db)) "told the text it has: nothing changes, so nothing is refreshed"))
+                             (is (= {:success? true} (await (command! base cookie :bot/show {:id id :tab "t1"}))))
+                             (is (= {"t1" {id "Note-4"}} (:tab-filters @db/db)) "the tab back at the bot finds its list as it left it")
+                             (is (= {:success? true} (await (command! base cookie :artifacts/filter {:bot id :text "  " :tab "t1"}))))
+                             (let [frame (await (frame! #(= "" (query-of %))))]
+                               (is (= {"t1" {}} (:tab-filters @db/db)) "a blank text: no entry")
+                               (is (some #{"drafts"} (keys-of frame)) "the level browsed again"))
+                             (is (= {:success? true} (await (command! base cookie :artifacts/filter {:bot id :text "" :tab "t2"}))))
+                             (is (= {"t1" {}} (:tab-filters @db/db)) "a blank text of a tab without one changes nothing")
+                             (finally
+                               (fs/rmSync (path/join dir "drafts") #js {:recursive true :force true})
+                               (artifacts/refresh! db/db (db/bot-path id) dir)
+                               (swap! db/db dissoc :tab-filters)))))
                        (testing "a second bot by one click: made from the assistant's text, shown in this tab as New bot, its chat and its files its own"
                          (is (= {:success? true} (await (command! base cookie :bot/create {:tab "t1"}))))
                          (let [id2 (:id (second (machine/listed)))
@@ -568,6 +605,7 @@
                    (assoc-in old [:tab-limits "t1"] 700)
                    (assoc-in old [:tab-runs "t1"] nil)
                    (assoc-in old [:tab-panes "t1"] :activity)
+                   (assoc-in old [:tab-filters "t1"] {"1" "plan"})
                    (assoc-in old [:settings-section "t1"] :updates)
                    (assoc old :settings-open #{"t1"})]]
         (let [pred (page/affected old new)]
@@ -581,6 +619,10 @@
         (is (false? (pred shows-7))))
       (let [pred (page/affected (assoc-in old [:tab-limits "t1"] 700) old)]
         (is (true? (pred shows-1)) "an entry gone")
+        (is (false? (pred shows-7))))
+      (let [narrowed (assoc-in old [:tab-filters "t1"] {"1" "plan"})
+            pred (page/affected narrowed (assoc-in narrowed [:tab-filters "t1"] {}))]
+        (is (true? (pred shows-1)) "the filter's text cleared")
         (is (false? (pred shows-7))))
       (let [pred (page/affected old (-> old (assoc-in [:tab-limits "t2"] 700) (assoc-in [:bots "1" :artifacts/list] [{:path "x.html"}])))]
         (is (true? (pred shows-1)) "the bot's tabs and the tab's own, one predicate")

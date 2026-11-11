@@ -5,7 +5,8 @@
    artifacts pane, the iframe that shows a page or a project and reloads
    it in place (the canvas is rchat's), the editor of a text file in
    it (`rragent.client.editor`), the filter above the pane's
-   list (`files-filter`), and the button of a ```hiccup block that
+   list (`files-filter`, which the server narrows,
+   `rragent.client.filter`), and the button of a ```hiccup block that
    sends the boxes ticked in it.
 
    The composer takes files, the way pchat's does: an image picked,
@@ -45,6 +46,7 @@
             [rragent.client.draft :as draft]
             [rragent.client.editor :as editor]
             [rragent.client.effects :as effects]
+            [rragent.client.filter :as list-filter]
             [rragent.client.icons :as icons]
             [rragent.client.phone :as phone]
             [rragent.client.recorder :as recorder]
@@ -1157,50 +1159,31 @@
      ;; U+FE0E: the text symbol, not a colored emoji on a phone
      (if dark "\u2600\uFE0E" "\u263E\uFE0E")]))
 
-(defn- narrow
-  "The hiccup with `hidden` on every node that carries a `data-name`
-   (a row of the list) without `query` in it; without a query, the
-   rows of the other levels (`data-deep`, `rragent.view/file-list`)
-   are the hidden ones."
-  [query node]
-  (cond
-    (vector? node)
-    (let [[tag attrs & children] node
-          named? (and (map? attrs) (contains? attrs :data-name))]
-      (into (if (map? attrs)
-              [tag (cond-> attrs
-                     named? (assoc :hidden (if (str/blank? query)
-                                             (boolean (:data-deep attrs))
-                                             (not (str/includes? (str (:data-name attrs)) query)))))]
-              [tag])
-            (map #(narrow query %) (if (map? attrs) children (rest node)))))
-
-    (seq? node)
-    (map #(narrow query %) node)
-
-    :else node))
-
 (defn files-filter
-  "The list of the artifacts (`rragent.view/artifacts`, the rows as
+  "The list of the artifacts (`rragent.view/file-list`, the rows as
    the children) with a field above it that narrows the rows: the
    text lives in the store under `:ui/store-key`, per bot, so that a
-   frame does not reset it; a row whose `data-name` (its title and
-   path, lowercase) does not have the text is hidden, the rows stay
-   the server's; without a text, the rows of the other levels are.
-   The field only with `:ui/field?`, a long list; the way to the
-   folder browsed (`:ui/crumbs`) between the field and the rows."
-  [{:keys [ui/store-key ui/field? ui/placeholder ui/crumbs ui/state]} children]
-  (let [text (str (get state store-key ""))
-        query (if field? (str/lower-case (str/trim text)) "")]
+   frame does not reset it, and the server narrows: its frames carry
+   the rows the text names, and say what they are narrowed by
+   (`:ui/query`), so that the field can tell the server when it holds
+   another text (`rragent.client.filter`, the bot `:ui/bot`), no
+   longer than `:ui/length`. The field only with `:ui/field?`, a long
+   list; the way to the folder browsed (`:ui/crumbs`) between the
+   field and the rows."
+  [{:keys [ui/store-key ui/bot ui/field? ui/query ui/length ui/placeholder ui/crumbs ui/state]} children]
+  (let [text (str (get state store-key ""))]
+    (when field?
+      (list-filter/follow! store-key bot (str/trim text) (str query)))
     [:div.list
      (when field?
        [:input.filter {:type "search"
                        :value text
+                       :maxlength length
                        :placeholder placeholder
                        :aria-label placeholder
                        :on {:input [[:store/assoc store-key :event/target.value]]}}])
      crumbs
-     (into [:ul.files] (map #(narrow query %) children))]))
+     (into [:ul.files] children)]))
 
 (defn- tokens
   "A count of tokens as the Claude app writes it: 775.2k, 1M."

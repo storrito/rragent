@@ -1465,10 +1465,8 @@
    file; a double click on a project opens its files besides, the
    desktop's shortcut for the Files of its menu (the clicks before it
    open the project, so the player stays on screen, the list inside).
-   The row
-   carries its title and path as `data-name` for the filter above the
-   list (`:ui/files-filter`, `rragent.client`); a row of a file in
-   another folder is `deep?`: there for the filter alone. A row whose
+   A row of a file in another folder, which the filter above the list
+   found (`file-list`), is `deep?`. A row whose
    delete is armed asks, one being renamed is a field (`deleting`,
    `renaming`); the menu of a text file's row knows which file's text
    is in the editor (`editing`, `file-actions`)."
@@ -1482,9 +1480,7 @@
     ;; changed its place keeps a stale vdom in Replicant, so none moves
     [:li {:replicant/key (if deep? (str "deep:" path) path)
           :class (cond-> [(clojure.core/name kind)]
-                   (= path current) (conj "current"))
-          :data-name (str/lower-case (str title " " path))
-          :data-deep (when deep? "true")}
+                   (= path current) (conj "current"))}
      (cond
        (= path deleting) (file-confirm bot artifact)
        (= path renaming) (file-rename bot artifact)
@@ -1502,10 +1498,9 @@
   "A row of a folder of the level: the icon, its name, how many files
    it holds and their size; a recording's folder its time, and its
    length when known. A click opens the folder."
-  [bot {:keys [path name title kind count size duration]}]
+  [bot {:keys [path title kind count size duration]}]
   [:li.folder {:replicant/key path
-               :class [(clojure.core/name kind)]
-               :data-name (str/lower-case (str title " " name " " path))}
+               :class [(clojure.core/name kind)]}
    [:button.row {:on {:click [[:data/command {:command/kind :artifacts/open-folder
                                               :command/data {:bot bot :path path :tab :ui/tabid}}]]}}
     [:span.icon (get kind-icons kind)]
@@ -1540,27 +1535,87 @@
   "How many rows the list needs for the filter above it."
   8)
 
+(def filter-length
+  "How long the text of the filter gets: the field takes no more
+   (`:ui/length`), and the server keeps none longer
+   (`:artifacts/filter`, `rragent.page`), which names it in every
+   frame of the tab."
+  200)
+
+(def filter-limit
+  "How many rows a narrowed list shows at most. A frame carries the
+   whole page, so every row travels with every frame, and the first
+   letter of a word names most of a few thousand files: the person
+   narrows a list that long by typing on, not by reading it."
+  100)
+
+(defn- named?
+  "Whether `query`, lowercase, is in the `words` a row is known by,
+   case aside."
+  [query & words]
+  (str/includes? (str/lower-case (str/join " " words)) query))
+
+(defn- found
+  "The rows of the list narrowed by `query` (lowercase, not blank):
+   the folders and the files of the `level` browsed that it names (a
+   folder by its title, name and path, a file by its title and path),
+   then the files of the other levels it names, by path, so that the
+   filter finds a file wherever it is. Each `[kind item]`, the kind
+   `:folder`, `:file` or `:deep`."
+  [list {:keys [folders files]} query]
+  (let [here (set (map :path files))
+        file? (fn [{:keys [title path]}] (named? query title path))]
+    (concat (for [{:keys [title name path] :as folder} folders
+                  :when (named? query title name path)]
+              [:folder folder])
+            (for [file files
+                  :when (file? file)]
+              [:file file])
+            (for [file (sort-by :path artifacts/by-name (filter #(and (not (here (:path %))) (file? %)) list))]
+              [:deep file]))))
+
 (defn- file-list
   "The level of the folder browsed (`rragent.artifacts/level`): the way
    to it, its folders, then its files, in the filter alias
    (`:ui/files-filter`, `rragent.client`), whose field shows once the
-   list is long; the files of the other levels, by path, as rows the
-   filter alone shows, so that it finds a file wherever it is."
-  [bot list folder durations opts]
+   list is long. With a text in the field, `query`, the tab's
+   (`:artifacts/filter`, `rragent.page`), the rows are the ones the
+   text names instead (`found`), wherever they are: at most
+   `filter-limit` of them, and a last row that says how many more
+   there are. The alias gets the tab's text as `:ui/query`, what its
+   rows are narrowed by whenever there is a field, and tells the
+   server when the field holds another one
+   (`rragent.client.filter`). So only the rows in sight travel: a
+   frame carries the whole page, and a list the browser narrowed had
+   every file of the bot in every frame, a few thousand hidden rows."
+  [bot list folder durations query opts]
   (let [folder (if (artifacts/folder? list folder) folder "")
-        {:keys [folders files]} (artifacts/level list folder durations)
-        here (set (map :path files))
+        {:keys [folders files] :as level} (artifacts/level list folder durations)
+        field? (< filter-from (count list))
+        query (str/trim (str query))
+        narrowed? (and field? (not (str/blank? query)))
+        rows (if narrowed?
+               (found list level (str/lower-case query))
+               (concat (map #(vector :folder %) folders)
+                       (map #(vector :file %) files)))
+        more (if narrowed? (- (count rows) filter-limit) 0)
         opts (assoc opts :folder folder)]
     [:ui/files-filter {:ui/store-key [:artifacts-filter bot]
-                       :ui/field? (< filter-from (count list))
+                       :ui/bot bot
+                       :ui/field? field?
+                       :ui/query query
+                       :ui/length filter-length
                        :ui/placeholder [:i18n :artifacts/filter]
                        :ui/crumbs (crumbs bot folder)}
-     (for [f folders]
-       (folder-row bot f))
-     (for [file files]
-       (file-row bot file opts))
-     (for [file (sort-by :path artifacts/by-name (remove #(here (:path %)) list))]
-       (file-row bot file (assoc opts :deep? true)))]))
+     (for [[kind item] (cond->> rows narrowed? (take filter-limit))]
+       (case kind
+         :folder (folder-row bot item)
+         :file (file-row bot item opts)
+         :deep (file-row bot item (assoc opts :deep? true))))
+     (when (pos? more)
+       ;; no path begins with a slash, so no row has this key
+       [:li.more {:replicant/key "/more"}
+        [:i18n :artifacts/more-found {:n more}]])]))
 
 (defn- bar-title
   "The title of the artifact on screen, in the bar. A project's is a
@@ -1675,7 +1730,8 @@
    and `:artifacts/deleting`), `:projects` and `:renders`, the bot's
    `:runs` with the `:runs/current` a tab shows and which of the two
    lists it sees, `:pane/shown` (`:artifacts` or `:activity`,
-   `activity`), and the
+   `activity`), the text the tab narrows the list of the files by,
+   `:pane/filter` (`file-list`), and the
    `:base` of the bot's page with its id as `:bot`. A click that moves
    the list or the screen is a step of the tab's (`:ui/tabid`, the
    tab's last step `:pane/step`), an entry of its history
@@ -1725,7 +1781,7 @@
         (activity bot runs current)]
        [:div.split
         (when (seq list)
-          (file-list bot list (str folder) durations {:base base :current (:artifacts/current pane) :renaming renaming :deleting deleting :editing editing}))
+          (file-list bot list (str folder) durations (:pane/filter pane) {:base base :current (:artifacts/current pane) :renaming renaming :deleting deleting :editing editing}))
         [:div.shown
          (cond
            artifact (content base artifact {:project (get projects (:path artifact))
