@@ -14,6 +14,8 @@
        :tab-panes {tabid pane}, which list of the pane a tab sees
        :tab-limits {tabid n}, how many items a tab's feed shows once
                  the person asked for earlier ones (`rragent.view/feed`)
+       :tab-filters {tabid {bot-id text}}, the text a tab narrows the
+                 list of a bot's files by (`rragent.view/file-list`)
        :settings-open  #{tabid}, the tabs showing the settings in place
                  of the chat
        :settings-section {tabid section}, the settings' section of a tab

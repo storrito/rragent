@@ -456,11 +456,14 @@
                                {:path "card" :kind :project :title "Card" :size 0 :mtime 7}]
               :base "/bot/1"
               :bot "1"}
-        shown (fn [current text & [editing]]
+        ;; the list at the root, or in `folder`: a file inside a project
+        ;; has its row there
+        shown (fn [current text & [editing folder]]
                 (i18n/translate (view/artifacts (cond-> (assoc pane
                                                                :artifacts/current current
                                                                :artifacts/text text)
-                                                  editing (assoc :artifacts/editing editing)))
+                                                  editing (assoc :artifacts/editing editing)
+                                                  folder (assoc :artifacts/folder folder)))
                                 :en))]
     (testing "a text file is in the editor: the bot, the path, the text, its time as the version, the extension for the syntax, the words of the strip"
       (let [page (shown "card/main.js" {:text "const a = 1;\n" :truncated? false})
@@ -498,29 +501,31 @@
         (is (nil? (find-tag page :button.link.edit)))))
     (testing "Edit in the menu of a text file's row opens it in the editor, a step of the tab's; a project's menu has none"
       (let [page (shown "card/main.js" {:text "x" :truncated? false})
-            menu-of (fn [path]
-                      (some #(when (and (vector? %) (= :li (first %)) (#{path (str "deep:" path)} (:replicant/key (second %))))
+            inside (shown "card/main.js" {:text "x" :truncated? false} nil "card")
+            menu-of (fn [page path]
+                      (some #(when (and (vector? %) (= :li (first %)) (= path (:replicant/key (second %))))
                                (find-tag % :details.actions))
                             (nodes page)))
-            edit (fn [path] (find-tag (menu-of path) :button.item.edit))]
+            edit (fn [page path] (find-tag (menu-of page path) :button.item.edit))]
         (is (= {:command/kind :artifacts/edit :command/data {:bot "1" :path "README.md" :on? true :tab :ui/tabid}}
-               (get-in (second (edit "README.md")) [:on :click 0 1])))
-        (is (= "Edit" (last (edit "README.md"))))
-        (is (= "card/main.js" (get-in (second (edit "card/main.js")) [:on :click 0 1 :command/data :path])) "a code file's row too")
-        (is (some? (menu-of "card")))
-        (is (nil? (edit "card")) "a project is played, not edited")))
+               (get-in (second (edit page "README.md")) [:on :click 0 1])))
+        (is (= "Edit" (last (edit page "README.md"))))
+        (is (nil? (menu-of page "card/main.js")) "a file inside a project is no row of the root")
+        (is (= "card/main.js" (get-in (second (edit inside "card/main.js")) [:on :click 0 1 :command/data :path])) "a code file's row too, in its folder")
+        (is (some? (menu-of page "card")))
+        (is (nil? (edit page "card")) "a project is played, not edited")))
     (testing "the menu's item reads Preview while the markdown file's text is in the editor, the view back; a code file's stays Edit, the editor is its view"
-      (let [page (shown "README.md" {:text "# Hello\n" :truncated? false} "README.md")
-            item-of (fn [path]
-                      (some #(when (and (vector? %) (= :li (first %)) (#{path (str "deep:" path)} (:replicant/key (second %))))
+      (let [item-of (fn [page path]
+                      (some #(when (and (vector? %) (= :li (first %)) (= path (:replicant/key (second %))))
                                (find-tag % :button.item.edit))
-                            (nodes page)))]
-        (is (= "Preview" (last (item-of "README.md"))))
+                            (nodes page)))
+            page (shown "README.md" {:text "# Hello\n" :truncated? false} "README.md")]
+        (is (= "Preview" (last (item-of page "README.md"))))
         (is (= {:command/kind :artifacts/edit :command/data {:bot "1" :path "README.md" :on? false :tab :ui/tabid}}
-               (get-in (second (item-of "README.md")) [:on :click 0 1])))
-        (is (= "Edit" (last (item-of "card/main.js")))))
-      (let [page (shown "card/main.js" {:text "x" :truncated? false} "card/main.js")
-            item (some #(when (and (vector? %) (= :li (first %)) (#{"card/main.js" "deep:card/main.js"} (:replicant/key (second %))))
+               (get-in (second (item-of page "README.md")) [:on :click 0 1])))
+        (is (= "Edit" (last (item-of (shown "README.md" {:text "# Hello\n" :truncated? false} "README.md" "card") "card/main.js")))))
+      (let [page (shown "card/main.js" {:text "x" :truncated? false} "card/main.js" "card")
+            item (some #(when (and (vector? %) (= :li (first %)) (= "card/main.js" (:replicant/key (second %))))
                           (find-tag % :button.item.edit))
                        (nodes page))]
         (is (= "Edit" (last item)) "a code file's menu never reads Preview")

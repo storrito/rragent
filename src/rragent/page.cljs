@@ -269,7 +269,7 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes tab-limits expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes tab-limits tab-filters expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         run-id (shown-run tab-runs (:tabid w) (url-run w))
@@ -294,6 +294,7 @@
                     :expanded (get expanded (:tabid w))
                     :artifacts (assoc (artifacts-pane bot)
                                       :pane/shown (get tab-panes (:tabid w) :artifacts)
+                                      :pane/filter (get-in tab-filters [(:tabid w) (str id)])
                                       :pane/step (get-in bot [:pane/steps (:tabid w)])
                                       :runs/current run-id)
                     :limit (get tab-limits (:tabid w))
@@ -328,9 +329,9 @@
 (def ^:private tab-keys
   "The keys of the atom that hold what one tab shows, each `{tabid
    value}`: the bot, the run, the pane's list, how far back its feed
-   reaches, the settings' section, the folded rows. A change of one
-   is that tab's alone."
-  [:tabs :tab-runs :tab-panes :tab-limits :settings-section :expanded])
+   reaches, what it narrows the files by, the settings' section, the
+   folded rows. A change of one is that tab's alone."
+  [:tabs :tab-runs :tab-panes :tab-limits :tab-filters :settings-section :expanded])
 
 (defn- changed-tabs
   "The tabs whose own state differs between `old` and `new`: an entry
@@ -536,6 +537,33 @@
       (#{:artifacts :activity} pane) (do (swap! db/db assoc-in [:tab-panes tab] pane)
                                          (command/accepted w))
       :else (command/rejected w :no-such-pane))))
+
+(defn- filter-artifacts-command
+  "The tab `tab` narrows the list of the bot's files by `text` from
+   now on, the field above the list (`:ui/files-filter`,
+   `rragent.client.filter`); all of the level browsed again for a
+   blank one. Kept by tab and bot (`:tab-filters`), as the field
+   keeps its text, so that a tab back at a bot finds its list as it
+   left it. The next frame of that tab carries the rows the text
+   names (`rragent.view/file-list`): the server narrows, so that a
+   frame has the rows in sight and not every file of the bot. A text
+   that is none, a placeholder the browser did not fill, or one
+   longer than the field takes (`rragent.view/filter-length`) is
+   rejected: every frame of the tab names the text."
+  [w]
+  (let [{:keys [tab text]} (command/command-data w)
+        id (some-> (bot-of-command w) :id str)]
+    (cond
+      (nil? tab) (command/rejected w :no-tab)
+      (nil? id) (command/rejected w :no-such-bot)
+      (not (and (string? text) (<= (count text) view/filter-length))) (command/rejected w :bad-text)
+      :else (let [text (str/trim text)]
+              (swap! db/db (fn [value]
+                             (cond
+                               (not (str/blank? text)) (assoc-in value [:tab-filters tab id] text)
+                               (contains? (get-in value [:tab-filters tab]) id) (update-in value [:tab-filters tab] dissoc id)
+                               :else value)))
+              (command/accepted w)))))
 
 (defn- artifact-of
   [bot path]
@@ -1544,6 +1572,8 @@
       :command/fn #'show-artifact-command}
      {:command/kind :artifacts/open-folder
       :command/fn #'open-folder-command}
+     {:command/kind :artifacts/filter
+      :command/fn #'filter-artifacts-command}
      {:command/kind :artifacts/rename-start
       :command/fn #'rename-start-artifact-command}
      {:command/kind :artifacts/rename

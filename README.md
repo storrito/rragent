@@ -504,7 +504,10 @@ menu of a text file's row has the same Edit, which opens the file in
 the editor from wherever the pane is, and reads Preview while the
 file's text is in the editor, the way back. The
 filter above a long list finds
-a file at any level and names its folder. A recording
+a file at any level and names its folder; the server narrows the
+list, so that a frame of the page carries the rows in sight and not
+every file of the bot, at most a hundred of the ones a text names,
+with a word on how many more there are. A recording
 (`artifacts/recordings/<stamp>/`, see [Screencasts](#screencasts)) is a
 folder titled by its time, with its length. The files under `notes/`
 are the agent's working notes: an ordinary folder on the list, but one

@@ -52,6 +52,7 @@
    :artifacts/files [:fn/str "{{:n}} files"]
    :artifacts/one-file "1 file"
    :artifacts/filter "Filter the list"
+   :artifacts/more-found [:fn/str "{{:n}} more: type on to narrow the list"]
    :artifacts/actions "More"
    :artifacts/rename "Rename"
    :artifacts/name "Name"
@@ -401,6 +402,7 @@
    :artifacts/files [:fn/str "{{:n}} Dateien"]
    :artifacts/one-file "1 Datei"
    :artifacts/filter "Liste filtern"
+   :artifacts/more-found [:fn/str "{{:n}} weitere: tippe weiter, um die Liste einzugrenzen"]
    :artifacts/actions "Mehr"
    :artifacts/rename "Umbenennen"
    :artifacts/name "Name"

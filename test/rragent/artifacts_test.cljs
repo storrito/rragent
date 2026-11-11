@@ -483,20 +483,19 @@
                 {:path "story.mp4" :kind :video :title "Story" :ext "mp4" :mtime 1 :size 5000000}
                 {:path "clip" :kind :project :title "Clip" :mtime 0 :size 0}
                 {:path "notes/plan.md" :kind :markdown :title "Plan" :ext "md" :mtime 0 :size 40}]
+        many (concat listed (for [i (range 4)]
+                              {:path (str "more" i ".md") :kind :markdown :title (str "More " i) :ext "md" :mtime i :size 1}))
         pane (fn [current & [more]]
-               (view/artifacts (merge {:artifacts/list listed :artifacts/current current :bot "b1"} more)))]
+               (view/artifacts (merge {:artifacts/list listed :artifacts/current current :bot "b1"} more)))
+        keys-of (fn [v] (map #(:replicant/key (second %)) (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))))]
     (testing "a page is the live iframe under /artifacts/, the list beside it with the one on screen marked"
       (let [v (pane "card.html")
             rows (filter #(and (vector? %) (= :li (first %))) (nodes v))]
         (is (some #{:ui/canvas} (tags v)))
-        (is (= 5 (count rows)))
-        (is (= ["card.html" "clip" "pool.png" "story.mp4" "deep:notes/plan.md"] (map #(:replicant/key (second %)) rows)) "by name, the file of another level last")
+        (is (= ["card.html" "clip" "pool.png" "story.mp4"] (map #(:replicant/key (second %)) rows)) "by name, the files of the level browsed and no other")
         (is (= ["page" "current"] (:class (second (first rows)))))
-        (is (= "card card.html" (:data-name (second (first rows)))) "the title and the path for the filter")
+        (is (= #{:replicant/key :class} (set (keys (second (first rows))))) "a row carries nothing for a filter in the browser")
         (is (= ["html" " · " "1 KB"] (rest (find-tag (first rows) :span.meta))) "the extension and the size tell files apart")
-        (is (= ["md" " · " "notes/" " · " "40 B"] (rest (find-tag (nth rows 4) :span.meta))) "a file of another level names its folder")
-        (is (= "true" (:data-deep (second (nth rows 4)))) "a row of another level is there for the filter alone")
-        (is (nil? (:data-deep (second (first rows)))))
         (is (some #{[:i18n :artifacts/project]} (nodes (second rows))) "a project is named as such")
         (is (= {:bot "b1" :path "pool.png" :tab :ui/tabid} (get-in (second (find-tag (nth rows 2) :button.row)) [:on :click 0 1 :command/data])) "a step of the tab's")
         (is (= {:bot "b1" :path nil :tab :ui/tabid} (get-in (second (find-tag v :button.link.back)) [:on :click 0 1 :command/data])) "the way back to the list")
@@ -539,13 +538,11 @@
                  (select-keys (second (find-tag v :ui/code-editor)) [:ui/text :ui/ext :ui/path])) "the page inside a project is shown as its source, in the editor")
           (is (= "/artifacts/clip/composition/index.html?rev=8&raw" (:href (second (find-tag v :a.item)))) "Open takes the file as it is, not the project's page of it"))
         (is (= ["Card"] (rest (find-tag (find-tag (pane "card.html") :div.bar) :span.title))) "a file outside a project: the title alone")))
-    (testing "the folders of the level come first, one row each, the files of the other levels last, for the filter"
+    (testing "the folders of the level come first, one row each, then its files; what is inside a folder is no row"
       (let [v (pane "card.html")
-            keys-of (fn [v] (map #(:replicant/key (second %)) (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))))
             folder (find-tag v :li.folder)]
-        (is (= ["notes" "card.html" "clip" "pool.png" "story.mp4" "deep:notes/plan.md"] (keys-of v)) "a row of another level keyed apart, so that no node moves between the two")
+        (is (= ["notes" "card.html" "clip" "pool.png" "story.mp4"] (keys-of v)))
         (is (= ["folder"] (:class (second folder))))
-        (is (= "notes notes notes" (:data-name (second folder))) "the folder's title, name and path for the filter")
         (is (= {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path "notes" :tab :ui/tabid}}
                (get-in (second (find-tag folder :button.row)) [:on :click 0 1])))
         (is (= ["📁"] (rest (find-tag folder :span.icon))))
@@ -553,12 +550,11 @@
         (is (nil? (:ui/crumbs (second (find-tag v :ui/files-filter)))) "no way to show at the root")
         (is (contains? (strings (i18n/translate v :de)) "1 Datei"))
         (is (nil? (find-tag (pane "card.html" {:artifacts/list (take 4 listed)}) :li.folder)) "no folder row without a folder")))
-    (testing "inside a folder: its files, the way back above them, the rest of the list behind the filter"
+    (testing "inside a folder: its files, the way back above them"
       (let [v (pane "notes/plan.md" {:artifacts/folder "notes"})
             filter-alias (find-tag v :ui/files-filter)
             lis (filter #(and (vector? %) (#{:li :li.folder} (first %))) (nodes v))]
-        (is (= ["notes/plan.md" "deep:card.html" "deep:clip" "deep:pool.png" "deep:story.mp4"] (map #(:replicant/key (second %)) lis)))
-        (is (= [nil "true" "true" "true" "true"] (map #(:data-deep (second %)) lis)))
+        (is (= ["notes/plan.md"] (keys-of v)))
         (is (= ["md" " · " "40 B"] (rest (find-tag (first lis) :span.meta))) "a file of the folder browsed goes without it")
         (is (= [:nav.crumbs
                 [:button.crumb {:on {:click [[:data/command {:command/kind :artifacts/open-folder :command/data {:bot "b1" :path "" :tab :ui/tabid}}]]}} [:i18n :page/artifacts]]
@@ -586,24 +582,54 @@
         (is (= ["1:23" " · " [:i18n :artifacts/files {:n 2}] " · " "2 KB"] (rest (find-tag row :span.meta))))))
     (testing "the filter above the list once it is long, its text the bot's in the store"
       (let [short (second (find-tag (pane "card.html") :ui/files-filter))
-            long (second (find-tag (pane "card.html" {:artifacts/list (concat listed (for [i (range 4)] {:path (str "more" i ".md") :kind :markdown :title (str "More " i) :ext "md" :mtime i :size 1}))})
+            long (second (find-tag (pane "card.html" {:artifacts/list many})
                                    :ui/files-filter))]
         (is (= [:artifacts-filter "b1"] (:ui/store-key short)))
+        (is (= "b1" (:ui/bot short)) "the bot the field tells the server its text of")
         (is (false? (:ui/field? short)))
         (is (true? (:ui/field? long)))
+        (is (= "" (:ui/query long)) "what the rows are narrowed by: nothing")
+        (is (= view/filter-length (:ui/length long)) "how long a text the field takes")
         (is (= "Liste filtern" (:ui/placeholder (second (find-tag (i18n/translate (pane "card.html") :de) :ui/files-filter)))))))
+    (testing "a text in the field: the server narrows, the rows are the ones the text names, wherever they are"
+      (let [narrowed (fn [text & [more]] (pane "card.html" (merge {:artifacts/list many :pane/filter text} more)))
+            v (narrowed "  PLAN ")
+            row (some #(when (and (vector? %) (= "deep:notes/plan.md" (:replicant/key (second %)))) %) (nodes v))]
+        (is (= ["deep:notes/plan.md"] (keys-of v)) "a file of another level, keyed apart from the row it is inside its folder: no node moves between the two")
+        (is (= "PLAN" (:ui/query (second (find-tag v :ui/files-filter)))) "the text the rows are narrowed by, for the field to compare its own with; case aside for the rows")
+        (is (= ["md" " · " "notes/" " · " "40 B"] (rest (find-tag row :span.meta))) "a file of another level names its folder")
+        (is (= "plan.md" (:download (second (last (filter #(and (vector? %) (= :a.item (first %))) (nodes row)))))) "and has its menu")
+        (is (= ["notes" "deep:notes/plan.md"] (keys-of (narrowed "notes"))) "a folder of the level by its name, a file by its path")
+        (is (= ["card.html"] (keys-of (narrowed "card"))) "a file of the level browsed keeps its key")
+        (is (= ["more0.md" "more1.md" "more2.md" "more3.md"] (keys-of (narrowed "more "))) "the spaces around the text aside")
+        (is (= ["notes/plan.md" "deep:more0.md" "deep:more1.md" "deep:more2.md" "deep:more3.md"] (keys-of (narrowed "md" {:artifacts/folder "notes"})))
+            "from inside a folder: its own files first, then the others by path")
+        (is (= [] (keys-of (narrowed "nothing of that name"))))
+        (is (nil? (find-tag (narrowed "md") :li.more)) "no word of more when all are there")
+        (is (= ["notes" "card.html" "clip" "pool.png" "story.mp4"] (keys-of (pane "card.html" {:pane/filter "plan"})))
+            "a short list has no field, and a text left from a longer one narrows nothing")))
+    (testing "a text that names more rows than a frame is to carry: the first of them, and how many more"
+      (let [lots (concat listed (for [i (range (+ view/filter-limit 12))]
+                                  {:path (str "frames/frame-" i ".png") :kind :image :title (str "Frame " i) :ext "png" :mtime i :size 1}))
+            v (pane "card.html" {:artifacts/list lots :pane/filter "frame"})
+            more (find-tag v :li.more)]
+        (is (= view/filter-limit (count (keys-of v))) "the folder and the first files of it")
+        (is (= ["frames" "deep:frames/frame-0.png" "deep:frames/frame-1.png" "deep:frames/frame-2.png"] (take 4 (keys-of v))) "by path, a number as a number")
+        (is (= [:i18n :artifacts/more-found {:n 13}] (last more)))
+        (is (contains? (strings (i18n/translate v :en)) "13 more: type on to narrow the list"))
+        (is (contains? (strings (i18n/translate v :de)) "13 weitere: tippe weiter, um die Liste einzugrenzen"))
+        (is (= 6 (count (keys-of (pane "card.html" {:artifacts/list lots})))) "without a text the level alone, however many files are below it")))
     (testing "every row has its menu: open, download, rename, and delete, which asks in the row"
       (let [v (pane "card.html")
             menus (filter #(and (vector? %) (= :details.actions (first %))) (nodes v))
             links (fn [menu] (filter #(and (vector? %) (= :a.item (first %))) (nodes menu)))]
-        (is (= 5 (count menus)) "the notes too")
+        (is (= 4 (count menus)) "one per file of the level")
         (is (= [["/artifacts/card.html?rev=3" "_blank" nil] ["/artifacts/card.html?rev=3" nil "card.html"]]
                (map #((juxt :href :target :download) (second %)) (links (first menus))))
             "Open in a tab of its own, Download by the file's name")
         (is (= [["/artifacts/clip/" "_blank" nil]]
                (map #((juxt :href :target :download) (second %)) (links (second menus))))
             "a project: Open alone, its page")
-        (is (= "plan.md" (:download (second (last (links (last menus)))))) "the file of another level too")
         (is (nil? (find-tag (find-tag v :div.bar) :a.link)) "none in the bar")
         (is (= {:command/kind :artifacts/rename-start :command/data {:bot "b1" :path "card.html"}}
                (get-in (second (find-tag (first menus) :button.item)) [:on :click 0 1])))
