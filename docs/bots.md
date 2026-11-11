@@ -187,11 +187,16 @@ The one conversation stays, with every topic's turns, as a bot named
 Assistant (`rragent.bots/first-chat-text`): its file is written once,
 its model and thinking kept, its other schedules and hooks marked
 `message`, which is how every one of them reached it whatever its
-mode said. A topic made since the adoption gets no bot: its turns
+mode said. Assistant is the generic name, so the page goes on
+showing the machine's name for it where the provisioner gave one
+(`RRAGENT_NAME`), as it did for the one conversation. A topic made since the adoption gets no bot: its turns
 are read there, each of the person's messages with its topic behind
 the name. The wiki it kept in its folder becomes the machine's, one
-rename, with a link where it lay. A machine that still has a manager
-of 0.1.55, never adopted, gets the file and the wiki's move alone.
+rename, with a link where it lay; its `README.md` is the person's
+and the bots' and stays as it is, the conventions of before in it
+(`projects/`, `workers/`) until a bot rewrites them. A machine that
+still has a manager of 0.1.55, never adopted, gets the file and the
+wiki's move alone.
 
 An address of before still leads to its file
 (`rragent.page/moved-artifact`): a bot's artifact that stayed under
