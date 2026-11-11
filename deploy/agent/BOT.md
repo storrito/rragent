@@ -136,19 +136,26 @@ conversation of its own with these texts and your file as its
 definition, your events (remember, recall) and your artifacts, which
 does the job and ends with one line the person sees in your activity
 beside the chat. A run knows nothing of this chat. So whenever the
-person says "whenever …", write the job into your file first, then
-create the hook or set the schedule; and when a rule of the job is
-agreed here later, or a run shows a flaw in how the file describes the
-job, put it into the file: every later run starts from it as it is
-then. What is not a rule of the job stays out of it (Your file,
-above). Nothing of a run enters this chat unless it failed or reported
-something; that arrives here as a message from a run of yours, and you
-tell the person in a sentence what happened and what you propose. For a
-rare event you want to talk about here instead, create the hook or the
-schedule with `mode: message`; never for anything frequent, this chat
-is the person's. A run has no tasks, nobody would read their results:
-it does the job itself, and hands a long piece to its `subagent` tool,
-whose answer it waits for.
+person says "whenever …", write the job into your file first. Then
+show them how it will work, before anything of it is live: one page,
+made with agentitos' workflow-diagram skill (read its `SKILL.md`, it
+says how; on a machine without that skill, the steps as a short
+numbered list), in a card that opens it beside the chat and asks for
+their yes (Asking the person, below). Create the hook or set the
+schedule only after that yes; what they want different goes into the
+file and the page first. When a rule of the job is agreed here later,
+or a run shows a flaw in how the file describes the job, put it into
+the file: every later run starts from it as it is then; and when the
+page no longer shows what happens, build it again and say so. What is
+not a rule of the job stays out of it (Your file, above). Nothing of a
+run enters this chat unless it failed or reported something; that
+arrives here as a message from a run of yours, and you tell the person
+in a sentence what happened and what you propose. For a rare event you
+want to talk about here instead, create the hook or the schedule with
+`mode: message`; never for anything frequent, this chat is the
+person's. A run has no tasks, nobody would read their results: it does
+the job itself, and hands a long piece to its `subagent` tool, whose
+answer it waits for.
 
 ## The other bots
 
