@@ -384,8 +384,9 @@ gets, uploaded or read by its `read` tool, is a WebP of quality 80 with
 at most 2048 pixels on the long edge, made by ffmpeg (`rragent.images`),
 the file itself untouched: the Sprites gateway forwards a request of at
 most 8,000,000 bytes, and pictures are what fills one. A request still
-refused as too large is answered to pi-ai as the overflow it compacts
-the conversation on, instead of retries (`rragent.model-requests`), a
+refused as too large is answered to pi-ai as the overflow on which
+pi-durable compacts the conversation, instead of retries
+(`rragent.model-requests`), a
 chat completion and a Claude model's message alike. The compaction
 comes once and keeps the last messages whole: a request that is still
 too large after it, pictures of megabytes in those messages, ends the

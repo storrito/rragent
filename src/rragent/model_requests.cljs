@@ -2,12 +2,13 @@
   "What rragent does around every request pi-ai sends to a model, a
    chat completion (`/chat/completions`, the OpenAI SDK) or a message
    the Anthropic way (`/v1/messages`, the Anthropic SDK, which pi-ai's
-   catalog names for most of OpenRouter's Claude models, the default
-   model among them); both SDKs use the global `fetch`, which
-   `install!` wraps. It measures the body, warns above `warn-bytes`,
-   and turns an answer that says the request was too large into the
-   413 `request_too_large` pi-ai knows as a context overflow
-   (`isContextOverflow`). Neither SDK's wording of the gateway's own
+   catalog names for OpenRouter's Claude models under their plain
+   ids, the default model among them; their `:batch` variants and the
+   `-latest` aliases go as chat completions); both SDKs use the global
+   `fetch`, which `install!` wraps. It measures the body, warns above
+   `warn-bytes`, and turns an answer that says the request was too
+   large into the 413 `request_too_large` pi-ai knows as a context
+   overflow (`isContextOverflow`). Neither SDK's wording of the gateway's own
    answers is one to pi-ai: its 413,
    `{\"error\":\"request body too large\"}`, would end the turn as it
    is, and its 502 be retried three times, a hopeless request each.
@@ -36,7 +37,7 @@
    chat completion's answer is split for OpenRouter's charge in it
    (`rragent.costs/tee`, which reads a chat completion's chunks),
    unless its status is 400, 413 or 502: those are read for a refusal
-   and handed on whole."
+   and, when they are none, handed on whole."
   (:require [rragent.costs :as costs]))
 
 (def warn-bytes
@@ -45,9 +46,9 @@
   6000000)
 
 (def cap-bytes
-  "What the Sprites gateway forwards at most: said in the message of
-   an overflow, and the size above which its 502 is read as the
-   refusal of a request too large (`too-large?`)."
+  "What the Sprites gateway forwards at most: said in the warning and
+   in the message of an overflow, and the size above which its 502 is
+   read as the refusal of a request too large (`too-large?`)."
   8000000)
 
 (defn- url-of
@@ -179,8 +180,9 @@
    to a model (`kind`). A chat completion is remembered as its
    session's last (`remember!`), and its answer split for the charge
    unless its status is 400, 413 or 502; a message the Anthropic way
-   has its session's kept request forgotten (`forget!`) and its answer
-   handed on as it came. Any other request goes through as it is."
+   has its session's kept request forgotten (`forget!`) and its
+   answer, when it is no refusal, handed on as it came. Any other
+   request goes through as it is."
   [fetch]
   (fn [input & [init]]
     (let [what (kind input)]
