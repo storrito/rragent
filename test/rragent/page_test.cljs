@@ -13,6 +13,7 @@
             [clojure.test :refer [async deftest is testing]]
             [rframes.client.frames :as frames]
             [rragent.bots :as bots]
+            [rragent.branding :as branding]
             [rragent.artifacts :as artifacts]
             [rragent.db :as db]
             [rragent.fake-gateway :as fake-gateway]
@@ -1199,6 +1200,66 @@
                      (is (str/includes? (str (.get (.-headers got) "set-cookie")) "Max-Age=0")))))
                (finally
                  (.abort controller)
+                 (await (stop!))
+                 (test-home/remove! home))))))
+        (.catch (fn [e] (is (nil? e) (str e))))
+        (.finally done))))
+
+(deftest branding-test
+  ;; the name and the logo of the page's corner, set from the settings:
+  ;; kept in the machine's folder, on every open tab with its next frame
+  (async done
+    (-> ((^:async fn []
+           (let [home (test-home/make)
+                 {:keys [models]} (tools-test/faux-models)
+                 {:keys [id base stop!]} (await (start! home models))
+                 cookie (await (login base "s3cret"))
+                 controller (js/AbortController.)
+                 corner (fn [view] (find-tag view :div.brand))
+                 named (fn [view] (last (find-tag (corner view) :span.name)))
+                 logo-of (fn [view] (:src (second (find-tag (corner view) :img.logo))))
+                 title (^:async fn []
+                         (second (re-find #"<title>(.*?)</title>"
+                                          (await (.text (await (js/fetch (str base "/bot/" id) #js {:headers #js {:cookie cookie}})))))))
+                 post-logo (fn [headers]
+                             (js/fetch (str base branding/logo-path)
+                                       #js {:method "POST"
+                                            :headers (clj->js (merge {"Content-Type" "image/png"} headers))
+                                            :body uploads-test/png}))]
+             (try
+               (page/follow-branding!)
+               (let [{:keys [reader decoder]} (await (stream (str base "/bot/" id) cookie controller "t1"))
+                     {:keys [view buffer]} (await (within 15000 (next-frame reader decoder "" (constantly true))))
+                     {:keys [frame!]} (frames! reader decoder buffer)]
+                 (testing "a machine without a name of its own: rragent in the corner and as the tab's title, no logo"
+                   (is (= "rragent" (named view)))
+                   (is (nil? (logo-of view)))
+                   (is (= "rragent" (await (title)))))
+                 (testing "a name from the settings: in the machine's folder, in the corner of the open tab, the title of a page opened then"
+                   (is (= {:success? true} (await (command! base cookie :branding/name {:name "  Acme <Studio>  "}))))
+                   (is (= {:name "Acme <Studio>"} (branding/saved home)))
+                   (is (= "Acme <Studio>" (named (await (frame! #(not= "rragent" (named %)))))))
+                   (is (= "Acme &lt;Studio&gt;" (await (title))) "escaped: the name is the person's text"))
+                 (testing "a logo posted: in front of the name, served behind the token only"
+                   (is (= 403 (.-status (await (post-logo {})))) "not without the cookie")
+                   (is (= {} (select-keys (branding/saved home) [:logo])))
+                   (let [posted (await (post-logo {:cookie cookie}))
+                         logo (:logo (transit/read-str (await (.text posted))))
+                         src (logo-of (await (frame! #(some? (logo-of %)))))]
+                     (is (= 200 (.-status posted)))
+                     (is (= (branding/logo-url logo) src))
+                     (is (= 200 (.-status (await (js/fetch (str base src) #js {:headers #js {:cookie cookie}})))))
+                     (is (= 403 (.-status (await (js/fetch (str base src))))))))
+                 (testing "the logo removed, the name given back: the corner as it was"
+                   (is (= {:success? true} (await (command! base cookie :branding/remove-logo nil))))
+                   (is (some? (await (frame! #(nil? (logo-of %))))))
+                   (is (= {:success? true} (await (command! base cookie :branding/name {:name ""}))))
+                   (is (= "rragent" (named (await (frame! #(= "rragent" (named %)))))))
+                   (is (= {} (branding/saved home)))
+                   (is (= {} (:branding @db/db)))))
+               (finally
+                 (.abort controller)
+                 (swap! db/db dissoc :branding)
                  (await (stop!))
                  (test-home/remove! home))))))
         (.catch (fn [e] (is (nil? e) (str e))))

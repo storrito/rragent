@@ -57,7 +57,12 @@
    `:mcp/remove`, `:mcp/keep`, `:mcp/setup`) change the machine's
    servers (`rragent.mcp`), whose overview the atom follows (`:mcp`);
    `:secret/save` and `:secret/remove` its secrets (`rragent.secrets`),
-   from the settings or from a bot's field, which tells the bot."
+   from the settings or from a bot's field, which tells the bot.
+   The Branding section's commands, `:branding/name` and
+   `:branding/remove-logo`, and `POST /branding/logo` change the name
+   and the logo of the page's corner (`rragent.branding`), which the
+   atom follows (`:branding`); `GET /branding/logo/<file>` serves the
+   logo."
   (:require ["node:path" :as path]
             ["node:fs" :as fs]
             [clojure.string :as str]
@@ -66,6 +71,7 @@
             [rragent.auth :as auth]
             [rragent.away :as away]
             [rragent.bots :as bots]
+            [rragent.branding :as branding]
             [rragent.codemode :as codemode]
             [rragent.composio-events :as composio-events]
             [rragent.composio-setup :as composio-setup]
@@ -269,7 +275,9 @@
    (`rragent.reload` replaces the bot's `:definition` in the atom when
    the file changed)."
   [w]
-  (let [{:keys [tabs tab-runs tab-panes tab-limits tab-filters expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]} @db/db
+  (let [{:keys [tabs tab-runs tab-panes tab-limits tab-filters expanded update settings-open settings-section mcp mcp-removing mcp-tests secret-names]
+         ;; not `branding`: a local of that name would hide the namespace
+         brand :branding} @db/db
         {:keys [id missing]} (shown-bot (machine/bots) tabs (:tabid w) (url-bot w))
         {:keys [definition] :as bot} (machine/bot id)
         run-id (shown-run tab-runs (:tabid w) (url-run w))
@@ -307,6 +315,7 @@
                     :settings-section (get settings-section (:tabid w))
                     :mcp {:servers mcp :removing mcp-removing :tests mcp-tests :secrets secret-names}
                     :link (page-link (:ring/request w))
+                    :brand brand
                     :note (when missing [:i18n :bot/missing])
                     :failed (:failed bot)
                     :person {:name (person/name-of (:ring/request w))
@@ -881,6 +890,49 @@
         (command/accepted w))
     (command/rejected w :no-tab)))
 
+(defn follow-branding!
+  "The atom's `:branding`, the name and the logo of the page's corner
+   as the machine's folder holds them (`rragent.branding/saved`)."
+  []
+  (swap! db/db assoc :branding (branding/saved (machine/home))))
+
+(defn- branding-name-command
+  "The name of the page's corner from the settings
+   (`rragent.view/branding-section`), kept in the machine's folder; a
+   blank one brings \"rragent\" back. Every tab shows it with its
+   next frame."
+  [w]
+  (try
+    (swap! db/db assoc :branding (branding/save-name! (machine/home) (:name (command/command-data w))))
+    (command/accepted w)
+    (catch :default e
+      (js/console.error "[branding] could not save the name" (ex-message e))
+      (command/rejected w :not-saved))))
+
+(defn- branding-remove-logo-command
+  "The page's corner without its logo again."
+  [w]
+  (try
+    (swap! db/db assoc :branding (branding/remove-logo! (machine/home)))
+    (command/accepted w)
+    (catch :default e
+      (js/console.error "[branding] could not remove the logo" (ex-message e))
+      (command/rejected w :not-removed))))
+
+(defn- ^:async branding-logo-post
+  "POST /branding/logo: the picture of the request as the logo of the
+   page's corner (`rragent.branding/upload-handler`); every tab shows
+   it with its next frame."
+  [w]
+  (let [w (await (branding/upload-handler (machine/home) w))]
+    (follow-branding!)
+    w))
+
+(defn- branding-logo-get
+  "GET /branding/logo/<file>: the saved logo."
+  [w]
+  (branding/logo-handler (machine/home) w))
+
 (defn- fold-command
   "A folded row of the chat opened or closed in the tab `tab`
    (`rragent.view/fold-actions`): the item `id` into or out of the
@@ -1309,12 +1361,19 @@
   [w]
   (assoc w :ring/response (webapp/response @page-token)))
 
+(defn- page-head
+  "The head of a page of the machine: the client's scripts and styles
+   (`rragent.assets/head`), its title the machine's name when it has
+   one of its own (`rragent.branding`)."
+  []
+  (assets/head (assoc (assets/client) :title (:name (:branding @db/db)))))
+
 (defn- shim
   [w]
   (assoc w :ring/response {:status 200
                            :headers {"Content-Type" "text/html; charset=utf-8"
                                      "Cache-Control" "no-cache"}
-                           :body (replicant/shim-html (assets/head (assets/client)))}))
+                           :body (replicant/shim-html (page-head))}))
 
 (defn moved-artifact
   "Where an artifact's address of before leads now, nil for a file
@@ -1377,7 +1436,7 @@
                                  :body (phone/page-shell {:bot id
                                                           :name (i18n/translate (machine/label-of id) locale)
                                                           :words (i18n/translate (view/phone-words) locale)
-                                                          :head (assets/head (assets/client))})}))
+                                                          :head (page-head)})}))
 
       (= rest (str (subs phone/path-prefix 1) "/events"))
       (phone/events-handler id w)
@@ -1567,6 +1626,10 @@
       :ring/handler #'person-get}
      {:ring/route [:post "/person"]
       :ring/handler #'person-post}
+     {:ring/route [:post branding/logo-path]
+      :ring/handler #'branding-logo-post}
+     {:ring/route [:get (str branding/logo-path "/*")]
+      :ring/handler #'branding-logo-get}
      {:ring/route [:get "/bot/*"]
       :ring/handler #'bot-get}
      {:ring/route [:post "/bot/*"]
@@ -1614,6 +1677,10 @@
       :command/fn #'settings-open-command}
      {:command/kind :settings/section
       :command/fn #'settings-section-command}
+     {:command/kind :branding/name
+      :command/fn #'branding-name-command}
+     {:command/kind :branding/remove-logo
+      :command/fn #'branding-remove-logo-command}
      {:command/kind :chat/fold
       :command/fn #'fold-command}
      {:command/kind :mcp/test
@@ -1766,6 +1833,7 @@
     (try
       (await (machine/open! {}))
       (follow-mcp!)
+      (follow-branding!)
       (let [page-handler (handler token)]
         (reset! handler* page-handler)
         (@opened! page-handler))

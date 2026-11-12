@@ -132,12 +132,36 @@ body {
   overflow-y: auto;
 }
 
+/* The corner (rragent.view/sidebar): the machine's logo, when it has
+   one, in front of its name and the version (rragent.branding). A long
+   name breaks into a second line; a wide logo keeps room for it. */
 .sidebar .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 2px 8px;
   font-weight: 700;
+}
+
+.sidebar .brand img.logo {
+  flex: none;
+  width: auto;
+  max-width: 96px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.sidebar .brand .text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  min-width: 0;
+}
+
+.sidebar .brand .name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sidebar .brand .version {
@@ -3250,6 +3274,111 @@ pre {
   font: inherit;
   font-size: 14px;
   cursor: pointer;
+}
+
+/* The name and the logo of the page's corner
+   (rragent.view/branding-section): the field of the name with its
+   button (the client's :ui/brand-name), then the saved logo beside the
+   button that picks one (:ui/logo-upload) and the one that removes it.
+   The logo lies on the sidebar's ground, as it will in the corner. */
+form.brand-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 8px;
+  max-width: 420px;
+  margin: 8px 0;
+}
+
+form.brand-name label {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+form.brand-name input {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+form.brand-name input:focus {
+  border-color: var(--muted);
+  outline: none;
+}
+
+form.brand-name button {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+form.brand-name .note {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.main .settings .branding .logo-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.main .settings .branding .logo-row img.logo {
+  width: auto;
+  max-width: 160px;
+  /* 24 pixels of logo, as in the corner, inside the padding and the border */
+  height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 60%, var(--bg));
+  object-fit: contain;
+}
+
+.main .settings .logo-upload label.pick {
+  display: inline-block;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.main .settings .logo-upload label.pick:hover {
+  border-color: var(--muted);
+}
+
+.main .settings .logo-upload label.pick.busy {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* why a file was not taken, on a line of its own below the buttons */
+.main .settings .branding .logo-row .logo-upload:has(.result) {
+  display: contents;
+}
+
+.main .settings .branding .logo-row .logo-upload .result {
+  flex-basis: 100%;
+  order: 1;
+  margin: 0;
 }
 
 /* The password field of a secret (the client's :ui/secret-field), in a
