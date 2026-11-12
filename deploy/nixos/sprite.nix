@@ -193,7 +193,12 @@ in
           target = "/etc/os-release";
         }
       ];
-      extraCommands = "mkdir -p proc sys dev tmp sbin && ln -s ${config.system.build.toplevel}/sprite-init/lib/systemd/systemd sbin/init";
+      # a script: the builder runs this as one command, not as shell text
+      extraCommands = pkgs.writeScript "sprite-rootfs.sh" ''
+        #!${pkgs.runtimeShell}
+        mkdir -p proc sys dev tmp sbin
+        ln -s ${config.system.build.toplevel}/sprite-init/lib/systemd/systemd sbin/init
+      '';
     };
 
     # The one user everything runs as, the Sprites base image's name and
