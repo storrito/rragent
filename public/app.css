@@ -3394,7 +3394,7 @@ form.brand-name .result.failed {
 }
 
 /* The file input stays on the page, out of sight, so that the Tab key
-   reaches it; its label shows where the focus is. */
+   reaches it; its label shows where the keyboard's focus is. */
 .main .settings .logo-upload label.pick input {
   position: absolute;
   width: 1px;
@@ -3405,7 +3405,7 @@ form.brand-name .result.failed {
   clip-path: inset(50%);
 }
 
-.main .settings .logo-upload label.pick:focus-within {
+.main .settings .logo-upload label.pick:has(input:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

@@ -923,11 +923,13 @@
    nothing else on the page would show that the button did something.
    It stands in the note's place, so that the page below it does not
    move. The next letter typed brings the note back, and so does
-   leaving the section."
+   leaving the section; coming back forgets it too, for an answer that
+   came while the section was away."
   [{:keys [ui/name ui/label ui/placeholder ui/max-chars ui/button ui/saved ui/not-saved ui/note ui/state]} _]
   (let [result (get state brand-name-result)]
     [:form.brand-name
      {:autocomplete "off"
+      :replicant/on-mount (fn [_] (forget-later! brand-name-result))
       :replicant/on-unmount (fn [_] (forget-later! brand-name-result))
       :on {:submit (fn [^js event]
                      (.preventDefault event)
@@ -1007,7 +1009,8 @@
    (`upload-logo!`), its words the server's. The file input is on the
    page, out of sight, so that the Tab key reaches the button and
    Enter or Space opens the picker. While the file goes up the button
-   says so and takes no other. A file that was not taken leaves a line
+   says so and opens no picker; the input stays enabled, so that the
+   keyboard's focus stays on it. A file that was not taken leaves a line
    that says why, until the saved logo (`:ui/logo`) is another, the
    next file is picked or the section is left."
   [{:keys [ui/url ui/logo ui/accept ui/max-bytes ui/choose ui/sending ui/too-large ui/not-taken ui/failed ui/state]} _]
@@ -1023,8 +1026,12 @@
      [:label.pick {:class (when sending? "busy")}
       [:input {:type "file"
                :accept accept
-               :disabled sending?
-               :on {:change (fn [^js event]
+               :aria-disabled (when sending? "true")
+               :on {:click (fn [^js event]
+                             ;; no picker while a file goes up
+                             (when (= :sending (:status (get @state/store logo-upload-state)))
+                               (.preventDefault event)))
+                    :change (fn [^js event]
                               (when-let [file (aget (.. event -target -files) 0)]
                                 (upload-logo! url max-bytes logo file))
                               ;; the same file picked again is a change again

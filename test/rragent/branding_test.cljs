@@ -37,21 +37,31 @@
   (is (= (str (apply str (repeat 39 "x")) "🌯") (branding/clean (str (apply str (repeat 39 "x")) "🌯🌯")))
       "a character is a code point: the cut leaves no half of an emoji"))
 
-(deftest picture-test
-  (is (true? (branding/picture? png "png")))
-  (is (true? (branding/picture? svg "svg")))
-  (is (true? (branding/picture? (js/Buffer.from "<?xml version=\"1.0\"?>\n<!-- a logo -->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>") "svg")))
-  (is (true? (branding/picture? (js/Buffer.from #js [0xFF 0xD8 0xFF 0xE0 0 0x10]) "jpg")))
-  (is (true? (branding/picture? (js/Buffer.from "GIF89a...") "gif")))
-  (is (true? (branding/picture? (js/Buffer.from "RIFF\u0000\u0000\u0000\u0000WEBPVP8 ") "webp")))
-  (testing "a file that only says it is one"
-    (is (false? (branding/picture? png "jpg")) "a PNG named .jpg")
-    (is (false? (branding/picture? (js/Buffer.from "hello") "png")))
-    (is (false? (branding/picture? (js/Buffer.from "<html><body>no</body></html>") "svg")))
-    (is (false? (branding/picture? (js/Buffer.from "RIFF\u0000\u0000\u0000\u0000WAVEfmt ") "webp")) "a WAV is a RIFF file too")
-    (is (false? (branding/picture? (js/Buffer.from #js [0x89 0x50]) "png")) "shorter than its signature")
-    (is (false? (branding/picture? (js/Buffer.alloc 0) "png")) "nothing at all")
-    (is (false? (branding/picture? png "pdf")))))
+(deftest kind-test
+  (testing "the bytes say what a picture is"
+    (is (= "png" (branding/kind-of png "png")))
+    (is (= "jpg" (branding/kind-of (js/Buffer.from #js [0xFF 0xD8 0xFF 0xE0 0 0x10]) "jpg")))
+    (is (= "gif" (branding/kind-of (js/Buffer.from "GIF89a...") "gif")))
+    (is (= "webp" (branding/kind-of (js/Buffer.from "RIFF\u0000\u0000\u0000\u0000WEBPVP8 ") "webp"))))
+  (testing "whatever its type and name say: a file saved under another picture's name, or under none"
+    (is (= "png" (branding/kind-of png "jpg")) "a PNG named .jpg")
+    (is (= "webp" (branding/kind-of (js/Buffer.from "RIFF\u0000\u0000\u0000\u0000WEBPVP8 ") "png")) "a WebP named .png")
+    (is (= "png" (branding/kind-of png "svg")))
+    (is (= "png" (branding/kind-of png nil)) "a PNG the browser named nothing for"))
+  (testing "an SVG is a file that says so and has the tag"
+    (is (= "svg" (branding/kind-of svg "svg")))
+    (is (= "svg" (branding/kind-of (js/Buffer.from "\uFEFF<?xml version=\"1.0\"?>\n<!-- a logo -->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>") "svg"))
+        "after a byte order mark, a prolog and a comment")
+    (is (= "svg" (branding/kind-of (js/Buffer.from "\uFEFF<svg xmlns=\"http://www.w3.org/2000/svg\"/>" "utf16le") "svg")) "in UTF-16")
+    (is (nil? (branding/kind-of svg "png")) "not one that says it is a PNG")
+    (is (nil? (branding/kind-of svg nil)))
+    (is (nil? (branding/kind-of (js/Buffer.from "<html><body>no</body></html>") "svg"))))
+  (testing "what is no picture"
+    (is (nil? (branding/kind-of (js/Buffer.from "hello") "png")))
+    (is (nil? (branding/kind-of (js/Buffer.from "RIFF\u0000\u0000\u0000\u0000WAVEfmt ") "webp")) "a WAV is a RIFF file too")
+    (is (nil? (branding/kind-of (js/Buffer.from #js [0x89 0x50]) "png")) "shorter than its signature")
+    (is (nil? (branding/kind-of (js/Buffer.alloc 0) "png")) "nothing at all")
+    (is (nil? (branding/kind-of (js/Buffer.from "%PDF-1.7") nil)))))
 
 (deftest extension-test
   (is (= "png" (branding/extension-for "image/png" nil)))
@@ -147,12 +157,17 @@
                  (fs/writeFileSync (path/join (branding/dir home) "note.txt") "x")
                  (is (= 404 (.-status (await (js/fetch (str base branding/logo-path "/note.txt"))))))
                  (is (= 404 (.-status (await (js/fetch (str base branding/logo-path "/..%2Fsecrets.json")))))))
-               (testing "what is no picture, by its name or by its bytes, or too large, is not taken; the logo stays"
+               (testing "a picture saved under another picture's name is stored as what its bytes are"
+                 (let [{:keys [status body]} (await (post "image/jpeg" png "name=photo.jpg"))]
+                   (is (= 200 status))
+                   (is (str/ends-with? (:logo body) ".png"))
+                   (is (= "image/png" (.get (.-headers (await (js/fetch (str base (branding/logo-url (:logo body)))))) "content-type")))))
+               (testing "what is no picture by its bytes, or too large, is not taken; the logo stays"
                  (let [before (branding/saved home)
                        files (logo-files home)]
-                   (is (= {:status 415 :body {:error :not-taken}} (await (post "application/pdf" png "name=logo.pdf"))))
-                   (is (= {:status 415 :body {:error :not-taken}} (await (post "image/jpeg" png "name=photo.jpg")))
-                       "a PNG that says it is a JPEG")
+                   (is (= {:status 415 :body {:error :not-taken}} (await (post "application/pdf" (js/Buffer.from "%PDF-1.7") "name=logo.pdf"))))
+                   (is (= {:status 415 :body {:error :not-taken}} (await (post "image/png" svg "name=logo.png")))
+                       "an SVG that says it is a PNG")
                    (is (= {:status 415 :body {:error :not-taken}} (await (post "image/png" (js/Buffer.from "hello")))))
                    (is (= {:status 415 :body {:error :not-taken}} (await (post "image/png" (js/Uint8Array. 0))))
                        "an empty file")

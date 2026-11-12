@@ -14,8 +14,9 @@
 
    `POST /branding/logo` takes the picture as the request's body with
    its media type, and its name (`?name=`) for a file the browser types
-   poorly; a file whose bytes do not start the way its kind does is
-   not taken (`picture?`). `GET /branding/logo/<file>` serves the saved
+   poorly. What the file is its bytes say, not its name (`kind-of`): a
+   WebP saved as logo.png is stored as a WebP, and a file that is no
+   picture is not taken. `GET /branding/logo/<file>` serves the saved
    one. Both are behind the token (`rragent.page`)."
   (:require ["node:crypto" :as crypto]
             ["node:fs" :as fs]
@@ -159,9 +160,9 @@
   (saved home))
 
 (defn extension-for
-  "The extension a logo is stored under: by the media type the browser
-   named, else by the file's own name; nil for a file that is no
-   picture of `logo-types`."
+  "The extension the media type the browser named stands for, else the
+   one of the file's own name; nil when neither is a picture of
+   `logo-types`. What a file says it is: `kind-of` asks its bytes."
   [type file-name]
   (or (logo-types type)
       (let [named (str/lower-case (or (second (re-find #"\.([^./]+)$" (str file-name))) ""))
@@ -178,23 +179,38 @@
   [s]
   (map #(.charCodeAt % 0) s))
 
-(defn picture?
-  "Whether `bytes`, a Buffer, starts the way a picture stored under
-   `extension` does: the signature of a PNG, a JPEG, a GIF or a WebP,
-   an `<svg` tag somewhere in an SVG. A photo of a phone renamed to
-   .jpg, a text file or nothing at all is no picture, and the corner
-   would show an empty place for it."
-  [^js bytes extension]
-  (boolean
-   (case extension
-     "png" (starts-with-bytes? bytes 0 [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A])
-     "jpg" (starts-with-bytes? bytes 0 [0xFF 0xD8 0xFF])
-     "gif" (or (starts-with-bytes? bytes 0 (ascii "GIF87a"))
-               (starts-with-bytes? bytes 0 (ascii "GIF89a")))
-     "webp" (and (starts-with-bytes? bytes 0 (ascii "RIFF"))
-                 (starts-with-bytes? bytes 8 (ascii "WEBP")))
-     "svg" (.includes bytes "<svg")
-     false)))
+(defn- signature
+  "The extension of the picture whose signature `bytes` starts with:
+   a PNG, a JPEG, a GIF or a WebP; nil for none of them."
+  [^js bytes]
+  (cond
+    (starts-with-bytes? bytes 0 [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A]) "png"
+    (starts-with-bytes? bytes 0 [0xFF 0xD8 0xFF]) "jpg"
+    (or (starts-with-bytes? bytes 0 (ascii "GIF87a"))
+        (starts-with-bytes? bytes 0 (ascii "GIF89a"))) "gif"
+    (and (starts-with-bytes? bytes 0 (ascii "RIFF"))
+         (starts-with-bytes? bytes 8 (ascii "WEBP"))) "webp"))
+
+(defn- svg-tag?
+  "Whether `bytes` has an `<svg` tag in it, as UTF-8 or as UTF-16."
+  [^js bytes]
+  (or (.includes bytes "<svg")
+      (.includes bytes "<svg" 0 "utf16le")))
+
+(defn kind-of
+  "The extension `bytes`, a Buffer, is stored under as a logo; nil for
+   a file that is no picture of `logo-types`. The bytes say what the
+   file is: the signature of a PNG, a JPEG, a GIF or a WebP wins over
+   the type the browser named and the file's name (`declared`, the
+   extension of `extension-for`), which follow the name and are wrong
+   for a WebP saved as logo.png. An SVG has no signature, so a file is
+   one when it says so and has an `<svg` tag. A photo of a phone
+   renamed to .jpg, a text file or nothing at all is no picture, and
+   the corner would show an empty place for it."
+  [^js bytes declared]
+  (or (signature bytes)
+      (when (and (= "svg" declared) (svg-tag? bytes))
+        "svg")))
 
 (defn- media-type
   [request]
@@ -215,20 +231,19 @@
 
 (defn ^:async upload-handler
   "`POST /branding/logo`: the request's body as the logo of the
-   machine's folder `home`. Answers what is saved then, as transit; a
-   415 `:not-taken` for a file that is no picture of `logo-types`, by
-   its type and name or by its bytes (`picture?`), a 413 `:too-large`
-   past `logo-max-bytes`."
+   machine's folder `home`, stored as the kind its bytes are
+   (`kind-of`). Answers what is saved then, as transit; a 413
+   `:too-large` past `logo-max-bytes`, a 415 `:not-taken` for a file
+   that is no picture of `logo-types`."
   [home w]
   (let [request (:ring/request w)
-        extension (extension-for (media-type request) (file-name-param request))]
-    (if (nil? extension)
-      (uploads/respond w 415 {:error :not-taken})
-      (let [^js bytes (await (uploads/read-body (:body request) logo-max-bytes))]
-        (cond
-          (nil? bytes) (uploads/respond w 413 {:error :too-large})
-          (not (picture? bytes extension)) (uploads/respond w 415 {:error :not-taken})
-          :else (uploads/respond w 200 (save-logo! home bytes extension)))))))
+        declared (extension-for (media-type request) (file-name-param request))
+        ^js bytes (await (uploads/read-body (:body request) logo-max-bytes))
+        extension (some-> bytes (kind-of declared))]
+    (cond
+      (nil? bytes) (uploads/respond w 413 {:error :too-large})
+      (nil? extension) (uploads/respond w 415 {:error :not-taken})
+      :else (uploads/respond w 200 (save-logo! home bytes extension)))))
 
 (def logo-headers
   "What a served logo carries besides its type. Its name is the hash of

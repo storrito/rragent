@@ -483,9 +483,10 @@ tab shows a change with its next frame.
 `branding.json` in the machine's folder holds the name and the name of
 the logo's file. The file itself lies in `branding/` beside it, named
 by the hash of its bytes, so a browser keeps it and a new logo has a
-new address. A logo is a PNG, JPEG, WebP, GIF or SVG of at most 2 MB;
-a file whose bytes are no such picture is refused, whatever its name
-says. `POST /branding/logo` takes it and `GET /branding/logo/<file>`
+new address. A logo is a PNG, JPEG, WebP, GIF or SVG of at most 2 MB.
+What a file is its bytes say, not its name: a WebP saved as `logo.png`
+is stored as a WebP, and a file that is no picture is refused.
+`POST /branding/logo` takes it and `GET /branding/logo/<file>`
 serves it, both behind the token. An empty name saved takes the name
 away again, and Remove the logo the picture.
 
