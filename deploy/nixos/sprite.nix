@@ -220,6 +220,13 @@ in
       "root"
       "sprite"
     ];
+    # A Sprite's kernel does not give Nix the namespaces its build
+    # sandbox needs, and NixOS does not fall back by itself: with the
+    # sandbox on, the first thing to build on a machine fails ("this
+    # system does not support the kernel namespaces that are required
+    # for sandboxing"). Nearly everything comes built from the cache;
+    # what is built here is the system's own glue.
+    nix.settings.sandbox = false;
     # Generations and downloads nobody refers to any more leave the disk.
     nix.gc = {
       automatic = true;

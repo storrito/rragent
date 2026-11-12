@@ -101,6 +101,8 @@
     (testing "/sbin/init is a link to a file named systemd, the only kind a Sprite takes for its init"
       (is (str/includes? base "/sprite-init/lib/systemd/systemd sbin/init") "in the image")
       (is (str/includes? base "\"$1/sprite-init/lib/systemd/systemd\" /sbin/init") "after a switch"))
+    (testing "Nix builds without its sandbox, which a Sprite's kernel does not allow"
+      (is (str/includes? base "nix.settings.sandbox = false;")))
     (testing "HyperFrames and Puppeteer take the machine's browser"
       (doseq [variable ["HYPERFRAMES_BROWSER_PATH" "PRODUCER_HEADLESS_SHELL_PATH" "PUPPETEER_EXECUTABLE_PATH"]]
         (is (str/includes? base (str variable " = \"/run/current-system/sw/bin/google-chrome\";")) variable)))))
