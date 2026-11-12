@@ -1361,9 +1361,10 @@ nbb at the Dockerfile's versions, installed into `~/.local` by the unit
 by the environment to take the machine's browser
 (`HYPERFRAMES_BROWSER_PATH` and the like): a Chrome they download runs
 here too, but HyperFrames refuses it after asking `ldd`. Besides: Nix
-with flakes, `nix-ld`, so that a program built for another Linux finds
-a loader and the usual libraries, `/bin/bash`, and an `apt-get` that
-says what to run instead.
+with flakes and without its build sandbox, which a Sprite's kernel does
+not allow, `nix-ld`, so that a program built for another Linux finds a
+loader and the usual libraries, `/bin/bash`, and an `apt-get` that says
+what to run instead.
 
 The agent changes its machine with `rragent-system`
 (`deploy/nixos/rragent-system.sh`), and its instructions say so:
