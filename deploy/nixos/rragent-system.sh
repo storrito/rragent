@@ -31,6 +31,7 @@ config=/etc/nixos
 flake="$config#sprite"
 profile=/nix/var/nix/profiles/system
 state=/var/lib/rragent-system
+gcroot=/nix/var/nix/gcroots/rragent-system-good
 sw=/run/current-system/sw/bin
 
 say() { echo "rragent-system: $*" >&2; }
@@ -172,6 +173,8 @@ watch() {
       started=$(cat /run/rragent/started-on 2>/dev/null)
       if [ -n "$started" ] && [ "$started" != "$(cat "$state/good" 2>/dev/null)" ]; then
         echo "$started" > "$state/good"
+        # kept from the garbage collection, whatever generations go
+        ln -sfn "$started" "$gcroot"
         say "rragent answers on $started: the system to go back to from now on"
       fi
       return 0

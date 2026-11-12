@@ -144,6 +144,7 @@
         newer (system "newer")
         script (-> (text "deploy/nixos/rragent-system.sh")
                    (str/replace "state=/var/lib/rragent-system" (str "state=" state))
+                   (str/replace "gcroot=/nix/var/nix/gcroots/rragent-system-good" (str "gcroot=" dir "/gcroot"))
                    (str/replace "/run/rragent/started-on" (str dir "/started-on"))
                    (str/replace "readlink -f /run/current-system" (str "cat " dir "/current"))
                    (str/replace "sleep 5" "true"))
@@ -168,6 +169,7 @@
         (fs/writeFileSync (path/join dir "started-on") (str good "\n"))
         (is (zero? (:status (run true))))
         (is (= good (str/trim (text (path/join state "good")))))
+        (is (= good (fs/readlinkSync (path/join dir "gcroot"))) "and kept from the garbage collection")
         (is (= "" (log))))
       (testing "it does not answer on the system it answered on before: not the system's doing"
         (let [{:keys [status err]} (run false)]

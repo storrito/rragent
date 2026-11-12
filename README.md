@@ -1326,24 +1326,40 @@ takes a change of `deploy/nixos/`, or of `deploy/image/start.sh`,
 from the repository with its next upgrade, not from a newer image.
 
 The sprite is made with the image and systemd as its init, and needs no
-service definition: `sprite create`'s request with `config`
-`{"image_url": "ghcr.io/storrito/rragent-sprite-nixos:<version>",
-"init": "systemd"}`, the label `token:<hex>` among its labels, the
-`.env` written by an exec, the URL made public. rragent is the systemd
-unit `rragent` on port 8080, the port every Sprite's URL routes to; it
-runs `deploy/image/start.sh`, the Ubuntu machine's, with a NixOS
-`PATH`, so the bundle, the skills clone and the updates work as above.
-The unit starts again every five seconds until the `.env` is there.
-`journalctl -u rragent` has its output.
+service definition: the request that creates it (`POST /v1/sprites`)
+with `config` `{"image_url":
+"ghcr.io/storrito/rragent-sprite-nixos:<version>", "init": "systemd"}`,
+the label `token:<hex>` among its labels, the `.env` written by an
+exec, the URL made public. rragent is the systemd unit `rragent` on
+port 8080, the port every Sprite's URL routes to; it runs
+`deploy/image/start.sh`, the Ubuntu machine's, with a NixOS `PATH`, so
+the bundle, the skills clone and the updates work as above. The unit
+starts again every five seconds until the `.env` is there.
+`journalctl -u rragent` has its output. `sprite-env` is there as on
+every Sprite, the platform brings it.
+
+Three things the platform decides, and how the image meets them. A
+Sprite takes only a file named `systemd` for its init, and NixOS's init
+is a script that sets the system up before it runs systemd: so every
+system carries that script under the name `systemd`, `/sbin/init` is a
+link to it, and a switch moves the link to the new system, which the
+next cold start boots. An exec's `PATH` is the image's `ENV`, set after
+the login profile: so the image names the base's `PATH`
+(`.github/actions/sprite-nixos-image`), and an exec finds the
+machine's programs. An exec runs as the image's user: `sprite`, as on
+the base image.
 
 What the base brings (`deploy/nixos/sprite.nix`) is what the
 Dockerfile installs: Node, ffmpeg with the fonts, a browser (Chromium,
 also under the name `google-chrome`), git, and the HyperFrames CLI and
 nbb at the Dockerfile's versions, installed into `~/.local` by the unit
-`rragent-tools` at the first start. Besides: Nix with flakes,
-`nix-ld`, so that a program built for another Linux finds a loader and
-the usual libraries, `/bin/bash`, and an `apt-get` that says what to
-run instead.
+`rragent-tools` at the first start. HyperFrames and Puppeteer are told
+by the environment to take the machine's browser
+(`HYPERFRAMES_BROWSER_PATH` and the like): a Chrome they download runs
+here too, but HyperFrames refuses it after asking `ldd`. Besides: Nix
+with flakes, `nix-ld`, so that a program built for another Linux finds
+a loader and the usual libraries, `/bin/bash`, and an `apt-get` that
+says what to run instead.
 
 The agent changes its machine with `rragent-system`
 (`deploy/nixos/rragent-system.sh`), and its instructions say so:
