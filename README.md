@@ -1113,8 +1113,7 @@ checksum. A machine downloads `releases/latest/download/rragent.tar.gz`
 at its first start instead of building the app (Deploy, below), and a
 running agent takes the release by itself (Updates, below). The Sprite
 image is not the release's: it has a version of its own, bumped with
-its Dockerfile (Deploy, below); until Storrito provisions by that, the
-release tags the image with the release's version too.
+its Dockerfile (Deploy, below); a release touches no image.
 
 A branch gets to a sprite without a release through the Trial workflow
 (`.github/workflows/trial.yml`): "Run workflow" on the branch builds
@@ -1182,10 +1181,9 @@ bump fails loudly. A provisioner lists the package's tags
 (`ghcr.io/v2/storrito/rragent-sprite/tags/list`, with the anonymous
 pull token of a public package) and makes the machine from the highest
 `x.y.z`; Storrito's does (`app.agent.rragent-release`). The releases'
-own tags (`rragent-sprite:0.1.x`, `latest`), which the release
-workflow still pushes until nothing provisions by them, sort below
-the image's `1.x` versions, and a trial's `<version>-trial.<sha>` is
-no `x.y.z`: both are passed over.
+tags of before (`rragent-sprite:0.1.x`, `latest`) sort below the
+image's `1.x` versions, and a trial's `<version>-trial.<sha>` is no
+`x.y.z`: both are passed over.
 
 The image is the Sprites base image (`s2-default`, which brings Node
 through mise) with what the templates need, ffmpeg with the fonts,
