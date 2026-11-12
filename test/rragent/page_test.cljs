@@ -322,6 +322,23 @@
                                  (finally
                                    (fs/rmSync (path/join dir "short") #js {:recursive true :force true})
                                    (artifacts/refresh! db/db (db/bot-path id) dir))))
+                             (testing "a card that opens the folder of a page shows the page, the list in that folder; with a README the README"
+                               (fs/mkdirSync (path/join dir "flow") #js {:recursive true})
+                               (fs/writeFileSync (path/join dir "flow" "index.html") "<h1>flow</h1>")
+                               (fs/writeFileSync (path/join dir "flow" "workflow.json") "{}")
+                               (artifacts/refresh! db/db (db/bot-path id) dir)
+                               (try
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "flow" :tab "t1"}))))
+                                 (is (= {:current "flow/index.html" :folder "flow"} (artifacts/place (get-in @db/db [:bots id]))))
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "stories" :tab "t1"}))) "a folder whose pages have other names is browsed")
+                                 (is (= {:current nil :folder "stories"} (artifacts/place (get-in @db/db [:bots id]))))
+                                 (fs/writeFileSync (path/join dir "flow" "README.md") "# Flow")
+                                 (artifacts/refresh! db/db (db/bot-path id) dir)
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "flow" :tab "t1"}))))
+                                 (is (= {:current "flow/README.md" :folder "flow"} (artifacts/place (get-in @db/db [:bots id]))))
+                                 (finally
+                                   (fs/rmSync (path/join dir "flow") #js {:recursive true :force true})
+                                   (artifacts/refresh! db/db (db/bot-path id) dir))))
                              (is (= {:success? true} (await (command! base cookie :chat/send {:bot id :text "And this" :screen "gone.html"}))))
                              (await (frame! #(mentions? % "Which one?")))
                              (is (= "And this" (last-message)) "what the list no longer has names nothing")

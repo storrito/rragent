@@ -586,18 +586,34 @@
     (some #(when (and (= :project (:kind %)) (= top (:path %))) (:path %))
           (:artifacts/list value))))
 
+(defn- page-of
+  "The page of the folder `folder`, the `index.html` right in it, among
+   the list of the bot's map `value`: its path, nil without one."
+  [value folder]
+  (let [page (str folder "/index.html")]
+    (when (artifact-of value page)
+      page)))
+
 (defn- folder-shown
   "The bot's map with `folder` opened from a card or a link, something
    meant to be looked at: as `folder-opened`, and a folder of a project
    without a README of its own, `story/composition` on a card, has
    nothing to show, so the project's player takes the screen while the
-   list browses the folder."
+   list browses the folder. A folder outside a project that holds a
+   page, an `index.html`, and no README shows that page the same way:
+   a card that names the folder of a page means the page, not its
+   files."
   [value folder]
-  (let [project (project-of value folder)]
-    (if (and project (not (artifacts/readme (:artifacts/list value) folder)))
-      (-> (artifacts/picked value project)
-          (artifacts/browsed folder))
-      (folder-opened value folder))))
+  (let [project (project-of value folder)
+        readme (artifacts/readme (:artifacts/list value) folder)
+        page (when-not (or project readme)
+               (page-of value folder))]
+    (cond
+      (and project (not readme)) (-> (artifacts/picked value project)
+                                     (artifacts/browsed folder))
+      page (-> (artifacts/picked value page)
+               (artifacts/browsed folder))
+      :else (folder-opened value folder))))
 
 (defonce ^:private steps
   (atom 0))
