@@ -132,12 +132,41 @@ body {
   overflow-y: auto;
 }
 
+/* The corner (rragent.view/sidebar): the machine's logo, when it has
+   one, in front of its name and the version (rragent.branding). A long
+   name breaks into a second line; a wide logo keeps room for it, and
+   has more of the corner when it stands alone (logo-only). */
 .sidebar .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 2px 8px;
   font-weight: 700;
+}
+
+.sidebar .brand img.logo {
+  flex: none;
+  width: auto;
+  max-width: 96px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.sidebar .brand.logo-only img.logo {
+  max-width: 160px;
+}
+
+.sidebar .brand .text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  min-width: 0;
+}
+
+.sidebar .brand .name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sidebar .brand .version {
@@ -3250,6 +3279,148 @@ pre {
   font: inherit;
   font-size: 14px;
   cursor: pointer;
+}
+
+/* The name and the logo of the page's corner
+   (rragent.view/branding-section): the field of the name with its
+   button (the client's :ui/brand-name), then the saved logo beside the
+   button that picks one (:ui/logo-upload) and the one that removes it.
+   The logo lies on the sidebar's ground, as it will in the corner. */
+form.brand-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 8px;
+  max-width: 420px;
+  margin: 8px 0;
+}
+
+form.brand-name label {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+form.brand-name input {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+form.brand-name input:focus {
+  border-color: var(--muted);
+  outline: none;
+}
+
+form.brand-name button {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* The line under the field: the note, or in its place how the save
+   went, until the next letter. The result is on the page all the
+   while, empty, so that a screen reader says the word that comes. */
+form.brand-name .below {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+form.brand-name .result {
+  color: var(--ok);
+}
+
+form.brand-name .result.failed {
+  color: var(--warn);
+}
+
+.main .settings .branding .logo-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+/* The saved logo the size the corner shows it: 24 pixels high and at
+   most 96 wide, 160 without a name beside it, inside the padding and
+   the border. */
+.main .settings .branding .logo-row img.logo {
+  width: auto;
+  max-width: 122px;
+  height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 60%, var(--bg));
+  object-fit: contain;
+}
+
+.main .settings .branding .logo-row.alone img.logo {
+  max-width: 186px;
+}
+
+.main .settings .logo-upload label.pick {
+  position: relative;
+  display: inline-block;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.main .settings .logo-upload label.pick:hover {
+  border-color: var(--muted);
+}
+
+.main .settings .logo-upload label.pick.busy {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The file input stays on the page, out of sight, so that the Tab key
+   reaches it; its label shows where the keyboard's focus is. */
+.main .settings .logo-upload label.pick input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.main .settings .logo-upload label.pick:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* why a file was not taken, on a line of its own below the buttons;
+   the line is on the page all the while, empty, so that a screen
+   reader says what comes into it */
+.main .settings .branding .logo-row .logo-upload {
+  display: contents;
+}
+
+.main .settings .branding .logo-row .logo-upload .result {
+  flex-basis: 100%;
+  order: 1;
+  margin: 0;
 }
 
 /* The password field of a secret (the client's :ui/secret-field), in a

@@ -9,6 +9,7 @@
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             ["node:url" :as url]
+            [clojure.string :as str]
             [rragent.webapp :as webapp]))
 
 (def entry
@@ -65,13 +66,22 @@
    before a light choice, or the other way round."
   "<script>try{var t=localStorage.getItem(\"rragent.theme\");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>")
 
+(defn- escaped
+  "`s` as text of an HTML page."
+  [s]
+  (-> (str s)
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")))
+
 (defn head
-  "The head of the shim: the title, what makes the page an app on a
-   home screen (`rragent.webapp/head`: the manifest, the icons, the
-   colors of the bars), the theme chosen, the stylesheet, the preloads
-   and the scripts of the page."
-  [{:keys [scripts preload css]}]
-  (str "<title>rragent</title>"
+  "The head of the shim: the title, the machine's name when it has one
+   of its own (`title`, `rragent.branding`), what makes the page an app
+   on a home screen (`rragent.webapp/head`: the manifest, the icons,
+   the colors of the bars), the theme chosen, the stylesheet, the
+   preloads and the scripts of the page."
+  [{:keys [scripts preload css title]}]
+  (str "<title>" (escaped (or (not-empty title) "rragent")) "</title>"
        webapp/head
        theme-script
        "<link rel=\"stylesheet\" href=\"" css "\">"

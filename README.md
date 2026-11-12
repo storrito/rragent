@@ -296,8 +296,8 @@ root `/` redirects to the bot last used, and a tab whose bot is gone
 shows another with a note. The header shows the bot's name and how
 full its context is, the composer the model and its effort. Settings,
 at the bottom of the sidebar, opens in place of the chat for this
-tab, its sections Updates, On the phone, Input, Recording and MCP
-servers (Updates and Deploy, below); the version in the header opens
+tab, its sections Updates, On the phone, Input, Recording, MCP
+servers and Branding (Updates and Deploy, below); the version in the header opens
 it too, and a bot picked in the sidebar brings the chat back. The rest of the page is the bot's: its
 conversation as a chat, user messages, the
 agent's answers rendered from their markdown (`rragent.markdown`:
@@ -468,6 +468,30 @@ from Safari's; Android's and the desktop's share the browser's. A
 rotated token leaves the installed app on the access-required page
 until it is added again, as it leaves the link. The icons are open
 routes, nothing of the person is in them.
+
+## Branding
+
+The top left corner of the page says "rragent" until the machine gets
+a name of its own, a logo, or both. Settings → Branding has a field
+for the name and a button that uploads a logo, which stands in front
+of the name, 24 pixels high (`rragent.branding`). A machine with a
+logo and no name shows the logo alone, for a logo that already spells
+the name. The name is the title of the browser's tab too. Both belong
+to the machine, so everyone with the link sees them, and every open
+tab shows a change with its next frame.
+
+`branding.json` in the machine's folder holds the name and the name of
+the logo's file. The file itself lies in `branding/` beside it, named
+by the hash of its bytes, so a browser keeps it and a new logo has a
+new address. A logo is a PNG, JPEG, WebP, GIF or SVG of at most 2 MB.
+What a file is its bytes say, not its name: a WebP saved as `logo.png`
+is stored as a WebP, and a file that is no picture is refused.
+`POST /branding/logo` takes it and `GET /branding/logo/<file>`
+serves it, both behind the token. An empty name saved takes the name
+away again, and Remove the logo the picture.
+
+The app on the home screen keeps its name and its icon (Storrito, the
+burrito), and so do the texts about updates, which name rragent.
 
 ## The artifacts
 

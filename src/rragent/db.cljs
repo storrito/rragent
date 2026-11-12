@@ -19,6 +19,8 @@
        :settings-open  #{tabid}, the tabs showing the settings in place
                  of the chat
        :settings-section {tabid section}, the settings' section of a tab
+       :branding {:name :logo}, the name and the logo of the page's top
+                 left corner the machine was given (`rragent.branding`)
        :expanded {tabid #{item-id}}, the folded rows of the chat (tool
                  calls, hook calls, schedule runs) each tab has open; a
                  frame carries their body only for those

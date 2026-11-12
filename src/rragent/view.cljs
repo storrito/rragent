@@ -19,6 +19,7 @@
   (:require [clojure.string :as str]
             [rragent.artifacts :as artifacts]
             [rragent.bots :as bots]
+            [rragent.branding :as branding]
             [rragent.costs :as costs]
             [rragent.csv :as csv]
             [rragent.definition :as definition]
@@ -932,8 +933,54 @@
                  :ui/install [:i18n :mobile/install]
                  :ui/installed [:i18n :mobile/installed]}]])
 
+(defn branding-section
+  "The Branding section of the settings: the name in the top left
+   corner of the page and the logo in front of it (`rragent.branding`;
+   `brand` is what is saved, `{:name :logo}`). The name is a field
+   with its button (`:ui/brand-name`, `rragent.client`), saved as
+   `:branding/name`; the line under it says what an empty field
+   leaves in the corner, \"rragent\", or the logo alone when there is
+   one. The logo is a file picker that posts the picture
+   (`:ui/logo-upload`, told the saved one as `:ui/logo`), with the
+   saved one beside the button that removes it
+   (`:branding/remove-logo`); the row is marked `alone` for a logo
+   without a name, which the corner gives more room. Both are the
+   machine's, so everyone with the link sees them."
+  [{:keys [name logo]}]
+  [:section.branding
+   [:h2 [:i18n :branding/title]]
+   [:p [:i18n :branding/explain]]
+   [:ui/brand-name {:ui/name (or name "")
+                    :ui/label [:i18n :branding/name]
+                    :ui/placeholder branding/default-name
+                    :ui/max-chars branding/max-chars
+                    :ui/button [:i18n :branding/save]
+                    :ui/saved [:i18n :branding/saved]
+                    :ui/not-saved [:i18n :branding/not-saved]
+                    :ui/note (if logo
+                               [:i18n :branding/name-note-logo]
+                               [:i18n :branding/name-note {:name branding/default-name}])}]
+   [:h3 [:i18n :branding/logo]]
+   [:p [:i18n :branding/logo-explain]]
+   [:div.logo-row {:class (when (and logo (not name)) "alone")}
+    (when logo
+      [:img.logo {:src (branding/logo-url logo)
+                  :alt [:i18n :branding/logo-alt]}])
+    [:ui/logo-upload {:ui/url branding/logo-path
+                      :ui/logo logo
+                      :ui/accept branding/accept
+                      :ui/max-bytes branding/logo-max-bytes
+                      :ui/choose [:i18n (if logo :branding/replace-logo :branding/upload-logo)]
+                      :ui/sending [:i18n :branding/sending]
+                      :ui/too-large [:i18n :branding/too-large]
+                      :ui/not-taken [:i18n :branding/not-taken]
+                      :ui/failed [:i18n :branding/failed]}]
+    (when logo
+      [:button.link.danger {:on {:click [[:data/command {:command/kind :branding/remove-logo}]]}}
+       [:i18n :branding/remove-logo]])]])
+
 (def settings-sections
-  [:updates :mobile :input :recording :mcp])
+  [:updates :mobile :input :recording :mcp :branding])
 
 (defn settings
   "In place of the bot's chat and pane, for the tab that opened them
@@ -944,9 +991,10 @@
    there (`:bot/show`), no button here: the updates
    (`updates-section`), the page on the phone (`mobile-section`,
    `link` the page's secret link), the keys of the composer
-   (`input-section`), the recordings (`recording-section`) or the MCP
-   servers (`mcp-section`, `mcp` its data)."
-  [update section mcp link]
+   (`input-section`), the recordings (`recording-section`), the MCP
+   servers (`mcp-section`, `mcp` its data) or the name and the logo
+   of the page's corner (`branding-section`, `brand` what is saved)."
+  [update section mcp link & [brand]]
   (let [sections settings-sections
         section (if (some #{section} sections) section :updates)]
     (list
@@ -968,6 +1016,7 @@
         :mcp (mcp-section mcp)
         :input (input-section)
         :recording (recording-section)
+        :branding (branding-section brand)
         (updates-section update))])))
 
 (defn phone-words
@@ -1930,17 +1979,31 @@
    archived ones last, each a link to its page with its marks
    (`bot-row`) and its menu (`bot-actions`: rename, delete); a row
    being deleted asks, a row being renamed is a field (`:deleting?`,
-   `:renaming?` of the bot). At the bottom who this browser is and
+   `:renaming?` of the bot). Over them the corner (`brand`, `{:name
+   :logo}` of `rragent.branding`): the machine's logo, when it has
+   one, and its name, then the running version. A machine with
+   neither says \"rragent\"; one with a logo and no name shows the
+   logo alone (`logo-only`), which then carries the words a screen
+   reader says. At the bottom who this browser is and
    the way to the settings, marked while this tab shows them
    (`settings?`): then no bot is marked as the current one, so that
    each row reads as what it is, the way to its chat."
-  [bots shown version settings? & [person]]
+  [bots shown version settings? & [person brand]]
   (let [shown (when-not settings? shown)
         bots (archived-last bots)]
     [:aside.sidebar
-     [:div.brand "rragent"
-      (when version
-        [:span.version {:title "rragent version"} version])]
+     (let [{:keys [name logo]} brand
+           alone? (and logo (not name))]
+       [:div.brand {:class (when alone? "logo-only")}
+        (when logo
+          ;; no words of its own beside a name, which says whose it is
+          [:img.logo {:src (branding/logo-url logo)
+                      :alt (if alone? [:i18n :branding/logo-alt] "")}])
+        [:span.text
+         (when-not alone?
+           [:span.name (or name branding/default-name)])
+         (when version
+           [:span.version {:title "rragent version"} version])]])
      (new-bot)
      ;; keyed by its order: a list whose rows move makes a new list
      ;; (Replicant 2026.07.1 keeps a stale vdom for a row moved to the front)
@@ -2002,8 +2065,10 @@
    (`settings`), `:settings-section` which of their sections, `:mcp`
    what the MCP section shows (`mcp-section`) and `:link` the page's
    address with its token, for the phone (`mobile-section`);
-   `:person`, who this browser is (`rragent.person`)."
-  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp link person limit tasks] pane :artifacts}]
+   `:person`, who this browser is (`rragent.person`); `:brand`, the
+   name and the logo of the corner the machine was given
+   (`rragent.branding/saved`), the name the tab's title too."
+  [{:keys [bots bot run conversation expanded locale onboarding update note failed phone settings? settings-section mcp link person limit tasks brand] pane :artifacts}]
   (let [id (:id bot)
         base (when id (bots/url id))
         items (items conversation)
@@ -2014,17 +2079,20 @@
         card (when-not run (open-card items))]
     [:div.rragent {:lang (some-> locale clojure.core/name)}
      ;; the version beside the path: a page whose bundle is older than
-     ;; the server reloads itself (`rragent.client/url-alias`)
-     [:ui/url {:ui/path (if run (runs/url id (:id run)) base) :ui/version version/version}]
+     ;; the server reloads itself (`rragent.client/url-alias`); the
+     ;; machine's name is the tab's title, at once in every open tab
+     [:ui/url {:ui/path (if run (runs/url id (:id run)) base)
+               :ui/version version/version
+               :ui/title (or (:name brand) branding/default-name)}]
      ;; the drawer state on a phone, toggled by labels, never rendered
      ;; with :checked so that the person's choice survives a frame
      [:input#nav.toggle {:type "checkbox"}]
-     (sidebar bots id (:current update) settings? person)
+     (sidebar bots id (:current update) settings? person brand)
      [:label.backdrop {:for "nav"}]
      (if settings?
        ;; keyed apart from the chat: the two share no element
        [:div.main.settings-open {:replicant/key "settings"}
-        (settings update settings-section mcp link)]
+        (settings update settings-section mcp link brand)]
        ;; keyed by the bot, and by the run when one is shown: a switch
        ;; builds the chat anew, two transcripts share no element
        [:div.main {:replicant/key (if run (str "bot-" id "-run-" (:id run)) (str "bot-" id))}

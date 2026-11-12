@@ -896,6 +896,152 @@
    (when note
      [:small.note note])])
 
+(def ^:private brand-name-result
+  "Where the store keeps how the last save of the name went
+   (`brand-name`): `:saved`, `:failed`, or nothing."
+  :ui/brand-name-result)
+
+(defn- forget-later!
+  "The key `k` out of the store, after the render that goes on: a hook
+   of Replicant runs inside one."
+  [k]
+  (js/setTimeout #(swap! state/store dissoc k) 0))
+
+(defn brand-name
+  "`[:ui/brand-name {:ui/name :ui/label :ui/placeholder :ui/max-chars
+   :ui/button :ui/saved :ui/not-saved :ui/note}]` in the settings
+   (`rragent.view/branding-section`): the field of the name in the
+   page's top left corner, with the saved one in it, and the button
+   that sends what is typed to the server as `:branding/name`. An
+   empty field takes the name away again; the note under the field
+   says what the corner shows then. The input takes its value from the
+   frame only when the saved name changes, so a frame keeps what is
+   being typed.
+
+   A line under the field says that the name is saved, or that it
+   could not be: on a phone the corner is in a closed drawer, and
+   nothing else on the page would show that the button did something.
+   It stands in the note's place, so that the page below it does not
+   move. The next letter typed brings the note back, and so does
+   leaving the section; coming back forgets it too, for an answer that
+   came while the section was away."
+  [{:keys [ui/name ui/label ui/placeholder ui/max-chars ui/button ui/saved ui/not-saved ui/note ui/state]} _]
+  (let [result (get state brand-name-result)]
+    [:form.brand-name
+     {:autocomplete "off"
+      :replicant/on-mount (fn [_] (forget-later! brand-name-result))
+      :replicant/on-unmount (fn [_] (forget-later! brand-name-result))
+      :on {:submit (fn [^js event]
+                     (.preventDefault event)
+                     (let [input (.querySelector (.-currentTarget event) "input")]
+                       (swap! state/store dissoc brand-name-result)
+                       (state/dispatch! [[:data/command
+                                          {:command/kind :branding/name
+                                           :command/data {:name (.-value input)}}
+                                          {:on-success [[:store/assoc brand-name-result :saved]]
+                                           :on-error [[:store/assoc brand-name-result :failed]]}]])))}}
+     [:label
+      [:span.label label]
+      [:input {:type "text"
+               :value name
+               :maxlength max-chars
+               :autocomplete "off"
+               ;; a string: Replicant leaves a false attribute out
+               :spellcheck "false"
+               :placeholder placeholder
+               :on {:input (fn [_]
+                             (when (get @state/store brand-name-result)
+                               (swap! state/store dissoc brand-name-result)))}}]]
+     [:button {:type "submit"} button]
+     [:small.below
+      ;; always there, so that a screen reader says what comes into it
+      [:span.result {:role "status"
+                     :class (when (= :failed result) "failed")}
+       (case result
+         :saved saved
+         :failed not-saved
+         nil)]
+      (when (and note (nil? result))
+        [:span.note note])]]))
+
+(def ^:private logo-upload-state
+  "Where the store keeps what became of the last logo picked
+   (`upload-logo!`)."
+  :ui/logo-upload)
+
+(defn- upload-logo!
+  "The picked `file` to `url` as the logo of the page's corner
+   (`rragent.branding` on the server). What became of it is in the
+   store under `logo-upload-state`: `{:status :sending}` while it goes
+   up, nothing once it is in (the next frame shows the logo), else why
+   it was not taken, `:too-large` (also said here, before a file of
+   more than `max-bytes` goes anywhere), `:not-taken` for a file that
+   is no picture the server knows, `:failed` for the rest. A reason
+   carries `logo`, the logo saved when the file was picked, so that it
+   is said only until the logo is another (`logo-upload`)."
+  [url max-bytes logo ^js file]
+  (let [became! (fn [status]
+                  (if status
+                    (swap! state/store assoc logo-upload-state {:status status :logo logo})
+                    (swap! state/store dissoc logo-upload-state)))]
+    (if (and max-bytes (< max-bytes (.-size file)))
+      (became! :too-large)
+      (do (became! :sending)
+          (-> (js/fetch (str url "?name=" (js/encodeURIComponent (.-name file)))
+                        #js {:method "POST"
+                             :headers #js {"Content-Type" (or (not-empty (.-type file)) "application/octet-stream")}
+                             :body file})
+              (.then (fn [^js response]
+                       (became! (case (.-status response)
+                                  200 nil
+                                  413 :too-large
+                                  415 :not-taken
+                                  :failed))))
+              (.catch (fn [error]
+                        (js/console.error "[logo]" error)
+                        (became! :failed))))))))
+
+(defn logo-upload
+  "`[:ui/logo-upload {:ui/url :ui/logo :ui/accept :ui/max-bytes
+   :ui/choose :ui/sending :ui/too-large :ui/not-taken :ui/failed}]` in
+   the settings (`rragent.view/branding-section`): the button that
+   picks a picture and posts it as the logo of the page's corner
+   (`upload-logo!`), its words the server's. The file input is on the
+   page, out of sight, so that the Tab key reaches the button and
+   Enter or Space opens the picker. While the file goes up the button
+   says so and opens no picker; the input stays enabled, so that the
+   keyboard's focus stays on it. A file that was not taken leaves a line
+   that says why, until the saved logo (`:ui/logo`) is another, the
+   next file is picked or the section is left."
+  [{:keys [ui/url ui/logo ui/accept ui/max-bytes ui/choose ui/sending ui/too-large ui/not-taken ui/failed ui/state]} _]
+  (let [{:keys [status] :as became} (get state logo-upload-state)
+        sending? (= :sending status)
+        why (when (= logo (:logo became))
+              (get {:too-large too-large :not-taken not-taken :failed failed} status))]
+    [:div.logo-upload
+     {:replicant/on-unmount (fn [_]
+                              ;; a file on its way says how it went once it is in
+                              (when-not (= :sending (:status (get @state/store logo-upload-state)))
+                                (forget-later! logo-upload-state)))}
+     [:label.pick {:class (when sending? "busy")}
+      [:input {:type "file"
+               :accept accept
+               :aria-disabled (when sending? "true")
+               :on {:click (fn [^js event]
+                             ;; no picker while a file goes up
+                             (when (= :sending (:status (get @state/store logo-upload-state)))
+                               (.preventDefault event)))
+                    :change (fn [^js event]
+                              (when-let [file (aget (.. event -target -files) 0)]
+                                (upload-logo! url max-bytes logo file))
+                              ;; the same file picked again is a change again
+                              (set! (.. event -target -value) ""))}}]
+      (if sending? sending choose)]
+     ;; always there, so that a screen reader says what comes into it
+     [:p.result {:role "status"
+                 :class (when why "failed")}
+      why]]))
+
 (defn time-alias
   "A moment (`:ui/ms`, milliseconds since the epoch) as the time of day
    in the browser's own time zone and language, with the date before
@@ -1100,15 +1246,19 @@
       (js/setTimeout #(js/location.reload) 0))))
 
 (defn url-alias
-  "`[:ui/url {:ui/path \"/bot/<id>\" :ui/version \"0.1.2\"}]` in a frame:
-   the page of the bot the server shows; when the address bar says
-   another, it is corrected in place, no entry in the history, its
-   state kept (`pane-history`); when the server's version is another
-   than this bundle's, the page reloads once (`reload-for!`). Renders
+  "`[:ui/url {:ui/path \"/bot/<id>\" :ui/version \"0.1.2\" :ui/title
+   \"rragent\"}]` in a frame: the page of the bot the server shows; when
+   the address bar says another, it is corrected in place, no entry in
+   the history, its state kept (`pane-history`); when the server's
+   version is another than this bundle's, the page reloads once
+   (`reload-for!`); the tab's title, the machine's name
+   (`rragent.branding`), follows a new one without a reload. Renders
    nothing."
-  [{:keys [ui/path ui/version]} _children]
+  [{:keys [ui/path ui/version ui/title]} _children]
   (when (and (seq path) (not= path js/location.pathname))
     (js/history.replaceState js/history.state "" (str path js/location.search)))
+  (when (and (seq title) (not= title (.-title js/document)))
+    (set! (.-title js/document) title))
   (when (and (seq version) (not= version version/version))
     (reload-for! version))
   [:span.url {:hidden true}])
@@ -1387,6 +1537,10 @@
     :ui.alias/fn send-checked}
    {:ui.alias/kind :ui/secret-field
     :ui.alias/fn secret-field}
+   {:ui.alias/kind :ui/brand-name
+    :ui.alias/fn brand-name}
+   {:ui.alias/kind :ui/logo-upload
+    :ui.alias/fn logo-upload}
    {:ui.alias/kind :ui/time
     :ui.alias/fn time-alias}
    {:ui.alias/kind :ui/theme-toggle
