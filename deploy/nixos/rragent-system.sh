@@ -153,7 +153,7 @@ status() {
   echo "good:     $(cat "$state/good" 2>/dev/null || echo 'none yet: rragent has not answered since this machine was made')"
   [ -f "$state/rolled-back" ] && { echo "rolled back by the watch:"; sed 's/^/  /' "$state/rolled-back"; }
   echo "generations:"
-  nix-env -p "$profile" --list-generations 2>/dev/null | tail -5 | sed 's/^/  /'
+  sudo -n nix-env -p "$profile" --list-generations 2>/dev/null | tail -5 | sed 's/^/  /'
   echo "changes of $config:"
   repo log --oneline -5 2>/dev/null | sed 's/^/  /'
   if ! repo diff --quiet 2>/dev/null || ! repo diff --cached --quiet 2>/dev/null; then

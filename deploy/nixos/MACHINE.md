@@ -31,9 +31,9 @@ one does not, take the program from nixpkgs instead.
 `rragent-system upgrade` takes the newest packages of the NixOS release
 and the newest base of rragent, the security fixes among them, and goes
 back by itself like `apply`. Run it when the person asks for it or a
-schedule does, never in the middle of other work. `rragent-system
-rollback` undoes the last change. `rragent-system status` says what
-runs and what the last changes were.
+schedule does, never in the middle of other work.
+`rragent-system rollback` undoes the last change.
+`rragent-system status` says what runs and what the last changes were.
 
 `/etc/nixos/flake.nix` names the NixOS release and rragent's base;
 `flake.lock` pins both. Leave them to `rragent-system upgrade`, unless
