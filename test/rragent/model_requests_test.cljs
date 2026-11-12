@@ -54,11 +54,12 @@
                                                                                     #js {:type "image" :source #js {:type "base64" :media_type "image/webp" :data (apply str (repeat 400 "A"))}}]}]}))
 
 (defn- large
-  "The JSON `body` with a text that takes it above `warn-bytes`: a
-   request the gateway's 502 is read as a refusal of."
+  "The JSON `body` with a text that takes it above `cap-bytes`: a
+   request the gateway does not forward, its 502 a refusal of the
+   size."
   [body]
   (let [^js request (js/JSON.parse body)]
-    (.push (.-messages request) #js {:role "user" :content (.repeat "x" model-requests/warn-bytes)})
+    (.push (.-messages request) #js {:role "user" :content (.repeat "x" model-requests/cap-bytes)})
     (js/JSON.stringify request)))
 
 (defn- post
@@ -74,14 +75,17 @@
 (defn- ^:async ask
   "The message pi-ai's own API and the Anthropic SDK make of the
    answer to a request with a picture for the default model, sent to
-   `base` through `fetching`."
+   `base` through `fetching`; without one through the global `fetch`,
+   as on a machine."
   [fetching base]
   (let [model (js/Object.assign #js {} claude #js {:baseUrl base})
         context #js {:messages #js [#js {:role "user"
                                          :content #js [#js {:type "text" :text "hi"}
                                                        #js {:type "image" :mimeType "image/webp" :data (apply str (repeat 400 "A"))}]
-                                         :timestamp 0}]}]
-    (await (.result (streamSimple model context #js {:apiKey "sprite" :sessionId "conv-9" :fetch fetching})))))
+                                         :timestamp 0}]}
+        options (cond-> #js {:apiKey "sprite" :sessionId "conv-9"}
+                  fetching (doto (aset "fetch" fetching)))]
+    (await (.result (streamSimple model context options)))))
 
 (deftest measure-test
   (let [{:keys [bytes images]} (model-requests/measure body)]
@@ -93,29 +97,25 @@
     (is (= 400 images) "the picture's base64, the Anthropic way"))
   (is (= 7 (:bytes (model-requests/measure "\"ä€\""))) "bytes as they go out, not characters"))
 
-(deftest completion-url-test
-  (is (model-requests/completion-url? "http://sprite.internal/v1/gateway/openrouter/c1/v1/chat/completions"))
-  (is (model-requests/completion-url? (js/URL. "https://openrouter.ai/api/v1/chat/completions?x=1")))
-  (is (not (model-requests/completion-url? "https://openrouter.ai/api/v1/models")))
-  (is (not (model-requests/completion-url? nil))))
-
-(deftest messages-url-test
-  (is (model-requests/messages-url? "http://sprite.internal/v1/gateway/openrouter/c1/v1/messages"))
-  (is (model-requests/messages-url? (js/URL. "https://openrouter.ai/api/v1/messages?beta=true")))
-  (is (not (model-requests/messages-url? "https://openrouter.ai/api/v1/messages/count_tokens")))
-  (is (not (model-requests/messages-url? "https://openrouter.ai/api/v1/chat/completions")))
-  (is (= :messages (model-requests/kind "https://openrouter.ai/api/v1/messages")))
-  (is (= :completion (model-requests/kind "https://openrouter.ai/api/v1/chat/completions")))
-  (is (nil? (model-requests/kind "https://openrouter.ai/api/v1/models"))))
+(deftest kind-test
+  (is (= :completion (model-requests/kind "http://sprite.internal/v1/gateway/openrouter/c1/v1/chat/completions")))
+  (is (= :completion (model-requests/kind (js/URL. "https://openrouter.ai/api/v1/chat/completions?x=1"))))
+  (is (= :messages (model-requests/kind "http://sprite.internal/v1/gateway/openrouter/c1/v1/messages")))
+  (is (= :messages (model-requests/kind (js/URL. "https://openrouter.ai/api/v1/messages?beta=true"))))
+  (is (= :messages (model-requests/kind (js/Request. "https://openrouter.ai/api/v1/messages" #js {:method "POST" :body "{}"}))))
+  (is (nil? (model-requests/kind "https://openrouter.ai/api/v1/messages/count_tokens")))
+  (is (nil? (model-requests/kind "https://openrouter.ai/api/v1/models")))
+  (is (nil? (model-requests/kind nil))))
 
 (deftest too-large-test
   (let [small 60000
-        big (inc model-requests/warn-bytes)]
+        big (inc model-requests/cap-bytes)]
     (is (model-requests/too-large? 413 "" (js/Headers.) small))
     (is (model-requests/too-large? 400 "{\"error\":{\"message\":\"The total text input size exceeds 8 MB\"}}" (js/Headers.) small))
     (is (model-requests/too-large? 502 gateway-502 (js/Headers.) big))
     (is (not (model-requests/too-large? 502 gateway-502 (js/Headers.) small)) "the gateway's 502 to a small request is not about its size")
-    (is (not (model-requests/too-large? 502 gateway-502 (js/Headers.) model-requests/warn-bytes)))
+    (is (not (model-requests/too-large? 502 gateway-502 (js/Headers.) (inc model-requests/warn-bytes))) "nor to one it warned about and forwards")
+    (is (not (model-requests/too-large? 502 gateway-502 (js/Headers.) model-requests/cap-bytes)) "nor to one at the cap")
     (is (not (model-requests/too-large? 502 openrouter-502 (js/Headers. #js {"x-request-id" "req_1"}) big)) "OpenRouter's own 502 carries its request id")
     (is (not (model-requests/too-large? 502 gateway-502 (js/Headers. #js {"x-request-id" "req_1"}) big)))
     (is (not (model-requests/too-large? 400 "{\"error\":{\"message\":\"invalid model\"}}" (js/Headers.) big)))
@@ -132,7 +132,7 @@
              (set! (.-error js/console) (fn [& args] (swap! errors conj (str/join " " args))))
              (set! (.-warn js/console) (fn [& _]))
              (try
-               (testing "the gateway's 502 to a request near the cap becomes the 413 pi-ai reads as an overflow"
+               (testing "the gateway's 502 to a request above the cap becomes the 413 pi-ai reads as an overflow"
                  (let [response (await (post fetching (str url "/gateway/chat/completions") (large body)))
                        text (await (.text response))]
                    (is (= 413 (.-status response)))
@@ -221,10 +221,17 @@
                    (is (= "error" (.-stopReason message)))
                    (is (str/includes? (str (.-errorMessage message)) "The request to the model was too large"))
                    (is (isContextOverflow message))))
-               (testing "the gateway's 502 to this small request stays what it is"
+               (testing "the gateway's 502 to this small request stays what it is, for pi-durable's retry"
                  (let [^js message (await (ask fetching (str url "/gateway")))]
-                   (is (= "error" (.-stopReason message)))
+                   (is (= "502 Internal server error." (.-errorMessage message)))
                    (is (not (isContextOverflow message)))))
+               (testing "on a machine no fetch is handed to pi-ai: the SDK takes the global one, which `install!` wraps"
+                 (let [global (.-fetch js/globalThis)]
+                   (set! (.-fetch js/globalThis) fetching)
+                   (try
+                     (is (isContextOverflow (await (ask nil (str url "/large")))))
+                     (finally
+                       (set! (.-fetch js/globalThis) global)))))
                (finally
                  (set! (.-error js/console) original-error)
                  (await (stop)))))))

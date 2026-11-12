@@ -186,9 +186,10 @@ the prefix of GPT-5.6 and later at least 30 minutes after its last
 read, and a cached token of GPT-6.1 Sol costs a twentieth of one read
 anew (a first one 1.25 times, the cache write). pi-durable summarizes
 in a request of its own, which no cache holds; rragent keeps the last
-chat completion of every provider session (`rragent.model-requests`,
-eight sessions at most; a Claude model's request, a message the
-Anthropic way, is not kept) and asks it again with the request for the summary
+chat completion that carried a provider session's id
+(`rragent.model-requests`, eight sessions at most; a Claude model's
+request, a message the Anthropic way, is not kept and forgets what
+its session kept) and asks it again with the request for the summary
 appended and no tool to call (`rragent.warm-summary`, pi-durable's
 `beforeCompact`): on a test of 27,895 tokens 27,767 came from the
 cache, $0.0047 instead of $0.0698. Without a kept request (the process

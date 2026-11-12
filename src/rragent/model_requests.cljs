@@ -2,20 +2,20 @@
   "What rragent does around every request pi-ai sends to a model, a
    chat completion (`/chat/completions`, the OpenAI SDK) or a message
    the Anthropic way (`/v1/messages`, the Anthropic SDK, which pi-ai's
-   catalog names for OpenRouter's Claude models, the default model
-   among them); both SDKs use the global `fetch`, which `install!`
-   wraps. It measures the body, warns above `warn-bytes`, and turns an
-   answer that says the request was too large into the 413
-   `request_too_large` pi-ai knows as a context overflow
-   (`isContextOverflow`): neither SDK's wording of the gateway's own
-   413, `{\"error\":\"request body too large\"}`, is one to pi-ai, and
-   without it the turn ends there, or a hopeless request is retried
-   three times. On an overflow pi-durable compacts the conversation
-   and asks again, once: a request still refused after that ends the
-   turn with the overflow's words, as does one of a conversation with
-   nothing to cut. A compaction keeps the last messages whole, so
-   pictures of megabytes in them stay too large, at every message
-   again.
+   catalog names for most of OpenRouter's Claude models, the default
+   model among them); both SDKs use the global `fetch`, which
+   `install!` wraps. It measures the body, warns above `warn-bytes`,
+   and turns an answer that says the request was too large into the
+   413 `request_too_large` pi-ai knows as a context overflow
+   (`isContextOverflow`). Neither SDK's wording of the gateway's own
+   answers is one to pi-ai: its 413,
+   `{\"error\":\"request body too large\"}`, would end the turn as it
+   is, and its 502 be retried three times, a hopeless request each.
+   On an overflow pi-durable compacts the conversation and asks again,
+   once: a request still refused after that ends the turn with the
+   overflow's words, as does one of a conversation with nothing to
+   cut. A compaction keeps the last messages whole, so pictures of
+   megabytes in them stay too large, at every message again.
    Three answers mean too large: a 413; OpenRouter's 400 `The total
    text input size exceeds 8 MB`; and the Sprites gateway's 502
    `{\"code\":\"internal_error\",...,\"request_id\":null}` without
@@ -23,27 +23,31 @@
    (seen 2026-10-23, a 413 only between 8,000,000 and some 8,200,000).
    That 502 says nothing of the size, and the gateway may answer it
    for reasons of its own, so it counts for a request above
-   `warn-bytes` only: a smaller one goes back as it is, for the retry.
+   `cap-bytes` only, which the gateway does not forward: a smaller one
+   goes back as it is, for the retry.
    Pictures are what fills a request: `rragent.images` keeps them
-   small, this is the net under it. The last chat completion of each
-   provider session, a conversation's, is kept (`last-request`), for a
-   summary that asks the same again and reads it from the provider's
-   cache (`rragent.warm-summary`); a message the Anthropic way is not
-   kept, the summary asks a chat completion, and forgets what its
-   session kept (`forget!`), which is no longer the conversation's
-   last. The stream of every other answer to a chat completion is
-   split for OpenRouter's charge in it (`rragent.costs/tee`), which
-   reads a chat completion's chunks."
+   small, this is the net under it. The last chat completion that
+   carried a provider session's id, a conversation's, is kept
+   (`last-request`), for a summary that asks the same again and reads
+   it from the provider's cache (`rragent.warm-summary`). A message
+   the Anthropic way is not kept, since the summary asks a chat
+   completion, and has what its session kept forgotten (`forget!`):
+   that is no longer the conversation's last request. The stream of a
+   chat completion's answer is split for OpenRouter's charge in it
+   (`rragent.costs/tee`, which reads a chat completion's chunks),
+   unless its status is 400, 413 or 502: those are read for a refusal
+   and handed on whole."
   (:require [rragent.costs :as costs]))
 
 (def warn-bytes
   "The body size above which a request is logged, a sign that the
-   conversation grows towards the gateway's cap, and above which the
-   gateway's 502 is read as its refusal of the size (`too-large?`)."
+   conversation grows towards the gateway's cap."
   6000000)
 
 (def cap-bytes
-  "What the Sprites gateway forwards at most, for the message."
+  "What the Sprites gateway forwards at most: said in the message of
+   an overflow, and the size above which its 502 is read as the
+   refusal of a request too large (`too-large?`)."
   8000000)
 
 (defn- url-of
@@ -65,17 +69,6 @@
     (cond
       (re-find #"/chat/completions(\?|$)" url) :completion
       (re-find #"/v1/messages(\?|$)" url) :messages)))
-
-(defn completion-url?
-  "Whether `input` of a fetch is a chat completion request."
-  [input]
-  (= :completion (kind input)))
-
-(defn messages-url?
-  "Whether `input` of a fetch is a request the Anthropic way: a Claude
-   model's."
-  [input]
-  (= :messages (kind input)))
 
 (defn measure
   "`{:bytes :images}` of a request `body`: its size as it goes out,
@@ -99,17 +92,17 @@
    (a Headers) to a request of `bytes` says the request was too large:
    a 413; OpenRouter's 400 for too much text; the Sprites gateway's
    502 `internal_error` without an `x-request-id`, which every answer
-   OpenRouter made carries, to a request above `warn-bytes`. The 502
-   names no reason, so the size of the request decides: one far below
-   the cap was not refused for it and is worth the retry, which an
-   overflow never gets."
+   OpenRouter made carries, to a request above `cap-bytes`. The 502
+   names no reason, so the size of the request decides: one the
+   gateway forwards was not refused for its size and is worth the
+   retry, which an overflow never gets."
   [status text headers bytes]
   (let [text (str text)]
     (boolean
      (or (= 413 status)
          (and (= 400 status) (re-find #"(?i)input size exceeds" text))
          (and (= 502 status)
-              (< warn-bytes bytes)
+              (< cap-bytes bytes)
               (re-find #"\"code\":\"internal_error\"" text)
               (not (some-> headers (.get "x-request-id"))))))))
 
@@ -170,19 +163,24 @@
 (defn forget!
   "The kept request of `session` forgotten: a request of the
    conversation went out since that is not kept, so the kept one is
-   no longer its last. A conversation switched from a GPT model to
-   Claude would have its summary asked of the last GPT request, which
-   knows nothing of what came after."
+   no longer its last. Without it the summary of a bot on Claude
+   would be asked of whatever chat completion last carried its
+   session: the correction of a dictation (`rragent.correction`, a
+   small model with the end of the conversation), or the last request
+   of a GPT model the conversation was switched from, neither of
+   which knows the conversation as it is. What is left, on any
+   model: a correction that is the last request with the session's id
+   before the summary is asked."
   [session]
   (swap! last-requests dissoc session))
 
 (defn wrap
   "`fetch` with the measuring and the translation around every request
    to a model (`kind`). A chat completion is remembered as its
-   session's last (`remember!`), and its answer, when it is no
-   refusal, split for the charge; a message the Anthropic way has its
-   session's kept request forgotten (`forget!`) and its answer handed
-   on as it came. Any other request goes through as it is."
+   session's last (`remember!`), and its answer split for the charge
+   unless its status is 400, 413 or 502; a message the Anthropic way
+   has its session's kept request forgotten (`forget!`) and its answer
+   handed on as it came. Any other request goes through as it is."
   [fetch]
   (fn [input & [init]]
     (let [what (kind input)]
@@ -231,5 +229,5 @@
 
 (comment
   (measure "{\"messages\":[{\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,AAAA\"}}]}]}")
-  (too-large? 502 "{\"code\":\"internal_error\",\"details\":{},\"message\":\"Internal server error.\",\"request_id\":null}" (js/Headers.) 8100000)
+  (too-large? 502 "{\"code\":\"internal_error\",\"details\":{},\"message\":\"Internal server error.\",\"request_id\":null}" (js/Headers.) 8300000)
   )
