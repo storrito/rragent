@@ -431,8 +431,8 @@
   [{:keys [home models storage provider now gateway retry extensions]}]
   (let [home (or home (home/home))
         _ (fs/mkdirSync home #js {:recursive true})
-        ;; every chat completion request measured, a refusal as too
-        ;; large turned into the overflow pi-durable compacts on
+        ;; every request to a model measured, a refusal as too large
+        ;; turned into the overflow pi-durable compacts on
         _ (model-requests/install!)
         migrated (bots/migrate! home)
         _ (when-not (home/definition-file (home/bot-dir home bots/root-id))

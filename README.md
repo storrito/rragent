@@ -186,8 +186,10 @@ the prefix of GPT-5.6 and later at least 30 minutes after its last
 read, and a cached token of GPT-6.1 Sol costs a twentieth of one read
 anew (a first one 1.25 times, the cache write). pi-durable summarizes
 in a request of its own, which no cache holds; rragent keeps the last
-request of every provider session (`rragent.model-requests`, eight
-sessions at most) and asks it again with the request for the summary
+chat completion that carried a provider session's id
+(`rragent.model-requests`, eight sessions at most; a Claude model's
+request, a message the Anthropic way, is not kept and forgets what
+its session kept) and asks it again with the request for the summary
 appended and no tool to call (`rragent.warm-summary`, pi-durable's
 `beforeCompact`): on a test of 27,895 tokens 27,767 came from the
 cache, $0.0047 instead of $0.0698. Without a kept request (the process
@@ -382,8 +384,13 @@ gets, uploaded or read by its `read` tool, is a WebP of quality 80 with
 at most 2048 pixels on the long edge, made by ffmpeg (`rragent.images`),
 the file itself untouched: the Sprites gateway forwards a request of at
 most 8,000,000 bytes, and pictures are what fills one. A request still
-refused as too large is answered to pi-ai as the overflow it compacts
-the conversation on, instead of retries (`rragent.model-requests`). The transcript shows a
+refused as too large is answered to pi-ai as the overflow on which
+pi-durable compacts the conversation, instead of retries
+(`rragent.model-requests`), a
+chat completion and a Claude model's message alike. The compaction
+comes once and keeps the last messages whole: a request that is still
+too large after it, pictures of megabytes in those messages, ends the
+turn with the sizes. The transcript shows a
 picture as a thumbnail and a clip as its name, linked to
 `/bot/<id>/uploads/<name>`, which serves the files with ranges, behind
 the token.
