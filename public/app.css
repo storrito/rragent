@@ -676,8 +676,11 @@ body {
 }
 
 /* The handle between the chat and the pane: thin, a line on hover and
-   while it drags; the pages in the iframes take no pointer then, so the
-   drag goes on over them. */
+   while it drags; a sheet lies over the page then, so that the pages
+   in the iframes take no pointer and the drag goes on over them. The
+   iframes themselves are left as they are: one that had
+   `pointer-events: none` no longer scrolls with the wheel afterwards
+   in Chrome, though the wheel still reaches its page. */
 .splitter {
   flex: none;
   width: 7px;
@@ -698,8 +701,11 @@ body {
   user-select: none;
 }
 
-.body.dragging iframe {
-  pointer-events: none;
+.body.dragging::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 4;
 }
 
 .artifacts .placeholder {

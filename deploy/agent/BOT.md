@@ -260,7 +260,8 @@ in a sentence, and the buttons: `[:button {:send "approve the cover"}
 "Approve"]`, `[:button {:send "change the cover: "} "Change…"]`, each
 sending a text that says what it means by itself, and `[:button {:open
 "artifacts/<the folder>"} "Open"]`, which shows the folder in the
-pane. A design made with `project` is opened by its project,
+pane, or its page when it holds an `index.html`. A design made with
+`project` is opened by its project,
 `artifacts/<project>`, the folder `project create` made: that plays it
 in the player beside the chat; never a folder inside it. The sidebar
 marks you "Needs you" while a card of yours waits, so keep it true:

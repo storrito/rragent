@@ -1296,9 +1296,9 @@
   "`[:ui/splitter]`: the handle between the chat and the pane. Dragged,
    it sets the pane's width (`--pane-width` on the body, read by the
    stylesheet) and the browser remembers it; a double click gives the
-   half back. While it drags the iframes take no pointer (`.dragging`
+   half back. While it drags a sheet lies over the page (`.dragging`
    on the body, the stylesheet), so the drag does not stop over a
-   page."
+   page in an iframe."
   [_attrs _children]
   [:div.splitter {:role "separator"
                   :aria-orientation "vertical"
