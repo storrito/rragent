@@ -83,19 +83,21 @@
     (is (not (str/includes? (text ".github/actions/sprite-image/action.yml") "nixos"))
         "the Ubuntu image's action knows nothing of it")))
 
-(deftest the-image-says-what-the-base-says-test
+(deftest the-image-and-the-platform-test
   (let [base (text "deploy/nixos/sprite.nix")
-        action (text ".github/actions/sprite-nixos-image/action.yml")
-        path (nix-string base "path")]
-    (testing "an exec's PATH is the image's ENV, the same string as the base's"
-      (is (str/starts-with? (str path) "/home/sprite/.local/bin:"))
-      (is (str/includes? (str path) ":/run/wrappers/bin:") "sudo")
-      (is (str/includes? (str path) ":/run/current-system/sw/bin:") "the system's programs")
-      (is (str/includes? action (str "--change 'ENV PATH=" path "'"))
-          "deploy/nixos/sprite.nix and the action name the PATH: change both together"))
-    (testing "the image's command, and the user an exec runs as"
+        action (text ".github/actions/sprite-nixos-image/action.yml")]
+    (testing "the image's config names the command and nothing an exec is run by: the platform refused a sprite of an image with USER, WORKDIR and ENV"
       (is (str/includes? action "--change 'CMD [\"/sbin/init\"]'"))
-      (is (str/includes? action "--change 'USER sprite'")))
+      (doseq [instruction ["USER" "WORKDIR" "ENV"]]
+        (is (not (str/includes? action (str "--change '" instruction " "))) instruction)))
+    (testing "an exec's PATH is the platform's: its two directories NixOS leaves empty lead to sudo and to the system's programs"
+      (is (str/includes? base "\"L+ /usr/local/sbin - - - - /run/wrappers/bin\""))
+      (is (str/includes? base "\"L+ /usr/local/bin - - - - /run/current-system/sw/bin\"")))
+    (testing "rragent's own PATH: ~/.local, sudo, the system's programs, the Sprite's"
+      (let [path (str (nix-string base "path"))]
+        (is (str/starts-with? path "/home/sprite/.local/bin:/run/wrappers/bin:"))
+        (is (str/includes? path ":/run/current-system/sw/bin:"))
+        (is (str/ends-with? path ":/.sprite/bin"))))
     (testing "/sbin/init is a link to a file named systemd, the only kind a Sprite takes for its init"
       (is (str/includes? base "/sprite-init/lib/systemd/systemd sbin/init") "in the image")
       (is (str/includes? base "\"$1/sprite-init/lib/systemd/systemd\" /sbin/init") "after a switch"))

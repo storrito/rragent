@@ -85,15 +85,13 @@ runs:
         IMAGE: ghcr.io/storrito/rragent-sprite-nixos:${{ inputs.tag }}
         TAG: ${{ inputs.tag }}
       run: |
-        # CMD: the Sprite's init (config.init "systemd") runs it. USER
-        # and WORKDIR: who an exec runs as and where, the Sprites base
-        # image's. ENV PATH: an exec's PATH is the image's, not the login
-        # profile's; the same string as `path` in deploy/nixos/sprite.nix.
+        # CMD: the Sprite's init (config.init "systemd") runs it. Nothing
+        # else in the config: a sprite made from an image that also named
+        # USER sprite, WORKDIR /home/sprite and ENV PATH was answered with
+        # an internal error by the platform. An exec runs as root and
+        # finds the programs through /usr/local/bin (deploy/nixos/sprite.nix).
         docker import \
           --change 'CMD ["/sbin/init"]' \
-          --change 'USER sprite' \
-          --change 'WORKDIR /home/sprite' \
-          --change 'ENV PATH=/home/sprite/.local/bin:/run/wrappers/bin:/home/sprite/.nix-profile/bin:/etc/profiles/per-user/sprite/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/.sprite/bin' \
           --change "LABEL org.opencontainers.image.version=$TAG" \
           --change "LABEL org.opencontainers.image.source=https://github.com/storrito/rragent" \
           --change "LABEL org.opencontainers.image.revision=$GITHUB_SHA" \

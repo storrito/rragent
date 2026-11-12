@@ -23,13 +23,9 @@ let
 
   home = "/home/sprite";
 
-  # What a process of the machine finds its programs by: the person's
+  # What rragent and its tools find their programs by: the person's
   # ~/.local first (npm's global prefix, where the HyperFrames CLI and
-  # nbb land), then NixOS's own places, then the Sprite's. One string,
-  # because the image names it too: a Sprite's exec takes its PATH from
-  # the image's ENV, not from the login profile
-  # (.github/actions/sprite-nixos-image; test/rragent/nixos_test.cljs
-  # holds the two together).
+  # nbb land), then NixOS's own places, then the Sprite's.
   path = "/home/sprite/.local/bin:/run/wrappers/bin:/home/sprite/.nix-profile/bin:/etc/profiles/per-user/sprite/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/.sprite/bin";
 
   # The Ubuntu image's start.sh, one file for both kinds of machine,
@@ -314,9 +310,18 @@ in
       '')
     ];
 
-    # A script that begins with #!/bin/bash runs here too.
+    # A script that begins with #!/bin/bash runs here too. And an exec
+    # of the Sprite (the API's, the console's) finds the machine's
+    # programs: its PATH is the platform's, Ubuntu's directories, set
+    # after the login profile, so the two of them that NixOS leaves
+    # empty lead to sudo and to the system's programs. The first image
+    # named the PATH and the user in its config instead (ENV, USER,
+    # WORKDIR), and the platform answered a sprite made from it with an
+    # internal error.
     systemd.tmpfiles.rules = [
       "L+ /bin/bash - - - - /run/current-system/sw/bin/bash"
+      "L+ /usr/local/sbin - - - - /run/wrappers/bin"
+      "L+ /usr/local/bin - - - - /run/current-system/sw/bin"
       "d ${home}/rragent 0755 sprite users -"
       "d /var/lib/rragent-system 0755 root root -"
     ];

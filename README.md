@@ -1338,16 +1338,20 @@ starts again every five seconds until the `.env` is there.
 `journalctl -u rragent` has its output. `sprite-env` is there as on
 every Sprite, the platform brings it.
 
-Three things the platform decides, and how the image meets them. A
+Three things the platform decides, and how the base meets them. A
 Sprite takes only a file named `systemd` for its init, and NixOS's init
 is a script that sets the system up before it runs systemd: so every
 system carries that script under the name `systemd`, `/sbin/init` is a
 link to it, and a switch moves the link to the new system, which the
-next cold start boots. An exec's `PATH` is the image's `ENV`, set after
-the login profile: so the image names the base's `PATH`
-(`.github/actions/sprite-nixos-image`), and an exec finds the
-machine's programs. An exec runs as the image's user: `sprite`, as on
-the base image.
+next cold start boots. An exec's `PATH` is the platform's, Ubuntu's
+directories, set after the login profile: so `/usr/local/sbin` and
+`/usr/local/bin`, which NixOS leaves empty, link to sudo and to the
+system's programs, and an exec finds them. An exec runs as root, the
+image names no user: a provisioner writes the `.env` and hands it to
+`sprite` (`chown sprite:users`), or names the user in its exec. The
+image's config names the command and nothing else; a sprite of an image
+that also named `USER`, `WORKDIR` and `ENV PATH` was answered with an
+internal error.
 
 What the base brings (`deploy/nixos/sprite.nix`) is what the
 Dockerfile installs: Node, ffmpeg with the fonts, a browser (Chromium,
