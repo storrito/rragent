@@ -1,8 +1,10 @@
 (ns rragent.model-requests-test
-  "The net under the pictures: a chat completion request measured, an
-   answer that says it was too large turned into the overflow pi-ai
-   knows, every other answer and request untouched."
-  (:require ["node:http" :as http]
+  "The net under the pictures: a request to a model measured, a chat
+   completion or a message the Anthropic way, an answer that says it
+   was too large turned into the overflow pi-ai knows, every other
+   answer and request untouched."
+  (:require ["@earendil-works/pi-ai/utils/overflow" :refer [isContextOverflow]]
+            ["node:http" :as http]
             [clojure.string :as str]
             [clojure.test :refer [async deftest is testing]]
             [rragent.model-requests :as model-requests]))
@@ -38,22 +40,46 @@
   (js/JSON.stringify #js {:model "m" :messages #js [#js {:role "user" :content #js [#js {:type "text" :text "hi"}
                                                                                     #js {:type "image_url" :image_url #js {:url (str "data:image/png;base64," (apply str (repeat 400 "A")))}}]}]}))
 
+(def messages-body
+  "The same the Anthropic way, as pi-ai writes a picture."
+  (js/JSON.stringify #js {:model "m" :messages #js [#js {:role "user" :content #js [#js {:type "text" :text "hi"}
+                                                                                    #js {:type "image" :source #js {:type "base64" :media_type "image/webp" :data (apply str (repeat 400 "A"))}}]}]}))
+
 (defn- post
   "A completion request through `fetching`."
   [fetching url]
   (fetching url #js {:method "POST" :headers #js {"content-type" "application/json"} :body body}))
 
+(defn- as-anthropic-sdk
+  "The error message the Anthropic SDK makes of an answer of `status`
+   with the JSON `text`, which pi-ai takes as it is: the status and
+   the body."
+  [status text]
+  (str status " " (js/JSON.stringify (js/JSON.parse text))))
+
 (deftest measure-test
   (let [{:keys [bytes images]} (model-requests/measure body)]
     (is (= (count body) bytes))
     (is (= (+ (count "data:image/png;base64,") 400) images) "the picture's data URL")
-    (is (= {:bytes 2 :images 0} (model-requests/measure "{}")))))
+    (is (= {:bytes 2 :images 0} (model-requests/measure "{}"))))
+  (let [{:keys [bytes images]} (model-requests/measure messages-body)]
+    (is (= (count messages-body) bytes))
+    (is (= 400 images) "the picture's base64, the Anthropic way")))
 
 (deftest completion-url-test
   (is (model-requests/completion-url? "http://sprite.internal/v1/gateway/openrouter/c1/v1/chat/completions"))
   (is (model-requests/completion-url? (js/URL. "https://openrouter.ai/api/v1/chat/completions?x=1")))
   (is (not (model-requests/completion-url? "https://openrouter.ai/api/v1/models")))
   (is (not (model-requests/completion-url? nil))))
+
+(deftest messages-url-test
+  (is (model-requests/messages-url? "http://sprite.internal/v1/gateway/openrouter/c1/v1/messages"))
+  (is (model-requests/messages-url? (js/URL. "https://openrouter.ai/api/v1/messages?beta=true")))
+  (is (not (model-requests/messages-url? "https://openrouter.ai/api/v1/messages/count_tokens")))
+  (is (not (model-requests/messages-url? "https://openrouter.ai/api/v1/chat/completions")))
+  (is (model-requests/model-url? "https://openrouter.ai/api/v1/messages"))
+  (is (model-requests/model-url? "https://openrouter.ai/api/v1/chat/completions"))
+  (is (not (model-requests/model-url? "https://openrouter.ai/api/v1/models"))))
 
 (deftest too-large-test
   (is (model-requests/too-large? 413 "" (js/Headers.)))
@@ -88,6 +114,19 @@
                (testing "OpenRouter's 400 for too much text, and a 413, are overflows too"
                  (is (= 413 (.-status (await (post fetching (str url "/text/chat/completions"))))))
                  (is (str/includes? (await (.text (await (post fetching (str url "/large/chat/completions"))))) "request_too_large")))
+               (testing "a message the Anthropic way: the gateway's 413, which pi-ai does not read as an overflow, becomes one it does"
+                 (let [gateway-413 "{\"error\":\"request body too large\"}"
+                       before (count @errors)
+                       response (await (fetching (str url "/large/v1/messages") #js {:method "POST" :headers #js {"content-type" "application/json"} :body messages-body}))
+                       text (await (.text response))]
+                   (is (not (isContextOverflow #js {:stopReason "error" :errorMessage (as-anthropic-sdk 413 gateway-413)})) "as the gateway answers it")
+                   (is (= 413 (.-status response)))
+                   (is (isContextOverflow #js {:stopReason "error" :errorMessage (as-anthropic-sdk 413 text)}))
+                   (is (str/includes? text "HTTP 413"))
+                   (is (= (inc before) (count @errors)))
+                   (is (str/includes? (last @errors) "refused as too large: HTTP 413")))
+                 (is (= 413 (.-status (await (fetching (str url "/gateway/v1/messages") #js {:method "POST" :body messages-body})))) "the gateway's 502 too")
+                 (is (= 200 (.-status (await (fetching (str url "/ok/v1/messages") #js {:method "POST" :body messages-body})))) "a good answer as it is"))
                (testing "a good answer and any other request are untouched"
                  (is (= 200 (.-status (await (post fetching (str url "/ok/chat/completions"))))))
                  (let [response (await (fetching (str url "/gateway/models")))]
@@ -146,6 +185,9 @@
                  (is (= "conv-7" (aget headers "x-session-id")) "the headers as a plain object, lower-case"))
                (await (fetching (str url "/ok/chat/completions") #js {:method "POST" :headers #js {} :body body}))
                (is (= 1 (count @model-requests/last-requests)) "a request without a session is not kept")
+               (await (fetching (str url "/ok/v1/messages")
+                                #js {:method "POST" :headers #js {"X-Session-Id" "conv-8"} :body messages-body}))
+               (is (nil? (model-requests/last-request "conv-8")) "a message the Anthropic way is not kept: the summary asks a chat completion again")
                (finally
                  (reset! model-requests/last-requests {})
                  (await (stop)))))))

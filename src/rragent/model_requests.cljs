@@ -1,7 +1,10 @@
 (ns rragent.model-requests
-  "What rragent does around every chat completion request pi-ai sends
-   (the OpenAI SDK uses the global `fetch`, which `install!` wraps):
-   it measures the body, warns above `warn-bytes`, and turns an
+  "What rragent does around every request pi-ai sends to a model, a
+   chat completion (`/chat/completions`, the OpenAI SDK) or a message
+   the Anthropic way (`/v1/messages`, the Anthropic SDK, how
+   OpenRouter's Claude models are spoken to, the default model among
+   them); both SDKs use the global `fetch`, which `install!` wraps. It
+   measures the body, warns above `warn-bytes`, and turns an
    answer that says the request was too large into the 413
    `request_too_large` pi-ai knows as a context overflow
    (`isContextOverflow`), so that pi-durable compacts the conversation
@@ -11,12 +14,18 @@
    `{\"code\":\"internal_error\",...,\"request_id\":null}` without
    OpenRouter's request id, its answer to a body past 8,000,000 bytes
    (seen 2026-10-23, a 413 only between 8,000,000 and some 8,200,000).
+   The gateway's 413 is `{\"error\":\"request body too large\"}`, which
+   pi-ai does not read as an overflow: until 2026-11-12 only a chat
+   completion was looked at, and a bot on Claude ended its turn with
+   that answer, at every message again.
    Pictures are what fills a request: `rragent.images` keeps them
    small, this is the net under it. The last request of each provider
    session, a conversation's, is kept (`last-request`), for a summary
    that asks the same again and reads it from the provider's cache
    (`rragent.warm-summary`). The stream of every good answer is split
-   for OpenRouter's charge in it (`rragent.costs/tee`)."
+   for OpenRouter's charge in it (`rragent.costs/tee`). The kept
+   request and the charge are a chat completion's only: both read its
+   format."
   (:require [rragent.costs :as costs]))
 
 (def warn-bytes
@@ -28,23 +37,41 @@
   "What the Sprites gateway forwards at most, for the message."
   8000000)
 
+(defn- url-of
+  "The address of a fetch's `input`: a string, a URL or a Request."
+  [input]
+  (str (cond
+         (string? input) input
+         (instance? js/URL input) (.-href input)
+         (and input (.-url input)) (.-url input)
+         :else "")))
+
 (defn completion-url?
   "Whether `input` of a fetch is a chat completion request."
   [input]
-  (let [url (cond
-              (string? input) input
-              (instance? js/URL input) (.-href input)
-              (and input (.-url input)) (.-url input)
-              :else "")]
-    (boolean (re-find #"/chat/completions(\?|$)" (str url)))))
+  (boolean (re-find #"/chat/completions(\?|$)" (url-of input))))
+
+(defn messages-url?
+  "Whether `input` of a fetch is a request the Anthropic way,
+   `/v1/messages`: a Claude model's."
+  [input]
+  (boolean (re-find #"/v1/messages(\?|$)" (url-of input))))
+
+(defn model-url?
+  "Whether `input` of a fetch is a request to a model, of either kind."
+  [input]
+  (or (completion-url? input) (messages-url? input)))
 
 (defn measure
   "`{:bytes :images}` of a request `body`: its length and how much of
-   it is pictures, the data URLs of the image parts."
+   it is pictures, the data URLs of a chat completion's image parts
+   and the base64 of a message's the Anthropic way."
   [body]
   (let [body (str body)]
     {:bytes (count body)
-     :images (transduce (map count) + 0 (re-seq #"data:image/[a-z+.-]+;base64,[A-Za-z0-9+/=]*" body))}))
+     :images (+ (transduce (map count) + 0 (re-seq #"data:image/[a-z+.-]+;base64,[A-Za-z0-9+/=]*" body))
+                (transduce (map (comp count second)) + 0
+                           (re-seq #"\"type\":\"base64\",\"media_type\":\"image/[a-z+.-]+\",\"data\":\"([A-Za-z0-9+/=]*)\"" body)))}))
 
 (defn- mb
   [n]
@@ -120,19 +147,22 @@
   (get @last-requests session))
 
 (defn wrap
-  "`fetch` with the measuring and the translation around every chat
-   completion request, each remembered as its session's last
-   (`remember!`); any other request goes through as it is."
+  "`fetch` with the measuring and the translation around every request
+   to a model (`model-url?`); a chat completion is remembered as its
+   session's last (`remember!`) and its good answer split for the
+   charge; any other request goes through as it is."
   [fetch]
   (fn [input & [init]]
-    (if (and (completion-url? input) init (string? (.-body init)))
-      (let [{:keys [bytes images] :as size} (measure (.-body init))
-            headers (plain-headers init)]
-        (when-let [session (session-of headers (.-body init))]
-          (remember! session {:url (str (if (instance? js/URL input) (.-href input) (or (.-url input) input)))
-                              :headers headers
-                              :body (.-body init)}
-                     (js/Date.now)))
+    (if (and (model-url? input) init (string? (.-body init)))
+      (let [completion? (completion-url? input)
+            {:keys [bytes images] :as size} (measure (.-body init))]
+        (when completion?
+          (let [headers (plain-headers init)]
+            (when-let [session (session-of headers (.-body init))]
+              (remember! session {:url (url-of input)
+                                  :headers headers
+                                  :body (.-body init)}
+                         (js/Date.now)))))
         (when (< warn-bytes bytes)
           (js/console.warn (str "[model] a request of " (mb bytes) ", " (mb images) " of it pictures: the gateway forwards " (mb cap-bytes) " at most")))
         (.then (fetch input init)
@@ -146,7 +176,7 @@
                                                            (mb bytes) ", " (mb images) " of it pictures; answered as an overflow, the conversation is compacted"))
                                     (overflow-response status size))
                                 response)))
-                     (costs/tee response))))))
+                     (if completion? (costs/tee response) response))))))
       (fetch input init))))
 
 (def original-fetch
