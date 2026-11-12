@@ -330,8 +330,8 @@
                                (try
                                  (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "flow" :tab "t1"}))))
                                  (is (= {:current "flow/index.html" :folder "flow"} (artifacts/place (get-in @db/db [:bots id]))))
-                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "stories" :tab "t1"}))) "a folder whose pages have other names is browsed")
-                                 (is (= {:current nil :folder "stories"} (artifacts/place (get-in @db/db [:bots id]))))
+                                 (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "stories" :tab "t1"}))) "a folder whose pages have other names is browsed, what is on screen stays")
+                                 (is (= {:current "flow/index.html" :folder "stories"} (artifacts/place (get-in @db/db [:bots id]))))
                                  (fs/writeFileSync (path/join dir "flow" "README.md") "# Flow")
                                  (artifacts/refresh! db/db (db/bot-path id) dir)
                                  (is (= {:success? true} (await (command! base cookie :artifacts/open {:bot id :path "flow" :tab "t1"}))))
