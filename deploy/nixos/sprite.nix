@@ -216,7 +216,6 @@ in
     };
     security.sudo.wheelNeedsPassword = false;
 
-    nixpkgs.config.allowUnfree = lib.mkDefault false;
     nix.settings.experimental-features = [
       "nix-command"
       "flakes"
