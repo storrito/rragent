@@ -83,6 +83,26 @@
     (is (not (str/includes? (text ".github/actions/sprite-image/action.yml") "nixos"))
         "the Ubuntu image's action knows nothing of it")))
 
+(deftest the-image-says-what-the-base-says-test
+  (let [base (text "deploy/nixos/sprite.nix")
+        action (text ".github/actions/sprite-nixos-image/action.yml")
+        path (nix-string base "path")]
+    (testing "an exec's PATH is the image's ENV, the same string as the base's"
+      (is (str/starts-with? (str path) "/home/sprite/.local/bin:"))
+      (is (str/includes? (str path) ":/run/wrappers/bin:") "sudo")
+      (is (str/includes? (str path) ":/run/current-system/sw/bin:") "the system's programs")
+      (is (str/includes? action (str "--change 'ENV PATH=" path "'"))
+          "deploy/nixos/sprite.nix and the action name the PATH: change both together"))
+    (testing "the image's command, and the user an exec runs as"
+      (is (str/includes? action "--change 'CMD [\"/sbin/init\"]'"))
+      (is (str/includes? action "--change 'USER sprite'")))
+    (testing "/sbin/init is a link to a file named systemd, the only kind a Sprite takes for its init"
+      (is (str/includes? base "/sprite-init/lib/systemd/systemd sbin/init") "in the image")
+      (is (str/includes? base "\"$1/sprite-init/lib/systemd/systemd\" /sbin/init") "after a switch"))
+    (testing "HyperFrames and Puppeteer take the machine's browser"
+      (doseq [variable ["HYPERFRAMES_BROWSER_PATH" "PRODUCER_HEADLESS_SHELL_PATH" "PUPPETEER_EXECUTABLE_PATH"]]
+        (is (str/includes? base (str variable " = \"/run/current-system/sw/bin/google-chrome\";")) variable)))))
+
 (defn- sh
   [script env]
   (let [result (child/spawnSync "bash" #js ["-c" script]

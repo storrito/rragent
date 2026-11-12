@@ -25,16 +25,12 @@ let
 
   # What a process of the machine finds its programs by: the person's
   # ~/.local first (npm's global prefix, where the HyperFrames CLI and
-  # nbb land), then NixOS's own places, then the Sprite's.
-  path = lib.concatStringsSep ":" [
-    "${home}/.local/bin"
-    "/run/wrappers/bin"
-    "${home}/.nix-profile/bin"
-    "/etc/profiles/per-user/sprite/bin"
-    "/nix/var/nix/profiles/default/bin"
-    "/run/current-system/sw/bin"
-    "/.sprite/bin"
-  ];
+  # nbb land), then NixOS's own places, then the Sprite's. One string,
+  # because the image names it too: a Sprite's exec takes its PATH from
+  # the image's ENV, not from the login profile
+  # (.github/actions/sprite-nixos-image; test/rragent/nixos_test.cljs
+  # holds the two together).
+  path = "/home/sprite/.local/bin:/run/wrappers/bin:/home/sprite/.nix-profile/bin:/etc/profiles/per-user/sprite/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/.sprite/bin";
 
   # The Ubuntu image's start.sh, one file for both kinds of machine,
   # with the PATH of a NixOS machine in place of Ubuntu's. The line is
@@ -130,9 +126,24 @@ in
     services.nscd.enable = false;
     system.nssModules = lib.mkForce [ ];
 
-    # The next cold start boots what the last switch made.
+    # A Sprite starts its systemd by /sbin/init and takes only a file
+    # named systemd for one ("/sbin/init in its image is not systemd"
+    # otherwise). NixOS's init is a script that sets the system up, the
+    # activation, and then runs systemd. So every system carries that
+    # script once more under the name the platform looks for, and
+    # /sbin/init is a link to it: the image's to the first system's, and
+    # after every switch to the new system's, so that the next cold
+    # start boots what the last switch made.
+    system.systemBuilderCommands = ''
+      mkdir -p $out/sprite-init/lib/systemd
+      {
+        echo '#!${pkgs.runtimeShell}'
+        echo "exec $out/init \"\$@\""
+      } > $out/sprite-init/lib/systemd/systemd
+      chmod +x $out/sprite-init/lib/systemd/systemd
+    '';
     system.build.installBootLoader = pkgs.writeShellScript "install-sbin-init" ''
-      ${pkgs.coreutils}/bin/ln -fs "$1/init" /sbin/init
+      ${pkgs.coreutils}/bin/ln -sfn "$1/sprite-init/lib/systemd/systemd" /sbin/init
     '';
 
     # The image's store paths, made known to Nix at the first boot.
@@ -178,15 +189,11 @@ in
       ];
       contents = [
         {
-          source = config.system.build.toplevel + "/init";
-          target = "/sbin/init";
-        }
-        {
           source = config.system.build.toplevel + "/etc/os-release";
           target = "/etc/os-release";
         }
       ];
-      extraCommands = "mkdir -p proc sys dev tmp";
+      extraCommands = "mkdir -p proc sys dev tmp sbin && ln -s ${config.system.build.toplevel}/sprite-init/lib/systemd/systemd sbin/init";
     };
 
     # The one user everything runs as, the Sprites base image's name and
@@ -256,6 +263,18 @@ in
     ];
     programs.command-not-found.enable = false;
 
+    # The HyperFrames CLI and Puppeteer take the machine's browser
+    # instead of downloading one: a downloaded Chrome runs here (nix-ld),
+    # but HyperFrames checks it with ldd first, which knows nothing of
+    # nix-ld and refuses it. rragent's own render says the same per call
+    # (templates/hyperframes/render).
+    environment.variables = {
+      HYPERFRAMES_BROWSER_PATH = "/run/current-system/sw/bin/google-chrome";
+      PRODUCER_HEADLESS_SHELL_PATH = "/run/current-system/sw/bin/google-chrome";
+      PUPPETEER_EXECUTABLE_PATH = "/run/current-system/sw/bin/google-chrome";
+      PUPPETEER_SKIP_DOWNLOAD = "1";
+    };
+
     fonts.packages = with pkgs; [
       noto-fonts
       noto-fonts-color-emoji
@@ -318,8 +337,10 @@ in
             ${pkgs.util-linux}/bin/runuser -u sprite -- ${pkgs.bash}/bin/bash -c '
               cd /etc/nixos &&
               ${pkgs.git}/bin/git init -q -b main &&
+              ${pkgs.git}/bin/git config user.name rragent &&
+              ${pkgs.git}/bin/git config user.email rragent@localhost &&
               ${pkgs.git}/bin/git add -A &&
-              ${pkgs.git}/bin/git -c user.name=rragent -c user.email=rragent@localhost commit -q -m "The machine as its image made it"
+              ${pkgs.git}/bin/git commit -q -m "The machine as its image made it"
             ' || echo "rragent: /etc/nixos was seeded, the git repository was not made" >&2
           fi
         ''

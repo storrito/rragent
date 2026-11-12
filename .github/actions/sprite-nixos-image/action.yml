@@ -85,8 +85,15 @@ runs:
         IMAGE: ghcr.io/storrito/rragent-sprite-nixos:${{ inputs.tag }}
         TAG: ${{ inputs.tag }}
       run: |
+        # CMD: the Sprite's init (config.init "systemd") runs it. USER
+        # and WORKDIR: who an exec runs as and where, the Sprites base
+        # image's. ENV PATH: an exec's PATH is the image's, not the login
+        # profile's; the same string as `path` in deploy/nixos/sprite.nix.
         docker import \
           --change 'CMD ["/sbin/init"]' \
+          --change 'USER sprite' \
+          --change 'WORKDIR /home/sprite' \
+          --change 'ENV PATH=/home/sprite/.local/bin:/run/wrappers/bin:/home/sprite/.nix-profile/bin:/etc/profiles/per-user/sprite/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/.sprite/bin' \
           --change "LABEL org.opencontainers.image.version=$TAG" \
           --change "LABEL org.opencontainers.image.source=https://github.com/storrito/rragent" \
           --change "LABEL org.opencontainers.image.revision=$GITHUB_SHA" \
