@@ -26,7 +26,8 @@
                           "and the text the run gets then: what to do. Each fire starts a run, a fresh conversation with your definition, "
                           "your events and your artifacts, which does the job and ends with one line the person sees in your activity; "
                           "nothing of it enters this chat unless the run failed or reported something. "
-                          "A run knows nothing of this chat, only your definition, your events and your artifacts: write the job into your definition before you set a schedule. "
+                          "A run knows nothing of this chat, only your definition, your events and your artifacts: write the job into your definition before you set a schedule, "
+                          "and for a new job show the person how it will work as a page and have their yes first (Runs, in your instructions). "
                           "`mode: message` instead has the text reach you here as a message, for a rare reminder you want to talk about; never for anything frequent. "
                           "`delete` with the name; `list`. "
                           "A set schedule replaces one of the same name. Write the cron line yourself, for example `0 8 * * 1-5` for weekday mornings at eight.")

@@ -248,6 +248,42 @@ skill; they do not know these exist. So the bot offers them, subtly
     model and the job, and the bot edits it only when the job
     changes.
 
+### The workflow shown before it goes live (2026-11-11)
+
+A person asked their bot to visualise the workflow they had just built
+with it (a folder in Dropbox, a Story, an approval in Telegram, a slot
+on Instagram). The first picture was a list of ten steps, the second a
+swimlane diagram with decisions and "webhook" in it; the one that
+worked came third, on the question whether a person who is not
+technical could read it: four cards, what you do in one colour, what
+happens by itself in another, the change request as a sentence instead
+of a loop. Decided by Tobias:
+
+15. **Every workflow is shown, by itself, before it is live.** Not an
+    offer: the bot writes the job into its file, shows how it will
+    work in a card, and creates the hook or sets the schedule only
+    after the person's yes. What they see is what they say yes to, the
+    answer to "is this what I meant?" for someone who cannot read the
+    job. When the job changes so that it no longer shows what happens,
+    the bot builds it again.
+16. **A page, not a picture.** The card opens an HTML page beside the
+    chat (`artifacts/<job>-workflow/index.html`), which lays itself
+    out for the screen it is on: cards in a row on a wide screen, one
+    under the other on a phone, where a picture of a wide diagram
+    cannot be read. It reloads in place when the bot builds it again.
+17. **When is rragent's, how is a skill's.** That a workflow was built
+    is known only here: the job, the hook and the schedule are
+    rragent's, and a skill is read when the person asks for what it
+    does, never by itself. So the step is a sentence of
+    `deploy/agent/BOT.md` under `## Runs`, and of the `hook` and
+    `schedule` tools. How the page is made (which steps become cards,
+    the words, the look) is agentitos' `workflow-diagram` skill: one
+    look for every workflow, kept in the skill's `style/`, filled from
+    a `workflow.json` the bot writes, so that no bot designs a diagram
+    of its own and a change of the look is one change there. On a
+    machine whose clone has no such skill yet the bot shows the steps
+    as a short list.
+
 ## How it is built
 
 - `rragent.events`: the events file, `remember` and `recall` over it,
