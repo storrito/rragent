@@ -1,36 +1,45 @@
 (ns rragent.model-requests
   "What rragent does around every request pi-ai sends to a model, a
    chat completion (`/chat/completions`, the OpenAI SDK) or a message
-   the Anthropic way (`/v1/messages`, the Anthropic SDK, how
-   OpenRouter's Claude models are spoken to, the default model among
-   them); both SDKs use the global `fetch`, which `install!` wraps. It
-   measures the body, warns above `warn-bytes`, and turns an
+   the Anthropic way (`/v1/messages`, the Anthropic SDK, which pi-ai's
+   catalog names for OpenRouter's Claude models, the default model
+   among them); both SDKs use the global `fetch`, which `install!`
+   wraps. It measures the body, warns above `warn-bytes`, and turns an
    answer that says the request was too large into the 413
    `request_too_large` pi-ai knows as a context overflow
-   (`isContextOverflow`), so that pi-durable compacts the conversation
-   and asks again instead of retrying a hopeless request three times.
+   (`isContextOverflow`): neither SDK's wording of the gateway's own
+   413, `{\"error\":\"request body too large\"}`, is one to pi-ai, and
+   without it the turn ends there, or a hopeless request is retried
+   three times. On an overflow pi-durable compacts the conversation
+   and asks again, once: a request still refused after that ends the
+   turn with the overflow's words, as does one of a conversation with
+   nothing to cut. A compaction keeps the last messages whole, so
+   pictures of megabytes in them stay too large, at every message
+   again.
    Three answers mean too large: a 413; OpenRouter's 400 `The total
    text input size exceeds 8 MB`; and the Sprites gateway's 502
    `{\"code\":\"internal_error\",...,\"request_id\":null}` without
    OpenRouter's request id, its answer to a body past 8,000,000 bytes
    (seen 2026-10-23, a 413 only between 8,000,000 and some 8,200,000).
-   The gateway's 413 is `{\"error\":\"request body too large\"}`, which
-   pi-ai does not read as an overflow: until 2026-11-12 only a chat
-   completion was looked at, and a bot on Claude ended its turn with
-   that answer, at every message again.
+   That 502 says nothing of the size, and the gateway may answer it
+   for reasons of its own, so it counts for a request above
+   `warn-bytes` only: a smaller one goes back as it is, for the retry.
    Pictures are what fills a request: `rragent.images` keeps them
-   small, this is the net under it. The last request of each provider
-   session, a conversation's, is kept (`last-request`), for a summary
-   that asks the same again and reads it from the provider's cache
-   (`rragent.warm-summary`). The stream of every good answer is split
-   for OpenRouter's charge in it (`rragent.costs/tee`). The kept
-   request and the charge are a chat completion's only: both read its
-   format."
+   small, this is the net under it. The last chat completion of each
+   provider session, a conversation's, is kept (`last-request`), for a
+   summary that asks the same again and reads it from the provider's
+   cache (`rragent.warm-summary`); a message the Anthropic way is not
+   kept, the summary asks a chat completion, and forgets what its
+   session kept (`forget!`), which is no longer the conversation's
+   last. The stream of every other answer to a chat completion is
+   split for OpenRouter's charge in it (`rragent.costs/tee`), which
+   reads a chat completion's chunks."
   (:require [rragent.costs :as costs]))
 
 (def warn-bytes
-  "The body size from which a request is logged, a sign that the
-   conversation grows towards the gateway's cap."
+  "The body size above which a request is logged, a sign that the
+   conversation grows towards the gateway's cap, and above which the
+   gateway's 502 is read as its refusal of the size (`too-large?`)."
   6000000)
 
 (def cap-bytes
@@ -46,29 +55,37 @@
          (and input (.-url input)) (.-url input)
          :else "")))
 
+(defn kind
+  "What request to a model `input` of a fetch is: `:completion`, a
+   chat completion; `:messages`, a message the Anthropic way
+   (`/v1/messages`, not what is below it, as `count_tokens`); nil for
+   any other request."
+  [input]
+  (let [url (url-of input)]
+    (cond
+      (re-find #"/chat/completions(\?|$)" url) :completion
+      (re-find #"/v1/messages(\?|$)" url) :messages)))
+
 (defn completion-url?
   "Whether `input` of a fetch is a chat completion request."
   [input]
-  (boolean (re-find #"/chat/completions(\?|$)" (url-of input))))
+  (= :completion (kind input)))
 
 (defn messages-url?
-  "Whether `input` of a fetch is a request the Anthropic way,
-   `/v1/messages`: a Claude model's."
+  "Whether `input` of a fetch is a request the Anthropic way: a Claude
+   model's."
   [input]
-  (boolean (re-find #"/v1/messages(\?|$)" (url-of input))))
-
-(defn model-url?
-  "Whether `input` of a fetch is a request to a model, of either kind."
-  [input]
-  (or (completion-url? input) (messages-url? input)))
+  (= :messages (kind input)))
 
 (defn measure
-  "`{:bytes :images}` of a request `body`: its length and how much of
-   it is pictures, the data URLs of a chat completion's image parts
-   and the base64 of a message's the Anthropic way."
+  "`{:bytes :images}` of a request `body`: its size as it goes out,
+   the bytes of its UTF-8 (a text that is not ASCII is more bytes than
+   characters), and how much of it is pictures, the data URLs of a
+   chat completion's image parts and the base64 of a message's the
+   Anthropic way."
   [body]
   (let [body (str body)]
-    {:bytes (count body)
+    {:bytes (js/Buffer.byteLength body "utf8")
      :images (+ (transduce (map count) + 0 (re-seq #"data:image/[a-z+.-]+;base64,[A-Za-z0-9+/=]*" body))
                 (transduce (map (comp count second)) + 0
                            (re-seq #"\"type\":\"base64\",\"media_type\":\"image/[a-z+.-]+\",\"data\":\"([A-Za-z0-9+/=]*)\"" body)))}))
@@ -79,16 +96,20 @@
 
 (defn too-large?
   "Whether an answer of `status` with the body `text` and `headers`
-   (a Headers) says the request was too large: a 413; OpenRouter's
-   400 for too much text; the Sprites gateway's 502 `internal_error`
-   without an `x-request-id`, which every answer OpenRouter made
-   carries."
-  [status text headers]
+   (a Headers) to a request of `bytes` says the request was too large:
+   a 413; OpenRouter's 400 for too much text; the Sprites gateway's
+   502 `internal_error` without an `x-request-id`, which every answer
+   OpenRouter made carries, to a request above `warn-bytes`. The 502
+   names no reason, so the size of the request decides: one far below
+   the cap was not refused for it and is worth the retry, which an
+   overflow never gets."
+  [status text headers bytes]
   (let [text (str text)]
     (boolean
      (or (= 413 status)
          (and (= 400 status) (re-find #"(?i)input size exceeds" text))
          (and (= 502 status)
+              (< warn-bytes bytes)
               (re-find #"\"code\":\"internal_error\"" text)
               (not (some-> headers (.get "x-request-id"))))))))
 
@@ -146,38 +167,51 @@
   [session]
   (get @last-requests session))
 
+(defn forget!
+  "The kept request of `session` forgotten: a request of the
+   conversation went out since that is not kept, so the kept one is
+   no longer its last. A conversation switched from a GPT model to
+   Claude would have its summary asked of the last GPT request, which
+   knows nothing of what came after."
+  [session]
+  (swap! last-requests dissoc session))
+
 (defn wrap
   "`fetch` with the measuring and the translation around every request
-   to a model (`model-url?`); a chat completion is remembered as its
-   session's last (`remember!`) and its good answer split for the
-   charge; any other request goes through as it is."
+   to a model (`kind`). A chat completion is remembered as its
+   session's last (`remember!`), and its answer, when it is no
+   refusal, split for the charge; a message the Anthropic way has its
+   session's kept request forgotten (`forget!`) and its answer handed
+   on as it came. Any other request goes through as it is."
   [fetch]
   (fn [input & [init]]
-    (if (and (model-url? input) init (string? (.-body init)))
-      (let [completion? (completion-url? input)
-            {:keys [bytes images] :as size} (measure (.-body init))]
-        (when completion?
-          (let [headers (plain-headers init)]
-            (when-let [session (session-of headers (.-body init))]
+    (let [what (kind input)]
+      (if (and what init (string? (.-body init)))
+        (let [{:keys [bytes images] :as size} (measure (.-body init))
+              headers (plain-headers init)
+              session (session-of headers (.-body init))]
+          (when session
+            (if (= :completion what)
               (remember! session {:url (url-of input)
                                   :headers headers
                                   :body (.-body init)}
-                         (js/Date.now)))))
-        (when (< warn-bytes bytes)
-          (js/console.warn (str "[model] a request of " (mb bytes) ", " (mb images) " of it pictures: the gateway forwards " (mb cap-bytes) " at most")))
-        (.then (fetch input init)
-               (fn [response]
-                 (let [status (.-status response)]
-                   (if (#{400 413 502} status)
-                     (.then (.text (.clone response))
-                            (fn [text]
-                              (if (too-large? status text (.-headers response))
-                                (do (js/console.error (str "[model] the request was refused as too large: HTTP " status ", "
-                                                           (mb bytes) ", " (mb images) " of it pictures; answered as an overflow, the conversation is compacted"))
-                                    (overflow-response status size))
-                                response)))
-                     (if completion? (costs/tee response) response))))))
-      (fetch input init))))
+                         (js/Date.now))
+              (forget! session)))
+          (when (< warn-bytes bytes)
+            (js/console.warn (str "[model] a request of " (mb bytes) ", " (mb images) " of it pictures: the gateway forwards " (mb cap-bytes) " at most")))
+          (.then (fetch input init)
+                 (fn [response]
+                   (let [status (.-status response)]
+                     (if (#{400 413 502} status)
+                       (.then (.text (.clone response))
+                              (fn [text]
+                                (if (too-large? status text (.-headers response) bytes)
+                                  (do (js/console.error (str "[model] the request was refused as too large: HTTP " status ", "
+                                                             (mb bytes) ", " (mb images) " of it pictures; answered as an overflow, for a compaction"))
+                                      (overflow-response status size))
+                                  response)))
+                       (if (= :completion what) (costs/tee response) response))))))
+        (fetch input init)))))
 
 (def original-fetch
   "The global `fetch` as it was when this namespace loaded, before
@@ -197,5 +231,5 @@
 
 (comment
   (measure "{\"messages\":[{\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,AAAA\"}}]}]}")
-  (too-large? 502 "{\"code\":\"internal_error\",\"details\":{},\"message\":\"Internal server error.\",\"request_id\":null}" (js/Headers.))
+  (too-large? 502 "{\"code\":\"internal_error\",\"details\":{},\"message\":\"Internal server error.\",\"request_id\":null}" (js/Headers.) 8100000)
   )
