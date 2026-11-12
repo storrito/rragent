@@ -935,14 +935,17 @@
 
 (defn branding-section
   "The Branding section of the settings: the name in the top left
-   corner of the page, \"rragent\" until the machine has one of its
-   own, and the logo in front of it (`rragent.branding`; `brand` is
-   what is saved, `{:name :logo}`). The name is a field with its
-   button (`:ui/brand-name`, `rragent.client`), saved as
-   `:branding/name`. The logo is a file picker that posts the picture
-   (`:ui/logo-upload`), with the saved one beside the button that
-   removes it (`:branding/remove-logo`). Both are the machine's, so
-   everyone with the link sees them."
+   corner of the page and the logo in front of it (`rragent.branding`;
+   `brand` is what is saved, `{:name :logo}`). The name is a field
+   with its button (`:ui/brand-name`, `rragent.client`), saved as
+   `:branding/name`; the line under it says what an empty field
+   leaves in the corner, \"rragent\", or the logo alone when there is
+   one. The logo is a file picker that posts the picture
+   (`:ui/logo-upload`, told the saved one as `:ui/logo`), with the
+   saved one beside the button that removes it
+   (`:branding/remove-logo`); the row is marked `alone` for a logo
+   without a name, which the corner gives more room. Both are the
+   machine's, so everyone with the link sees them."
   [{:keys [name logo]}]
   [:section.branding
    [:h2 [:i18n :branding/title]]
@@ -952,14 +955,19 @@
                     :ui/placeholder branding/default-name
                     :ui/max-chars branding/max-chars
                     :ui/button [:i18n :branding/save]
-                    :ui/note [:i18n :branding/name-note {:name branding/default-name}]}]
+                    :ui/saved [:i18n :branding/saved]
+                    :ui/not-saved [:i18n :branding/not-saved]
+                    :ui/note (if logo
+                               [:i18n :branding/name-note-logo]
+                               [:i18n :branding/name-note {:name branding/default-name}])}]
    [:h3 [:i18n :branding/logo]]
    [:p [:i18n :branding/logo-explain]]
-   [:div.logo-row
+   [:div.logo-row {:class (when (and logo (not name)) "alone")}
     (when logo
       [:img.logo {:src (branding/logo-url logo)
                   :alt [:i18n :branding/logo-alt]}])
     [:ui/logo-upload {:ui/url branding/logo-path
+                      :ui/logo logo
                       :ui/accept branding/accept
                       :ui/max-bytes branding/logo-max-bytes
                       :ui/choose [:i18n (if logo :branding/replace-logo :branding/upload-logo)]
@@ -1971,10 +1979,12 @@
    archived ones last, each a link to its page with its marks
    (`bot-row`) and its menu (`bot-actions`: rename, delete); a row
    being deleted asks, a row being renamed is a field (`:deleting?`,
-   `:renaming?` of the bot). Over them the corner: the machine's logo,
-   when it has one, and its name, \"rragent\" without one of its own
-   (`brand`, `{:name :logo}` of `rragent.branding`), then the running
-   version. At the bottom who this browser is and
+   `:renaming?` of the bot). Over them the corner (`brand`, `{:name
+   :logo}` of `rragent.branding`): the machine's logo, when it has
+   one, and its name, then the running version. A machine with
+   neither says \"rragent\"; one with a logo and no name shows the
+   logo alone (`logo-only`), which then carries the words a screen
+   reader says. At the bottom who this browser is and
    the way to the settings, marked while this tab shows them
    (`settings?`): then no bot is marked as the current one, so that
    each row reads as what it is, the way to its chat."
@@ -1982,14 +1992,18 @@
   (let [shown (when-not settings? shown)
         bots (archived-last bots)]
     [:aside.sidebar
-     [:div.brand
-      (when-let [logo (:logo brand)]
-        ;; no words of its own: the name beside it says whose it is
-        [:img.logo {:src (branding/logo-url logo) :alt ""}])
-      [:span.text
-       [:span.name (or (:name brand) branding/default-name)]
-       (when version
-         [:span.version {:title "rragent version"} version])]]
+     (let [{:keys [name logo]} brand
+           alone? (and logo (not name))]
+       [:div.brand {:class (when alone? "logo-only")}
+        (when logo
+          ;; no words of its own beside a name, which says whose it is
+          [:img.logo {:src (branding/logo-url logo)
+                      :alt (if alone? [:i18n :branding/logo-alt] "")}])
+        [:span.text
+         (when-not alone?
+           [:span.name (or name branding/default-name)])
+         (when version
+           [:span.version {:title "rragent version"} version])]])
      (new-bot)
      ;; keyed by its order: a list whose rows move makes a new list
      ;; (Replicant 2026.07.1 keeps a stale vdom for a row moved to the front)

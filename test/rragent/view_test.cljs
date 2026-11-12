@@ -706,17 +706,25 @@
       (let [page (page {:update {:current "0.1.2"}})]
         (is (= "rragent" (last (find-tag (corner page) :span.name))))
         (is (nil? (find-tag (corner page) :img.logo)))
+        (is (nil? (:class (second (corner page)))))
         (is (= "0.1.2" (last (find-tag (corner page) :span.version))))
         (is (= "rragent" (:ui/title (second (find-tag page :ui/url)))))))
     (testing "its own name and its logo in front of it, in the chat and in the settings alike"
       (doseq [opts [{} {:settings? true}]
               :let [page (page (assoc opts :brand {:name "Acme Studio" :logo logo}))
-                    [tag attrs] (second (corner page))]]
+                    [tag attrs] (nth (corner page) 2)]]
         (is (= :img.logo tag) "the logo first")
         (is (= (str "/branding/logo/" logo) (:src attrs)))
         (is (= "" (:alt attrs)) "the name beside it says what it is")
         (is (= "Acme Studio" (last (find-tag (corner page) :span.name))))
         (is (= "Acme Studio" (:ui/title (second (find-tag page :ui/url)))))))
+    (testing "a logo without a name stands alone: no rragent beside a logo that spells the name itself"
+      (let [page (page {:brand {:logo logo} :update {:current "0.1.2"}} :de)]
+        (is (= "logo-only" (:class (second (corner page)))))
+        (is (nil? (find-tag (corner page) :span.name)))
+        (is (= "Das Logo" (:alt (second (find-tag (corner page) :img.logo)))) "the picture is all a screen reader has")
+        (is (= "0.1.2" (last (find-tag (corner page) :span.version))) "the version stays")
+        (is (= "rragent" (:ui/title (second (find-tag page :ui/url)))) "the tab's title is the name's alone")))
     (testing "the Branding section: the field with the saved name, the picker of a logo"
       (let [page (page {:settings? true :settings-section :branding})
             field (second (find-tag page :ui/brand-name))
@@ -724,9 +732,11 @@
             section (find-tag page :section.branding)]
         (is (some #{"Name and logo"} (strings section)))
         (is (= {:ui/name "" :ui/label "Name" :ui/placeholder "rragent" :ui/max-chars 40 :ui/button "Save"
+                :ui/saved "Saved." :ui/not-saved "The name could not be saved. Try again."
                 :ui/note "Save an empty field and the corner says rragent again."}
                field))
         (is (= "/branding/logo" (:ui/url upload)))
+        (is (nil? (:ui/logo upload)))
         (is (= "image/png,image/jpeg,image/webp,image/gif,image/svg+xml" (:ui/accept upload)))
         (is (= (* 2 1024 1024) (:ui/max-bytes upload)))
         (is (= "Upload a logo" (:ui/choose upload)))
@@ -736,12 +746,20 @@
       (let [page (page {:settings? true :settings-section :branding :brand {:name "Acme Studio" :logo logo}} :de)
             section (find-tag page :section.branding)]
         (is (= "Acme Studio" (:ui/name (second (find-tag section :ui/brand-name)))))
+        (is (= "Ein leeres Feld speichern, und oben links steht das Logo allein."
+               (:ui/note (second (find-tag section :ui/brand-name))))
+            "what an empty field leaves, with a logo")
         (is (= (str "/branding/logo/" logo) (:src (second (find-tag section :img.logo)))))
+        (is (nil? (:class (second (find-tag section :div.logo-row)))))
+        (is (= logo (:ui/logo (second (find-tag section :ui/logo-upload)))) "the upload knows the saved one")
         (is (= "Logo ersetzen" (:ui/choose (second (find-tag section :ui/logo-upload)))))
         (is (= [[:data/command {:command/kind :branding/remove-logo}]]
                (get-in (second (find-tag section :button.link.danger)) [:on :click])))
         (is (= "Logo entfernen" (last (find-tag section :button.link.danger))))
-        (is (not-any? #(and (string? %) (str/includes? % ":i18n")) (strings page)) "every text is translated")))))
+        (is (not-any? #(and (string? %) (str/includes? % ":i18n")) (strings page)) "every text is translated")))
+    (testing "the saved logo of a machine without a name is shown as wide as the corner shows it"
+      (let [section (find-tag (page {:settings? true :settings-section :branding :brand {:logo logo}}) :section.branding)]
+        (is (= "alone" (:class (second (find-tag section :div.logo-row)))))))))
 
 (deftest message-items-test
   (let [conversation {:entries [(user 1 "Ask the counter.")

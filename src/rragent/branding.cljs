@@ -1,8 +1,9 @@
 (ns rragent.branding
   "The name and the logo in the top left corner of the page. A machine
    shows \"rragent\" there until its people give it a name of their
-   own, and a logo that stands in front of the name, in the Branding
-   section of the settings (`rragent.view/branding-section`). The name
+   own, a logo, or both, in the Branding section of the settings
+   (`rragent.view/branding-section`). The logo stands in front of the
+   name, and alone when the machine has a logo and no name. The name
    is the title of the browser's tab too.
 
    Both are the machine's, not a bot's and not a browser's, so everyone
@@ -13,8 +14,9 @@
 
    `POST /branding/logo` takes the picture as the request's body with
    its media type, and its name (`?name=`) for a file the browser types
-   poorly. `GET /branding/logo/<file>` serves the saved one. Both are
-   behind the token (`rragent.page`)."
+   poorly; a file whose bytes do not start the way its kind does is
+   not taken (`picture?`). `GET /branding/logo/<file>` serves the saved
+   one. Both are behind the token (`rragent.page`)."
   (:require ["node:crypto" :as crypto]
             ["node:fs" :as fs]
             ["node:path" :as path]
@@ -71,12 +73,13 @@
   (path/join home "branding"))
 
 (defn clean
-  "The name as kept: one line, trimmed, at most `max-chars`; nil for
-   nothing."
+  "The name as kept: one line, trimmed, at most `max-chars` characters;
+   nil for nothing. A character is a code point, so the cut never
+   leaves half an emoji."
   [s]
   (let [s (-> (str s) (str/replace #"\s+" " ") str/trim)]
     (when (seq s)
-      (str/trim (subs s 0 (min max-chars (count s)))))))
+      (str/trim (str/join (take max-chars (array-seq (js/Array.from s))))))))
 
 (defn saved
   "What the machine's folder `home` holds: `{:name :logo}`, the name
@@ -110,14 +113,19 @@
     (fs/renameSync tmp target)))
 
 (defn- sweep!
-  "Removes every file of the logo's folder but the one named `kept`."
+  "Removes every file of the logo's folder but the one named `kept`. A
+   file that does not go is left: nothing serves it (`logo-handler`),
+   and the next sweep tries again."
   [home kept]
   (doseq [file-name (try
                       (array-seq (fs/readdirSync (dir home)))
                       (catch :default _
                         nil))
           :when (not= file-name kept)]
-    (fs/rmSync (path/join (dir home) file-name) #js {:force true :recursive true})))
+    (try
+      (fs/rmSync (path/join (dir home) file-name) #js {:force true :recursive true})
+      (catch :default e
+        (js/console.error "[branding] could not remove" file-name (ex-message e))))))
 
 (defn save-name!
   "The name of the corner set to `name`, cleaned; a blank one brings
@@ -160,6 +168,34 @@
             named (get {"jpeg" "jpg"} named named)]
         (some #{named} (vals logo-types)))))
 
+(defn- starts-with-bytes?
+  "Whether `bytes` holds `expected`, a sequence of numbers, at `offset`."
+  [^js bytes offset expected]
+  (and (<= (+ offset (count expected)) (.-length bytes))
+       (every? true? (map-indexed (fn [i b] (= b (aget bytes (+ offset i)))) expected))))
+
+(defn- ascii
+  [s]
+  (map #(.charCodeAt % 0) s))
+
+(defn picture?
+  "Whether `bytes`, a Buffer, starts the way a picture stored under
+   `extension` does: the signature of a PNG, a JPEG, a GIF or a WebP,
+   an `<svg` tag somewhere in an SVG. A photo of a phone renamed to
+   .jpg, a text file or nothing at all is no picture, and the corner
+   would show an empty place for it."
+  [^js bytes extension]
+  (boolean
+   (case extension
+     "png" (starts-with-bytes? bytes 0 [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A])
+     "jpg" (starts-with-bytes? bytes 0 [0xFF 0xD8 0xFF])
+     "gif" (or (starts-with-bytes? bytes 0 (ascii "GIF87a"))
+               (starts-with-bytes? bytes 0 (ascii "GIF89a")))
+     "webp" (and (starts-with-bytes? bytes 0 (ascii "RIFF"))
+                 (starts-with-bytes? bytes 8 (ascii "WEBP")))
+     "svg" (.includes bytes "<svg")
+     false)))
+
 (defn- media-type
   [request]
   (some-> (get-in request [:headers "content-type"])
@@ -180,8 +216,9 @@
 (defn ^:async upload-handler
   "`POST /branding/logo`: the request's body as the logo of the
    machine's folder `home`. Answers what is saved then, as transit; a
-   415 `:not-taken` for a file that is no picture of `logo-types`, a
-   413 `:too-large` past `logo-max-bytes`, a 400 `:empty` for no bytes."
+   415 `:not-taken` for a file that is no picture of `logo-types`, by
+   its type and name or by its bytes (`picture?`), a 413 `:too-large`
+   past `logo-max-bytes`."
   [home w]
   (let [request (:ring/request w)
         extension (extension-for (media-type request) (file-name-param request))]
@@ -190,7 +227,7 @@
       (let [^js bytes (await (uploads/read-body (:body request) logo-max-bytes))]
         (cond
           (nil? bytes) (uploads/respond w 413 {:error :too-large})
-          (zero? (.-length bytes)) (uploads/respond w 400 {:error :empty})
+          (not (picture? bytes extension)) (uploads/respond w 415 {:error :not-taken})
           :else (uploads/respond w 200 (save-logo! home bytes extension)))))))
 
 (def logo-headers

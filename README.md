@@ -472,19 +472,22 @@ routes, nothing of the person is in them.
 ## Branding
 
 The top left corner of the page says "rragent" until the machine gets
-a name of its own. Settings → Branding has a field for the name and a
-button that uploads a logo, which stands in front of the name, 24
-pixels high (`rragent.branding`). The name is the title of the
-browser's tab too. Both belong to the machine, so everyone with the
-link sees them, and every open tab shows a change with its next frame.
+a name of its own, a logo, or both. Settings → Branding has a field
+for the name and a button that uploads a logo, which stands in front
+of the name, 24 pixels high (`rragent.branding`). A machine with a
+logo and no name shows the logo alone, for a logo that already spells
+the name. The name is the title of the browser's tab too. Both belong
+to the machine, so everyone with the link sees them, and every open
+tab shows a change with its next frame.
 
 `branding.json` in the machine's folder holds the name and the name of
 the logo's file. The file itself lies in `branding/` beside it, named
 by the hash of its bytes, so a browser keeps it and a new logo has a
-new address. A logo is a PNG, JPEG, WebP, GIF or SVG of at most 2 MB.
-`POST /branding/logo` takes it and `GET /branding/logo/<file>` serves
-it, both behind the token. An empty name saved brings "rragent" back,
-and Remove the logo takes the picture away again.
+new address. A logo is a PNG, JPEG, WebP, GIF or SVG of at most 2 MB;
+a file whose bytes are no such picture is refused, whatever its name
+says. `POST /branding/logo` takes it and `GET /branding/logo/<file>`
+serves it, both behind the token. An empty name saved takes the name
+away again, and Remove the logo the picture.
 
 The app on the home screen keeps its name and its icon (Storrito, the
 burrito), and so do the texts about updates, which name rragent.

@@ -307,9 +307,12 @@
    :branding/explain "What the top left corner of the page shows. Everyone who opens this page sees it."
    :branding/name "Name"
    :branding/save "Save"
+   :branding/saved "Saved."
+   :branding/not-saved "The name could not be saved. Try again."
    :branding/name-note [:fn/str "Save an empty field and the corner says {{:name}} again."]
+   :branding/name-note-logo "Save an empty field and the corner shows the logo alone."
    :branding/logo "Logo"
-   :branding/logo-explain "It stands in front of the name, 24 pixels high. PNG, JPEG, WebP, GIF or SVG, up to 2 MB."
+   :branding/logo-explain "It stands in front of the name, 24 pixels high, and alone when there is no name. PNG, JPEG, WebP, GIF or SVG, up to 2 MB. The page has a light and a dark theme, so take a logo that reads on both."
    :branding/logo-alt "The logo"
    :branding/upload-logo "Upload a logo"
    :branding/replace-logo "Replace the logo"
@@ -674,9 +677,12 @@
    :branding/explain "Was oben links auf der Seite steht. Alle, die diese Seite öffnen, sehen es."
    :branding/name "Name"
    :branding/save "Speichern"
-   :branding/name-note [:fn/str "Ein leeres Feld gespeichert, und dort steht wieder {{:name}}."]
+   :branding/saved "Gespeichert."
+   :branding/not-saved "Der Name ließ sich nicht speichern. Versuch es noch einmal."
+   :branding/name-note [:fn/str "Ein leeres Feld speichern, und oben links steht wieder {{:name}}."]
+   :branding/name-note-logo "Ein leeres Feld speichern, und oben links steht das Logo allein."
    :branding/logo "Logo"
-   :branding/logo-explain "Es steht vor dem Namen, 24 Pixel hoch. PNG, JPEG, WebP, GIF oder SVG, bis 2 MB."
+   :branding/logo-explain "Es steht vor dem Namen, 24 Pixel hoch, und allein, wenn es keinen Namen gibt. PNG, JPEG, WebP, GIF oder SVG, bis 2 MB. Die Seite hat ein helles und ein dunkles Design, nimm also ein Logo, das auf beiden zu erkennen ist."
    :branding/logo-alt "Das Logo"
    :branding/upload-logo "Logo hochladen"
    :branding/replace-logo "Logo ersetzen"

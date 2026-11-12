@@ -33,7 +33,25 @@
   (is (nil? (branding/clean nil)))
   (is (= branding/max-chars (count (branding/clean (apply str (repeat 100 "x"))))))
   (is (= "abc def" (branding/clean (str "abc" (apply str (repeat 60 " ")) "def"))) "one space for a run of them")
-  (is (= (apply str (repeat 39 "x")) (branding/clean (str (apply str (repeat 39 "x")) " tail"))) "no space at the cut"))
+  (is (= (apply str (repeat 39 "x")) (branding/clean (str (apply str (repeat 39 "x")) " tail"))) "no space at the cut")
+  (is (= (str (apply str (repeat 39 "x")) "🌯") (branding/clean (str (apply str (repeat 39 "x")) "🌯🌯")))
+      "a character is a code point: the cut leaves no half of an emoji"))
+
+(deftest picture-test
+  (is (true? (branding/picture? png "png")))
+  (is (true? (branding/picture? svg "svg")))
+  (is (true? (branding/picture? (js/Buffer.from "<?xml version=\"1.0\"?>\n<!-- a logo -->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>") "svg")))
+  (is (true? (branding/picture? (js/Buffer.from #js [0xFF 0xD8 0xFF 0xE0 0 0x10]) "jpg")))
+  (is (true? (branding/picture? (js/Buffer.from "GIF89a...") "gif")))
+  (is (true? (branding/picture? (js/Buffer.from "RIFF\u0000\u0000\u0000\u0000WEBPVP8 ") "webp")))
+  (testing "a file that only says it is one"
+    (is (false? (branding/picture? png "jpg")) "a PNG named .jpg")
+    (is (false? (branding/picture? (js/Buffer.from "hello") "png")))
+    (is (false? (branding/picture? (js/Buffer.from "<html><body>no</body></html>") "svg")))
+    (is (false? (branding/picture? (js/Buffer.from "RIFF\u0000\u0000\u0000\u0000WAVEfmt ") "webp")) "a WAV is a RIFF file too")
+    (is (false? (branding/picture? (js/Buffer.from #js [0x89 0x50]) "png")) "shorter than its signature")
+    (is (false? (branding/picture? (js/Buffer.alloc 0) "png")) "nothing at all")
+    (is (false? (branding/picture? png "pdf")))))
 
 (deftest extension-test
   (is (= "png" (branding/extension-for "image/png" nil)))
@@ -129,13 +147,19 @@
                  (fs/writeFileSync (path/join (branding/dir home) "note.txt") "x")
                  (is (= 404 (.-status (await (js/fetch (str base branding/logo-path "/note.txt"))))))
                  (is (= 404 (.-status (await (js/fetch (str base branding/logo-path "/..%2Fsecrets.json")))))))
-               (testing "what is no picture, too large or empty is not taken; the logo stays"
-                 (let [before (branding/saved home)]
+               (testing "what is no picture, by its name or by its bytes, or too large, is not taken; the logo stays"
+                 (let [before (branding/saved home)
+                       files (logo-files home)]
                    (is (= {:status 415 :body {:error :not-taken}} (await (post "application/pdf" png "name=logo.pdf"))))
+                   (is (= {:status 415 :body {:error :not-taken}} (await (post "image/jpeg" png "name=photo.jpg")))
+                       "a PNG that says it is a JPEG")
+                   (is (= {:status 415 :body {:error :not-taken}} (await (post "image/png" (js/Buffer.from "hello")))))
+                   (is (= {:status 415 :body {:error :not-taken}} (await (post "image/png" (js/Uint8Array. 0))))
+                       "an empty file")
                    (is (= {:status 413 :body {:error :too-large}}
                           (await (post "image/png" (js/Uint8Array. (inc branding/logo-max-bytes))))))
-                   (is (= {:status 400 :body {:error :empty}} (await (post "image/png" (js/Uint8Array. 0)))))
-                   (is (= before (branding/saved home)))))
+                   (is (= before (branding/saved home)))
+                   (is (= files (logo-files home)) "and nothing of them is kept")))
                (finally
                  (.closeAllConnections server)
                  (await (js/Promise. (fn [resolve] (.close server resolve))))
