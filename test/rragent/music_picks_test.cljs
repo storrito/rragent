@@ -51,6 +51,28 @@
     (is (= "<insta-music search-term=\"Say &quot;Hi&quot; &amp; &lt;b\" track-id=\"1\" start-ms=\"0\"></insta-music>"
            (music-picks/insta-music {:track-id "1" :search-term "Say \"Hi\" & <b" :start-ms 0})))))
 
+(def audio-url
+  "https://scontent-fra5-1.cdninstagram.com/o1/v/t2/f2/m69/song.mp4?oe=6AEFB6A0&_nc_sid=1")
+
+(deftest preview-audio-test
+  (testing "the song on Instagram's CDN is kept for the preview"
+    (is (= audio-url (:audio-url (music-picks/choice (js/JSON.stringify #js {:trackId "1" :startMs 0 :audioUrl audio-url})))))
+    (is (some? (music-picks/cdn-url "https://video.xx.fbcdn.net/v/song.mp4"))))
+  (testing "any other URL is left out: the bot downloads it"
+    (is (nil? (music-picks/cdn-url "https://evil.example/song.mp4")))
+    (is (nil? (music-picks/cdn-url "https://cdninstagram.com.evil.example/x")))
+    (is (nil? (music-picks/cdn-url "http://scontent.cdninstagram.com/x")))
+    (is (nil? (music-picks/cdn-url "https://scontent.cdninstagram.com/x'; rm -rf ~; '")))
+    (is (nil? (:audio-url (music-picks/choice storrito-body)))))
+  (testing "the message says how the preview plays the picked part"
+    (let [message (music-picks/message (assoc (music-picks/choice storrito-body) :audio-url audio-url))]
+      (is (str/includes? message (str "curl -fsSL '" audio-url "' -o composition/music-preview.m4a")))
+      (is (str/includes? message "<audio id=\"music-preview\" src=\"music-preview.m4a\" data-start=\"0\" data-duration=\"15\" data-media-start=\"42\" data-preview-only></audio>")))
+    (is (= "<audio id=\"music-preview\" src=\"music-preview.m4a\" data-start=\"0\" data-duration=\"15\" data-media-start=\"100.5\" data-preview-only></audio>"
+           (music-picks/preview-audio {:start-ms 100500 :duration-ms 15000})))
+    (is (not (str/includes? (music-picks/message (music-picks/choice storrito-body)) "<audio"))
+        "no audio URL, no preview audio")))
+
 (deftest page-url-test
   (is (= "https://acme.storrito.com/ui/music-pick?callback=https%3A%2F%2Fbot.example%2Fmusic-pick%2Fab%2Fcd&section-ms=15000"
          (music-picks/page-url "https://acme.storrito.com" "https://bot.example/music-pick/ab/cd" 15000)))

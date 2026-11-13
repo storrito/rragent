@@ -133,10 +133,26 @@
   (when (and (number? v) (js/isFinite v) (<= 0 v (* 60 60 1000)))
     (js/Math.round v)))
 
+(def cdn-hosts
+  "Where Instagram's songs lie: the only hosts an audio URL of the
+   callback may name, since the bot downloads it."
+  #"(?:[a-z0-9-]+\.)*(?:cdninstagram\.com|fbcdn\.net)")
+
+(defn cdn-url
+  "`s` when it is an https URL on Instagram's CDN (`cdn-hosts`) of at
+   most 2000 characters, else nil."
+  [s]
+  (when (and (string? s) (<= (count s) 2000))
+    (when-let [[_ host] (re-matches #"https://([^/\s\"'<>]+)/[^\s\"'<>]*" s)]
+      (when (re-matches cdn-hosts (str/lower-case host))
+        s))))
+
 (defn choice
   "The song of the callback's `body` (Storrito's JSON) as data,
    `{:track-id :title :artist :search-term :start-ms :duration-ms
-   :song-ms :state}`; nil when it names no track or no start."
+   :song-ms :state :audio-url}`; nil when it names no track or no
+   start. `:audio-url` is the song on Instagram's CDN (`cdn-url`), for
+   the preview."
   [body]
   (let [parsed (try (js->clj (js/JSON.parse (str body)) :keywordize-keys true)
                     (catch :default _ nil))
@@ -154,7 +170,8 @@
                  :start-ms start
                  :duration-ms (or (ms-field (:durationMs parsed)) default-section-ms)}
           (ms-field (:songDurationMs parsed)) (assoc :song-ms (ms-field (:songDurationMs parsed)))
-          (text-field (:state parsed) 500) (assoc :state (text-field (:state parsed) 500)))))))
+          (text-field (:state parsed) 500) (assoc :state (text-field (:state parsed) 500))
+          (cdn-url (:audioUrl parsed)) (assoc :audio-url (cdn-url (:audioUrl parsed))))))))
 
 (defn- attr
   [s]
@@ -181,6 +198,19 @@
   (str "\"" title "\"" (when (seq artist) (str " – " artist))
        " · " (clock start-ms) "–" (clock (+ start-ms duration-ms))))
 
+(defn- seconds
+  "`ms` as seconds, `100.5`."
+  [ms]
+  (let [s (/ ms 1000)]
+    (if (== s (js/Math.floor s)) (str (js/Math.floor s)) (str s))))
+
+(defn preview-audio
+  "The HyperFrames element that plays the picked part of the song in the
+   preview, left out of a render (`data-preview-only`)."
+  [{:keys [start-ms duration-ms]}]
+  (str "<audio id=\"music-preview\" src=\"music-preview.m4a\" data-start=\"0\" data-duration=\"" (seconds duration-ms)
+       "\" data-media-start=\"" (seconds start-ms) "\" data-preview-only></audio>"))
+
 (defn message
   "What the bot reads about the picked song."
   [{:keys [state] :as choice}]
@@ -188,6 +218,12 @@
        (song-line choice) " (starts at " (:start-ms choice) " ms, " (/ (:duration-ms choice) 1000) " s).\n"
        "Put this element into the story's HTML, as its only <insta-music>; add design=\"album-art\", \"vinyl\" or \"invisible\" for another look than the simple card:\n"
        (insta-music choice)
+       (when-let [url (:audio-url choice)]
+         (str "\nThe preview plays the picked part, the Story's HTML gets no audio (Storrito adds the song): "
+              "download it into the preview project's composition/ (the link works about four days), "
+              "curl -fsSL '" url "' -o composition/music-preview.m4a, "
+              "and put into its index.html "
+              (preview-audio choice)))
        (when state (str "\nThe pick was for: " state))))
 
 (defn entry-data
