@@ -600,7 +600,9 @@ plays, like in Storrito's editor; on confirm Storrito posts the choice
 to `POST /music-pick/<id>/<secret>` on the machine (`RRAGENT_URL`),
 outside the token like a hook, and it reaches the bot's chat as a
 message with the `<insta-music search-term track-id start-ms>` element
-for the story. Unlike a hook the callback works once and for 24 hours,
+for the story, and, when Storrito sends the song's audio URL on Instagram's
+CDN, how the preview plays the picked part (an `<audio
+data-preview-only>` from the downloaded song). Unlike a hook the callback works once and for 24 hours,
 since the link passes through the browser, and the message is written
 from the fields read, never from the body as it came. The
 `transcribe` tool (`rragent.tools.transcribe`) goes the other way: the
