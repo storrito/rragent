@@ -1,0 +1,99 @@
+name: Sprite NixOS image
+description: >-
+  Builds the NixOS Sprite image from deploy/nixos/ (the base a machine
+  shares, and the /etc/nixos a new machine starts with) and pushes it to
+  the package ghcr.io/storrito/rragent-sprite-nixos as <tag>: the
+  base's own version (deploy/nixos/VERSION) on main,
+  <version>-trial.<sha> for a branch. A package of its own, so that a
+  provisioner that takes the highest version of rragent-sprite, the
+  Ubuntu image and the default, never takes this one. Nix builds the
+  system from this commit as GitHub serves it
+  (github:<repository>/<sha>?dir=deploy/nixos), so that the commit and
+  the hash a new machine's flake.lock pins rragent to are the ones the
+  machine's own fetch will find (deploy/nixos/seed.nix). Sprites imports
+  an image tag once per organization and never pulls it again, so a tag
+  that exists is never pushed over: refused, or skipped with
+  when-there: skip.
+
+inputs:
+  tag:
+    description: The image's tag.
+    required: true
+  when-there:
+    description: What to do when the tag exists already, "refuse" (the default) or "skip".
+    required: false
+    default: refuse
+
+runs:
+  using: composite
+  steps:
+    - name: Log in to ghcr.io
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: A tag that exists
+      id: there
+      shell: bash
+      env:
+        IMAGE: ghcr.io/storrito/rragent-sprite-nixos:${{ inputs.tag }}
+        WHEN_THERE: ${{ inputs.when-there }}
+      run: |
+        if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+          if [ "$WHEN_THERE" = skip ]; then
+            echo "$IMAGE exists already: nothing to build"
+            echo "there=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::$IMAGE exists already. Sprites imports a tag once per organization and never pulls it again, so a rebuild needs a tag of its own: bump deploy/nixos/VERSION."
+            exit 1
+          fi
+        else
+          echo "there=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # The system's closure, its tarball and the imported image are a few
+    # GB each; the runner's disk has room without the toolchains nobody
+    # here uses.
+    - name: Make room
+      if: steps.there.outputs.there != 'true'
+      shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h / | tail -1
+
+    - name: Nix
+      if: steps.there.outputs.there != 'true'
+      uses: cachix/install-nix-action@v31
+      with:
+        github_access_token: ${{ github.token }}
+
+    - name: Build the system's tarball
+      if: steps.there.outputs.there != 'true'
+      shell: bash
+      env:
+        FLAKE: github:${{ github.repository }}/${{ github.sha }}?dir=deploy/nixos
+      run: |
+        nix build "$FLAKE#tarball" --out-link tarball --print-build-logs
+        ls -la tarball/tarball/
+
+    - name: Import and push the image
+      if: steps.there.outputs.there != 'true'
+      shell: bash
+      env:
+        IMAGE: ghcr.io/storrito/rragent-sprite-nixos:${{ inputs.tag }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        # CMD: the Sprite's init (config.init "systemd") runs it. Nothing
+        # else in the config: a sprite made from an image that also named
+        # USER sprite, WORKDIR /home/sprite and ENV PATH was answered with
+        # an internal error by the platform. An exec runs as root and
+        # finds the programs through /usr/local/bin (deploy/nixos/sprite.nix).
+        docker import \
+          --change 'CMD ["/sbin/init"]' \
+          --change "LABEL org.opencontainers.image.version=$TAG" \
+          --change "LABEL org.opencontainers.image.source=https://github.com/storrito/rragent" \
+          --change "LABEL org.opencontainers.image.revision=$GITHUB_SHA" \
+          tarball/tarball/rragent-sprite-nixos.tar "$IMAGE"
+        docker push "$IMAGE"

@@ -82,6 +82,32 @@
       (with-env "RRAGENT_SKILLS" (path/join skills "nowhere")
         (fn []
           (is (= bundled (bots/system-prompt))))))
+    (testing "a machine's own text follows the bundle's (RRAGENT_MACHINE_PROMPT, a NixOS Sprite's)"
+      (let [file (path/join skills "machine.md")]
+        (fs/writeFileSync file "\n## This machine runs NixOS\n\nThere is no apt.\n\n")
+        (with-env "RRAGENT_SKILLS" (path/join skills "nowhere")
+          (fn []
+            (with-env "RRAGENT_MACHINE_PROMPT" file
+              (fn []
+                (is (= "## This machine runs NixOS\n\nThere is no apt." (bots/machine-prompt)))
+                (is (= (str (str/trim bundled) "\n\n## This machine runs NixOS\n\nThere is no apt.\n") (bots/system-prompt)))
+                (is (str/ends-with? (str/trim (bots/task-instructions)) (str/trim (fs/readFileSync "deploy/agent/TASK.md" "utf8")))
+                    "a task's text still ends the task's instructions")
+                (is (str/includes? (bots/task-instructions) "There is no apt.") "a task works by the machine's text too")))
+            (testing "a file that does not read, or a blank one, leaves the bundle's text"
+              (with-env "RRAGENT_MACHINE_PROMPT" (path/join skills "nowhere.md")
+                (fn []
+                  (is (nil? (bots/machine-prompt)))
+                  (is (= bundled (bots/system-prompt)))))
+              (fs/writeFileSync file "  \n")
+              (with-env "RRAGENT_MACHINE_PROMPT" file
+                (fn []
+                  (is (= bundled (bots/system-prompt))))))
+            (testing "without the variable nothing is added"
+              (with-env "RRAGENT_MACHINE_PROMPT" nil
+                (fn []
+                  (is (nil? (bots/machine-prompt)))
+                  (is (= bundled (bots/system-prompt))))))))))
     (fs/rmSync skills #js {:recursive true :force true})))
 
 (deftest folder-test

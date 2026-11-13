@@ -1,0 +1,52 @@
+name: Image (NixOS)
+
+# The NixOS Sprite image, ghcr.io/storrito/rragent-sprite-nixos:<version>,
+# where <version> is deploy/nixos/VERSION: the alternative to the Ubuntu
+# image (image.yml), which stays what a provisioner takes by default. A
+# package of its own, so the highest version of rragent-sprite is never
+# this one. The image is the seed of a machine and nothing more: a
+# machine that runs takes a change of deploy/nixos/ from the repository,
+# with its own `rragent-system upgrade`, not from a newer image. So a
+# bumped VERSION is a new image for new machines. A push to main that
+# touches deploy/nixos/ builds the version; a version that exists
+# already is refused (.github/actions/sprite-nixos-image), so a change
+# without a bump fails loudly. start.sh is the Ubuntu image's
+# (deploy/image/start.sh), which a machine takes with the base at its
+# next upgrade: a change of it alone builds no NixOS image. By hand on a
+# branch ("Run workflow"): the build is tagged <version>-trial.<sha>;
+# a rerun on the same commit finds it there and skips.
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/nixos/**
+      - .github/workflows/image-nixos.yml
+      - .github/actions/sprite-nixos-image/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag, the base's version
+        id: tag
+        run: |
+          version=$(sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' deploy/nixos/VERSION)
+          [ -n "$version" ] || { echo "::error::deploy/nixos/VERSION names no version: <x.y.z> on a line of its own"; exit 1; }
+          if [ "$GITHUB_REF_NAME" = main ]; then
+            echo "tag=$version" >> "$GITHUB_OUTPUT"
+            echo "when-there=refuse" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$version-trial.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "when-there=skip" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.github/actions/sprite-nixos-image
+        with:
+          tag: ${{ steps.tag.outputs.tag }}
+          when-there: ${{ steps.tag.outputs.when-there }}

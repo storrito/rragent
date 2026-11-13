@@ -107,15 +107,34 @@
       (catch :default _
         nil))))
 
+(defn machine-prompt
+  "What this machine adds to the shared prompt: the text of the file
+   RRAGENT_MACHINE_PROMPT names, the rules of a machine that is not the
+   usual Ubuntu one (a NixOS Sprite's `/etc/rragent/machine.md`,
+   `deploy/nixos/MACHINE.md`: how programs are installed there and how
+   the machine is upgraded). Nil without the variable, and for a file
+   that does not read or is blank, the first said on stderr."
+  []
+  (when-let [file (not-empty (aget (.-env js/process) "RRAGENT_MACHINE_PROMPT"))]
+    (try
+      (not-empty (str/trim (fs/readFileSync file "utf8")))
+      (catch :default e
+        (js/console.error "[bots] RRAGENT_MACHINE_PROMPT names" file "which does not read:" (.-message e))
+        nil))))
+
 (defn system-prompt
   "The text every conversation of the machine works by, a bot's and a
    task's: the bundle's `SYSTEM-PROMPT.md`, with the skills repository
-   of the clone filled in for `SKILLS_REPO`. A release replaces it;
-   nothing on the machine changes it."
+   of the clone filled in for `SKILLS_REPO`, and the machine's own text
+   after it when it has one (`machine-prompt`). A release replaces the
+   bundle's; nothing on the machine changes it."
   []
-  (let [text (fs/readFileSync (bundled-system-prompt-file) "utf8")]
-    (if-let [repo (skills-repo)]
-      (str/replace text "`github.com/SKILLS_REPO`" (str "`github.com/" repo "`"))
+  (let [bundled (fs/readFileSync (bundled-system-prompt-file) "utf8")
+        text (if-let [repo (skills-repo)]
+               (str/replace bundled "`github.com/SKILLS_REPO`" (str "`github.com/" repo "`"))
+               bundled)]
+    (if-let [machine (machine-prompt)]
+      (str (str/trim text) "\n\n" machine "\n")
       text)))
 
 (defn bot-prompt

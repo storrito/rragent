@@ -1315,6 +1315,133 @@ pinned by `RRAGENT_UPDATE`. Locally, `docker build -f
 deploy/image/Dockerfile -t rragent-sprite:dev deploy/image` builds the
 image.
 
+### NixOS, the alternative
+
+An agent can run on a NixOS Sprite instead: the same rragent and the
+same `.env`, on a machine its agent keeps up by itself. The Ubuntu
+image above stays what a provisioner takes by default; a NixOS machine
+is made by naming its image.
+
+On the Ubuntu machine, what the machine has is the sum of what was
+done to it: packages from apt, npm's global folder, files edited under
+`/etc`. On the NixOS one it is what a folder says, `/etc/nixos`: a
+`flake.nix` that names the NixOS release and rragent's base
+(`deploy/nixos/` of this repository), a `flake.lock` that pins both to
+a commit, and `local.nix`, the agent's file, where everything this
+machine has on top of the base is said. NixOS builds the whole system
+from that folder, beside the running one, and switches to it in one
+step; the system before stays on disk. So an upgrade either takes or
+changes nothing, a change can be undone, and the folder with
+`/home/sprite` is all it takes to make the machine again on another
+Sprite or another VM. The kernel is not part of it: a Sprite's kernel
+is the platform's.
+
+The image is `ghcr.io/storrito/rragent-sprite-nixos:<version>`, a
+package of its own, so that the highest version of `rragent-sprite` is
+never this one; `<version>` is `deploy/nixos/VERSION`, bumped with
+every change in `deploy/nixos/`. The Image (NixOS) workflow
+(`.github/workflows/image-nixos.yml`) builds it on a push to `main`
+that touches the folder and refuses a version that exists; "Run
+workflow" on a branch builds `<version>-trial.<sha>`. Nix builds the
+system from the commit as GitHub serves it, and the tarball of its
+closure is imported as the image (`.github/actions/sprite-nixos-image`).
+The image is a machine's seed and nothing more: a machine that runs
+takes a change of `deploy/nixos/`, or of `deploy/image/start.sh`,
+from the repository with its next upgrade, not from a newer image.
+
+The sprite is made with the image and systemd as its init, and needs no
+service definition: the request that creates it (`POST /v1/sprites`)
+with `config` `{"image_url":
+"ghcr.io/storrito/rragent-sprite-nixos:<version>", "init": "systemd"}`,
+the label `token:<hex>` among its labels, the `.env` written by an
+exec, the URL made public. rragent is the systemd unit `rragent` on
+port 8080, the port every Sprite's URL routes to; it runs
+`deploy/image/start.sh`, the Ubuntu machine's, with a NixOS `PATH`, so
+the bundle, the skills clone and the updates work as above. The unit
+starts again every five seconds until the `.env` is there.
+`journalctl -u rragent` has its output. `sprite-env` is there as on
+every Sprite, the platform brings it.
+
+Three things the platform decides, and how the base meets them. A
+Sprite takes only a file named `systemd` for its init, and NixOS's init
+is a script that sets the system up before it runs systemd: so every
+system carries that script under the name `systemd`, `/sbin/init` is a
+link to it, and a switch moves the link to the new system, which the
+next cold start boots. An exec's `PATH` is the platform's, Ubuntu's
+directories, set after the login profile: so `/usr/local/sbin` and
+`/usr/local/bin`, which NixOS leaves empty, link to sudo and to the
+system's programs, and an exec finds them. An exec runs as root, the
+image names no user: a provisioner writes the `.env` and hands it to
+`sprite` (`chown sprite:users`), or names the user in its exec. The
+image's config names the command and nothing else; a sprite of an image
+that also named `USER`, `WORKDIR` and `ENV PATH` was answered with an
+internal error.
+
+What the base brings (`deploy/nixos/sprite.nix`) is what the
+Dockerfile installs: Node, ffmpeg with the fonts, a browser (Chromium,
+also under the name `google-chrome`), git, and the HyperFrames CLI and
+nbb at the Dockerfile's versions, installed into `~/.local` by the unit
+`rragent-tools` at the first start. HyperFrames and Puppeteer are told
+by the environment to take the machine's browser
+(`HYPERFRAMES_BROWSER_PATH` and the like): a Chrome they download runs
+here too, but HyperFrames refuses it after asking `ldd`. Besides: Nix
+with flakes and without its build sandbox, which a Sprite's kernel does
+not allow, `nix-ld`, so that a program built for another Linux finds a
+loader and the usual libraries, `/bin/bash`, and an `apt-get` that says
+what to run instead.
+
+The agent changes its machine with `rragent-system`
+(`deploy/nixos/rragent-system.sh`), and its instructions say so:
+`/etc/rragent/machine.md` (`deploy/nixos/MACHINE.md`), which the unit
+names in `RRAGENT_MACHINE_PROMPT` and rragent puts after the shared
+prompt of every conversation (`rragent.bots/machine-prompt`; without
+the variable, on the Ubuntu machine and a laptop, nothing is added).
+
+- `rragent-system apply "<what changed>"`, after an edit of
+  `/etc/nixos/local.nix`: builds the system, switches to it, checks
+  that Node, git, ffmpeg, the browser, Nix and rragent's bundle run on
+  it, and commits the change in `/etc/nixos`, a git repository. A build
+  that fails changes nothing; a system that fails the check is switched
+  back at once, the change left in the folder, not committed.
+- `rragent-system upgrade`: the same after `nix flake update`, which
+  moves the pins of `flake.lock` to the newest commits of the NixOS
+  release and of this repository: newer packages, the security fixes,
+  a newer base. A failure puts the lock back.
+- `rragent-system rollback`: the system before the last change, and the
+  last commit of `/etc/nixos` reverted, so that the folder says what
+  runs.
+- `rragent-system status`: the system, the base's version, the last
+  changes.
+- A program for one command needs none of this:
+  `nix shell nixpkgs#<package> -c <command>`.
+
+A switch does not restart rragent, which would end the agent in the
+middle of its own command; the unit takes the new system at its next
+start. What `apply` cannot see, a system rragent does not start on,
+the watch sees (the unit and timer `rragent-system-watch`, 20 seconds
+after a start and every five minutes): rragent writes the system it
+started on into `/run/rragent/started-on`, the watch keeps the last one
+it answered on in `/var/lib/rragent-system/good`, and when rragent does
+not answer on port 8080 for two and a half minutes on another system
+than that, the watch switches back to it, starts rragent again and
+leaves `/var/lib/rragent-system/rolled-back`, which the agent's
+instructions tell it to read and tell the person about.
+
+To make a machine again: a new Sprite from the image, `/etc/nixos` and
+`/home/sprite` of the old one copied over the new one's, then
+`rragent-system apply`. A newer NixOS release is the one line
+`nixpkgs.url` of `/etc/nixos/flake.nix`, then `rragent-system upgrade`.
+
+Locally, with Nix and Docker: `nix build ./deploy/nixos#tarball`,
+`docker import --change 'CMD ["/sbin/init"]'
+result/tarball/rragent-sprite-nixos.tar rragent-sprite-nixos:dev`, and
+`docker run -d --privileged --cgroupns=host -v
+/sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp
+rragent-sprite-nixos:dev` boots it. A build from a checkout with
+changes that are not committed has no commit to pin: its `/etc/nixos`
+locks rragent at its first build, to `main`'s newest commit
+(`deploy/nixos/seed.nix`).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
