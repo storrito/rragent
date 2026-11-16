@@ -46,6 +46,27 @@
     (is (= [{:word "a" :start 600.5 :end 601.0 :confidence 0.9}]
            (transcribe/shifted [(word "a" 0.5 1.0)] 600)))))
 
+(deftest cuts-test
+  (testing "a file no longer than a piece is one piece"
+    (is (= [[0 600]] (transcribe/cuts 600 [] 600)))
+    (is (= [[0 12.5]] (transcribe/cuts 12.5 nil 600))))
+  (testing "without pauses, at the full length of each piece"
+    (is (= [[0 600] [600 1200] [1200 1300]] (transcribe/cuts 1300 [] 600))))
+  (testing "in the middle of the longest pause that reaches into the last two minutes"
+    (is (= [[0 570] [570 1007]] (transcribe/cuts 1007 [[100 104] [565 575] [598 598.5] [610 640]] 600))))
+  (testing "a pause that goes on past the full length ends the piece at its full length; one before the window counts by the part inside it"
+    (is (= [[0 600] [600 700]] (transcribe/cuts 700 [[590 650]] 600)))
+    (is (= [[0 480] [480 900]] (transcribe/cuts 900 [[470 481] [500 500.3]] 600))))
+  (testing "the next piece is reckoned from where the last one ended"
+    (is (= [[0 590] [590 1180] [1180 1250]] (transcribe/cuts 1250 [[589 591] [1179 1181]] 600))))
+  (testing "silencedetect's lines read as pauses"
+    (is (= [[1.5 2.25] [10.0 12.0]]
+           (transcribe/pauses-in (str "[silencedetect @ 0x1] silence_start: 1.5\n"
+                                      "[silencedetect @ 0x1] silence_end: 2.25 | silence_duration: 0.75\n"
+                                      "size=N/A time=00:00:12.00\n"
+                                      "[silencedetect @ 0x1] silence_end: 12 | silence_duration: 2\n"))))
+    (is (= [] (transcribe/pauses-in "")))))
+
 (defn- wav
   "A WAV of `seconds` of silence, mono, 16 kHz, 16 bit."
   [seconds]
@@ -87,6 +108,7 @@
                         (let [body (js->clj (js/JSON.parse (.toString (js/Buffer.concat chunks) "utf8")) :keywordize-keys true)
                               n (count (swap! seen conj {:url (.-url req)
                                                          :auth (aget (.-headers req) "authorization")
+                                                         :model (:model body)
                                                          :format (get-in body [:input_audio :format])
                                                          :bytes (count (get-in body [:input_audio :data]))}))]
                           (.writeHead res (if (= "Bearer k3y" (aget (.-headers req) "authorization")) 200 401)
@@ -125,7 +147,8 @@
                  (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :piece-seconds 1 :timestamps? true}))
                        file (path/join dir "transcripts" "ab12.md")]
                    (is (str/starts-with? answer "artifacts/transcripts/ab12.md: 0:0"))
-                   (is (str/includes? answer "model assemblyai/universal-3-6-pro"))
+                   (is (str/includes? answer "model elevenlabs/scribe-v2"))
+                   (is (= "elevenlabs/scribe-v2" (:model (first @seen))) "the tool's model, not the dictation's")
                    (is (fs/existsSync file))
                    (is (str/starts-with? (fs/readFileSync file "utf8") "# ab12.wav\n\nTranscript of uploads/ab12.wav, 0:0"))
                    (is (= "Bearer k3y" (:auth (first @seen))))

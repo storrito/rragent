@@ -2,20 +2,24 @@
   "The `transcribe` tool: the words spoken in an audio or a video file
    the person attached or recorded (`uploads/<name>`, see
    `rragent.uploads`), or one the agent made under `artifacts/`,
-   written down by the speech-to-text model of the dictation
-   (`rragent.transcription`: RRAGENT_DICTATION_MODEL, AssemblyAI's
-   Universal-3.6 Pro, which detects the language and times every
-   word), through OpenRouter the way the REPL `codemode` of the agent
-   knows it (`rragent.openrouter`).
+   written down by a speech-to-text model (`rragent.transcription`:
+   RRAGENT_TRANSCRIBE_MODEL, ElevenLabs' Scribe v2, which detects the
+   language and times every word from its start to its end), through
+   OpenRouter the way the REPL `codemode` of the agent knows it
+   (`rragent.openrouter`).
 
    OpenRouter takes the audio inline, 25 MB at most, and gives a
-   transcription little more than a minute: a file of any length is
-   cut by ffmpeg into pieces of `piece-seconds` (`pieces!`: mono, 16
+   transcription little more than a minute: a file longer than
+   `piece-seconds` is cut by ffmpeg into pieces (`pieces!`: mono, 16
    kHz, 48 kbit/s MP3, under 4 MB each, the audio of a video alone),
    each written down on its own, their words joined with the times
-   shifted by what came before. Without ffmpeg a file in a format the
-   model reads goes whole when it is small enough, else the tool says
-   that ffmpeg is needed.
+   shifted by where the piece starts. A piece ends in a pause of the
+   speech near its length (`cuts`), so that no word is cut in two, and
+   each is an encode of its own from that point: pieces cut from one
+   encode began a fifth of a second later than their offset said, so
+   every word after the first ten minutes came that much too early.
+   Without ffmpeg a file in a format the model reads goes whole when it
+   is small enough, else the tool says that ffmpeg is needed.
 
    The words are corrected with what the agent knows before anything
    is written (`rragent.transcript-correction`): the names the speech
@@ -45,8 +49,13 @@
             [rragent.transcription :as transcription]))
 
 (def piece-seconds
-  "How long one piece sent to the model is."
+  "How long one piece sent to the model is at most."
   600)
+
+(def pause-window
+  "How far before its full length a piece may end, as a share of it,
+   two minutes of ten, to end in a pause."
+  0.2)
 
 (def formats
   "The files the model reads as they are, by extension, with the
@@ -114,22 +123,80 @@
     (catch :default _
       false)))
 
+(defn cuts
+  "Where a file of `duration` seconds is cut into pieces of `seconds`
+   at most, `[start end]` in order: each piece ends before its full
+   length in the longest of the `pauses` (`[from to]`, seconds) that
+   reaches into the last `pause-window` of it, as near the pause's
+   middle as the window lets it, else at its full length; the last
+   piece ends with the file."
+  [duration pauses seconds]
+  (let [window (* pause-window seconds)]
+    (loop [start 0
+           out []]
+      (if (<= (- duration start) seconds)
+        (conj out [start duration])
+        (let [full (+ start seconds)
+              low (- full window)
+              cut (or (some->> pauses
+                               (filter (fn [[from to]] (and (< from full) (> to low))))
+                               (seq)
+                               (apply max-key (fn [[from to]] (- (min to full) (max from low))))
+                               ((fn [[from to]] (-> (/ (+ from to) 2) (max from low) (min to full)))))
+                      full)]
+          (recur cut (conj out [start cut])))))))
+
+(defn- duration-of
+  "The length of `file` in seconds as ffprobe reads it, unrounded: the
+   pieces' starts are reckoned from it."
+  [file]
+  (let [result (child/spawnSync "ffprobe" #js ["-v" "error" "-show_entries" "format=duration" "-of" "csv=p=0" file]
+                                #js {:encoding "utf8" :timeout 20000})
+        seconds (when (zero? (or (.-status result) 1))
+                  (parse-double (str/trim (str (.-stdout result)))))]
+    (when (and seconds (pos? seconds))
+      seconds)))
+
+(defn pauses-in
+  "The pauses of ffmpeg's silencedetect in its output `log`, `[from to]`."
+  [log]
+  (->> (re-seq #"silence_end: ([0-9.]+) \| silence_duration: ([0-9.]+)" (str log))
+       (mapv (fn [[_ end length]]
+               (let [end (parse-double end)]
+                 [(- end (parse-double length)) end])))))
+
+(defn- ^:async pauses!
+  "The pauses of the speech in `file`: a quarter of a second at least,
+   under -40 dB."
+  [file]
+  (let [result (child/spawnSync "ffmpeg" #js ["-hide_banner" "-nostats" "-i" file "-vn" "-ac" "1"
+                                             "-af" "silencedetect=noise=-40dB:d=0.25" "-f" "null" "-"]
+                                #js {:encoding "utf8" :timeout 1800000 :maxBuffer (* 64 1024 1024)})]
+    (pauses-in (.-stderr result))))
+
 (defn ^:async pieces!
-  "The pieces of `file` for the model, `[{:file :format}]` in order,
-   in `temp` when ffmpeg made them: mono MP3 at 16 kHz, each
-   `piece-seconds` long but the last, the audio alone of a video.
-   Without ffmpeg the file itself when the model reads its format and
-   it is small enough, else a throw. `seconds` is the length of a
-   piece, `piece-seconds` by default (a test takes shorter ones)."
+  "The pieces of `file` for the model, `[{:file :format :start}]` in
+   order, `:start` the second of the file it begins at; in `temp` when
+   ffmpeg made them: mono MP3 at 16 kHz, the audio alone of a video,
+   each an encode of its own from its start (`cuts`). Without ffmpeg
+   the file itself when the model reads its format and it is small
+   enough, else a throw. `seconds` is the most a piece is long,
+   `piece-seconds` by default (a test takes shorter ones)."
   [file temp & [seconds]]
   (if (ffmpeg?)
-    (do (await (exec "ffmpeg" ["-y" "-v" "error" "-i" file "-vn" "-ac" "1" "-ar" "16000" "-codec:a" "libmp3lame" "-b:a" "48k"
-                               "-f" "segment" "-segment_time" (str (or seconds piece-seconds)) "-reset_timestamps" "1"
-                               (path/join temp "piece-%04d.mp3")]))
-        (->> (array-seq (fs/readdirSync temp))
-             (filter #(re-matches #"piece-\d+\.mp3" %))
-             (sort)
-             (mapv (fn [name] {:file (path/join temp name) :format "mp3"}))))
+    (let [seconds (or seconds piece-seconds)
+          duration (or (duration-of file)
+                       (throw (js/Error. "ffprobe could not read how long the file is; it may be damaged.")))
+          plan (cuts duration (when (< seconds duration) (await (pauses! file))) seconds)]
+      (loop [plan plan
+             n 0
+             out []]
+        (if-let [[start end] (first plan)]
+          (let [piece (path/join temp (str "piece-" (.padStart (str n) 4 "0") ".mp3"))]
+            (await (exec "ffmpeg" ["-y" "-v" "error" "-ss" (.toFixed start 3) "-i" file "-t" (.toFixed (- end start) 3)
+                                   "-vn" "-ac" "1" "-ar" "16000" "-codec:a" "libmp3lame" "-b:a" "48k" piece]))
+            (recur (rest plan) (inc n) (conj out {:file piece :format "mp3" :start start :end end})))
+          out)))
     (let [format (formats (extension-of file))]
       (cond
         (nil? format)
@@ -139,7 +206,7 @@
         (throw (js/Error. "ffmpeg is needed to cut a file of more than 25 MB into pieces, and the machine has none."))
 
         :else
-        [{:file file :format format}]))))
+        [{:file file :format format :start 0}]))))
 
 (defn clock
   "Seconds as m:ss, or h:mm:ss from an hour on."
@@ -285,25 +352,24 @@
     (try
       (let [pieces (await (pieces! source temp (:piece-seconds options)))
             state (loop [pieces pieces
-                         offset 0
+                         seconds 0
                          words []
                          text []
                          cost 0]
-                    (if-let [{:keys [file format]} (first pieces)]
-                      (let [body (await (transcription/transcription! codemode (fs/readFileSync file) format "transcript"))
-                            seconds (or (media/seconds-of file) (some-> body :duration) (:piece-seconds options) piece-seconds)]
+                    (if-let [{:keys [file format start end]} (first pieces)]
+                      (let [body (await (transcription/transcription! codemode (fs/readFileSync file) format "transcript" transcription/transcribe-model))]
                         (recur (rest pieces)
-                               (+ offset seconds)
-                               (into words (shifted (:words body) offset))
+                               (or end (+ start (or (media/seconds-of file) (some-> body :duration) 0)))
+                               (into words (shifted (:words body) start))
                                (conj text (str/trim (str (:text body))))
                                (+ cost (or (some-> body :usage :cost) 0))))
-                      {:seconds offset :words words :text (str/join "\n\n" (remove str/blank? text)) :cost cost}))
+                      {:seconds seconds :words words :text (str/join "\n\n" (remove str/blank? text)) :cost cost}))
             state (await (corrected state {:api api :context context :names names :messages (:messages options)
                                            :complete (or (:complete options) (transcript-correction/openrouter-complete codemode))}))
             paragraphs (paragraphs (:words state) (:text state) 0)
             transcript (transcript-text paragraphs (boolean timestamps?))
             heading (str "# " (path/basename source) "\n\n"
-                         "Transcript of " (path/relative work source) ", " (clock (:seconds state)) ", model " transcription/model ".\n\n")]
+                         "Transcript of " (path/relative work source) ", " (clock (:seconds state)) ", model " transcription/transcribe-model ".\n\n")]
         (when (str/blank? transcript)
           (throw (js/Error. (str "The model heard no words in " (path/relative work source) "."))))
         (fs/mkdirSync (path/dirname target) #js {:recursive true})
@@ -311,12 +377,12 @@
         (when words?
           (fs/writeFileSync (path/join dir (words-file out))
                             (js/JSON.stringify (clj->js {:file (path/relative work source)
-                                                         :model transcription/model
+                                                         :model transcription/transcribe-model
                                                          :seconds (:seconds state)
                                                          :words (:words state)})
                                                nil 1)))
         (str "artifacts/" out ": " (clock (:seconds state)) ", " (count (str/split transcript #"\s+")) " words"
-             (cost-text (:cost state)) ", model " transcription/model
+             (cost-text (:cost state)) ", model " transcription/transcribe-model
              (when words? (str "; the words with their times in artifacts/" (words-file out)))
              (when (:fixed state) (str "\n" (:fixed state)))
              "\n\n"
@@ -331,12 +397,12 @@
   [codemode]
   (defineTool
    #js {:name "transcribe"
-        :description (str "The words spoken in an audio or a video file, written down by a speech-to-text model (about a cent a minute), the language detected. "
+        :description (str "The words spoken in an audio or a video file, written down by a speech-to-text model (under a cent a minute) that times every word, the language detected. "
                           "`file` is a path under the working directory: uploads/<name> for a file the person attached or recorded, artifacts/<path> for one of yours. "
                           "The transcript goes to artifacts/transcripts/<name>.md, or to `out`, and comes back as the answer; with `timestamps` every paragraph starts with its time. "
                           "Names the model misheard are corrected from our conversation and the `names` you pass (accounts, products, people), every word keeping its time; the answer says what changed. "
                           "With `words`, every word with its start and end in seconds goes beside the transcript as <name>.words.json, for cutting at the pauses. "
-                          "A long file is cut into pieces of ten minutes by ffmpeg, which bash has for cutting, converting and cleaning the audio too (ffmpeg -i in.mp3 -ss 0:30 -to 2:00 out.mp3).")
+                          "A long file is cut into pieces of ten minutes at most, each ending in a pause, by ffmpeg, which bash has for cutting, converting and cleaning the audio too (ffmpeg -i in.mp3 -ss 0:30 -to 2:00 out.mp3).")
         :parameters (.Object Type #js {:file (.String Type #js {:description "The audio or video file, uploads/ab12.mp3 or artifacts/talk.m4a"})
                                        :out (.Optional Type (.String Type #js {:description "Where the transcript goes under artifacts/, transcripts/<name>.md by default"}))
                                        :timestamps (.Optional Type (.Boolean Type #js {:description "True: every paragraph starts with its time, m:ss"}))

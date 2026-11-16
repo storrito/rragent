@@ -607,15 +607,18 @@ from the fields read, never from the body as it came. The
 words spoken in an audio or a video file, one the person attached
 (`uploads/<name>`) or recorded (`artifacts/recordings/<stamp>/audio.mp3`,
 see [Screencasts](#screencasts)) or any other under `artifacts/`, written down by
-the dictation's speech-to-text model (`RRAGENT_DICTATION_MODEL`, the
-language detected) into `artifacts/transcripts/<name>.md`, or where
-`out` says, in paragraphs cut at the pauses of the speech, each with
-its time when `timestamps` is asked, and answered to the model as
-text. OpenRouter takes 25 MB of audio inline, so ffmpeg cuts a file of
-any length into pieces of ten minutes (mono, 16 kHz, 48 kbit/s MP3,
-the audio alone of a video), each written down on its own, the times
-shifted; without ffmpeg a small file in a format the model reads goes
-whole. The `youtube` tool (`rragent.tools.youtube`, `rragent.youtube`)
+a speech-to-text model of its own (`RRAGENT_TRANSCRIBE_MODEL`,
+ElevenLabs' Scribe v2, the language detected: a video is cut at its
+words' times, and Scribe gives every word its start and its end where
+AssemblyAI, the dictation's, now gives most words none) into
+`artifacts/transcripts/<name>.md`, or where `out` says, in paragraphs
+cut at the pauses of the speech, each with its time when `timestamps`
+is asked, and answered to the model as text. OpenRouter takes 25 MB of
+audio inline, so ffmpeg cuts a longer file into pieces of ten minutes
+at most (mono, 16 kHz, 48 kbit/s MP3, the audio alone of a video),
+each ending in a pause of the speech and encoded on its own from where
+it starts, written down on its own, the times shifted by that start;
+without ffmpeg a small file in a format the model reads goes whole. The `youtube` tool (`rragent.tools.youtube`, `rragent.youtube`)
 fetches a YouTube video the person has the rights to use: the video as
 an mp4 of h264 and aac up to `height` lines (1080 by default) into
 `artifacts/downloads/<id>.mp4`, or a `section` of it alone
