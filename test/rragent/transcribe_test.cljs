@@ -59,6 +59,24 @@
     (is (= [[0 480] [480 900]] (transcribe/cuts 900 [[470 481] [500 500.3]] 600))))
   (testing "the next piece is reckoned from where the last one ended"
     (is (= [[0 590] [590 1180] [1180 1250]] (transcribe/cuts 1250 [[589 591] [1179 1181]] 600))))
+  (testing "words without a length: counted, and said once they are a third of twenty or more"
+    (let [timed (vec (for [i (range 30)] (word "w" i (+ i 0.3))))
+          bare (vec (for [i (range 30)] (word "w" i i)))]
+      (is (= 0 (transcribe/without-length timed)))
+      (is (= 30 (transcribe/without-length bare)))
+      (is (= 1 (transcribe/without-length [{:word "x" :start 1}])) "no end at all")
+      (is (nil? (transcribe/length-warning timed)))
+      (is (nil? (transcribe/length-warning (subvec bare 0 10))) "too few words to tell")
+      (is (nil? (transcribe/length-warning (into (subvec timed 0 21) (subvec bare 0 9)))))
+      (is (= "10 of 30 words came without a length (their end at their start): the model gave no word ends, so a cut at them is a guess."
+             (transcribe/length-warning (into (subvec timed 0 20) (subvec bare 0 10)))))))
+  (testing "a busy or broken service and a lost request are tried again; a refusal is not"
+    (is (transcribe/retry? "The transcription service answered 502: Bad Gateway"))
+    (is (transcribe/retry? "The transcription service answered 429: Too many requests"))
+    (is (transcribe/retry? "fetch failed"))
+    (is (transcribe/retry? "The operation was aborted due to timeout"))
+    (is (not (transcribe/retry? "The transcription service answered 401: wrong key")))
+    (is (not (transcribe/retry? "The transcription service answered 400: Provider returned 400"))))
   (testing "silencedetect's lines read as pauses"
     (is (= [[1.5 2.25] [10.0 12.0]]
            (transcribe/pauses-in (str "[silencedetect @ 0x1] silence_start: 1.5\n"

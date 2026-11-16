@@ -337,6 +337,54 @@
       (catch :default error
         (assoc state :fixed (str "Not corrected: " (.-message error) "."))))))
 
+(defn without-length
+  "How many of `words` came without a length, their end at their start
+   (within 20 ms)."
+  [words]
+  (count (filter (fn [{:keys [start end]}]
+                   (and (number? start) (or (not (number? end)) (< (- end start) 0.02))))
+                 words)))
+
+(defn length-warning
+  "The line the answer carries when the model gave a third or more of
+   `words` (of 20 at least) no length: a cut at their ends would be a
+   guess. AssemblyAI did so from November 2026 on, and nothing said it
+   until a cut lost the ends of its sentences."
+  [words]
+  (let [n (count words)
+        bare (without-length words)]
+    (when (and (<= 20 n) (<= (/ n 3) bare))
+      (str bare " of " n " words came without a length (their end at their start): "
+           "the model gave no word ends, so a cut at them is a guess."))))
+
+(def ^:private attempts
+  "How often a piece is sent when the service is busy or broken (429,
+   5xx) or the request fails on the way."
+  3)
+
+(defn retry?
+  "Whether the throw `message` of a transcription is one to try again:
+   the service busy or broken, or the request lost on the way; never a
+   refusal of the request itself (a bad key, a file it cannot read)."
+  [message]
+  (boolean (re-find #"answered (429|5\d\d)|fetch failed|timed out|aborted|ECONNRESET|socket hang up" (str message))))
+
+(defn- ^:async transcription-of
+  "The model's transcription of one piece, tried again up to `attempts`
+   times when `retry?`, after 2 s, then 4 s: one busy minute of the
+   gateway must not lose an hour's transcript."
+  [codemode file format]
+  (loop [attempt 1]
+    (let [result (await (-> (transcription/transcription! codemode (fs/readFileSync file) format "transcript" transcription/transcribe-model)
+                            (.then (fn [body] {:body body}))
+                            (.catch (fn [error] {:error error}))))]
+      (cond
+        (:body result) (:body result)
+        (and (< attempt attempts) (retry? (.-message (:error result))))
+        (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve (* 2000 attempt)))))
+            (recur (inc attempt)))
+        :else (throw (:error result))))))
+
 (defn ^:async transcribe!
   "The transcript of `file` written to `out` under `dir`
    (`artifacts/`), its words corrected through `api` (the tool's, with
@@ -357,7 +405,7 @@
                          text []
                          cost 0]
                     (if-let [{:keys [file format start end]} (first pieces)]
-                      (let [body (await (transcription/transcription! codemode (fs/readFileSync file) format "transcript" transcription/transcribe-model))]
+                      (let [body (await (transcription-of codemode file format))]
                         (recur (rest pieces)
                                (or end (+ start (or (media/seconds-of file) (some-> body :duration) 0)))
                                (into words (shifted (:words body) start))
@@ -384,6 +432,7 @@
         (str "artifacts/" out ": " (clock (:seconds state)) ", " (count (str/split transcript #"\s+")) " words"
              (cost-text (:cost state)) ", model " transcription/transcribe-model
              (when words? (str "; the words with their times in artifacts/" (words-file out)))
+             (when-let [warning (length-warning (:words state))] (str "\n" warning))
              (when (:fixed state) (str "\n" (:fixed state)))
              "\n\n"
              (if (< answer-chars (count transcript))
