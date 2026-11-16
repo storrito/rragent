@@ -176,7 +176,8 @@
             end (:end (peek span))
             heard (str/join " " (map :word span))
             total (reduce + (map count tokens))
-            confidence (some->> (seq (keep :confidence span)) (apply min))]
+            confidence (some->> (seq (keep :confidence span)) (apply min))
+            speaker (:speaker (first span))]
         (loop [tokens tokens
                at start
                out []]
@@ -185,7 +186,8 @@
                           (+ at (* (- end start) (/ (count token) total)))
                           end)]
               (recur (rest tokens) until (conj out (cond-> {:word token :start at :end until :heard heard}
-                                                     confidence (assoc :confidence confidence)))))
+                                                     confidence (assoc :confidence confidence)
+                                                     speaker (assoc :speaker speaker)))))
             out))))))
 
 (defn- unsure?
