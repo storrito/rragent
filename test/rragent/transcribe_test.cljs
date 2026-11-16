@@ -51,6 +51,18 @@
            (transcribe/transcript-text [{:start 0 :text "Hallo"} {:start 3903.4 :text "Welt"}] true)))
     (is (= "Hallo\n\nWelt"
            (transcribe/transcript-text [{:start 0 :text "Hallo"} {:start 3903.4 :text "Welt"}] false))))
+  (testing "a paragraph ends where another speaker begins; a sound is nobody's; the letters only when more than one speaks"
+    (let [said (fn [text start end speaker] (assoc (word text start end) :speaker speaker))
+          paragraphs (transcribe/paragraphs [(said "Hallo," 0.0 0.4 "A") (said "Welt." 0.5 1.0 "A") (said "Ja." 1.1 1.3 "B")
+                                             (assoc (said "[lacht]" 1.4 1.8 "A") :kind "event") (said "Genau." 2.0 2.4 "B")
+                                             (said "Weiter." 62.5 63.0 "A")]
+                                            "Hallo, Welt. Ja. Genau. Weiter." 0)]
+      (is (= [{:start 0.0 :text "Hallo, Welt." :speaker "A"} {:start 1.1 :text "Ja. [lacht] Genau." :speaker "B"} {:start 62.5 :text "Weiter." :speaker "A"}]
+             paragraphs))
+      (is (= "[0:00] A: Hallo, Welt.\n\n[0:01] B: Ja. [lacht] Genau.\n\n[1:02] A: Weiter." (transcribe/transcript-text paragraphs true)))
+      (is (= "A: Hallo, Welt.\n\nB: Ja. [lacht] Genau.\n\nA: Weiter." (transcribe/transcript-text paragraphs false)))
+      (is (= "[0:00] Hallo, Welt." (transcribe/transcript-text [{:start 0 :text "Hallo, Welt." :speaker "A"}] true))
+          "one speaker is not named")))
   (testing "the words of a later piece shifted"
     (is (= [{:word "a" :start 600.5 :end 601.0 :confidence 0.9}]
            (transcribe/shifted [(word "a" 0.5 1.0)] 600)))))
@@ -143,6 +155,86 @@
            (transcribe/fitted [{:word "[Jingle]" :start 2 :end 2}]))
         "a sound is no word")))
 
+(defn- voiced
+  [text start end voice]
+  {:word text :start start :end end :voice voice})
+
+(defn- spoken
+  [text start end speaker]
+  {:word text :start start :end end :speaker speaker})
+
+(deftest speakers-test
+  (testing "the model's words as the tool keeps them: the voice, a sound it typed as one, nothing else of its own"
+    (is (= [{:word "[laughs]" :start 0 :end 1 :confidence 0.7 :kind "event" :voice "0"}
+            {:word "Hi" :start 1 :end 1.2 :voice "1"}
+            {:word "there" :start 1.2 :end 1.5}]
+           (transcribe/heard-words {:words [{:word "[laughs]" :start 0 :end 1 :confidence 0.7 :type "audio_event" :speaker 0 :speaker_label "speaker_0"}
+                                            {:word "Hi" :start 1 :end 1.2 :speaker 1 :speaker_label "speaker_1" :logprob -0.1}
+                                            {:word "there" :start 1.2 :end 1.5}]}))))
+  (testing "one piece: its voices are the speakers, A the first to speak"
+    (is (= [(spoken "Hello" 0 0.4 "A") (spoken "Hi" 0.5 0.8 "B") (spoken "again" 1 1.4 "A") {:word "bare" :start 2 :end 2.2}]
+           (transcribe/linked [{:start 0 :words [(voiced "Hello" 0 0.4 "1") (voiced "Hi" 0.5 0.8 "0") (voiced "again" 1 1.4 "1") {:word "bare" :start 2 :end 2.2}]}] 300))))
+  (testing "two pieces that number the voices the other way round: a voice is the person it shares its words with where both heard"
+    (let [first-piece [(voiced "one" 1 1.3 "0") (voiced "two" 2 2.3 "1")
+                       (voiced "alpha" 91 91.3 "0") (voiced "beta" 92 92.3 "0") (voiced "gamma" 93 93.3 "0")
+                       (voiced "delta" 95 95.3 "1") (voiced "epsilon" 96 96.3 "1")]
+          second-piece [(voiced "Alpha," 91.1 91.4 "1") (voiced "beta" 92.05 92.3 "1") (voiced "gamma" 93 93.3 "1")
+                        (voiced "delta" 94.9 95.3 "0") (voiced "epsilon." 96 96.3 "0")
+                        (voiced "zeta" 101 101.3 "1") (voiced "eta" 102 102.3 "0") (voiced "theta" 103 103.3 "2")]]
+      (is (= [(spoken "one" 1 1.3 "A") (spoken "two" 2 2.3 "B")
+              (spoken "alpha" 91 91.3 "A") (spoken "beta" 92 92.3 "A") (spoken "gamma" 93 93.3 "A")
+              (spoken "delta" 95 95.3 "B") (spoken "epsilon" 96 96.3 "B")
+              (spoken "zeta" 101 101.3 "A") (spoken "eta" 102 102.3 "B") (spoken "theta" 103 103.3 "C")]
+             (transcribe/linked [{:start 0 :words first-piece} {:start 100 :words second-piece}] 10))
+          "what the second piece heard before its start is the first's to write; a voice that shares nothing is someone new")))
+  (testing "one voice without a person and one person without a voice: the one who said nothing in the overlap"
+    (let [first-piece [(voiced "one" 1 1.3 "0") (voiced "two" 2 2.3 "1") (voiced "alpha" 91 91.3 "0") (voiced "beta" 92 92.3 "0")]]
+      (is (= ["A" "B" "A" "A" "B" "A"]
+             (map :speaker (transcribe/linked [{:start 0 :words first-piece}
+                                               {:start 100 :words [(voiced "alpha" 91 91.3 "5") (voiced "beta" 92 92.3 "5")
+                                                                   (voiced "eta" 102 102.3 "7") (voiced "zeta" 103 103.3 "5")]}]
+                                              10))))
+      (is (= ["A" "B" "A" "A" "C" "D" "A"]
+             (map :speaker (transcribe/linked [{:start 0 :words first-piece}
+                                               {:start 100 :words [(voiced "alpha" 91 91.3 "5") (voiced "beta" 92 92.3 "5")
+                                                                   (voiced "eta" 102 102.3 "7") (voiced "iota" 102.5 102.8 "8") (voiced "zeta" 103 103.3 "5")]}]
+                                              10)))
+          "two voices without a person are two new people")
+      (is (= ["A" "B" "A" "A" "C"]
+             (map :speaker (transcribe/linked [{:start 0 :words first-piece}
+                                               {:start 100 :words [(voiced "alpha" 91 91.3 "5") (voiced "kappa" 102 102.3 "5")]}]
+                                              10)))
+          "one shared word is no proof"))))
+
+(deftest edges-test
+  (let [early (word "early" 0.2 0.9)
+        late (word "late" 1.45 2.0)
+        edges (fn [words] (mapv (juxt :start :end) words))]
+    (testing "a word ends where its sound stops and begins where its sound sets in (a frame in, for the smoothing)"
+      (is (= [[0.2 1.01] [1.29 2.0]]
+             (edges (transcribe/edged [early late] (env-of [1 0.3] [0.3 0.001] [1 0.3]))))))
+    (testing "with noise under the speech, quiet is what is near the ground of the sound"
+      (is (= [0.1 0.1 0.1] (mapv #(/ (js/Math.round (* 1000 %)) 1000) (array-seq (transcribe/quiet-levels (env-of [1 0.3] [0.3 0.05] [1 0.3] [0.3 0.05]))))))
+      (is (= [0.024 0.024 0.024] (mapv #(/ (js/Math.round (* 1000 %)) 1000) (array-seq (transcribe/quiet-levels (env-of [1 0.3] [0.3 0.001] [1 0.3]))))))
+      (is (= [[0.2 1.01] [1.29 2.31]]
+             (edges (transcribe/edged [early (word "late" 1.45 2.3)] (env-of [1 0.3] [0.3 0.05] [1 0.3] [0.3 0.05]))))))
+    (testing "sound that goes on for more than 0.4 s is not the word's"
+      (is (= [[0.1 0.3] [1.9 2.2]]
+             (edges (transcribe/edged [(word "a" 0.1 0.3) (word "b" 1.9 2.2)] (env-of [1 0.3] [0.3 0.001] [1 0.3]))))))
+    (testing "two words with sound all the way between them meet where it is weakest"
+      (is (= [[0.2 1.01] [1.01 2.04]]
+             (edges (transcribe/edged [early (word "next" 1.1 1.8)] (env-of [1 0.3] [0.03 0.15] [1 0.3] [0.5 0.001])))))
+      (is (= [[0.2 0.9] [1.1 1.8]]
+             (edges (transcribe/edged [early (word "next" 1.1 1.8)] (env-of [1 0.3] [0.03 0.15] [1 0.3]))))
+          "in sound that never pauses nothing tells a word from the ground, and nothing moves"))
+    (testing "no edge moves inward: a word that ends in the quiet, or begins in it, stays"
+      (is (= [[0.2 1.2] [1.25 2.0]]
+             (edges (transcribe/edged [(word "soft" 0.2 1.2) (word "onset" 1.25 2.0)] (env-of [1 0.3] [0.3 0.001] [1 0.3]))))))
+    (testing "without the sound, or with a word without a time, the words as they came"
+      (is (= [early late] (transcribe/edged [early late] nil)))
+      (is (= [early {:word "bare"}] (transcribe/edged [early {:word "bare"}] (env-of [1 0.3] [0.3 0.001] [1 0.3]))))
+      (is (= [] (transcribe/edged [] (env-of [1 0.3])))))))
+
 
 (defn- wav
   "A WAV of `seconds`, mono, 16 kHz, 16 bit: silence, or a tone of
@@ -193,6 +285,7 @@
                                                          :auth (aget (.-headers req) "authorization")
                                                          :model (:model body)
                                                          :format (get-in body [:input_audio :format])
+                                                         :diarize (:diarize body)
                                                          :bytes (count (get-in body [:input_audio :data]))}))]
                           (.writeHead res (if (= "Bearer k3y" (aget (.-headers req) "authorization")) 200 401)
                                       #js {"Content-Type" "application/json"})
@@ -228,11 +321,13 @@
                    ffmpeg? (ffmpeg?)]
                (testing "a file under uploads/ is written down into artifacts/transcripts/"
                  ;; one piece at a time: the fake numbers its answers by the requests' order
-                 (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :piece-seconds 1 :parallel 1 :timestamps? true}))
+                 (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :piece-seconds 1 :overlap-seconds 0
+                                                              :parallel 1 :timestamps? true}))
                        file (path/join dir "transcripts" "ab12.md")]
                    (is (str/starts-with? answer "artifacts/transcripts/ab12.md: 0:0"))
                    (is (str/includes? answer "model elevenlabs/scribe-v2"))
                    (is (= "elevenlabs/scribe-v2" (:model (first @seen))) "the tool's model, not the dictation's")
+                   (is (true? (:diarize (first @seen))) "asked for the voices")
                    (is (fs/existsSync file))
                    (is (str/starts-with? (fs/readFileSync file "utf8") "# ab12.wav\n\nTranscript of uploads/ab12.wav, 0:0"))
                    (is (= "Bearer k3y" (:auth (first @seen))))
@@ -257,7 +352,16 @@
                          (is (< 1.45 (:end (first pieces)) 1.55) "the middle of the pause, not 1.6 s")
                          (is (= (:end (first pieces)) (:start (second pieces))))
                          (is (= 3 (:end (second pieces))) "the file's length is what was read")
-                         (is (every? #(fs/existsSync (:file %)) pieces)))
+                         (is (= [0 0] (map :heard pieces)) "the second piece heard from five minutes before its start, here the file's")
+                         (is (every? #(fs/existsSync (:file %)) pieces))
+                         (is (= 300 (.-length (:envelope (meta pieces)))) "the envelope of the sound, a frame every 10 ms")
+                         (let [near (await (transcribe/pieces! (path/join work "uploads" "tone.wav") temp 1.6 0.5))
+                               length (fn [file]
+                                        (js/parseFloat (.-stdout (child/spawnSync "ffprobe" #js ["-v" "error" "-show_entries" "format=duration" "-of" "csv=p=0" file]
+                                                                                  #js {:encoding "utf8"}))))]
+                           (is (= (- (:start (second near)) 0.5) (:heard (second near))) "or from `overlap` seconds before it")
+                           (is (< (js/Math.abs (- (length (:file (second near))) (- 3 (:heard (second near))))) 0.08)
+                               "and its sound is from there to its end")))
                        (finally
                          (fs/rmSync temp #js {:recursive true :force true})))))
                  (testing "a recording whose head says no length, as a browser's recorder writes it, is cut all the same"
