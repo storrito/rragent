@@ -336,6 +336,27 @@
        (or (not (re-find #"[.,!?]" (str text)))
            (some #(re-find #"[.,!?]" (str (:word %))) words))))
 
+(def ^:private unspaced
+  "A character of a script written without spaces between its words:
+   Japanese, Chinese, Thai, Lao, Khmer, Burmese, and their punctuation."
+  (js/RegExp. "[\\u3000-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\uFF00-\\uFFEF\\u0E00-\\u0EFF\\u1000-\\u109F\\u1780-\\u17FF]"))
+
+(defn joined
+  "The `words` as text: a space between two of them, none where the
+   one ends and the other begins in a script written without spaces.
+   Scribe gives Japanese a character at a time, and a transcript
+   joined with spaces read 今 日 の テ ー マ."
+  [words]
+  (let [words (remove str/blank? (map #(str/trim (str (:word %))) words))]
+    (reduce (fn [text word]
+              (if (and (seq text)
+                       (not (and (.test unspaced (subs text (dec (count text))))
+                                 (.test unspaced (subs word 0 1)))))
+                (str text " " word)
+                (str text word)))
+            ""
+            words)))
+
 (defn paragraphs
   "The paragraphs of a transcription, `[{:start :text}]`: the `words`
    with their times cut at the pauses of the speech, when they carry
@@ -346,7 +367,7 @@
     (let [closed (fn [out current]
                    (if (seq (:words current))
                      (conj out {:start (:start current)
-                                :text (str/join " " (map #(str/trim (str (:word %))) (:words current)))})
+                                :text (joined (:words current))})
                      out))]
       (loop [words words
              current nil
@@ -604,7 +625,12 @@
                                                          :seconds (:seconds state)
                                                          :words (:words state)})
                                                nil 1)))
-        (str "artifacts/" out ": " (clock (:seconds state)) ", " (count (str/split transcript #"\s+")) " words"
+        (str "artifacts/" out ": " (clock (:seconds state)) ", "
+             ;; the words the model timed, when it timed them: a text without spaces has none to count
+             (if (usable? (:words state) (:text state))
+               (count (remove event? (:words state)))
+               (count (str/split transcript #"\s+")))
+             " words"
              (cost-text (:cost state)) ", model " transcription/transcribe-model
              (when words? (str "; the words with their times in artifacts/" (words-file out)))
              (when unlengthed (str "\n" unlengthed))

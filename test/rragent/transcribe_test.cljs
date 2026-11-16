@@ -37,6 +37,15 @@
            (transcribe/paragraphs [(word "Hallo" 0.0 0.4) (word "Welt" 0.5 1.0)] "Hallo, Welt." 0))))
   (testing "nothing said"
     (is (= [] (transcribe/paragraphs [] "  " 0))))
+  (testing "words joined with a space, none within a script written without spaces"
+    (is (= "Hallo, Welt." (transcribe/joined [(word "Hallo," 0 1) (word " Welt. " 1 2) (word "" 2 2)])))
+    (is (= "今日のテーマは自転車です。皆さん"
+           (transcribe/joined (map #(word % 0 1) ["今" "日" "の" "テ" "ー" "マ" "は" "自" "転" "車" "で" "す" "。" "皆" "さ" "ん"]))))
+    (is (= "アプリは Hello サイクリングです。" (transcribe/joined (map #(word % 0 1) ["ア" "プ" "リ" "は" "Hello" "サ" "イ" "ク" "リ" "ン" "グ" "で" "す" "。"])))
+        "a word in Latin letters among them keeps its spaces")
+    (is (= "สวัสดีครับ" (transcribe/joined [(word "สวัสดี" 0 1) (word "ครับ" 1 2)])))
+    (is (= [{:start 0.0 :text "今日は。"}]
+           (transcribe/paragraphs [(word "今" 0.0 0.2) (word "日" 0.2 0.4) (word "は" 0.4 0.5) (word "。" 0.5 0.5)] "今日は。" 0))))
   (testing "the text with the times, m:ss and h:mm:ss"
     (is (= "[0:00] Hallo\n\n[1:05:03] Welt"
            (transcribe/transcript-text [{:start 0 :text "Hallo"} {:start 3903.4 :text "Welt"}] true)))
