@@ -615,10 +615,16 @@ AssemblyAI, the dictation's, now gives most words none) into
 cut at the pauses of the speech, each with its time when `timestamps`
 is asked, and answered to the model as text. OpenRouter takes 25 MB of
 audio inline, so ffmpeg cuts a longer file into pieces of ten minutes
-at most (mono, 16 kHz, 48 kbit/s MP3, the audio alone of a video),
-each ending in a pause of the speech and encoded on its own from where
-it starts, written down on its own, the times shifted by that start;
-without ffmpeg a small file in a format the model reads goes whole. The `youtube` tool (`rragent.tools.youtube`, `rragent.youtube`)
+at most (mono, 16 kHz, 48 kbit/s MP3, the audio alone of a video):
+the sound is read once from start to end, so its length is what was
+read and not what the file's head claims (a browser's recording claims
+none), each piece ends in a pause of the speech, quiet by the
+recording's own level, or without one at the quietest moment, and is
+encoded on its own from that sample; three pieces are written down at
+a time, the times shifted by each piece's start. In the words file a
+sound the model named (`[Applaus]`) carries `kind: event`, and a word
+it gave no length the room between its neighbours (`by: neighbours`).
+Without ffmpeg a small file in a format the model reads goes whole. The `youtube` tool (`rragent.tools.youtube`, `rragent.youtube`)
 fetches a YouTube video the person has the rights to use: the video as
 an mp4 of h264 and aac up to `height` lines (1080 by default) into
 `artifacts/downloads/<id>.mp4`, or a `section` of it alone

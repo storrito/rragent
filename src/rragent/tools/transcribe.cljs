@@ -12,14 +12,22 @@
    transcription little more than a minute: a file longer than
    `piece-seconds` is cut by ffmpeg into pieces (`pieces!`: mono, 16
    kHz, 48 kbit/s MP3, under 4 MB each, the audio of a video alone),
-   each written down on its own, their words joined with the times
-   shifted by where the piece starts. A piece ends in a pause of the
-   speech near its length (`cuts`), so that no word is cut in two, and
-   each is an encode of its own from that point: pieces cut from one
-   encode began a fifth of a second later than their offset said, so
-   every word after the first ten minutes came that much too early.
-   Without ffmpeg a file in a format the model reads goes whole when it
-   is small enough, else the tool says that ffmpeg is needed.
+   `parallel` of them written down at a time, their words joined with
+   the times shifted by where the piece starts. The sound is read once
+   from start to end, so its length and every piece's start are what
+   was read, whatever the file's head says. A piece ends in a pause of
+   the speech near its length (`cuts`, `pauses`: quiet by the
+   recording's own measure), so that no word is cut in two, and is an
+   encode of its own from that sample: pieces cut from one encode
+   began a fifth of a second later than their offset said, so every
+   word after the first ten minutes came that much too early. Without
+   ffmpeg a file in a format the model reads goes whole when it is
+   small enough, else the tool says that ffmpeg is needed.
+
+   What the model writes is kept, with two things said about it: a
+   sound it named among the words (`[Applaus]`) is marked as one
+   (`marked`), and a word it gave no length gets the room between its
+   neighbours (`fitted`).
 
    The words are corrected with what the agent knows before anything
    is written (`rragent.transcript-correction`): the names the speech
@@ -33,7 +41,8 @@
    the answer carries the text, so the agent works with it at once.
    With `words`, every word with its start, end and confidence goes
    beside it as `<name>.words.json`, for cutting a video at the
-   pauses."
+   pauses; a sound among them carries `kind: event`, a word whose
+   length is the room between its neighbours `by: neighbours`."
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
@@ -123,14 +132,128 @@
     (catch :default _
       false)))
 
+(def sample-rate
+  "The samples a second of the sound the pieces are cut from."
+  16000)
+
+(def ^:private frame-samples
+  "The samples of one frame of the envelope, 10 ms."
+  160)
+
+(def ^:private frame-seconds
+  (/ frame-samples sample-rate))
+
+(def min-pause
+  "The shortest stretch of quiet that is a pause to cut in, seconds."
+  0.25)
+
+(def quiet-share
+  "A frame is quiet under this share of loud speech, the 95th
+   percentile of the envelope: 22 dB below it."
+  0.08)
+
+(defn envelope
+  "The loudness of `samples` (an Int16Array, mono) every 10 ms, each
+   frame's RMS from 0 to 1, into `env` (a Float32Array) from its
+   frame `at` on; answers `env`."
+  [^js samples ^js env at]
+  (let [frames (js/Math.floor (/ (.-length samples) frame-samples))]
+    (dotimes [f frames]
+      (let [base (* f frame-samples)]
+        (loop [i 0
+               sum 0]
+          (if (< i frame-samples)
+            (let [v (/ (aget samples (+ base i)) 32768)]
+              (recur (inc i) (+ sum (* v v))))
+            (aset env (+ at f) (js/Math.sqrt (/ sum frame-samples)))))))
+    env))
+
+(defn- ^:async envelope-of
+  "The envelope of the raw sound `file` (mono, signed 16 bit, as
+   `pieces!` writes it): read a hundred seconds at a time, so that an
+   hour of sound is never whole in memory, the event loop let go
+   between two readings, so that the pages go on while it reads."
+  [file]
+  (let [frame-bytes (* 2 frame-samples)
+        frames (js/Math.floor (/ (.-size (fs/statSync file)) frame-bytes))
+        env (js/Float32Array. frames)
+        step 10000
+        buffer (js/Buffer.alloc (* step frame-bytes))
+        fd (fs/openSync file "r")]
+    (try
+      (loop [f 0]
+        (when (< f frames)
+          (let [n (min step (- frames f))]
+            (fs/readSync fd buffer 0 (* n frame-bytes) (* f frame-bytes))
+            (envelope (js/Int16Array. (.-buffer buffer) (.-byteOffset buffer) (* n frame-samples)) env f)
+            (await (js/Promise. (fn [resolve] (js/setImmediate resolve))))
+            (recur (+ f n)))))
+      (finally
+        (fs/closeSync fd)))
+    env))
+
+(defn- smoothed
+  "The envelope `env` with every frame the mean of itself and its two
+   neighbours: one frame of flicker is no boundary."
+  [^js env]
+  (let [n (.-length env)
+        out (js/Float32Array. n)]
+    (dotimes [f n]
+      (aset out f (/ (+ (aget env (max 0 (dec f))) (aget env f) (aget env (min (dec n) (inc f)))) 3)))
+    out))
+
+(defn pauses
+  "The pauses of the sound whose envelope is `env`, `[from to]` in
+   seconds: `min-pause` or more of frames under `quiet-share` of loud
+   speech. The measure is the recording's own: a fixed level (ffmpeg's
+   silencedetect at -40 dB) found a pause in none of eight windows of
+   a broadcast with music under it and in 9 of 15 of a recording with
+   a hiss, this one in 7 and in all 15 (2026-11-16)."
+  [^js env]
+  (let [sound (smoothed env)
+        n (.-length sound)
+        sorted (.sort (js/Float32Array.from sound))
+        quiet (* quiet-share (if (pos? n) (aget sorted (js/Math.floor (* 0.95 (dec n)))) 0))
+        least (js/Math.round (/ min-pause frame-seconds))]
+    (loop [f 0
+           from nil
+           out []]
+      (let [quiet? (and (< f n) (<= (aget sound f) quiet))]
+        (cond
+          (< n f) out
+          (and quiet? (nil? from)) (recur (inc f) f out)
+          (and (not quiet?) (some? from)) (recur (inc f) nil (cond-> out
+                                                                 (<= least (- f from)) (conj [(* from frame-seconds) (* f frame-seconds)])))
+          :else (recur (inc f) from out))))))
+
+(defn quietest
+  "The quietest moment of the sound whose envelope is `env` between
+   `from` and `to` seconds: the middle of the tenth of a second with
+   the least sound. Where to cut when there is no pause."
+  [^js env from to]
+  (let [width 10
+        a (max 0 (js/Math.round (/ from frame-seconds)))
+        b (min (- (.-length env) width) (- (js/Math.round (/ to frame-seconds)) width))]
+    (if (< b a)
+      to
+      (loop [f a
+             sum (reduce + (map #(aget env (+ a %)) (range width)))
+             best a
+             least ##Inf]
+        (let [[best least] (if (< sum least) [f sum] [best least])]
+          (if (< f b)
+            (recur (inc f) (+ sum (- (aget env (+ f width)) (aget env f))) best least)
+            (* (+ best (/ width 2)) frame-seconds)))))))
+
 (defn cuts
   "Where a file of `duration` seconds is cut into pieces of `seconds`
    at most, `[start end]` in order: each piece ends before its full
    length in the longest of the `pauses` (`[from to]`, seconds) that
    reaches into the last `pause-window` of it, as near the pause's
-   middle as the window lets it, else at its full length; the last
-   piece ends with the file."
-  [duration pauses seconds]
+   middle as the window lets it; without a pause there where
+   `quietest` (a function of the window's start and end) says, else at
+   its full length; the last piece ends with the file."
+  [duration pauses seconds & [quietest]]
   (let [window (* pause-window seconds)]
     (loop [start 0
            out []]
@@ -143,58 +266,44 @@
                                (seq)
                                (apply max-key (fn [[from to]] (- (min to full) (max from low))))
                                ((fn [[from to]] (-> (/ (+ from to) 2) (max from low) (min to full)))))
+                      (when quietest (quietest low full))
                       full)]
           (recur cut (conj out [start cut])))))))
 
-(defn- duration-of
-  "The length of `file` in seconds as ffprobe reads it, unrounded: the
-   pieces' starts are reckoned from it."
-  [file]
-  (let [result (child/spawnSync "ffprobe" #js ["-v" "error" "-show_entries" "format=duration" "-of" "csv=p=0" file]
-                                #js {:encoding "utf8" :timeout 20000})
-        seconds (when (zero? (or (.-status result) 1))
-                  (parse-double (str/trim (str (.-stdout result)))))]
-    (when (and seconds (pos? seconds))
-      seconds)))
-
-(defn pauses-in
-  "The pauses of ffmpeg's silencedetect in its output `log`, `[from to]`."
-  [log]
-  (->> (re-seq #"silence_end: ([0-9.]+) \| silence_duration: ([0-9.]+)" (str log))
-       (mapv (fn [[_ end length]]
-               (let [end (parse-double end)]
-                 [(- end (parse-double length)) end])))))
-
-(defn- ^:async pauses!
-  "The pauses of the speech in `file`: a quarter of a second at least,
-   under -40 dB."
-  [file]
-  (let [result (child/spawnSync "ffmpeg" #js ["-hide_banner" "-nostats" "-i" file "-vn" "-ac" "1"
-                                             "-af" "silencedetect=noise=-40dB:d=0.25" "-f" "null" "-"]
-                                #js {:encoding "utf8" :timeout 1800000 :maxBuffer (* 64 1024 1024)})]
-    (pauses-in (.-stderr result))))
-
 (defn ^:async pieces!
-  "The pieces of `file` for the model, `[{:file :format :start}]` in
-   order, `:start` the second of the file it begins at; in `temp` when
-   ffmpeg made them: mono MP3 at 16 kHz, the audio alone of a video,
-   each an encode of its own from its start (`cuts`). Without ffmpeg
-   the file itself when the model reads its format and it is small
-   enough, else a throw. `seconds` is the most a piece is long,
-   `piece-seconds` by default (a test takes shorter ones)."
+  "The pieces of `file` for the model, `[{:file :format :start :end}]`
+   in order, the seconds of the file each begins and ends at; in
+   `temp` when ffmpeg made them. The sound is read once from start to
+   end into `temp` as it is cut from (mono, 16 kHz, raw): its length
+   is then what was read, not what the file's head claims (a browser's
+   recording claims none, a raw AAC or an MP3 of a varying rate a
+   wrong one, measured 14 % off), and a piece starts at the very
+   sample its words are shifted by. Each piece is an MP3 of 48 kbit/s
+   from there, ended in a pause (`cuts`, `pauses`) or, without one, at
+   the quietest moment (`quietest`). Without ffmpeg the file itself
+   when the model reads its format and it is small enough, else a
+   throw. `seconds` is the most a piece is long, `piece-seconds` by
+   default (a test takes shorter ones)."
   [file temp & [seconds]]
   (if (ffmpeg?)
     (let [seconds (or seconds piece-seconds)
-          duration (or (duration-of file)
-                       (throw (js/Error. "ffprobe could not read how long the file is; it may be damaged.")))
-          plan (cuts duration (when (< seconds duration) (await (pauses! file))) seconds)]
+          sound (path/join temp "sound.pcm")
+          raw ["-f" "s16le" "-ar" (str sample-rate) "-ac" "1"]
+          _ (await (exec "ffmpeg" (into ["-y" "-v" "error" "-i" file "-vn"] (conj raw sound))))
+          duration (/ (.-size (fs/statSync sound)) 2 sample-rate)
+          _ (when-not (pos? duration)
+              (throw (js/Error. "The file has no sound.")))
+          env (when (< seconds duration)
+                (await (envelope-of sound)))
+          plan (cuts duration (when env (pauses env)) seconds (when env #(quietest env %1 %2)))]
       (loop [plan plan
              n 0
              out []]
         (if-let [[start end] (first plan)]
           (let [piece (path/join temp (str "piece-" (.padStart (str n) 4 "0") ".mp3"))]
-            (await (exec "ffmpeg" ["-y" "-v" "error" "-ss" (.toFixed start 3) "-i" file "-t" (.toFixed (- end start) 3)
-                                   "-vn" "-ac" "1" "-ar" "16000" "-codec:a" "libmp3lame" "-b:a" "48k" piece]))
+            (await (exec "ffmpeg" (into ["-y" "-v" "error"]
+                                        (concat raw ["-ss" (.toFixed start 4) "-t" (.toFixed (- end start) 4) "-i" sound
+                                                     "-codec:a" "libmp3lame" "-b:a" "48k" piece]))))
             (recur (rest plan) (inc n) (conj out {:file piece :format "mp3" :start start :end end})))
           out)))
     (let [format (formats (extension-of file))]
@@ -357,6 +466,63 @@
       (str bare " of " n " words came without a length (their end at their start): "
            "the model gave no word ends, so a cut at them is a guess."))))
 
+(defn event?
+  "Whether the word is a sound the model heard and named, not
+   something said: Scribe writes them among the words in brackets,
+   `[Applaus]`, `[keyboard clacking]`, `[musica allegra]`, 113 of them
+   in 3.6 hours of 16 recordings."
+  [{:keys [word]}]
+  (boolean (re-matches #"[\[(（【].*[\])）】][.,!?…]*" (str/trim (str word)))))
+
+(defn marked
+  "The `words` with the sounds among them marked `:kind \"event\"`, as
+   agentitos' skills know them: a caption shows no `[Applaus]`, and a
+   cut does not take one for a word."
+  [words]
+  (mapv #(cond-> % (event? %) (assoc :kind "event")) words))
+
+(def ^:private room
+  "How far to either side of its time a word without a length may
+   reach, seconds."
+  0.15)
+
+(defn- thousandth
+  [x]
+  (/ (js/Math.round (* 1000 x)) 1000))
+
+(defn fitted
+  "The `words` with those that came without a length (their end at
+   their start, within 20 ms) given the room between their neighbours,
+   `room` to either side of their time at most, and marked `:by
+   \"neighbours\"`: Scribe squeezes about one word in a hundred to a
+   point, nearly all of one or two letters between two words that
+   leave them 60 to 100 ms (\"as [a] result\"), and a word without a
+   length is one a caption cannot show and a cut takes for mistimed. A
+   word its neighbours leave no room stays as it came. Not for a model
+   that gives no lengths at all (`length-warning`): its times are no
+   words' middles."
+  [words]
+  (let [words (vec words)]
+    (vec (map-indexed
+          (fn [i {:keys [start end] :as word}]
+            (let [end (if (number? end) end start)]
+              (if (and (number? start) (< (- end start) 0.02) (not (event? word)))
+                (let [before (:end (get words (dec i)))
+                      after (:start (get words (inc i)))
+                      low (max 0 (if (number? before) (min start (max before (- start room))) (- start room)))
+                      high (if (number? after) (max end (min after (+ end room))) (+ end room))]
+                  (if (<= 0.02 (- high low))
+                    (assoc word :start (thousandth low) :end (thousandth high) :by "neighbours")
+                    word))
+                word)))
+          words))))
+
+(def parallel
+  "How many pieces are with the model at a time: a recording of an
+   hour takes the time of two of its six pieces, and three bodies of
+   five megabytes are no weight on a small machine."
+  3)
+
 (def ^:private attempts
   "How often a piece is sent when the service is busy or broken (429,
    5xx) or the request fails on the way."
@@ -399,19 +565,28 @@
         temp (fs/mkdtempSync (path/join (os/tmpdir) "rragent-transcribe-"))]
     (try
       (let [pieces (await (pieces! source temp (:piece-seconds options)))
-            state (loop [pieces pieces
-                         seconds 0
-                         words []
-                         text []
-                         cost 0]
-                    (if-let [{:keys [file format start end]} (first pieces)]
-                      (let [body (await (transcription-of codemode file format))]
-                        (recur (rest pieces)
-                               (or end (+ start (or (media/seconds-of file) (some-> body :duration) 0)))
-                               (into words (shifted (:words body) start))
-                               (conj text (str/trim (str (:text body))))
-                               (+ cost (or (some-> body :usage :cost) 0))))
-                      {:seconds seconds :words words :text (str/join "\n\n" (remove str/blank? text)) :cost cost}))
+            ;; `parallel` pieces at a time with the model, their answers in the pieces' order
+            bodies (loop [batches (partition-all (or (:parallel options) parallel) pieces)
+                          out []]
+                     (if-let [batch (first batches)]
+                       (recur (rest batches)
+                              (into out (array-seq (await (js/Promise.all
+                                                           (into-array (map (fn [{:keys [file format]}]
+                                                                              (transcription-of codemode file format))
+                                                                            batch)))))))
+                       out))
+            heard (reduce (fn [state [{:keys [file start end]} body]]
+                            (-> state
+                                (assoc :seconds (or end (+ (or start 0) (or (media/seconds-of file) (some-> body :duration) 0))))
+                                (update :words into (shifted (:words body) (or start 0)))
+                                (update :text conj (str/trim (str (:text body))))
+                                (update :cost + (or (some-> body :usage :cost) 0))))
+                          {:seconds 0 :words [] :text [] :cost 0}
+                          (map vector pieces bodies))
+            unlengthed (length-warning (:words heard))
+            state (-> heard
+                      (update :text #(str/join "\n\n" (remove str/blank? %)))
+                      (update :words #(marked (if unlengthed % (fitted %)))))
             state (await (corrected state {:api api :context context :names names :messages (:messages options)
                                            :complete (or (:complete options) (transcript-correction/openrouter-complete codemode))}))
             paragraphs (paragraphs (:words state) (:text state) 0)
@@ -432,7 +607,7 @@
         (str "artifacts/" out ": " (clock (:seconds state)) ", " (count (str/split transcript #"\s+")) " words"
              (cost-text (:cost state)) ", model " transcription/transcribe-model
              (when words? (str "; the words with their times in artifacts/" (words-file out)))
-             (when-let [warning (length-warning (:words state))] (str "\n" warning))
+             (when unlengthed (str "\n" unlengthed))
              (when (:fixed state) (str "\n" (:fixed state)))
              "\n\n"
              (if (< answer-chars (count transcript))
@@ -450,7 +625,7 @@
                           "`file` is a path under the working directory: uploads/<name> for a file the person attached or recorded, artifacts/<path> for one of yours. "
                           "The transcript goes to artifacts/transcripts/<name>.md, or to `out`, and comes back as the answer; with `timestamps` every paragraph starts with its time. "
                           "Names the model misheard are corrected from our conversation and the `names` you pass (accounts, products, people), every word keeping its time; the answer says what changed. "
-                          "With `words`, every word with its start and end in seconds goes beside the transcript as <name>.words.json, for cutting at the pauses. "
+                          "With `words`, every word with its start and end in seconds goes beside the transcript as <name>.words.json, for cutting at the pauses; a sound the model named ([applause], [music]) is among them with kind \"event\". "
                           "A long file is cut into pieces of ten minutes at most, each ending in a pause, by ffmpeg, which bash has for cutting, converting and cleaning the audio too (ffmpeg -i in.mp3 -ss 0:30 -to 2:00 out.mp3).")
         :parameters (.Object Type #js {:file (.String Type #js {:description "The audio or video file, uploads/ab12.mp3 or artifacts/talk.m4a"})
                                        :out (.Optional Type (.String Type #js {:description "Where the transcript goes under artifacts/, transcripts/<name>.md by default"}))

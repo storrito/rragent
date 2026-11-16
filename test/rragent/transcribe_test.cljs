@@ -77,20 +77,76 @@
     (is (transcribe/retry? "The operation was aborted due to timeout"))
     (is (not (transcribe/retry? "The transcription service answered 401: wrong key")))
     (is (not (transcribe/retry? "The transcription service answered 400: Provider returned 400"))))
-  (testing "silencedetect's lines read as pauses"
-    (is (= [[1.5 2.25] [10.0 12.0]]
-           (transcribe/pauses-in (str "[silencedetect @ 0x1] silence_start: 1.5\n"
-                                      "[silencedetect @ 0x1] silence_end: 2.25 | silence_duration: 0.75\n"
-                                      "size=N/A time=00:00:12.00\n"
-                                      "[silencedetect @ 0x1] silence_end: 12 | silence_duration: 2\n"))))
-    (is (= [] (transcribe/pauses-in "")))))
+  (testing "without a pause in the window, where the quietest moment is; with one, the pause"
+    (is (= [[0 555] [555 700]] (transcribe/cuts 700 [] 600 (fn [low full] (is (= [480 600] [low full])) 555))))
+    (is (= [[0 570] [570 700]] (transcribe/cuts 700 [[565 575]] 600 (fn [_ _] 555))))))
+
+(defn- env-of
+  "An envelope of 10 ms frames from `[seconds level]` stretches."
+  [& stretches]
+  (js/Float32Array.from (clj->js (mapcat (fn [[seconds level]] (repeat (js/Math.round (* 100 seconds)) level)) stretches))))
+
+(defn- rounded
+  [pauses]
+  (mapv (fn [[from to]] [(/ (js/Math.round (* 100 from)) 100) (/ (js/Math.round (* 100 to)) 100)]) pauses))
+
+(deftest sound-test
+  (testing "the envelope: each 10 ms frame's RMS, from the frame asked for on"
+    (let [samples (js/Int16Array. 480)
+          _ (dotimes [i 160] (aset samples (+ 160 i) 16384))
+          env (transcribe/envelope samples (js/Float32Array. 5) 1)]
+      (is (= [0 0 0.5 0 0] (vec (array-seq env))))))
+  (testing "a pause is a quarter of a second or more under 8 % of loud speech, whatever the level (its edges a frame in, for the smoothing)"
+    (is (= [[1.01 1.49] [2.51 3]] (rounded (transcribe/pauses (env-of [1 0.3] [0.5 0.001] [1 0.3] [0.5 0.02])))))
+    (is (= [[1.01 1.49]] (rounded (transcribe/pauses (env-of [1 0.003] [0.5 0.0001] [1 0.003]))))
+        "a quiet recording: 40 dB lower, the same pause")
+    (is (= [[1.01 1.49]] (rounded (transcribe/pauses (env-of [1 0.3] [0.5 0.02] [1 0.3]))))
+        "a hiss under it that a fixed -40 dB takes for sound")
+    (is (= [] (transcribe/pauses (env-of [1 0.3] [0.2 0.001] [1 0.3]))) "0.2 s is a stop in a word, no pause")
+    (is (= [[0 2]] (rounded (transcribe/pauses (env-of [2 0])))) "nothing but silence is one pause"))
+  (testing "the quietest tenth of a second of a stretch, its middle"
+    (is (= 1.55 (transcribe/quietest (env-of [1.5 0.3] [0.1 0.05] [1.4 0.3]) 1 3)))
+    (is (= 2.5 (transcribe/quietest (env-of [1 0.3]) 2 2.5)) "a stretch past the sound: its end")))
+
+(deftest words-test
+  (testing "a sound the model named among the words is marked, a word is not"
+    (is (= [{:word "[Applaus]" :start 1 :end 2 :kind "event"} {:word "Danke." :start 2 :end 2.4}
+            {:word "(laughs)" :start 3 :end 3.5 :kind "event"} {:word "[música]," :start 4 :end 5 :kind "event"}
+            {:word "[sic" :start 6 :end 6.2}]
+           (transcribe/marked [{:word "[Applaus]" :start 1 :end 2} {:word "Danke." :start 2 :end 2.4}
+                               {:word "(laughs)" :start 3 :end 3.5} {:word "[música]," :start 4 :end 5}
+                               {:word "[sic" :start 6 :end 6.2}]))))
+  (testing "a word without a length takes the room between its neighbours, 0.15 s to either side at most"
+    (is (= [(word "as" 103.16 103.24) (assoc (word "a" 103.24 103.32) :by "neighbours") (word "result" 103.32 103.72)]
+           (transcribe/fitted [(word "as" 103.16 103.24) (word "a" 103.26 103.26) (word "result" 103.32 103.72)])))
+    (is (= [(word "And," 699.0 699.24) (assoc (word "you" 699.77 699.98) :by "neighbours") (word "know," 699.98 700.02)]
+           (transcribe/fitted [(word "And," 699.0 699.24) (word "you" 699.92 699.92) (word "know," 699.98 700.02)])))
+    (is (= [(assoc (word "Oh" 0 0.15) :by "neighbours")]
+           (transcribe/fitted [(word "Oh" 0 0)]))
+        "the first and only word: none before the start of the file")
+    (is (= [(word "a" 1 1.5) (word "b" 1.2 1.2) (word "c" 1.1 1.6)]
+           (transcribe/fitted [(word "a" 1 1.5) (word "b" 1.2 1.2) (word "c" 1.1 1.6)]))
+        "neighbours that overlap it leave no room")
+    (is (= [(word "a" 1 1.4) (word "b" 1.5 1.9)]
+           (transcribe/fitted [(word "a" 1 1.4) (word "b" 1.5 1.9)]))
+        "words with a length stay")
+    (is (= [{:word "[Jingle]" :start 2 :end 2}]
+           (transcribe/fitted [{:word "[Jingle]" :start 2 :end 2}]))
+        "a sound is no word")))
+
 
 (defn- wav
-  "A WAV of `seconds` of silence, mono, 16 kHz, 16 bit."
-  [seconds]
-  (let [samples (* 16000 seconds)
+  "A WAV of `seconds`, mono, 16 kHz, 16 bit: silence, or a tone of
+   440 Hz where `loud?` (a function of the second) says so."
+  [seconds & [loud?]]
+  (let [samples (js/Math.round (* 16000 seconds))
         data (* 2 samples)
-        header (js/Buffer.alloc 44)]
+        header (js/Buffer.alloc 44)
+        sound (js/Buffer.alloc data)]
+    (when loud?
+      (dotimes [i samples]
+        (when (loud? (/ i 16000))
+          (.writeInt16LE sound (js/Math.round (* 12000 (js/Math.sin (/ (* 2 js/Math.PI 440 i) 16000)))) (* 2 i)))))
     (.write header "RIFF" 0)
     (.writeUInt32LE header (+ 36 data) 4)
     (.write header "WAVE" 8)
@@ -104,7 +160,7 @@
     (.writeUInt16LE header 16 34)
     (.write header "data" 36)
     (.writeUInt32LE header data 40)
-    (js/Buffer.concat #js [header (js/Buffer.alloc data)])))
+    (js/Buffer.concat #js [header sound])))
 
 (defn- ffmpeg?
   []
@@ -162,7 +218,8 @@
              (let [codemode (codemode/handle none)
                    ffmpeg? (ffmpeg?)]
                (testing "a file under uploads/ is written down into artifacts/transcripts/"
-                 (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :piece-seconds 1 :timestamps? true}))
+                 ;; one piece at a time: the fake numbers its answers by the requests' order
+                 (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :piece-seconds 1 :parallel 1 :timestamps? true}))
                        file (path/join dir "transcripts" "ab12.md")]
                    (is (str/starts-with? answer "artifacts/transcripts/ab12.md: 0:0"))
                    (is (str/includes? answer "model elevenlabs/scribe-v2"))
@@ -179,6 +236,34 @@
                        (is (= 1 (count @seen)))
                        (is (= ["wav"] (map :format @seen)))
                        (is (str/includes? answer "[0:00] Piece 1."))))))
+               (when ffmpeg?
+                 (testing "the pieces end in a pause, their starts and ends where the sound was cut"
+                   ;; a tone, a pause from 1.3 s to 1.7 s, a tone to 3 s; pieces of 1.6 s at most
+                   (fs/writeFileSync (path/join work "uploads" "tone.wav") (wav 3 #(not (< 1.3 % 1.7))))
+                   (let [temp (fs/mkdtempSync (path/join (os/tmpdir) "rragent-pieces-"))]
+                     (try
+                       (let [pieces (await (transcribe/pieces! (path/join work "uploads" "tone.wav") temp 1.6))]
+                         (is (= 2 (count pieces)))
+                         (is (= 0 (:start (first pieces))))
+                         (is (< 1.45 (:end (first pieces)) 1.55) "the middle of the pause, not 1.6 s")
+                         (is (= (:end (first pieces)) (:start (second pieces))))
+                         (is (= 3 (:end (second pieces))) "the file's length is what was read")
+                         (is (every? #(fs/existsSync (:file %)) pieces)))
+                       (finally
+                         (fs/rmSync temp #js {:recursive true :force true})))))
+                 (testing "a recording whose head says no length, as a browser's recorder writes it, is cut all the same"
+                   (let [made (child/spawnSync "ffmpeg" #js ["-v" "error" "-i" (path/join work "uploads" "tone.wav") "-c:a" "libopus" "-f" "webm" "pipe:1"]
+                                               #js {:maxBuffer (* 16 1024 1024)})
+                         temp (fs/mkdtempSync (path/join (os/tmpdir) "rragent-pieces-"))]
+                     (try
+                       (when (and (zero? (.-status made)) (pos? (.-length (.-stdout made))))
+                         (fs/writeFileSync (path/join work "uploads" "stream.webm") (.-stdout made))
+                         (let [pieces (await (transcribe/pieces! (path/join work "uploads" "stream.webm") temp 1.6))]
+                           (is (= 2 (count pieces)))
+                           (is (< 1.4 (:end (first pieces)) 1.6))
+                           (is (< 2.9 (:end (second pieces)) 3.1))))
+                       (finally
+                         (fs/rmSync temp #js {:recursive true :force true}))))))
                (testing "where `out` says, without the times"
                  (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "talk/words.md"}))]
                    (is (str/starts-with? answer "artifacts/talk/words.md: "))
