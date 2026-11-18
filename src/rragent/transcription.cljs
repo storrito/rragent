@@ -14,21 +14,28 @@
    not); the scores are the lower ones where a model misheard, a name
    it did not know at 0.2.
 
-   The `transcribe` tool's model is RRAGENT_TRANSCRIBE_MODEL, Scribe v2
-   by default (`transcribe-model`): a video is cut at its words' times,
-   and since November 2026 AssemblyAI gives most words no length, their
-   end at their start. Measured on 2026-11-12 against the voice of a
-   recording, of the 28 models behind OpenRouter that write down
-   speech, Scribe v2 gave every word its length and put a phrase's end
-   within 60 ms of where the voice stops (140 ms for the worst tenth),
-   AssemblyAI 280 ms early, 121 of 143 words without a length. No
-   language is named, the model detects the one spoken. The tool asks
-   for the voices too (`transcribe-options`: `diarize`, which costs
-   nothing more), and waits longer, for a piece of three quarters of
-   an hour: Scribe took 81 s for an hour of talk, and the gateway ends
-   a request after about 130 s (2026-11-16). The request goes where the REPL `codemode` of the agent knows OpenRouter:
-   through the gateway's connection, else with OPENROUTER_API_KEY
-   (`rragent.openrouter`, as the models and the media tools have it)."
+   The `transcribe` tool's model is RRAGENT_TRANSCRIBE_MODEL, the same
+   Universal-3.6 Pro by default (`transcribe-model`): the tool wants
+   the text, fast and cheap, and leaves the exact times of the words to
+   agentitos' `transcribe` skill. Measured on 2026-11-18 on pieces of
+   five minutes, eight at a time, against the references of nine
+   recordings (the word error rate in lower case, without punctuation,
+   hesitations and numbers, which the models write differently, 2020
+   and twenty twenty): Universal-3.6 Pro $0.0050 a minute, 1 s a piece
+   (2.5 s at most), 8.3 % on German (four recordings, 3761 words, the
+   best on each) and 10.6 % on English (five, 9692 words; an Indian
+   speaker came out partly in Devanagari, again when sent again);
+   Scribe v2 $0.0037, 6 s (10 s), 9.9 % and 7.5 % (13.9 % as it first
+   came: one piece came back as a list of names in Chinese, and right
+   when sent again); Qwen3-ASR 1.7B $0.00045, 7 s (38 s), 10.3 % and
+   10.0 %, its words without punctuation in four of 13 recordings and
+   without scores. So the dictation's model is the dearest of the
+   three, the fastest and the best on German, Scribe the best on
+   English; the tool takes it for its German and its speed. No language is named, the model
+   detects the one spoken. The request goes where the REPL `codemode`
+   of the agent knows OpenRouter: through the gateway's connection,
+   else with OPENROUTER_API_KEY (`rragent.openrouter`, as the models
+   and the media tools have it)."
   (:require [rragent.openrouter :as openrouter]))
 
 (def model
@@ -37,22 +44,15 @@
       "assemblyai/universal-3-6-pro"))
 
 (def transcribe-model
-  "The `transcribe` tool's model, for the times of the words."
+  "The `transcribe` tool's model."
   (or (not-empty (aget (.-env js/process) "RRAGENT_TRANSCRIBE_MODEL"))
-      "elevenlabs/scribe-v2"))
-
-(def transcribe-options
-  "What the `transcribe` tool's request carries besides the audio, and
-   how long it waits: the model names the voice of every word
-   (`speaker`: 0, 1, … within the one request)."
-  {:body {:diarize true}
-   :timeout 150000})
+      "assemblyai/universal-3-6-pro"))
 
 (def max-bytes
   "The largest recording, OpenRouter's cap of audio sent inline; the
    browser sends a piece of 30 seconds at most
    (`rragent.client.dictation`), the tool cuts a file into pieces of
-   three quarters of an hour, 16 MB (`rragent.tools.transcribe`)."
+   five minutes, 1.8 MB (`rragent.tools.transcribe`)."
   (* 25 1024 1024))
 
 (defn request-body

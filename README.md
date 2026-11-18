@@ -603,39 +603,56 @@ message with the `<insta-music search-term track-id start-ms>` element
 for the story. Unlike a hook the callback works once and for 24 hours,
 since the link passes through the browser, and the message is written
 from the fields read, never from the body as it came. The
-`transcribe` tool (`rragent.tools.transcribe`) goes the other way: the
-words spoken in an audio or a video file, one the person attached
+`transcribe` tool (`rragent.tools.transcribe`) goes the other way: what
+was said in an audio or a video file, one the person attached
 (`uploads/<name>`) or recorded (`artifacts/recordings/<stamp>/audio.mp3`,
-see [Screencasts](#screencasts)) or any other under `artifacts/`, written down by
-a speech-to-text model of its own (`RRAGENT_TRANSCRIBE_MODEL`,
-ElevenLabs' Scribe v2, the language detected: a video is cut at its
-words' times, and Scribe gives every word its start and its end where
-AssemblyAI, the dictation's, now gives most words none) into
-`artifacts/transcripts/<name>.md`, or where `out` says, in paragraphs
-cut at the pauses of the speech and where another speaker begins, each
-with its time when `timestamps` is asked and its speaker's letter when
-more than one speaks, and answered to the model as text. OpenRouter
-takes 25 MB of audio inline and the gateway gives a request about two
-minutes, so ffmpeg cuts a file longer than three quarters of an hour
-into pieces (mono, 16 kHz, 48 kbit/s MP3, the audio alone of a video):
-the sound is read once from start to end, so its length is what was
-read and not what the file's head claims (a browser's recording claims
-none), each piece ends in a pause of the speech, quiet by the
-recording's own level, or without one at the quietest moment, and is
-encoded on its own from that sample; three pieces are written down at
-a time, the times shifted by each piece's start. The model names the
-voice of every word (`diarize`), a number that holds within one
-request: the words carry it as `speaker` A, B, … by who speaks first,
-and a later piece is heard from five minutes before its start, its
-voices the people they share their words with there. The edges of the
-words are moved to where the sound has them, since Scribe begins a
-word late and ends it early: a word ends where its sound stops and
-begins where it sets in, quiet being what is under 8 % of loud speech
-or near the ground of the seconds around, for a recording with noise
-or music under it. In the words file a sound the model named
-(`[Applaus]`) carries `kind: event`, and a word it gave no length the
-room between its neighbours (`by: neighbours`). Without ffmpeg a small
-file in a format the model reads goes whole. The `youtube` tool (`rragent.tools.youtube`, `rragent.youtube`)
+see [Screencasts](#screencasts)) or any other under `artifacts/`, as
+text, fast and cheap: written down by a speech-to-text model
+(`RRAGENT_TRANSCRIBE_MODEL`, the dictation's Universal-3.6 Pro, the
+language detected) into `artifacts/transcripts/<name>.md`, or where
+`out` says, in paragraphs cut at the pauses of the speech, each with
+its time when `timestamps` is asked, and answered to the model as text.
+The names the model misheard are corrected first with the agent's
+conversation and the `names` it passes (`rragent.transcript-correction`,
+`RRAGENT_TRANSCRIPT_MODEL`, Claude Haiku 5.5). ffmpeg reads the sound
+once from start to end, so its length is what was read and not what the
+file's head claims (a browser's recording claims none), and cuts it into
+pieces of five minutes (mono, 16 kHz, 48 kbit/s MP3, the audio alone of
+a video), each ending in a pause of the speech, quiet by the
+recording's own level, or without one at the quietest moment, and
+encoded on its own from that sample, so that no tag of the file reaches
+the model (a phone's video names where it was recorded); each piece is
+sent as soon as it is encoded, eight at a time, the times shifted by
+its start. Without ffmpeg the tool refuses. A piece whose words do not
+carry its text is written from its text (the model wrote a Japanese
+recording's text whole and timed 60 % of it); a piece that fails after
+three tries is marked in the text where it would stand, and the answer
+says the transcript is not whole. The times of the words stay inside
+the tool, for the paragraphs: they are the model's, not checked
+against the sound, and no file of them is written. For cutting a video,
+captions or who speaks, the agent takes agentitos' `transcribe` skill
+where the machine has it, which names the speakers and moves the edges
+of the words to where the sound has them; the tool's answer says so.
+The model was measured on 2026-11-18 on pieces of five minutes, eight
+at a time, against the references of four German and five English
+recordings (the word error rate without case, punctuation, hesitations
+and numbers, which the models write differently, "2020" and "twenty
+twenty"): Universal-3.6 Pro cost $0.0050 a minute, answered a piece in
+1 s (2.5 s at most) and missed 8.3 % of German and 10.6 % of English
+(an Indian speaker came out partly in Devanagari); Scribe v2, the
+tool's model before, $0.0037, 6 s (10 s), 9.9 % and 7.5 % (13.9 % as
+it first came: one piece came back as a list of names in Chinese, and
+right when sent again); Qwen3-ASR 1.7B $0.00045, 7 s (38 s), 10.3 % and
+10.0 %, without punctuation in its words for four of 13 recordings.
+Universal-3.6 Pro is the dearest of the three, the fastest and the best
+on German; Scribe is the best on English. The tool takes the
+dictation's model for its German and its speed, and
+`RRAGENT_TRANSCRIBE_MODEL` names another; most of the tool's speed is
+the pieces sent at once, which any of the three gives. An hour of a podcast took 55 s and $0.30 through the tool
+with three pieces at a time, run outside a Sprite through a relay to
+its gateway (one piece of them took 28 s), where the tool before, in
+two pieces with Scribe, took 127 s (a first try of 34 s failed on the
+way) and $0.24. The `youtube` tool (`rragent.tools.youtube`, `rragent.youtube`)
 fetches a YouTube video the person has the rights to use: the video as
 an mp4 of h264 and aac up to `height` lines (1080 by default) into
 `artifacts/downloads/<id>.mp4`, or a `section` of it alone

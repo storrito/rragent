@@ -63,13 +63,6 @@
   (testing "one word heard as two, a sure one among the names: the time shared by their lengths"
     (let [{:keys [words]} (tc/apply-fixes [{:word "Karfannews" :start 1 :end 3 :confidence 0.99}] [{:heard "Karfannews" :meant "Car Funnews"}] names)]
       (is (= [["Car" 1 1.6] ["Funnews" 1.6 3]] (map (juxt :word :start :end) words)))))
-  (testing "the speaker of the words heard stays with the words meant, however many"
-    (is (= [["Car" "B"] ["Funnews" "B"]]
-           (map (juxt :word :speaker)
-                (:words (tc/apply-fixes [{:word "Karfannews" :start 1 :end 3 :confidence 0.99 :speaker "B"}] [{:heard "Karfannews" :meant "Car Funnews"}] names)))))
-    (is (= [["storrito_com" "A"]]
-           (map (juxt :word :speaker)
-                (:words (tc/apply-fixes [{:word "streeto_com" :start 0 :end 1 :confidence 0.4 :speaker "A"}] [{:heard "streeto_com" :meant "storrito_com"}]))))))
   (testing "a case and the punctuation around do not hide a word; a fix that is not there changes nothing"
     (let [{:keys [words applied]} (tc/apply-fixes [{:word "Streeto_com!" :start 0 :end 1 :confidence 0.4} {:word "x" :start 1 :end 2}]
                                                   [{:heard "streeto_com" :meant "storrito_com"} {:heard "nowhere" :meant "nowhere1"}])]
