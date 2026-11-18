@@ -53,8 +53,9 @@
 (def piece-seconds
   "How long one piece sent to the model is at most: five minutes,
    which Universal-3.6 Pro writes down in one to two and a half
-   seconds, eight at a time (2026-11-18), so that an hour is twelve
-   pieces and two rounds of them, and the gateway's 130 s are far."
+   seconds, eight at a time (2026-11-18), so that an hour is twelve to
+   fifteen pieces and two rounds of them (13 for a podcast), and the
+   gateway's 130 s are far."
   300)
 
 (def pause-window
@@ -470,7 +471,7 @@
 
 (def parallel
   "How many pieces are encoded and with the model at a time: an hour
-   is twelve pieces, two rounds of eight. Eight answered as fast as
+   is two rounds of eight. Eight answered as fast as
    one (one to two and a half seconds for five minutes, 2026-11-18),
    and eight bodies of 2.4 MB are little for a Sprite's free memory."
   8)
