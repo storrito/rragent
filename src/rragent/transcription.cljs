@@ -18,16 +18,17 @@
    Universal-3.6 Pro by default (`transcribe-model`): the tool wants
    the text, fast and cheap, and leaves the exact times of the words to
    agentitos' `transcribe` skill. Measured on 2026-11-18 on pieces of
-   five minutes, eight at a time, against the references of 15
-   recordings (word error rate in lower case, punctuation and
-   hesitations left out, numbers as written): Universal-3.6 Pro
-   $0.0050 a minute, 1 to 2.5 s a piece, 9.0 % on German (four
-   recordings, 3953 words) and 11.6 % on English (five, 10342 words,
-   of which Indian English came out partly in Devanagari, 22.5 %);
-   Scribe v2 $0.0037, 4 to 10 s, 11.1 % and 15.7 % (one piece of 29
-   came back as a list of names in Chinese, and again whole); Qwen3-ASR
-   1.7B $0.00045, 3 to 38 s, 10.5 % and 10.6 %, its words without
-   punctuation in half the recordings. No language is named, the model
+   five minutes, eight at a time, against the references of nine
+   recordings (the word error rate in lower case, without punctuation
+   and hesitations, numbers as written): Universal-3.6 Pro $0.0050 a
+   minute, 1 s a piece (2.5 s at most), 9.0 % on German (four
+   recordings, 3953 words, the best on each) and 11.6 % on English
+   (five, 10342 words; an Indian speaker came out partly in
+   Devanagari, 21.5 %, again when sent again); Scribe v2 $0.0037, 6 s
+   (10 s), 11.1 % and 15.7 % (one piece came back as a list of names in
+   Chinese; sent again, 9.6 %); Qwen3-ASR 1.7B $0.00045, 7 s (38 s),
+   10.5 % and 10.6 %, its words without punctuation in four of 13
+   recordings and without scores. No language is named, the model
    detects the one spoken. The request goes where the REPL `codemode`
    of the agent knows OpenRouter: through the gateway's connection,
    else with OPENROUTER_API_KEY (`rragent.openrouter`, as the models
