@@ -72,17 +72,18 @@
     (is (= [[0 480] [480 900]] (transcribe/cuts 900 [[470 481] [500 500.3]] 600))))
   (testing "the next piece is reckoned from where the last one ended"
     (is (= [[0 590] [590 1180] [1180 1250]] (transcribe/cuts 1250 [[589 591] [1179 1181]] 600))))
-  (testing "words without a length: counted, and said once they are a third of twenty or more"
-    (let [timed (vec (for [i (range 30)] (word "w" i (+ i 0.3))))
-          bare (vec (for [i (range 30)] (word "w" i i)))]
-      (is (= 0 (transcribe/without-length timed)))
-      (is (= 30 (transcribe/without-length bare)))
-      (is (= 1 (transcribe/without-length [{:word "x" :start 1}])) "no end at all")
-      (is (nil? (transcribe/length-warning timed)))
-      (is (nil? (transcribe/length-warning (subvec bare 0 10))) "too few words to tell")
-      (is (nil? (transcribe/length-warning (into (subvec timed 0 21) (subvec bare 0 9)))))
-      (is (= "10 of 30 words came without a length (their end at their start): the model gave no word ends, so a cut at them is a guess."
-             (transcribe/length-warning (into (subvec timed 0 20) (subvec bare 0 10)))))))
+  (testing "a remainder under a thirtieth of a piece is no piece of its own: it goes with the one before"
+    (is (= [[0 600] [600 1205]] (transcribe/cuts 1205 [] 600)))
+    (is (= [[0 600] [600 1200] [1200 1220]] (transcribe/cuts 1220 [] 600)) "twenty seconds are a piece")
+    (is (= [[0 3] [3 3.4]] (transcribe/cuts 3.4 [] 3)) "of pieces of three seconds, 0.4 s are one")
+    (is (= [[0 300.4]] (transcribe/cuts 300.4 [] 300)))
+    (is (= [[0 4]] (transcribe/cuts 4 [] 600)) "a short file is its one piece"))
+  (testing "the words of a piece are its text when they carry nine tenths of its letters"
+    (is (transcribe/covers? [(word "Hello," 0 0.3) (word "world." 0.4 0.8)] "Hello, world."))
+    (is (transcribe/covers? [(word "今日の" 0 1) (word "テーマ" 1 2)] "今日のテーマ"))
+    (is (not (transcribe/covers? [(word "今日の" 0 1)] "今日のテーマは音声です")) "an utterance of several is missing")
+    (is (not (transcribe/covers? [] "A text without words.")))
+    (is (not (transcribe/covers? [] ""))))
   (testing "a busy or broken service and a lost request are tried again; a refusal is not"
     (is (transcribe/retry? "The transcription service answered 502: Bad Gateway"))
     (is (transcribe/retry? "The transcription service answered 429: Too many requests"))
@@ -176,8 +177,12 @@
 (defn- fake-openrouter
   "Answers `/audio/transcriptions` with one sentence per request, its
    words in the first second, and a cost, 150 ms later; 401 without the
-   key. Under `/bare/` the words carry no punctuation. Every request is
-   noted in `seen`, and the most at a time in `most`."
+   key. Under `/bare/` the words carry no punctuation; under `/late/`
+   the earlier a request the later its answer, and a piece of under
+   three quarters of a second says `Tail.`; under `/fail2/` the second
+   request is refused with 400; under `/whole/` the text says more
+   than the words. Every request is noted in `seen`, and the most at a
+   time in `most`."
   [seen most]
   (let [running (atom 0)]
     (http/createServer
@@ -193,18 +198,30 @@
                                                            :keys (set (keys body))
                                                            :format (get-in body [:input_audio :format])
                                                            :bytes (count (get-in body [:input_audio :data]))}))
-                                bare? (str/includes? (.-url req) "/bare/")]
+                                in? #(str/includes? (.-url req) %)
+                                bare? (in? "/bare/")
+                                ;; an MP3 of a second at 48 kbit/s is 8000 characters of base64
+                                tail? (and (in? "/late/") (< (:bytes (peek @seen)) 6000))
+                                refused? (and (in? "/fail2/") (= 2 n))]
                             (js/setTimeout
                              (fn []
                                (swap! running dec)
-                               (.writeHead res (if (= "Bearer k3y" (aget (.-headers req) "authorization")) 200 401)
+                               (.writeHead res (cond
+                                                 (not= "Bearer k3y" (aget (.-headers req) "authorization")) 401
+                                                 refused? 400
+                                                 :else 200)
                                            #js {"Content-Type" "application/json"})
                                (.end res (js/JSON.stringify
-                                          (clj->js {:text (str "Piece " n ".")
-                                                    :words [{:word "Piece" :start 0.1 :end 0.4 :confidence 0.98}
-                                                            {:word (str n (when-not bare? ".")) :start 0.5 :end 0.9 :confidence 0.9}]
-                                                    :usage {:seconds 1 :cost 0.001}}))))
-                             150)))))))))
+                                          (clj->js (cond
+                                                     refused? {:error {:message "Provider returned 400"}}
+                                                     tail? {:text "Tail."
+                                                            :words [{:word "Tail." :start 0.1 :end 0.3 :confidence 0.9}]
+                                                            :usage {:seconds 1 :cost 0.001}}
+                                                     :else {:text (str "Piece " n "." (when (in? "/whole/") " And a good deal more that its words do not carry."))
+                                                            :words [{:word "Piece" :start 0.1 :end 0.4 :confidence 0.98}
+                                                                    {:word (str n (when-not bare? ".")) :start 0.5 :end 0.9 :confidence 0.9}]
+                                                            :usage {:seconds 1 :cost 0.001}})))))
+                             (if (in? "/late/") (max 20 (- 700 (* 110 n))) 150))))))))))
 
 (defn- set-var!
   [k v]
@@ -262,20 +279,47 @@
                      (is (str/includes? answer "[0:00] Piece 1. Piece 2. Piece 3."))
                      (is (= "# ab12.wav\n\nTranscript of uploads/ab12.wav, 0:02, model assemblyai/universal-3-6-pro.\n\n[0:00] Piece 1. Piece 2. Piece 3.\n"
                             (fs/readFileSync file "utf8")))))
-                 (testing "the pieces with the model a few at a time, their words in the pieces' order whatever order they came in"
+                 (testing "the pieces with the model a few at a time, their words in the pieces' order whatever order the answers came in"
                    (reset! seen [])
                    (reset! most 0)
                    (fs/writeFileSync (path/join work "uploads" "long.wav") (wav 5.5))
-                   (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/long.wav" :piece-seconds 1
-                                                                :parallel 2 :words? true}))
-                         saved (js->clj (js/JSON.parse (fs/readFileSync (path/join dir "transcripts" "long.words.json") "utf8")) :keywordize-keys true)]
-                     (let [starts (map :start (filter #(= "Piece" (:word %)) (:words saved)))]
+                   (aset env "OPENROUTER_BASE_URL" (base "/late"))
+                   (try
+                     ;; the last piece is half a second: its answer says "Tail." and comes first of the last two
+                     (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/long.wav" :piece-seconds 1
+                                                                  :parallel 2}))
+                           text (str/trim (fs/readFileSync (path/join dir "transcripts" "long.md") "utf8"))]
                        (is (< 5 (count @seen)))
-                       (is (= (count @seen) (count starts)))
-                       (is (= 0.1 (first starts)))
-                       (is (apply < starts) "each piece's words after the one before's"))
-                     (is (= 2 @most) "two at a time")
-                     (is (str/includes? answer "the words with the times the model gave them, not checked against the sound, in artifacts/transcripts/long.words.json"))))
+                       (is (= (dec (count @seen)) (count (re-seq #"Piece \d+\." text))) "every piece but the last")
+                       (is (str/ends-with? text "Tail.") "the last piece's words last")
+                       (is (= 1 (count (re-seq #"Tail\." text))))
+                       (is (= 2 @most) "two at a time")
+                       (is (not (str/includes? answer "words.json")) "no file of word times")
+                       (is (not (fs/existsSync (path/join dir "transcripts" "long.words.json")))))
+                     (finally
+                       (aset env "OPENROUTER_BASE_URL" (base "")))))
+                 (testing "a piece that fails is marked where it would stand, the others are written down, and the answer says it is not whole"
+                   (reset! seen [])
+                   (aset env "OPENROUTER_BASE_URL" (base "/fail2"))
+                   (try
+                     (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "gap.md"
+                                                                  :piece-seconds 1 :parallel 1 :timestamps? true}))
+                           text (fs/readFileSync (path/join dir "gap.md") "utf8")]
+                       (is (= 3 (count @seen)) "a refusal is not tried again, and the piece after it is sent")
+                       (is (str/starts-with? answer "artifacts/gap.md: 0:02, 4 words, $0.002"))
+                       (is (str/includes? answer "\nNot whole: 1 of 3 pieces failed and are marked in the text (0:0"))
+                       (is (re-find #"\(0:0\d to 0:0\d\): The transcription service answered 400: Provider returned 400\. Run it again for the whole of it\.\n" answer))
+                       (is (re-find #"\[0:00\] Piece 1\.\n\n\[0:0\d\] \[0:0\d to 0:0\d is not written down: The transcription service answered 400: Provider returned 400\]\n\n\[0:0\d\] Piece 3\.\n$" text)))
+                     (finally
+                       (aset env "OPENROUTER_BASE_URL" (base "")))))
+                 (testing "a piece whose words are not its text is written from the text"
+                   (aset env "OPENROUTER_BASE_URL" (base "/whole"))
+                   (try
+                     (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "whole.md"}))]
+                       (is (re-find #"\n\nPiece \d+\. And a good deal more that its words do not carry\.$" answer))
+                       (is (str/starts-with? answer "artifacts/whole.md: 0:02, 13 words")))
+                     (finally
+                       (aset env "OPENROUTER_BASE_URL" (base "")))))
                  (testing "words without punctuation: a paragraph for every piece, at its start"
                    (aset env "OPENROUTER_BASE_URL" (base "/bare"))
                    (try
@@ -322,19 +366,16 @@
                      (is (str/starts-with? answer "artifacts/talk/words.md: "))
                      (is (not (str/includes? answer "[0:00]")))
                      (is (fs/existsSync (path/join dir "talk" "words.md")))))
-                 (testing "corrected through the tool's api, the words with their times beside the transcript"
+                 (testing "corrected through the tool's api"
                    (let [api #js {:conversationId "c1"
                                   :conversation (fn [_ _] (js/Promise.resolve nil))}
                          answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "talk/fixed.md"
-                                                                :words? true :api api :names "Peace" :messages (fn [_ _] (js/Promise.reject (js/Error. "no bot")))
-                                                                :complete (fn [_] (js/Promise.resolve {:text "{\"fixes\": [{\"heard\": \"Piece\", \"meant\": \"Peace\"}]}" :cost 0}))}))
-                         saved (js->clj (js/JSON.parse (fs/readFileSync (path/join dir "talk" "fixed.words.json") "utf8")) :keywordize-keys true)]
-                     (is (str/includes? answer "in artifacts/talk/fixed.words.json"))
+                                                                :api api :names "Peace" :messages (fn [_ _] (js/Promise.reject (js/Error. "no bot")))
+                                                                :complete (fn [_] (js/Promise.resolve {:text "{\"fixes\": [{\"heard\": \"Piece\", \"meant\": \"Peace\"}]}" :cost 0}))}))]
                      (is (re-find #"Corrected: Piece → Peace( \(\d×\))?\." answer))
                      (is (re-find #"\n\nPeace \d+\." answer))
-                     (is (= "uploads/ab12.wav" (:file saved)))
-                     (is (= "assemblyai/universal-3-6-pro" (:model saved)))
-                     (is (= {:word "Peace" :start 0.1 :end 0.4 :confidence 0.98 :heard "Piece"} (first (:words saved))))))
+                     (is (str/includes? (fs/readFileSync (path/join dir "talk" "fixed.md") "utf8") "Peace"))
+                     (is (not (fs/existsSync (path/join dir "talk" "fixed.words.json"))))))
                  (testing "a bad key: the service's answer"
                    (aset env "OPENROUTER_API_KEY" "wrong")
                    (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav"}))) "answered 401")))

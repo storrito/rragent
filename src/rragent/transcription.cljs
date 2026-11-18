@@ -19,16 +19,19 @@
    the text, fast and cheap, and leaves the exact times of the words to
    agentitos' `transcribe` skill. Measured on 2026-11-18 on pieces of
    five minutes, eight at a time, against the references of nine
-   recordings (the word error rate in lower case, without punctuation
-   and hesitations, numbers as written): Universal-3.6 Pro $0.0050 a
-   minute, 1 s a piece (2.5 s at most), 9.0 % on German (four
-   recordings, 3953 words, the best on each) and 11.6 % on English
-   (five, 10342 words; an Indian speaker came out partly in
-   Devanagari, 21.5 %, again when sent again); Scribe v2 $0.0037, 6 s
-   (10 s), 11.1 % and 15.7 % (one piece came back as a list of names in
-   Chinese; sent again, 9.6 %); Qwen3-ASR 1.7B $0.00045, 7 s (38 s),
-   10.5 % and 10.6 %, its words without punctuation in four of 13
-   recordings and without scores. No language is named, the model
+   recordings (the word error rate in lower case, without punctuation,
+   hesitations and numbers, which the models write differently, 2020
+   and twenty twenty): Universal-3.6 Pro $0.0050 a minute, 1 s a piece
+   (2.5 s at most), 8.3 % on German (four recordings, 3761 words, the
+   best on each) and 10.6 % on English (five, 9692 words; an Indian
+   speaker came out partly in Devanagari, again when sent again);
+   Scribe v2 $0.0037, 6 s (10 s), 9.9 % and 7.5 % (13.9 % as it first
+   came: one piece came back as a list of names in Chinese, and right
+   when sent again); Qwen3-ASR 1.7B $0.00045, 7 s (38 s), 10.3 % and
+   10.0 %, its words without punctuation in four of 13 recordings and
+   without scores. So the dictation's model is the dearest of the
+   three, the fastest and the best on German, Scribe the best on
+   English; the tool takes it for its German and its speed. No language is named, the model
    detects the one spoken. The request goes where the REPL `codemode`
    of the agent knows OpenRouter: through the gateway's connection,
    else with OPENROUTER_API_KEY (`rragent.openrouter`, as the models

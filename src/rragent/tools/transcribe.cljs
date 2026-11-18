@@ -35,8 +35,10 @@
    where `out` says: paragraphs cut at the pauses of the speech
    (`paragraphs`), each with its time when `timestamps` is asked; and
    the answer carries the text, so the agent works with it at once.
-   With `words`, every word with its start, end and confidence as the
-   model gave them goes beside it as `<name>.words.json`."
+   The times of the words stay inside the tool, for the paragraphs:
+   they are the model's, not checked against the sound, and nothing is
+   cut by them (agentitos' `transcribe` skill writes the words a cut
+   can stand on)."
   (:require ["@earendil-works/chord/context" :refer [BACKGROUND_CONTEXT]]
             ["@earendil-works/pi-ai" :refer [Type]]
             ["@earendil-works/pi-durable" :refer [defineTool]]
@@ -243,13 +245,19 @@
    reaches into the last `pause-window` of it, as near the pause's
    middle as the window lets it; without a pause there where
    `quietest` (a function of the window's start and end) says, else at
-   its full length; the last piece ends with the file."
+   its full length; the last piece ends with the file, and takes a
+   remainder of under a thirtieth of a piece with it, ten seconds of
+   five minutes (a piece of a fraction of a second is nothing a model
+   writes down)."
   [duration pauses seconds & [quietest]]
   (let [window (* pause-window seconds)]
     (loop [start 0
            out []]
       (if (<= (- duration start) seconds)
-        (conj out [start duration])
+        ;; a remainder of a thirtieth of a piece goes with the piece before it
+        (if (and (seq out) (< (- duration start) (/ seconds 30)))
+          (conj (pop out) [(first (peek out)) duration])
+          (conj out [start duration]))
         (let [full (+ start seconds)
               low (- full window)
               cut (or (some->> pauses
@@ -307,6 +315,28 @@
     (if (< s 3600)
       (str (quot s 60) ":" (two (rem s 60)))
       (str (quot s 3600) ":" (two (quot (rem s 3600) 60)) ":" (two (rem s 60))))))
+
+(defn- first-line
+  [message]
+  (first (str/split-lines (str message))))
+
+(def ^:private letter
+  (js/RegExp. "[\\p{L}\\p{N}]" "gu"))
+
+(defn- letters
+  "How many letters and digits `text` has."
+  [text]
+  (.-length (or (.match (str text) letter) #js [])))
+
+(defn covers?
+  "Whether the `words` of a piece are its `text`: they carry nine
+   tenths of its letters at least. Universal-3.6 Pro gave a Japanese
+   recording six `words` an utterance long, 348 of the 580 characters
+   of its text (2026-11-18): written from them, 40 % of what was said
+   was missing."
+  [words text]
+  (and (boolean (seq words))
+       (<= (* 0.9 (letters text)) (letters (str/join (map :word words))))))
 
 (defn- usable?
   "Whether the words make the text: every one carries its time, and
@@ -402,12 +432,6 @@
   (when (and (number? cost) (pos? cost))
     (str ", $" (.toFixed cost 3))))
 
-(defn words-file
-  "Where the words of the transcript `out` go: beside it, `.words.json`
-   for its extension."
-  [out]
-  (str (str/replace out #"\.[^./]+$" "") ".words.json"))
-
 (defn ^:async bot-messages
   "The messages of the bot of the call, as the dictation's correction
    reads them (`rragent.correction`): from the bot's conversation that
@@ -448,27 +472,6 @@
       (catch :default error
         (assoc state :fixed (str "Not corrected: " (.-message error) "."))))))
 
-(defn without-length
-  "How many of `words` came without a length, their end at their start
-   (within 20 ms)."
-  [words]
-  (count (filter (fn [{:keys [start end]}]
-                   (and (number? start) (or (not (number? end)) (< (- end start) 0.02))))
-                 words)))
-
-(defn length-warning
-  "The line the answer carries when the model gave a third or more of
-   `words` (of 20 at least) no length: the words file has no ends to
-   cut at. Universal-3.6 Pro did so for nearly all words of an English
-   recording in November 2026, and on 2026-11-18 for half the words of
-   French and Spanish and next to none of English and German."
-  [words]
-  (let [n (count words)
-        bare (without-length words)]
-    (when (and (<= 20 n) (<= (/ n 3) bare))
-      (str bare " of " n " words came without a length (their end at their start): "
-           "the model gave no word ends, so a cut at them is a guess."))))
-
 (def parallel
   "How many pieces are encoded and with the model at a time: an hour
    is two rounds of eight. Eight answered as fast as
@@ -500,6 +503,8 @@
                             (.catch (fn [error] {:error error}))))]
       (cond
         (:body result) (:body result)
+        (and (contains? result :body) (< attempt attempts)) (recur (inc attempt))
+        (contains? result :body) (throw (js/Error. "The transcription service answered something that is no transcription."))
         (and (< attempt attempts) (retry? (.-message (:error result))))
         (do (await (js/Promise. (fn [resolve] (js/setTimeout resolve (* 2000 attempt)))))
             (recur (inc attempt)))
@@ -526,9 +531,13 @@
   "The transcript of `file` written to `out` under `dir`
    (`artifacts/`), its words corrected through `api` (the tool's, with
    the call's `context`) when there is one, by `complete` (OpenRouter's
-   unless a test gives one), and beside it the words with their times
-   when `words?`; answers the line for the model with the text."
-  [{:keys [codemode work dir file out timestamps? words? api context names] :as options}]
+   unless a test gives one); answers the line for the model with the
+   text. A piece the model's words do not cover (it wrote a Japanese
+   recording's text whole and timed 60 % of it, 2026-11-18) is written
+   from its text; a piece that fails after its tries is marked in the
+   text where it would stand, and the answer says the transcript is
+   not whole; only when every piece fails does the tool throw."
+  [{:keys [codemode work dir file out timestamps? api context names] :as options}]
   (let [source (source-file work file)
         out (or (not-empty out) (str "transcripts/" (str/replace (path/basename source) #"\.[^.]+$" "") ".md"))
         _ (check-out out)
@@ -536,26 +545,52 @@
         temp (fs/mkdtempSync (path/join (os/tmpdir) "rragent-transcribe-"))]
     (try
       (let [{:keys [sound seconds pieces]} (await (planned! source temp (:piece-seconds options)))
+            ;; a piece that fails does not lose what the others say: its place is marked
             bodies (await (at-most (or (:parallel options) parallel) pieces
                                    (^:async fn [piece n]
-                                     (await (transcription-of codemode (await (encoded! sound n piece)) "mp3")))))
-            parts (mapv (fn [[start] body]
-                          {:start start
-                           :text (str/trim (str (:text body)))
-                           :words (shifted (mapv #(select-keys % [:word :start :end :confidence]) (:words body)) start)})
+                                     (await (-> (encoded! sound n piece)
+                                                (.then #(transcription-of codemode % "mp3"))
+                                                (.catch (fn [error] {:failed (first-line (.-message error))})))))))
+            _ (when (every? :failed bodies)
+                (throw (js/Error. (:failed (first bodies)))))
+            parts (mapv (fn [[start end] body]
+                          (let [text (str/trim (str (:text body)))
+                                words (mapv (fn [word] (cond-> word (number? (:start word)) (update :start min (- end 0.001))))
+                                            (shifted (mapv #(select-keys % [:word :start :end :confidence]) (:words body)) start))]
+                            (cond-> {:start start :end end :text text}
+                              (:failed body) (assoc :failed (:failed body))
+                              ;; the words only where they are the text
+                              (covers? words text) (assoc :words words))))
                         pieces bodies)
             state {:seconds seconds
                    :words (into [] (mapcat :words) parts)
-                   :text (str/join "\n\n" (remove str/blank? (map :text parts)))
+                   :text (str/join "\n\n" (remove str/blank? (map :text (filter :words parts))))
                    :cost (reduce + (map #(or (some-> % :usage :cost) 0) bodies))}
-            unlengthed (length-warning (:words state))
             state (await (corrected state {:api api :context context :names names :messages (:messages options)
                                            :complete (or (:complete options) (transcript-correction/openrouter-complete codemode))}))
-            timed? (usable? (:words state) (:text state))
-            ;; without word times, a paragraph for every piece, at its start
-            paragraphs (if timed?
-                         (paragraphs (:words state) (:text state) 0)
-                         (into [] (mapcat #(paragraphs nil (:text %) (:start %))) parts))
+            ;; the pieces in a row whose words are their text, written from the words; the others
+            ;; from their text, one paragraph each at the piece's start
+            runs (partition-by #(boolean (:words %)) parts)
+            timed? (every? (fn [run]
+                             (or (not (:words (first run)))
+                                 (usable? (mapcat :words run) (str/join " " (map :text run)))))
+                           runs)
+            paragraphs (into []
+                             (mapcat (fn [run]
+                                       (let [from (:start (first run))
+                                             to (:end (last run))
+                                             words (filterv #(and (<= from (:start %)) (< (:start %) to)) (:words state))
+                                             text (str/join " " (map :text run))]
+                                         (if (and (:words (first run)) (usable? words text))
+                                           (paragraphs words text from)
+                                           (mapcat (fn [{:keys [start end text failed]}]
+                                                     (if failed
+                                                       [{:start start :gap? true :text (str "[" (clock start) " to " (clock end) " is not written down: " failed "]")}]
+                                                       (paragraphs nil text start)))
+                                                   run)))))
+                             runs)
+            failed (filter :failed parts)
+            loose (remove #(or (:failed %) (:words %) (str/blank? (:text %))) parts)
             transcript (transcript-text paragraphs (boolean timestamps?))
             heading (str "# " (path/basename source) "\n\n"
                          "Transcript of " (path/relative work source) ", " (clock seconds) ", model " transcription/transcribe-model ".\n\n")]
@@ -563,23 +598,18 @@
           (throw (js/Error. (str "The model heard no words in " (path/relative work source) "."))))
         (fs/mkdirSync (path/dirname target) #js {:recursive true})
         (fs/writeFileSync target (str heading transcript "\n"))
-        (when words?
-          (fs/writeFileSync (path/join dir (words-file out))
-                            (js/JSON.stringify (clj->js {:file (path/relative work source)
-                                                         :model transcription/transcribe-model
-                                                         :seconds seconds
-                                                         :words (:words state)})
-                                               nil 1)))
         (str "artifacts/" out ": " (clock seconds) ", "
-             ;; the words the model timed, when it timed them: a text without spaces has none to count
-             (if timed?
+             ;; the words the model timed, when it timed them all: a text without spaces has none to count
+             (if (and timed? (empty? loose) (empty? failed))
                (count (:words state))
-               (count (str/split (str/trim (transcript-text paragraphs false)) #"\s+")))
+               (count (str/split (str/trim (transcript-text (remove :gap? paragraphs) false)) #"\s+")))
              " words"
              (cost-text (:cost state)) ", model " transcription/transcribe-model
-             (when words? (str "; the words with the times the model gave them, not checked against the sound, in artifacts/" (words-file out)))
              "; for cutting, captions or who speaks, the transcribe skill writes a word-exact transcript where the machine has it"
-             (when unlengthed (str "\n" unlengthed))
+             (when (seq failed)
+               (str "\nNot whole: " (count failed) " of " (count parts) " pieces failed and are marked in the text ("
+                    (str/join ", " (map #(str (clock (:start %)) " to " (clock (:end %))) failed)) "): " (:failed (first failed))
+                    ". Run it again for the whole of it."))
              (when (:fixed state) (str "\n" (:fixed state)))
              "\n\n"
              (if (< answer-chars (count transcript))
@@ -596,15 +626,13 @@
         :description (str "What was said in an audio or a video file, written down fast and cheap by a speech-to-text model (half a cent a minute, an hour in under a minute), the language detected: the text in paragraphs, to read, quote or sum up. "
                           "`file` is a path under the working directory: uploads/<name> for a file the person attached or recorded, artifacts/<path> for one of yours. "
                           "The transcript goes to artifacts/transcripts/<name>.md, or to `out`, and comes back as the answer; with `timestamps` every paragraph starts with its time. "
-                          "Names the model misheard are corrected from our conversation and the `names` you pass (accounts, products, people), every word keeping its time; the answer says what changed. "
-                          "With `words`, every word with the start and end in seconds the model gave it goes beside the transcript as <name>.words.json; those times are not checked against the sound. "
+                          "Names the model misheard are corrected from our conversation and the `names` you pass (accounts, products, people); the answer says what changed, and when a piece failed, that the transcript is not whole. "
                           "For cutting a video, captions or who speaks, use the transcribe skill when the machine has it (its SKILL.md among the skills): it is word-exact and names the speakers; this tool does neither. "
                           "ffmpeg cuts the sound into pieces of five minutes in pauses, all written down at once; without ffmpeg the tool refuses. bash has ffmpeg for cutting, converting and cleaning the audio too (ffmpeg -i in.mp3 -ss 0:30 -to 2:00 out.mp3).")
         :parameters (.Object Type #js {:file (.String Type #js {:description "The audio or video file, uploads/ab12.mp3 or artifacts/talk.m4a"})
                                        :out (.Optional Type (.String Type #js {:description "Where the transcript goes under artifacts/, transcripts/<name>.md by default"}))
                                        :timestamps (.Optional Type (.Boolean Type #js {:description "True: every paragraph starts with its time, m:ss"}))
-                                       :names (.Optional Type (.String Type #js {:description "Names and terms that may be spoken, comma-separated: accounts, products, people"}))
-                                       :words (.Optional Type (.Boolean Type #js {:description "True: also every word with the times the model gave it, <name>.words.json"}))})
+                                       :names (.Optional Type (.String Type #js {:description "Names and terms that may be spoken, comma-separated: accounts, products, people"}))})
         :execute (^:async fn [args api call-context]
                    (work/text (await (transcribe! {:codemode codemode
                                                    :work (work/dir api)
@@ -612,7 +640,6 @@
                                                    :file (.-file args)
                                                    :out (.-out args)
                                                    :timestamps? (true? (.-timestamps args))
-                                                   :words? (true? (.-words args))
                                                    :names (.-names args)
                                                    :api api
                                                    :context call-context}))))}))
