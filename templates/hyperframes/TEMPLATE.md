@@ -30,6 +30,11 @@ whenever a file of it changes.
   installed version runs. The pane beside the chat is the preview: no
   `hyperframes preview`, no desktop app, no `open`; the person sees
   every saved change at once.
+- A storyboard (the skills' `references/storyboard.md`: every shot
+  posed as a still for the person's go before it is animated) has no
+  tab here and no page of its own: snapshot the stills into a folder
+  under `uploads/` and show them as pictures in your message; their go
+  is their next message. Until then the composition stays posed.
 - `composition/index.html`: the design. The root carries
   `data-composition-id`, `data-duration` (seconds), `data-width` and
   `data-height` (1080 by 1920 for a story); timed elements are
