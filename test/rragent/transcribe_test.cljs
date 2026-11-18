@@ -1,7 +1,8 @@
 (ns rragent.transcribe-test
   "The transcribe tool: the paragraphs from the words and their times,
-   and a file written down against a fake OpenRouter, in pieces when
-   ffmpeg is on the machine, the times of the later pieces shifted."
+   and a file written down against a fake OpenRouter in pieces, a few
+   at a time, the times of the later pieces shifted; without ffmpeg a
+   refusal."
   (:require ["node:child_process" :as child]
             ["node:fs" :as fs]
             ["node:http" :as http]
@@ -51,18 +52,9 @@
            (transcribe/transcript-text [{:start 0 :text "Hallo"} {:start 3903.4 :text "Welt"}] true)))
     (is (= "Hallo\n\nWelt"
            (transcribe/transcript-text [{:start 0 :text "Hallo"} {:start 3903.4 :text "Welt"}] false))))
-  (testing "a paragraph ends where another speaker begins; a sound is nobody's; the letters only when more than one speaks"
-    (let [said (fn [text start end speaker] (assoc (word text start end) :speaker speaker))
-          paragraphs (transcribe/paragraphs [(said "Hallo," 0.0 0.4 "A") (said "Welt." 0.5 1.0 "A") (said "Ja." 1.1 1.3 "B")
-                                             (assoc (said "[lacht]" 1.4 1.8 "A") :kind "event") (said "Genau." 2.0 2.4 "B")
-                                             (said "Weiter." 62.5 63.0 "A")]
-                                            "Hallo, Welt. Ja. Genau. Weiter." 0)]
-      (is (= [{:start 0.0 :text "Hallo, Welt." :speaker "A"} {:start 1.1 :text "Ja. [lacht] Genau." :speaker "B"} {:start 62.5 :text "Weiter." :speaker "A"}]
-             paragraphs))
-      (is (= "[0:00] A: Hallo, Welt.\n\n[0:01] B: Ja. [lacht] Genau.\n\n[1:02] A: Weiter." (transcribe/transcript-text paragraphs true)))
-      (is (= "A: Hallo, Welt.\n\nB: Ja. [lacht] Genau.\n\nA: Weiter." (transcribe/transcript-text paragraphs false)))
-      (is (= "[0:00] Hallo, Welt." (transcribe/transcript-text [{:start 0 :text "Hallo, Welt." :speaker "A"}] true))
-          "one speaker is not named")))
+  (testing "words without a length, as Universal-3.6 Pro gives some: the pause after one is reckoned from its start"
+    (is (= [{:start 0 :text "Eins, zwei."} {:start 27.2 :text "Drei."}]
+           (transcribe/paragraphs [(word "Eins," 0 0) (word "zwei." 26 26) (word "Drei." 27.2 27.2)] "Eins, zwei. Drei." 0))))
   (testing "the words of a later piece shifted"
     (is (= [{:word "a" :start 600.5 :end 601.0 :confidence 0.9}]
            (transcribe/shifted [(word "a" 0.5 1.0)] 600)))))
@@ -129,113 +121,6 @@
     (is (= 1.55 (transcribe/quietest (env-of [1.5 0.3] [0.1 0.05] [1.4 0.3]) 1 3)))
     (is (= 2.5 (transcribe/quietest (env-of [1 0.3]) 2 2.5)) "a stretch past the sound: its end")))
 
-(deftest words-test
-  (testing "a sound the model named among the words is marked, a word is not"
-    (is (= [{:word "[Applaus]" :start 1 :end 2 :kind "event"} {:word "Danke." :start 2 :end 2.4}
-            {:word "(laughs)" :start 3 :end 3.5 :kind "event"} {:word "[música]," :start 4 :end 5 :kind "event"}
-            {:word "[sic" :start 6 :end 6.2}]
-           (transcribe/marked [{:word "[Applaus]" :start 1 :end 2} {:word "Danke." :start 2 :end 2.4}
-                               {:word "(laughs)" :start 3 :end 3.5} {:word "[música]," :start 4 :end 5}
-                               {:word "[sic" :start 6 :end 6.2}]))))
-  (testing "a word without a length takes the room between its neighbours, 0.15 s to either side at most"
-    (is (= [(word "as" 103.16 103.24) (assoc (word "a" 103.24 103.32) :by "neighbours") (word "result" 103.32 103.72)]
-           (transcribe/fitted [(word "as" 103.16 103.24) (word "a" 103.26 103.26) (word "result" 103.32 103.72)])))
-    (is (= [(word "And," 699.0 699.24) (assoc (word "you" 699.77 699.98) :by "neighbours") (word "know," 699.98 700.02)]
-           (transcribe/fitted [(word "And," 699.0 699.24) (word "you" 699.92 699.92) (word "know," 699.98 700.02)])))
-    (is (= [(assoc (word "Oh" 0 0.15) :by "neighbours")]
-           (transcribe/fitted [(word "Oh" 0 0)]))
-        "the first and only word: none before the start of the file")
-    (is (= [(word "a" 1 1.5) (word "b" 1.2 1.2) (word "c" 1.1 1.6)]
-           (transcribe/fitted [(word "a" 1 1.5) (word "b" 1.2 1.2) (word "c" 1.1 1.6)]))
-        "neighbours that overlap it leave no room")
-    (is (= [(word "a" 1 1.4) (word "b" 1.5 1.9)]
-           (transcribe/fitted [(word "a" 1 1.4) (word "b" 1.5 1.9)]))
-        "words with a length stay")
-    (is (= [{:word "[Jingle]" :start 2 :end 2}]
-           (transcribe/fitted [{:word "[Jingle]" :start 2 :end 2}]))
-        "a sound is no word")))
-
-(defn- voiced
-  [text start end voice]
-  {:word text :start start :end end :voice voice})
-
-(defn- spoken
-  [text start end speaker]
-  {:word text :start start :end end :speaker speaker})
-
-(deftest speakers-test
-  (testing "the model's words as the tool keeps them: the voice, a sound it typed as one, nothing else of its own"
-    (is (= [{:word "[laughs]" :start 0 :end 1 :confidence 0.7 :kind "event" :voice "0"}
-            {:word "Hi" :start 1 :end 1.2 :voice "1"}
-            {:word "there" :start 1.2 :end 1.5}]
-           (transcribe/heard-words {:words [{:word "[laughs]" :start 0 :end 1 :confidence 0.7 :type "audio_event" :speaker 0 :speaker_label "speaker_0"}
-                                            {:word "Hi" :start 1 :end 1.2 :speaker 1 :speaker_label "speaker_1" :logprob -0.1}
-                                            {:word "there" :start 1.2 :end 1.5}]}))))
-  (testing "one piece: its voices are the speakers, A the first to speak"
-    (is (= [(spoken "Hello" 0 0.4 "A") (spoken "Hi" 0.5 0.8 "B") (spoken "again" 1 1.4 "A") {:word "bare" :start 2 :end 2.2}]
-           (transcribe/linked [{:start 0 :words [(voiced "Hello" 0 0.4 "1") (voiced "Hi" 0.5 0.8 "0") (voiced "again" 1 1.4 "1") {:word "bare" :start 2 :end 2.2}]}] 300))))
-  (testing "two pieces that number the voices the other way round: a voice is the person it shares its words with where both heard"
-    (let [first-piece [(voiced "one" 1 1.3 "0") (voiced "two" 2 2.3 "1")
-                       (voiced "alpha" 91 91.3 "0") (voiced "beta" 92 92.3 "0") (voiced "gamma" 93 93.3 "0")
-                       (voiced "delta" 95 95.3 "1") (voiced "epsilon" 96 96.3 "1")]
-          second-piece [(voiced "Alpha," 91.1 91.4 "1") (voiced "beta" 92.05 92.3 "1") (voiced "gamma" 93 93.3 "1")
-                        (voiced "delta" 94.9 95.3 "0") (voiced "epsilon." 96 96.3 "0")
-                        (voiced "zeta" 101 101.3 "1") (voiced "eta" 102 102.3 "0") (voiced "theta" 103 103.3 "2")]]
-      (is (= [(spoken "one" 1 1.3 "A") (spoken "two" 2 2.3 "B")
-              (spoken "alpha" 91 91.3 "A") (spoken "beta" 92 92.3 "A") (spoken "gamma" 93 93.3 "A")
-              (spoken "delta" 95 95.3 "B") (spoken "epsilon" 96 96.3 "B")
-              (spoken "zeta" 101 101.3 "A") (spoken "eta" 102 102.3 "B") (spoken "theta" 103 103.3 "C")]
-             (transcribe/linked [{:start 0 :words first-piece} {:start 100 :words second-piece}] 10))
-          "what the second piece heard before its start is the first's to write; a voice that shares nothing is someone new")))
-  (testing "one voice without a person and one person without a voice: the one who said nothing in the overlap"
-    (let [first-piece [(voiced "one" 1 1.3 "0") (voiced "two" 2 2.3 "1") (voiced "alpha" 91 91.3 "0") (voiced "beta" 92 92.3 "0")]]
-      (is (= ["A" "B" "A" "A" "B" "A"]
-             (map :speaker (transcribe/linked [{:start 0 :words first-piece}
-                                               {:start 100 :words [(voiced "alpha" 91 91.3 "5") (voiced "beta" 92 92.3 "5")
-                                                                   (voiced "eta" 102 102.3 "7") (voiced "zeta" 103 103.3 "5")]}]
-                                              10))))
-      (is (= ["A" "B" "A" "A" "C" "D" "A"]
-             (map :speaker (transcribe/linked [{:start 0 :words first-piece}
-                                               {:start 100 :words [(voiced "alpha" 91 91.3 "5") (voiced "beta" 92 92.3 "5")
-                                                                   (voiced "eta" 102 102.3 "7") (voiced "iota" 102.5 102.8 "8") (voiced "zeta" 103 103.3 "5")]}]
-                                              10)))
-          "two voices without a person are two new people")
-      (is (= ["A" "B" "A" "A" "C"]
-             (map :speaker (transcribe/linked [{:start 0 :words first-piece}
-                                               {:start 100 :words [(voiced "alpha" 91 91.3 "5") (voiced "kappa" 102 102.3 "5")]}]
-                                              10)))
-          "one shared word is no proof"))))
-
-(deftest edges-test
-  (let [early (word "early" 0.2 0.9)
-        late (word "late" 1.45 2.0)
-        edges (fn [words] (mapv (juxt :start :end) words))]
-    (testing "a word ends where its sound stops and begins where its sound sets in (a frame in, for the smoothing)"
-      (is (= [[0.2 1.01] [1.29 2.0]]
-             (edges (transcribe/edged [early late] (env-of [1 0.3] [0.3 0.001] [1 0.3]))))))
-    (testing "with noise under the speech, quiet is what is near the ground of the sound"
-      (is (= [0.1 0.1 0.1] (mapv #(/ (js/Math.round (* 1000 %)) 1000) (array-seq (transcribe/quiet-levels (env-of [1 0.3] [0.3 0.05] [1 0.3] [0.3 0.05]))))))
-      (is (= [0.024 0.024 0.024] (mapv #(/ (js/Math.round (* 1000 %)) 1000) (array-seq (transcribe/quiet-levels (env-of [1 0.3] [0.3 0.001] [1 0.3]))))))
-      (is (= [[0.2 1.01] [1.29 2.31]]
-             (edges (transcribe/edged [early (word "late" 1.45 2.3)] (env-of [1 0.3] [0.3 0.05] [1 0.3] [0.3 0.05]))))))
-    (testing "sound that goes on for more than 0.4 s is not the word's"
-      (is (= [[0.1 0.3] [1.9 2.2]]
-             (edges (transcribe/edged [(word "a" 0.1 0.3) (word "b" 1.9 2.2)] (env-of [1 0.3] [0.3 0.001] [1 0.3]))))))
-    (testing "two words with sound all the way between them meet where it is weakest"
-      (is (= [[0.2 1.01] [1.01 2.04]]
-             (edges (transcribe/edged [early (word "next" 1.1 1.8)] (env-of [1 0.3] [0.03 0.15] [1 0.3] [0.5 0.001])))))
-      (is (= [[0.2 0.9] [1.1 1.8]]
-             (edges (transcribe/edged [early (word "next" 1.1 1.8)] (env-of [1 0.3] [0.03 0.15] [1 0.3]))))
-          "in sound that never pauses nothing tells a word from the ground, and nothing moves"))
-    (testing "no edge moves inward: a word that ends in the quiet, or begins in it, stays"
-      (is (= [[0.2 1.2] [1.25 2.0]]
-             (edges (transcribe/edged [(word "soft" 0.2 1.2) (word "onset" 1.25 2.0)] (env-of [1 0.3] [0.3 0.001] [1 0.3]))))))
-    (testing "without the sound, or with a word without a time, the words as they came"
-      (is (= [early late] (transcribe/edged [early late] nil)))
-      (is (= [early {:word "bare"}] (transcribe/edged [early {:word "bare"}] (env-of [1 0.3] [0.3 0.001] [1 0.3]))))
-      (is (= [] (transcribe/edged [] (env-of [1 0.3])))))))
-
-
 (defn- wav
   "A WAV of `seconds`, mono, 16 kHz, 16 bit: silence, or a tone of
    440 Hz where `loud?` (a function of the second) says so."
@@ -270,30 +155,56 @@
     (catch :default _
       false)))
 
+;; `at-most`: the answers in the items' order, never more than `n` running
+(deftest at-most-test
+  (async done
+    (let [running (atom 0)
+          most (atom 0)]
+      (-> (transcribe/at-most 2 [30 10 20 5 1]
+                              (fn [ms i]
+                                (swap! most max (swap! running inc))
+                                (js/Promise. (fn [resolve]
+                                               (js/setTimeout #(do (swap! running dec) (resolve [i ms])) ms)))))
+          (.then (fn [answers]
+                   (is (= [[0 30] [1 10] [2 20] [3 5] [4 1]] answers))
+                   (is (= 2 @most))))
+          (.then #(transcribe/at-most 8 [] (fn [_ _] (js/Promise.resolve 1))))
+          (.then #(is (= [] %) "nothing to do"))
+          (.catch (fn [e] (is (nil? e) (str e))))
+          (.finally done)))))
+
 (defn- fake-openrouter
   "Answers `/audio/transcriptions` with one sentence per request, its
-   words in the first second, and a cost; 401 without the key. Every
-   request is noted in `seen`."
-  [seen]
-  (http/createServer
-   (fn [^js req ^js res]
-     (let [chunks #js []]
-       (.on req "data" (fn [c] (.push chunks c)))
-       (.on req "end" (fn []
-                        (let [body (js->clj (js/JSON.parse (.toString (js/Buffer.concat chunks) "utf8")) :keywordize-keys true)
-                              n (count (swap! seen conj {:url (.-url req)
-                                                         :auth (aget (.-headers req) "authorization")
-                                                         :model (:model body)
-                                                         :format (get-in body [:input_audio :format])
-                                                         :diarize (:diarize body)
-                                                         :bytes (count (get-in body [:input_audio :data]))}))]
-                          (.writeHead res (if (= "Bearer k3y" (aget (.-headers req) "authorization")) 200 401)
-                                      #js {"Content-Type" "application/json"})
-                          (.end res (js/JSON.stringify
-                                     (clj->js {:text (str "Piece " n ".")
-                                               :words [{:word "Piece" :start 0.1 :end 0.4 :confidence 0.98}
-                                                       {:word (str n ".") :start 0.5 :end 0.9 :confidence 0.9}]
-                                               :usage {:seconds 1 :cost 0.001}}))))))))))
+   words in the first second, and a cost, 150 ms later; 401 without the
+   key. Under `/bare/` the words carry no punctuation. Every request is
+   noted in `seen`, and the most at a time in `most`."
+  [seen most]
+  (let [running (atom 0)]
+    (http/createServer
+     (fn [^js req ^js res]
+       (let [chunks #js []]
+         (swap! most max (swap! running inc))
+         (.on req "data" (fn [c] (.push chunks c)))
+         (.on req "end" (fn []
+                          (let [body (js->clj (js/JSON.parse (.toString (js/Buffer.concat chunks) "utf8")) :keywordize-keys true)
+                                n (count (swap! seen conj {:url (.-url req)
+                                                           :auth (aget (.-headers req) "authorization")
+                                                           :model (:model body)
+                                                           :keys (set (keys body))
+                                                           :format (get-in body [:input_audio :format])
+                                                           :bytes (count (get-in body [:input_audio :data]))}))
+                                bare? (str/includes? (.-url req) "/bare/")]
+                            (js/setTimeout
+                             (fn []
+                               (swap! running dec)
+                               (.writeHead res (if (= "Bearer k3y" (aget (.-headers req) "authorization")) 200 401)
+                                           #js {"Content-Type" "application/json"})
+                               (.end res (js/JSON.stringify
+                                          (clj->js {:text (str "Piece " n ".")
+                                                    :words [{:word "Piece" :start 0.1 :end 0.4 :confidence 0.98}
+                                                            {:word (str n (when-not bare? ".")) :start 0.5 :end 0.9 :confidence 0.9}]
+                                                    :usage {:seconds 1 :cost 0.001}}))))
+                             150)))))))))
 
 (defn- set-var!
   [k v]
@@ -303,65 +214,92 @@
   [promise]
   (.catch promise (fn [e] (.-message e))))
 
+(defn- length-of
+  "The seconds of an audio file, as ffprobe reads them."
+  [file]
+  (js/parseFloat (.-stdout (child/spawnSync "ffprobe" #js ["-v" "error" "-show_entries" "format=duration" "-of" "csv=p=0" file]
+                                            #js {:encoding "utf8"}))))
+
 (deftest transcribe-test
   (async done
     (let [seen (atom [])
-          server (fake-openrouter seen)
+          most (atom 0)
+          server (fake-openrouter seen most)
           env (.-env js/process)
-          before {:url (aget env "OPENROUTER_BASE_URL") :key (aget env "OPENROUTER_API_KEY")}
+          before {:url (aget env "OPENROUTER_BASE_URL") :key (aget env "OPENROUTER_API_KEY") :path (aget env "PATH")}
           work (fs/mkdtempSync (path/join (os/tmpdir) "rragent-transcribe-"))
-          dir (path/join work "artifacts")]
+          dir (path/join work "artifacts")
+          base #(str "http://127.0.0.1:" (.-port (.address server)) % "/v1/")]
       (-> ((^:async fn []
              (await (js/Promise. (fn [resolve] (.listen server 0 "127.0.0.1" resolve))))
-             (aset env "OPENROUTER_BASE_URL" (str "http://127.0.0.1:" (.-port (.address server)) "/v1/"))
+             (aset env "OPENROUTER_BASE_URL" (base ""))
              (aset env "OPENROUTER_API_KEY" "k3y")
              (fs/mkdirSync (path/join work "uploads") #js {:recursive true})
              (fs/writeFileSync (path/join work "uploads" "ab12.wav") (wav 2.5))
-             (let [codemode (codemode/handle none)
-                   ffmpeg? (ffmpeg?)]
-               (testing "a file under uploads/ is written down into artifacts/transcripts/"
-                 ;; one piece at a time: the fake numbers its answers by the requests' order
-                 (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :piece-seconds 1 :overlap-seconds 0
-                                                              :parallel 1 :timestamps? true}))
-                       file (path/join dir "transcripts" "ab12.md")]
-                   (is (str/starts-with? answer "artifacts/transcripts/ab12.md: 0:0"))
-                   (is (str/includes? answer "model elevenlabs/scribe-v2"))
-                   (is (= "elevenlabs/scribe-v2" (:model (first @seen))) "the tool's model, not the dictation's")
-                   (is (true? (:diarize (first @seen))) "asked for the voices")
-                   (is (fs/existsSync file))
-                   (is (str/starts-with? (fs/readFileSync file "utf8") "# ab12.wav\n\nTranscript of uploads/ab12.wav, 0:0"))
-                   (is (= "Bearer k3y" (:auth (first @seen))))
-                   (if ffmpeg?
-                     (testing ", in pieces of a second, each an MP3, the later ones' words shifted"
-                       (is (= 3 (count @seen)))
-                       (is (= ["mp3" "mp3" "mp3"] (map :format @seen)))
-                       (is (str/includes? answer "[0:00] Piece 1. Piece 2. Piece 3.")))
-                     (testing ", whole without ffmpeg"
-                       (is (= 1 (count @seen)))
-                       (is (= ["wav"] (map :format @seen)))
-                       (is (str/includes? answer "[0:00] Piece 1."))))))
-               (when ffmpeg?
+             (let [codemode (codemode/handle none)]
+               (testing "without ffmpeg the tool refuses, and nothing goes to the model"
+                 (aset env "PATH" (path/join work "no-programs"))
+                 (try
+                   (is (= transcribe/no-ffmpeg
+                          (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav"})))))
+                   (finally
+                     (aset env "PATH" (:path before))))
+                 (is (= [] @seen)))
+               (when (ffmpeg?)
+                 (testing "a file under uploads/ is written down into artifacts/transcripts/, in pieces of a second, each an MP3, the later ones' words shifted"
+                   ;; one piece at a time: the fake numbers its answers by the requests' order
+                   (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :piece-seconds 1
+                                                                :parallel 1 :timestamps? true}))
+                         file (path/join dir "transcripts" "ab12.md")]
+                     (is (str/starts-with? answer "artifacts/transcripts/ab12.md: 0:02, 6 words, $0.003, model assemblyai/universal-3-6-pro"))
+                     (is (str/includes? answer "the transcribe skill writes a word-exact transcript") "where the word-exact one comes from")
+                     (is (= "assemblyai/universal-3-6-pro" (:model (first @seen))) "the dictation's model")
+                     (is (= #{:model :input_audio :response_format :timestamp_granularities :temperature} (:keys (first @seen)))
+                         "no voices asked for")
+                     (is (= "Bearer k3y" (:auth (first @seen))))
+                     (is (= 3 (count @seen)))
+                     (is (= ["mp3" "mp3" "mp3"] (map :format @seen)))
+                     (is (str/includes? answer "[0:00] Piece 1. Piece 2. Piece 3."))
+                     (is (= "# ab12.wav\n\nTranscript of uploads/ab12.wav, 0:02, model assemblyai/universal-3-6-pro.\n\n[0:00] Piece 1. Piece 2. Piece 3.\n"
+                            (fs/readFileSync file "utf8")))))
+                 (testing "the pieces with the model a few at a time, their words in the pieces' order whatever order they came in"
+                   (reset! seen [])
+                   (reset! most 0)
+                   (fs/writeFileSync (path/join work "uploads" "long.wav") (wav 5.5))
+                   (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/long.wav" :piece-seconds 1
+                                                                :parallel 2 :words? true}))
+                         saved (js->clj (js/JSON.parse (fs/readFileSync (path/join dir "transcripts" "long.words.json") "utf8")) :keywordize-keys true)]
+                     (let [starts (map :start (filter #(= "Piece" (:word %)) (:words saved)))]
+                       (is (< 5 (count @seen)))
+                       (is (= (count @seen) (count starts)))
+                       (is (= 0.1 (first starts)))
+                       (is (apply < starts) "each piece's words after the one before's"))
+                     (is (= 2 @most) "two at a time")
+                     (is (str/includes? answer "the words with the times the model gave them, not checked against the sound, in artifacts/transcripts/long.words.json"))))
+                 (testing "words without punctuation: a paragraph for every piece, at its start"
+                   (aset env "OPENROUTER_BASE_URL" (base "/bare"))
+                   (try
+                     (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "bare.md"
+                                                                  :piece-seconds 1 :parallel 1 :timestamps? true}))]
+                       (is (str/starts-with? answer "artifacts/bare.md: 0:02, 6 words"))
+                       (is (re-find #"\n\n\[0:00\] Piece \d+\.\n\n\[0:01\] Piece \d+\.\n\n\[0:01\] Piece \d+\.$" answer)
+                           "the third piece begins at 1.8 s, in the pause"))
+                     (finally
+                       (aset env "OPENROUTER_BASE_URL" (base "")))))
                  (testing "the pieces end in a pause, their starts and ends where the sound was cut"
                    ;; a tone, a pause from 1.3 s to 1.7 s, a tone to 3 s; pieces of 1.6 s at most
                    (fs/writeFileSync (path/join work "uploads" "tone.wav") (wav 3 #(not (< 1.3 % 1.7))))
                    (let [temp (fs/mkdtempSync (path/join (os/tmpdir) "rragent-pieces-"))]
                      (try
-                       (let [pieces (await (transcribe/pieces! (path/join work "uploads" "tone.wav") temp 1.6))]
+                       (let [{:keys [sound seconds pieces]} (await (transcribe/planned! (path/join work "uploads" "tone.wav") temp 1.6))
+                             [[_ cut] later] pieces]
                          (is (= 2 (count pieces)))
-                         (is (= 0 (:start (first pieces))))
-                         (is (< 1.45 (:end (first pieces)) 1.55) "the middle of the pause, not 1.6 s")
-                         (is (= (:end (first pieces)) (:start (second pieces))))
-                         (is (= 3 (:end (second pieces))) "the file's length is what was read")
-                         (is (= [0 0] (map :heard pieces)) "the second piece heard from five minutes before its start, here the file's")
-                         (is (every? #(fs/existsSync (:file %)) pieces))
-                         (is (= 300 (.-length (:envelope (meta pieces)))) "the envelope of the sound, a frame every 10 ms")
-                         (let [near (await (transcribe/pieces! (path/join work "uploads" "tone.wav") temp 1.6 0.5))
-                               length (fn [file]
-                                        (js/parseFloat (.-stdout (child/spawnSync "ffprobe" #js ["-v" "error" "-show_entries" "format=duration" "-of" "csv=p=0" file]
-                                                                                  #js {:encoding "utf8"}))))]
-                           (is (= (- (:start (second near)) 0.5) (:heard (second near))) "or from `overlap` seconds before it")
-                           (is (< (js/Math.abs (- (length (:file (second near))) (- 3 (:heard (second near))))) 0.08)
-                               "and its sound is from there to its end")))
+                         (is (< 1.45 cut 1.55) "the middle of the pause, not 1.6 s")
+                         (is (= [cut 3] later) "the file's length is what was read")
+                         (is (= 3 seconds))
+                         (let [file (await (transcribe/encoded! sound 1 later))]
+                           (is (str/ends-with? file "piece-0001.mp3"))
+                           (is (< (js/Math.abs (- (length-of file) (- 3 cut))) 0.08) "its sound is from its start to its end")))
                        (finally
                          (fs/rmSync temp #js {:recursive true :force true})))))
                  (testing "a recording whose head says no length, as a browser's recorder writes it, is cut all the same"
@@ -371,44 +309,48 @@
                      (try
                        (when (and (zero? (.-status made)) (pos? (.-length (.-stdout made))))
                          (fs/writeFileSync (path/join work "uploads" "stream.webm") (.-stdout made))
-                         (let [pieces (await (transcribe/pieces! (path/join work "uploads" "stream.webm") temp 1.6))]
+                         (let [{:keys [pieces]} (await (transcribe/planned! (path/join work "uploads" "stream.webm") temp 1.6))]
                            (is (= 2 (count pieces)))
-                           (is (< 1.4 (:end (first pieces)) 1.6))
-                           (is (< 2.9 (:end (second pieces)) 3.1))))
+                           (is (< 1.4 (second (first pieces)) 1.6))
+                           (is (< 2.9 (second (second pieces)) 3.1))))
                        (finally
-                         (fs/rmSync temp #js {:recursive true :force true}))))))
-               (testing "where `out` says, without the times"
-                 (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "talk/words.md"}))]
-                   (is (str/starts-with? answer "artifacts/talk/words.md: "))
-                   (is (not (str/includes? answer "[0:00]")))
-                   (is (fs/existsSync (path/join dir "talk" "words.md")))))
-               (testing "corrected through the tool's api, the words with their times beside the transcript"
-                 (let [api #js {:conversationId "c1"
-                                :conversation (fn [_ _] (js/Promise.resolve nil))}
-                       answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "talk/fixed.md"
-                                                              :words? true :api api :names "Peace" :messages (fn [_ _] (js/Promise.reject (js/Error. "no bot")))
-                                                              :complete (fn [_] (js/Promise.resolve {:text "{\"fixes\": [{\"heard\": \"Piece\", \"meant\": \"Peace\"}]}" :cost 0}))}))
-                       saved (js->clj (js/JSON.parse (fs/readFileSync (path/join dir "talk" "fixed.words.json") "utf8")) :keywordize-keys true)]
-                   (is (str/includes? answer "the words with their times in artifacts/talk/fixed.words.json"))
-                   (is (re-find #"Corrected: Piece → Peace( \(\d×\))?\." answer))
-                   (is (re-find #"\n\nPeace \d+\." answer))
-                   (is (= "uploads/ab12.wav" (:file saved)))
-                   (is (= {:word "Peace" :start 0.1 :end 0.4 :confidence 0.98 :heard "Piece"} (first (:words saved))))))
+                         (fs/rmSync temp #js {:recursive true :force true})))))
+                 (testing "where `out` says, without the times, one piece"
+                   (reset! seen [])
+                   (let [answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "talk/words.md"}))]
+                     (is (= 1 (count @seen)))
+                     (is (str/starts-with? answer "artifacts/talk/words.md: "))
+                     (is (not (str/includes? answer "[0:00]")))
+                     (is (fs/existsSync (path/join dir "talk" "words.md")))))
+                 (testing "corrected through the tool's api, the words with their times beside the transcript"
+                   (let [api #js {:conversationId "c1"
+                                  :conversation (fn [_ _] (js/Promise.resolve nil))}
+                         answer (await (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "talk/fixed.md"
+                                                                :words? true :api api :names "Peace" :messages (fn [_ _] (js/Promise.reject (js/Error. "no bot")))
+                                                                :complete (fn [_] (js/Promise.resolve {:text "{\"fixes\": [{\"heard\": \"Piece\", \"meant\": \"Peace\"}]}" :cost 0}))}))
+                         saved (js->clj (js/JSON.parse (fs/readFileSync (path/join dir "talk" "fixed.words.json") "utf8")) :keywordize-keys true)]
+                     (is (str/includes? answer "in artifacts/talk/fixed.words.json"))
+                     (is (re-find #"Corrected: Piece → Peace( \(\d×\))?\." answer))
+                     (is (re-find #"\n\nPeace \d+\." answer))
+                     (is (= "uploads/ab12.wav" (:file saved)))
+                     (is (= "assemblyai/universal-3-6-pro" (:model saved)))
+                     (is (= {:word "Peace" :start 0.1 :end 0.4 :confidence 0.98 :heard "Piece"} (first (:words saved))))))
+                 (testing "a bad key: the service's answer"
+                   (aset env "OPENROUTER_API_KEY" "wrong")
+                   (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav"}))) "answered 401")))
+                 (testing "neither a gateway nor a key"
+                   (js-delete env "OPENROUTER_API_KEY")
+                   (is (= "no OpenRouter: no gateway connection and OPENROUTER_API_KEY is not set, so no transcript."
+                          (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav"})))))))
                (testing "a file that is not there, a path above the working directory, an out above artifacts/"
                  (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/nope.mp3"}))) "no file uploads/nope.mp3"))
                  (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "../etc/passwd"}))) "path under the working directory"))
-                 (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "../x.md"}))) "path under artifacts/")))
-               (testing "a bad key: the service's answer"
-                 (aset env "OPENROUTER_API_KEY" "wrong")
-                 (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav"}))) "answered 401")))
-               (testing "neither a gateway nor a key"
-                 (js-delete env "OPENROUTER_API_KEY")
-                 (is (= "no OpenRouter: no gateway connection and OPENROUTER_API_KEY is not set, so no transcript."
-                        (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav"})))))))))
+                 (is (str/includes? (await (message-of (transcribe/transcribe! {:codemode codemode :work work :dir dir :file "uploads/ab12.wav" :out "../x.md"}))) "path under artifacts/"))))))
           (.catch (fn [e] (is (nil? e) (str e))))
           (.finally (fn []
                       (set-var! "OPENROUTER_BASE_URL" (:url before))
                       (set-var! "OPENROUTER_API_KEY" (:key before))
+                      (set-var! "PATH" (:path before))
                       (fs/rmSync work #js {:recursive true :force true})
                       (.close server)
                       (sync-fetch/stop!)
