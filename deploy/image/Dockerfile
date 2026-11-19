@@ -24,7 +24,11 @@
 # skills the template's notes have the agent read before it writes a
 # composition; and nbb, which runs the programs a bot writes (the
 # README's Starters section). A template added later brings its needs
-# to this list. The skills clone /home/sprite/skills (the GitHub
+# to this list. Beside the templates' needs, one thing a skill of the
+# clone below uses when it is there: the voice denoiser denoiser.sh
+# names (a small neural network that takes changing noise out of a
+# spoken voice, which ffmpeg's filters cannot), under /opt/sherpa-onnx
+# with its program on the PATH; nothing of it runs at a start. The skills clone /home/sprite/skills (the GitHub
 # repository SKILLS_REPO at SKILLS_BRANCH, the Agent Skills format,
 # one folder per skill with a SKILL.md, which a new bot offers) is not
 # in the image either: start.sh clones it at the first start of a
@@ -50,7 +54,7 @@ USER root
 # for. Without it apt takes dbus-user-session instead, and with that
 # systemd as the image's /sbin/init, which 1.0.1 did not have.
 RUN apt-get update -qq \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils dbus-x11 fonts-noto-core fonts-noto-color-emoji fonts-liberation >/dev/null \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils bzip2 dbus-x11 fonts-noto-core fonts-noto-color-emoji fonts-liberation >/dev/null \
     && curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/chrome.deb >/dev/null \
     && rm -f /tmp/chrome.deb && rm -rf /var/lib/apt/lists/*
@@ -58,6 +62,13 @@ RUN apt-get update -qq \
 # checksum, in front of whatever the distribution has
 COPY ffmpeg.sh /tmp/ffmpeg.sh
 RUN bash /tmp/ffmpeg.sh /usr/local/bin && rm -f /tmp/ffmpeg.sh
+# the voice denoiser: the program, its library and its network as
+# denoiser.sh names them, each checked against its checksum, under a
+# prefix of their own; the program finds its library beside itself, also
+# through the link on the PATH
+COPY denoiser.sh /tmp/denoiser.sh
+RUN bash /tmp/denoiser.sh /opt/sherpa-onnx && rm -f /tmp/denoiser.sh \
+    && ln -s /opt/sherpa-onnx/bin/sherpa-onnx-offline-denoiser /usr/local/bin/sherpa-onnx-offline-denoiser
 
 USER sprite
 WORKDIR /home/sprite/rragent
@@ -66,14 +77,20 @@ SHELL ["/bin/bash", "-lc"]
 # build's login shell and by the PATH start.sh gives rragent (what a
 # machine lays over the image later, /.sprite/bin, is not here to be
 # asked), and it draws text with a font fontconfig finds for "Noto
-# Sans" (the contact sheets' labels)
+# Sans" (the contact sheets' labels); and the voice denoiser runs as
+# the machine's user, from the PATH, on two seconds of sound and gives
+# two seconds back
 RUN PUPPETEER_SKIP_DOWNLOAD=1 npm install -g --prefix ~/.local --ignore-scripts --no-fund --no-audit --progress=false \
       hyperframes@${HYPERFRAMES_VERSION} @hyperframes/player@${HYPERFRAMES_VERSION} \
       nbb@${NBB_VERSION} \
     && hyperframes --version && nbb --version && ffmpeg -version | head -1 && google-chrome --version \
     && [ "$(command -v ffmpeg)" = /usr/local/bin/ffmpeg ] && [ "$(command -v ffprobe)" = /usr/local/bin/ffprobe ] \
     && [ "$(PATH=/home/sprite/.local/bin:/usr/local/share/mise/shims:/.sprite/bin:/usr/local/bin:/usr/bin:/bin command -v ffmpeg)" = /usr/local/bin/ffmpeg ] \
-    && ffmpeg -v error -f lavfi -i color=s=320x80:d=0.1 -vf "drawtext=text=ok:font=Noto Sans:fontsize=40" -frames:v 1 -f null -
+    && ffmpeg -v error -f lavfi -i color=s=320x80:d=0.1 -vf "drawtext=text=ok:font=Noto Sans:fontsize=40" -frames:v 1 -f null - \
+    && ffmpeg -v error -y -f lavfi -i "sine=frequency=220:duration=2" -ar 48000 -ac 1 -c:a pcm_s16le /tmp/denoise-in.wav \
+    && sherpa-onnx-offline-denoiser --speech-denoiser-dpdfnet-model=/opt/sherpa-onnx/models/dpdfnet2_48khz_hr.onnx --print-args=false --input-wav=/tmp/denoise-in.wav --output-wav=/tmp/denoise-out.wav >/dev/null 2>&1 \
+    && [ "$(ffprobe -v error -show_entries format=duration -of csv=p=0 /tmp/denoise-out.wav | cut -d. -f1)" = 2 ] \
+    && rm -f /tmp/denoise-in.wav /tmp/denoise-out.wav
 # the HyperFrames skills, the framework's own how-tos: the CLI installs the
 # published set (github.com/heygen-com/hyperframes, through npx skills) under
 # ~/.agents/skills and ~/.claude/skills, where templates/hyperframes/TEMPLATE.md

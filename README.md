@@ -1264,7 +1264,11 @@ so the tests' ffmpeg is the machines'; a machine made from an older
 image gets it by running that file as root, as its head says),
 Google Chrome, the HyperFrames CLI and its skills (`hyperframes skills`
 installs the published set under `/home/sprite/.agents/skills`, which
-the template's notes have the agent read first), nbb and `start.sh`;
+the template's notes have the agent read first), nbb, a voice denoiser
+(`deploy/image/denoiser.sh`: DPDFNet-2 run by sherpa-onnx's offline
+denoiser, 37 MB under `/opt/sherpa-onnx` with its program on the PATH,
+which the skills' voice step starts for a noisy recording and which
+does nothing at a start) and `start.sh`;
 no bundle, no skills, no version. At the first start of a
 machine, when `/home/sprite/rragent/dist/rragent.js` is missing,
 `start.sh` downloads the newest release's `rragent.tar.gz` and its
