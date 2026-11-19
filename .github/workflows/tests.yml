@@ -27,19 +27,17 @@ jobs:
           path: ~/.m2/repository
           key: clojure-${{ hashFiles('deps.edn') }}
       # the pictures the model gets are WebP made by ffmpeg (rragent.images):
-      # a static build with libwebp and ffprobe, cached; Ubuntu's apt mirror
-      # took 15 minutes for the package once
+      # the image's own ffmpeg and ffprobe, the static build
+      # deploy/image/ffmpeg.sh names (with libwebp), cached under that
+      # file's hash; Ubuntu's apt mirror took 15 minutes for the package once
       - uses: actions/cache@v6
         id: ffmpeg
         with:
           path: ~/ffmpeg
-          key: ffmpeg-n8.1.3-23-g5c4f5744cd-linux64-gpl
+          key: ffmpeg-${{ hashFiles('deploy/image/ffmpeg.sh') }}
       - if: steps.ffmpeg.outputs.cache-hit != 'true'
         timeout-minutes: 5
-        run: |
-          mkdir -p ~/ffmpeg
-          curl -sSL https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-22-13-06/ffmpeg-n8.1.3-23-g5c4f5744cd-linux64-gpl-8.1.tar.xz \
-            | tar -xJ -C ~/ffmpeg --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+        run: bash deploy/image/ffmpeg.sh ~/ffmpeg
       - run: echo "$HOME/ffmpeg" >> "$GITHUB_PATH"
       - run: npm ci
       - run: npm test

@@ -1256,7 +1256,12 @@ the image's `1.x` versions, and a trial's `<version>-trial.<sha>` is
 no `x.y.z`: both are passed over.
 
 The image is the Sprites base image (`s2-default`, which brings Node
-through mise) with what the templates need, ffmpeg with the fonts,
+through mise) with what the templates need, ffmpeg with the fonts
+(FFmpeg's newest release branch as one static build, which
+`deploy/image/ffmpeg.sh` names with its checksum and puts into
+`/usr/local/bin`; the Tests and Release workflows run the same file,
+so the tests' ffmpeg is the machines'; a machine made from an older
+image gets it with `sudo bash ffmpeg.sh /usr/local/bin`),
 Google Chrome, the HyperFrames CLI and its skills (`hyperframes skills`
 installs the published set under `/home/sprite/.agents/skills`, which
 the template's notes have the agent read first), nbb and `start.sh`;

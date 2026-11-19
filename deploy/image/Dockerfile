@@ -16,7 +16,10 @@
 # first start of a machine, or the release RRAGENT_UPDATE names, and
 # rragent.update swaps in newer releases later. What is here are the
 # `needs` of templates/*/TEMPLATE.md, which rragent.programs looks for
-# on the machine: ffmpeg (with the fonts), Google Chrome and the
+# on the machine: ffmpeg (with the fonts; the static build ffmpeg.sh
+# names, FFmpeg's newest release branch, in /usr/local/bin, not the
+# distribution's package: the tests run with the same build, and the
+# skills' sound and video steps count on its filters), Google Chrome and the
 # HyperFrames CLI for the hyperframes template, with the HyperFrames
 # skills the template's notes have the agent read before it writes a
 # composition; and nbb, which runs the programs a bot writes (the
@@ -35,7 +38,7 @@
 FROM ghcr.io/superfly/s2-default@sha256:44f9b4af09c4de3726888f7b9146c9b43529ed97f8963ff11e0f61233e2f1614
 
 # the image's version: bump it with every change in deploy/image/
-LABEL org.opencontainers.image.version="1.0.1"
+LABEL org.opencontainers.image.version="1.1.0"
 LABEL org.opencontainers.image.source="https://github.com/storrito/rragent"
 
 ARG HYPERFRAMES_VERSION=0.8.221
@@ -43,18 +46,27 @@ ARG NBB_VERSION=1.6.214
 
 USER root
 RUN apt-get update -qq \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg fonts-noto-core fonts-noto-color-emoji fonts-liberation >/dev/null \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils fonts-noto-core fonts-noto-color-emoji fonts-liberation >/dev/null \
     && curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/chrome.deb >/dev/null \
     && rm -f /tmp/chrome.deb && rm -rf /var/lib/apt/lists/*
+# ffmpeg and ffprobe: the build ffmpeg.sh names, checked against its
+# checksum, in front of whatever the distribution has
+COPY ffmpeg.sh /tmp/ffmpeg.sh
+RUN bash /tmp/ffmpeg.sh /usr/local/bin && rm -f /tmp/ffmpeg.sh
 
 USER sprite
 WORKDIR /home/sprite/rragent
 SHELL ["/bin/bash", "-lc"]
+# the last two checks: the ffmpeg a bot's shell finds is the one from
+# ffmpeg.sh, and it draws text with the machine's fonts (the contact
+# sheets' labels)
 RUN PUPPETEER_SKIP_DOWNLOAD=1 npm install -g --prefix ~/.local --ignore-scripts --no-fund --no-audit --progress=false \
       hyperframes@${HYPERFRAMES_VERSION} @hyperframes/player@${HYPERFRAMES_VERSION} \
       nbb@${NBB_VERSION} \
-    && hyperframes --version && nbb --version && ffmpeg -version | head -1 && google-chrome --version
+    && hyperframes --version && nbb --version && ffmpeg -version | head -1 && google-chrome --version \
+    && [ "$(command -v ffmpeg)" = /usr/local/bin/ffmpeg ] && [ "$(command -v ffprobe)" = /usr/local/bin/ffprobe ] \
+    && ffmpeg -v error -f lavfi -i color=s=320x80:d=0.1 -vf "drawtext=text=ok:font=Noto Sans:fontsize=40" -frames:v 1 -f null -
 # the HyperFrames skills, the framework's own how-tos: the CLI installs the
 # published set (github.com/heygen-com/hyperframes, through npx skills) under
 # ~/.agents/skills and ~/.claude/skills, where templates/hyperframes/TEMPLATE.md
