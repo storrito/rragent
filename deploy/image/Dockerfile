@@ -45,8 +45,12 @@ ARG HYPERFRAMES_VERSION=0.8.221
 ARG NBB_VERSION=1.6.214
 
 USER root
+# dbus-x11 is named because the distribution's ffmpeg, installed here
+# until 1.0.1, brought it: it is the session bus Chrome's package asks
+# for. Without it apt takes dbus-user-session instead, and with that
+# systemd as the image's /sbin/init, which 1.0.1 did not have.
 RUN apt-get update -qq \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils fonts-noto-core fonts-noto-color-emoji fonts-liberation >/dev/null \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils dbus-x11 fonts-noto-core fonts-noto-color-emoji fonts-liberation >/dev/null \
     && curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/chrome.deb >/dev/null \
     && rm -f /tmp/chrome.deb && rm -rf /var/lib/apt/lists/*
@@ -58,14 +62,17 @@ RUN bash /tmp/ffmpeg.sh /usr/local/bin && rm -f /tmp/ffmpeg.sh
 USER sprite
 WORKDIR /home/sprite/rragent
 SHELL ["/bin/bash", "-lc"]
-# the last two checks: the ffmpeg a bot's shell finds is the one from
-# ffmpeg.sh, and it draws text with the machine's fonts (the contact
-# sheets' labels)
+# the last checks: the ffmpeg found is the one from ffmpeg.sh, by this
+# build's login shell and by the PATH start.sh gives rragent (what a
+# machine lays over the image later, /.sprite/bin, is not here to be
+# asked), and it draws text with a font fontconfig finds for "Noto
+# Sans" (the contact sheets' labels)
 RUN PUPPETEER_SKIP_DOWNLOAD=1 npm install -g --prefix ~/.local --ignore-scripts --no-fund --no-audit --progress=false \
       hyperframes@${HYPERFRAMES_VERSION} @hyperframes/player@${HYPERFRAMES_VERSION} \
       nbb@${NBB_VERSION} \
     && hyperframes --version && nbb --version && ffmpeg -version | head -1 && google-chrome --version \
     && [ "$(command -v ffmpeg)" = /usr/local/bin/ffmpeg ] && [ "$(command -v ffprobe)" = /usr/local/bin/ffprobe ] \
+    && [ "$(PATH=/home/sprite/.local/bin:/usr/local/share/mise/shims:/.sprite/bin:/usr/local/bin:/usr/bin:/bin command -v ffmpeg)" = /usr/local/bin/ffmpeg ] \
     && ffmpeg -v error -f lavfi -i color=s=320x80:d=0.1 -vf "drawtext=text=ok:font=Noto Sans:fontsize=40" -frames:v 1 -f null -
 # the HyperFrames skills, the framework's own how-tos: the CLI installs the
 # published set (github.com/heygen-com/hyperframes, through npx skills) under

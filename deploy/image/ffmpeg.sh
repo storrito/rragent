@@ -22,7 +22,12 @@
 # Dockerfile bumped, as with every change in deploy/image/.
 #
 # A machine made from an older image gets the same ffmpeg by running
-# this file as root: bash ffmpeg.sh /usr/local/bin
+# this file as root:
+#   curl -fsSL https://raw.githubusercontent.com/storrito/rragent/main/deploy/image/ffmpeg.sh | sudo bash -s /usr/local/bin
+# Each program is written beside its place and moved there in one step,
+# so a bot that starts ffmpeg meanwhile gets the old one or the new one
+# whole. The download and the two programs take about 500 MB in the
+# temp folder while it runs.
 set -euo pipefail
 
 BUILD=autobuild-2026-10-31-12-59
@@ -39,5 +44,6 @@ curl -fsSL --retry 3 -o "$tmp/ffmpeg.tar.xz" \
 echo "$SHA256  $tmp/ffmpeg.tar.xz" | sha256sum --quiet -c -
 tar -xJf "$tmp/ffmpeg.tar.xz" -C "$tmp" "$NAME/bin/ffmpeg" "$NAME/bin/ffprobe"
 mkdir -p "$dest"
-install -m 755 "$tmp/$NAME/bin/ffmpeg" "$tmp/$NAME/bin/ffprobe" "$dest/"
+for program in ffmpeg ffprobe; do install -m 755 "$tmp/$NAME/bin/$program" "$dest/.$program.new"; done
+for program in ffmpeg ffprobe; do mv -f "$dest/.$program.new" "$dest/$program"; done
 "$dest/ffmpeg" -hide_banner -version | head -1
