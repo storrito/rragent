@@ -1,7 +1,14 @@
 #!/bin/bash
 # The ffmpeg of an rragent machine: ffmpeg and ffprobe of one static
-# build of FFmpeg's newest release branch (9.0), from
-# github.com/BtbN/FFmpeg-Builds, put into the folder $1. The image
+# build of FFmpeg's 8.1 release branch, from
+# github.com/BtbN/FFmpeg-Builds, put into the folder $1. Not the newest
+# branch, 9.0: in 9.0.2 the filter anlmdn ends with a memory error on
+# every input, arnndn writes invalid samples at its end unless the input
+# is a whole number of 480-sample blocks, and the options -vsync,
+# -filter_complex_script and -filter_script are gone, which a bot that
+# writes its own ffmpeg command still reaches for (tried 2026-11-19;
+# 8.1.3 has none of the three). Move to 9 when a release of it has both
+# filters whole. The image
 # takes it into /usr/local/bin (deploy/image/Dockerfile), which comes
 # before the distribution's /usr/bin on a machine's PATH; the Tests and
 # Release workflows take the same build for their runner, so a filter or
@@ -31,8 +38,8 @@
 set -euo pipefail
 
 BUILD=autobuild-2026-10-31-12-59
-NAME=ffmpeg-n9.0.2-39-g7adfbe40dc-linux64-gpl-9.0
-SHA256=73e29a56974ae5a651133a04584c7483b21afe941e17dc91d79814a758b608d3
+NAME=ffmpeg-n8.1.3-27-g8dca1586f4-linux64-gpl-8.1
+SHA256=41e9c565594c390622cf968d82fa4135d9e9a11d06c1515644288cbc844e3380
 
 dest="${1:?usage: ffmpeg.sh <the folder ffmpeg and ffprobe go into>}"
 [ "$(uname -m)" = x86_64 ] || { echo "this build of ffmpeg is for x86_64, the machine is $(uname -m): nothing installed" >&2; exit 1; }
